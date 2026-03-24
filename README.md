@@ -1,3 +1,104 @@
+# 4dgs-viewer
+
+This repository is a fork of GaussianSplats3D for building an interactive **true 4DGS viewer** in the browser.
+
+## This fork
+
+The goal of this fork is **not** a frame-by-frame sequence of independent 3DGS scenes.  
+The goal is a **true 4DGS viewer** that can:
+
+- inspect 4DGS data interactively with the mouse
+- render time-aware splats in the browser
+- preserve data needed for true 4DGS playback, including:
+  - `xyz`
+  - `rotation`
+  - `rotation_r`
+  - `scaling_xyz`
+  - `f_dc`
+  - `f_rest`
+  - `opacity`
+  - `t`
+  - `scaling_t`
+
+## Repository structure
+
+- `demo/` : browser viewers (`*.html`)
+- `converter/` : checkpoint to `.splat4d` converter
+- `demo/scene.splat4d` : local sample scene file (may be excluded from Git because GitHub rejects files larger than 100 MB)
+
+## Checkpoint conversion
+
+Use the converter from a 4DGS environment that can load the checkpoint.
+
+### v2 format (recommended)
+
+```bash
+python converter/export_splat4d_from_ckpt.py \
+  --ckpt chkpnt_best.pth \
+  --out demo/scene_v2.splat4d \
+  --store_scale_log
+```
+
+This exports raw data for the true 4DGS viewer, including:
+
+- `xyz`
+- `rotation`
+- `rotation_r`
+- `scaling_xyz`
+- `f_dc`
+- `f_rest`
+- `opacity`
+- `t`
+- `scaling_t`
+
+### legacy v1 format
+
+```bash
+python converter/export_splat4d_from_ckpt.py \
+  --ckpt chkpnt_best.pth \
+  --out demo/scene_legacy.splat4d \
+  --store_scale_log \
+  --legacy_v1
+```
+
+This is only for older compact viewers.
+
+## Demo viewers
+
+Current experimental viewers are in `demo/`:
+
+- `4dgs_gauss_viewer.html`
+- `4dgs_elliptical_splat_viewer.html`
+- `4dgs_covariance_splat_viewer.html`
+
+Place a `.splat4d` file in `demo/` and open the viewer through a local web server.
+
+Example:
+
+```bash
+cd demo
+python -m http.server 8000
+```
+
+Then open one of the demo viewers in your browser, for example:
+
+```text
+http://127.0.0.1:8000/4dgs_covariance_splat_viewer.html
+```
+
+## Large files
+
+GitHub rejects files larger than 100 MB.  
+If `scene.splat4d` exceeds that limit, keep it locally and do not track it with Git.
+
+## Notes
+
+- The current viewers are experimental.
+- The covariance-based viewer is currently the most advanced among the local HTML demos.
+- A fully faithful true 4DGS viewer requires the raw exported coefficients and rotations, so the v2 converter format should be used as the base going forward.
+
+---
+
 # 3D Gaussian splatting for Three.js
 
 Three.js-based implemetation of a renderer for [3D Gaussian Splatting for Real-Time Radiance Field Rendering](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/), a technique for generating 3D scenes from 2D images. Their project is CUDA-based and needs to run natively on your machine, but I wanted to build a viewer that was accessible via the web.
