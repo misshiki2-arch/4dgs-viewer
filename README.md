@@ -2,6 +2,14 @@
 
 This repository is a fork of GaussianSplats3D for building an interactive **true 4DGS viewer** in the browser.
 
+## Status
+
+This repository is **under active development**.
+
+The goal of this fork is a **true 4DGS viewer** for interactive browser-based inspection, not a frame-by-frame sequence of independent 3DGS scenes.
+However, the exporter, `.splat4d` format, and local HTML demo viewers are still evolving, and the current implementation should be considered **experimental**.
+Breaking changes may occur as the format and rendering pipeline are refined.
+
 ## This fork
 
 The goal of this fork is **not** a frame-by-frame sequence of independent 3DGS scenes.  
