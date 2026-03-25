@@ -1,17 +1,7 @@
 import { computeGaussianState, computeScreenSplat, clamp } from './rot4d_math.js';
 import { evalSHColor } from './sh_eval.js';
 
-export async function renderCpuComposite({
-  raw,
-  ctx,
-  canvas,
-  camera,
-  controls,
-  state,
-  ui,
-  tokenRef,
-  infoEl
-}) {
+export async function renderCpuComposite({ raw, ctx, canvas, camera, controls, state, ui, tokenRef, infoEl }) {
   if (!raw) return;
 
   state.rendering = true;
@@ -28,9 +18,17 @@ export async function renderCpuComposite({
   const maxVisible = parseInt(ui.maxVisibleSlider.value, 10);
   const timestamp = parseFloat(ui.timeSlider.value);
   const scalingModifier = parseFloat(ui.splatScaleSlider.value);
+  const sigmaScale = parseFloat(ui.sigmaScaleSlider.value);
+  const prefilterVar = parseFloat(ui.prefilterVarSlider.value);
   const useSH = ui.useSHCheck.checked;
   const useRot4d = ui.useRot4dCheck.checked;
   const forceSh3d = ui.forceSh3dCheck.checked;
+
+  const flags = {
+    nativeRot4d: ui.useNativeRot4dCheck.checked,
+    nativeMarginal: ui.useNativeMarginalCheck.checked
+  };
+
   const timeDuration = parseFloat(ui.timeDurationSlider.value);
 
   controls.update();
@@ -40,20 +38,10 @@ export async function renderCpuComposite({
   const camPos = camera.position.clone();
 
   for (let i = 0; i < raw.N; i += stride) {
-    const gs = computeGaussianState(raw, i, timestamp, scalingModifier, useRot4d);
+    const gs = computeGaussianState(raw, i, timestamp, scalingModifier, sigmaScale, prefilterVar, useRot4d, flags);
     if (!gs) continue;
 
-    const color = evalSHColor(
-      raw,
-      i,
-      camPos,
-      gs.pos,
-      timestamp,
-      timeDuration,
-      useSH,
-      forceSh3d
-    );
-
+    const color = evalSHColor(raw, i, camPos, gs.pos, timestamp, timeDuration, useSH, forceSh3d);
     const splat = computeScreenSplat(camera, gs.pos, gs.cov3, gs.opacity, renderW, renderH);
     if (!splat) continue;
 
@@ -134,7 +122,6 @@ export async function renderCpuComposite({
     const T = Tbuf[p];
     const base = p * 3;
     const q = p * 4;
-
     data[q + 0] = Math.round(clamp(Cbuf[base + 0] + T * bg, 0, 1) * 255);
     data[q + 1] = Math.round(clamp(Cbuf[base + 1] + T * bg, 0, 1) * 255);
     data[q + 2] = Math.round(clamp(Cbuf[base + 2] + T * bg, 0, 1) * 255);
@@ -160,10 +147,12 @@ export async function renderCpuComposite({
 N=${raw.N.toLocaleString()}  visible=${visible.length.toLocaleString()}  stride=${stride}
 active_sh_degree=${raw.activeShDegree}  active_sh_degree_t=${raw.activeShDegreeT}
 rot_4d(file)=${raw.rot4d}  useRot4d=${useRot4d}  useSH=${useSH}
+nativeRot4d=${flags.nativeRot4d}  nativeMarginal=${flags.nativeMarginal}
+prefilterVar=${prefilterVar.toFixed(2)}  sigmaScale=${sigmaScale.toFixed(2)}
+固定式: M = R * S, Sigma = M * M^T
 renderScale=${renderScale.toFixed(2)}  canvas=${renderW}x${renderH}
 time=${timestamp.toFixed(2)}  splatScale=${scalingModifier.toFixed(2)}
-CPU T-composite render=${elapsed.toFixed(1)} ms
-本家の renderCUDA にある front-to-back の T 合成に寄せた CPU 版です。`;
+CPU T-composite render=${elapsed.toFixed(1)} ms`;
 
   state.rendering = false;
 }

@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>4DGS Covariance Debug</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      background: #111;
+      color: #eee;
+    }
+    h1, h2 {
+      margin-top: 0;
+    }
+    .panel {
+      background: #1b1b1b;
+      border: 1px solid #333;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 14px;
+    }
+    .row {
+      margin-bottom: 10px;
+    }
+    label {
+      display: inline-block;
+      width: 120px;
+      vertical-align: top;
+    }
+    input[type="text"] {
+      width: 360px;
+      background: #222;
+      color: #eee;
+      border: 1px solid #444;
+      padding: 6px;
+      border-radius: 4px;
+    }
+    button {
+      background: #2d6cdf;
+      color: white;
+      border: none;
+      padding: 8px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      margin-right: 8px;
+    }
+    button:hover {
+      background: #3d7cff;
+    }
+    pre {
+      white-space: pre-wrap;
+      word-break: break-word;
+      background: #0d0d0d;
+      color: #d7ffd7;
+      border: 1px solid #333;
+      border-radius: 6px;
+      padding: 10px;
+      overflow-x: auto;
+    }
+    .small {
+      color: #bbb;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <h1>4DGS Covariance Debug</h1>
+
+  <div class="panel">
+    <div class="row">
+      <label for="qL">qL</label>
+      <input id="qL" type="text" value="[0.9238795, 0.3826834, 0.0, 0.0]">
+    </div>
+    <div class="row">
+      <label for="qR">qR</label>
+      <input id="qR" type="text" value="[0.9659258, 0.0, 0.2588190, 0.0]">
+    </div>
+    <div class="row">
+      <label for="scale">scale xyz</label>
+      <input id="scale" type="text" value="[1.2, 0.7, 0.35]">
+    </div>
+    <div class="row">
+      <label for="scaleT">scale t</label>
+      <input id="scaleT" type="text" value="0.5">
+    </div>
+    <div class="row">
+      <label for="dt">dt</label>
+      <input id="dt" type="text" value="0.2">
+    </div>
+    <div class="row">
+      <label for="prefilterVar">prefilter var</label>
+      <input id="prefilterVar" type="text" value="0.0">
+    </div>
+    <div class="row">
+      <button id="runBtn">計算</button>
+      <button id="presetBtn">別の例</button>
+    </div>
+    <div class="small">
+      旧/Native の rot4d、M=R*S と M=S*R、Sigma=M*M^T と Sigma=M^T*M を全部表示します。
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>出力</h2>
+    <pre id="out">まだ計算していません。</pre>
+  </div>
+
+  <script type="module" src="./cov_debug.js"></script>
+</body>
+</html>

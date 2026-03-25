@@ -13,6 +13,10 @@ const ui = {
   timeVal: document.getElementById('timeVal'),
   splatScaleSlider: document.getElementById('splatScale'),
   splatScaleVal: document.getElementById('splatScaleVal'),
+  sigmaScaleSlider: document.getElementById('sigmaScale'),
+  sigmaScaleVal: document.getElementById('sigmaScaleVal'),
+  prefilterVarSlider: document.getElementById('prefilterVar'),
+  prefilterVarVal: document.getElementById('prefilterVarVal'),
   renderScaleSlider: document.getElementById('renderScale'),
   renderScaleVal: document.getElementById('renderScaleVal'),
   strideSlider: document.getElementById('stride'),
@@ -23,6 +27,8 @@ const ui = {
   bgGrayVal: document.getElementById('bgGrayVal'),
   useSHCheck: document.getElementById('useSH'),
   useRot4dCheck: document.getElementById('useRot4d'),
+  useNativeRot4dCheck: document.getElementById('useNativeRot4d'),
+  useNativeMarginalCheck: document.getElementById('useNativeMarginal'),
   forceSh3dCheck: document.getElementById('forceSh3d'),
   timeDurationSlider: document.getElementById('timeDuration'),
   timeDurationVal: document.getElementById('timeDurationVal'),
@@ -46,14 +52,8 @@ let raw = null;
 let playing = false;
 let lastTime = performance.now();
 
-const state = {
-  renderPending: false,
-  rendering: false
-};
-
-const tokenRef = {
-  value: 0
-};
+const state = { renderPending: false, rendering: false };
+const tokenRef = { value: 0 };
 
 function setCanvasSize() {
   const dpr = window.devicePixelRatio || 1;
@@ -64,7 +64,6 @@ function setCanvasSize() {
   camera.aspect = canvas.width / canvas.height;
   camera.updateProjectionMatrix();
 }
-
 setCanvasSize();
 
 function scheduleRender() {
@@ -77,17 +76,7 @@ function scheduleRender() {
   state.renderPending = true;
   requestAnimationFrame(async () => {
     state.renderPending = false;
-    await renderCpuComposite({
-      raw,
-      ctx,
-      canvas,
-      camera,
-      controls,
-      state,
-      ui,
-      tokenRef,
-      infoEl: ui.info
-    });
+    await renderCpuComposite({ raw, ctx, canvas, camera, controls, state, ui, tokenRef, infoEl: ui.info });
   });
 }
 
@@ -101,8 +90,7 @@ async function loadDefaultScene() {
   try {
     const res = await fetch('./scene_v2.splat4d');
     if (!res.ok) return;
-    const buf = await res.arrayBuffer();
-    await loadArrayBuffer(buf);
+    await loadArrayBuffer(await res.arrayBuffer());
   } catch (e) {
     console.warn(e);
   }
@@ -114,43 +102,32 @@ ui.fileInput.addEventListener('change', async e => {
   await loadArrayBuffer(await f.arrayBuffer());
 });
 
-ui.timeSlider.addEventListener('input', () => {
-  ui.timeVal.textContent = Number(ui.timeSlider.value).toFixed(2);
-  scheduleRender();
+[
+  ['timeSlider', 'timeVal', 2],
+  ['splatScaleSlider', 'splatScaleVal', 2],
+  ['sigmaScaleSlider', 'sigmaScaleVal', 2],
+  ['prefilterVarSlider', 'prefilterVarVal', 2],
+  ['renderScaleSlider', 'renderScaleVal', 2],
+  ['timeDurationSlider', 'timeDurationVal', 1]
+].forEach(([sliderKey, valueKey, digits]) => {
+  ui[sliderKey].addEventListener('input', () => {
+    ui[valueKey].textContent = Number(ui[sliderKey].value).toFixed(digits);
+    scheduleRender();
+  });
 });
 
-ui.splatScaleSlider.addEventListener('input', () => {
-  ui.splatScaleVal.textContent = Number(ui.splatScaleSlider.value).toFixed(2);
-  scheduleRender();
-});
+ui.strideSlider.addEventListener('input', () => { ui.strideVal.textContent = ui.strideSlider.value; scheduleRender(); });
+ui.maxVisibleSlider.addEventListener('input', () => { ui.maxVisibleVal.textContent = ui.maxVisibleSlider.value; scheduleRender(); });
+ui.bgGraySlider.addEventListener('input', () => { ui.bgGrayVal.textContent = ui.bgGraySlider.value; scheduleRender(); });
 
-ui.renderScaleSlider.addEventListener('input', () => {
-  ui.renderScaleVal.textContent = Number(ui.renderScaleSlider.value).toFixed(2);
-  scheduleRender();
-});
-
-ui.strideSlider.addEventListener('input', () => {
-  ui.strideVal.textContent = ui.strideSlider.value;
-  scheduleRender();
-});
-
-ui.maxVisibleSlider.addEventListener('input', () => {
-  ui.maxVisibleVal.textContent = ui.maxVisibleSlider.value;
-  scheduleRender();
-});
-
-ui.bgGraySlider.addEventListener('input', () => {
-  ui.bgGrayVal.textContent = ui.bgGraySlider.value;
-  scheduleRender();
-});
-
-ui.useSHCheck.addEventListener('change', scheduleRender);
-ui.useRot4dCheck.addEventListener('change', scheduleRender);
-ui.forceSh3dCheck.addEventListener('change', scheduleRender);
-
-ui.timeDurationSlider.addEventListener('input', () => {
-  ui.timeDurationVal.textContent = Number(ui.timeDurationSlider.value).toFixed(1);
-  scheduleRender();
+[
+  'useSHCheck',
+  'useRot4dCheck',
+  'useNativeRot4dCheck',
+  'useNativeMarginalCheck',
+  'forceSh3dCheck'
+].forEach(key => {
+  ui[key].addEventListener('change', scheduleRender);
 });
 
 ui.playBtn.addEventListener('click', () => {
@@ -167,16 +144,8 @@ ui.resetCamBtn.addEventListener('click', () => {
 
 controls.addEventListener('change', scheduleRender);
 
-document.addEventListener('dragover', e => {
-  e.preventDefault();
-  ui.drop.style.display = 'flex';
-});
-
-document.addEventListener('dragleave', e => {
-  e.preventDefault();
-  ui.drop.style.display = 'none';
-});
-
+document.addEventListener('dragover', e => { e.preventDefault(); ui.drop.style.display = 'flex'; });
+document.addEventListener('dragleave', e => { e.preventDefault(); ui.drop.style.display = 'none'; });
 document.addEventListener('drop', async e => {
   e.preventDefault();
   ui.drop.style.display = 'none';
@@ -208,6 +177,8 @@ function animate(now) {
 
 ui.timeVal.textContent = Number(ui.timeSlider.value).toFixed(2);
 ui.splatScaleVal.textContent = Number(ui.splatScaleSlider.value).toFixed(2);
+ui.sigmaScaleVal.textContent = Number(ui.sigmaScaleSlider.value).toFixed(2);
+ui.prefilterVarVal.textContent = Number(ui.prefilterVarSlider.value).toFixed(2);
 ui.renderScaleVal.textContent = Number(ui.renderScaleSlider.value).toFixed(2);
 ui.strideVal.textContent = ui.strideSlider.value;
 ui.maxVisibleVal.textContent = ui.maxVisibleSlider.value;

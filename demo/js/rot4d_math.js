@@ -13,7 +13,6 @@ export function fitCameraToRaw(raw, controls, camera) {
     const x = raw.xyz[i * raw.xyzDim + 0];
     const y = raw.xyz[i * raw.xyzDim + 1];
     const z = raw.xyz[i * raw.xyzDim + 2];
-
     if (x < minX) minX = x;
     if (y < minY) minY = y;
     if (z < minZ) minZ = z;
@@ -62,36 +61,6 @@ export function mat4Mul(A, B) {
   return C;
 }
 
-export function flip2D(M) {
-  return [
-    [M[3][3], M[3][2], M[3][1], M[3][0]],
-    [M[2][3], M[2][2], M[2][1], M[2][0]],
-    [M[1][3], M[1][2], M[1][1], M[1][0]],
-    [M[0][3], M[0][2], M[0][1], M[0][0]]
-  ];
-}
-
-export function buildRotation4D(qLIn, qRIn) {
-  const [a, b, c, d] = normalizeQuat4(qLIn);
-  const [p, q, r, s] = normalizeQuat4(qRIn);
-
-  const Ml = [
-    [ a, -b, -c, -d],
-    [ b,  a, -d,  c],
-    [ c,  d,  a, -b],
-    [ d, -c,  b,  a]
-  ];
-
-  const Mr = [
-    [ p,  q,  r,  s],
-    [-q,  p, -s,  r],
-    [-r,  s,  p, -q],
-    [-s, -r,  q,  p]
-  ];
-
-  return flip2D(mat4Mul(Ml, Mr));
-}
-
 export function mat3Mul(A, B) {
   const C = Array.from({ length: 3 }, () => Array(3).fill(0));
   for (let i = 0; i < 3; i++) {
@@ -105,11 +74,7 @@ export function mat3Mul(A, B) {
 }
 
 export function mat3Transpose(A) {
-  return [
-    [A[0][0], A[1][0], A[2][0]],
-    [A[0][1], A[1][1], A[2][1]],
-    [A[0][2], A[1][2], A[2][2]]
-  ];
+  return [[A[0][0], A[1][0], A[2][0]], [A[0][1], A[1][1], A[2][1]], [A[0][2], A[1][2], A[2][2]]];
 }
 
 export function mat4Transpose(A) {
@@ -146,61 +111,97 @@ export function mulScalar3(A, s) {
   ];
 }
 
-export function getViewRotation3x3(camera) {
-  camera.updateMatrixWorld(true);
-  const e = camera.matrixWorldInverse.elements;
+function flip2D(M) {
   return [
-    [e[0], e[4], e[8]],
-    [e[1], e[5], e[9]],
-    [e[2], e[6], e[10]]
+    [M[3][3], M[3][2], M[3][1], M[3][0]],
+    [M[2][3], M[2][2], M[2][1], M[2][0]],
+    [M[1][3], M[1][2], M[1][1], M[1][0]],
+    [M[0][3], M[0][2], M[0][1], M[0][0]]
   ];
 }
 
-export function computeGaussianState(raw, i, timestamp, scalingModifier, useRot4d) {
-  const pos0 = [
-    raw.xyz[i * raw.xyzDim + 0],
-    raw.xyz[i * raw.xyzDim + 1],
-    raw.xyz[i * raw.xyzDim + 2]
+function buildRotation4DOld(qLIn, qRIn) {
+  const [a, b, c, d] = normalizeQuat4(qLIn);
+  const [p, q, r, s] = normalizeQuat4(qRIn);
+
+  const Ml = [
+    [a, -b, -c, -d],
+    [b,  a, -d,  c],
+    [c,  d,  a, -b],
+    [d, -c,  b,  a]
+  ];
+  const Mr = [
+    [ p,  q,  r,  s],
+    [-q,  p, -s,  r],
+    [-r,  s,  p, -q],
+    [-s, -r,  q,  p]
   ];
 
+  return flip2D(mat4Mul(Ml, Mr));
+}
+
+function buildRotation4DNative(qLIn, qRIn) {
+  const [a, b, c, d] = normalizeQuat4(qLIn);
+  const [p, q, r, s] = normalizeQuat4(qRIn);
+
+  const Ml = [
+    [ a,  b, -c,  d],
+    [-b,  a,  d,  c],
+    [ c, -d,  a,  b],
+    [-d, -c, -b,  a]
+  ];
+  const Mr = [
+    [ p,  q, -r, -s],
+    [-q,  p,  s, -r],
+    [ r, -s,  p, -q],
+    [ s,  r,  q,  p]
+  ];
+
+  return mat4Mul(Mr, Ml);
+}
+
+export function getViewRotation3x3(camera) {
+  camera.updateMatrixWorld(true);
+  const e = camera.matrixWorldInverse.elements;
+  return [[e[0], e[4], e[8]], [e[1], e[5], e[9]], [e[2], e[6], e[10]]];
+}
+
+export function computeGaussianState(raw, i, timestamp, scalingModifier, sigmaScale, prefilterVar, useRot4d, flags) {
+  const pos0 = [raw.xyz[i * raw.xyzDim], raw.xyz[i * raw.xyzDim + 1], raw.xyz[i * raw.xyzDim + 2]];
   let opacity = sigmoid(raw.opacity[i * raw.opacityDim]);
 
   const scale = [
-    Math.max(raw.scale_xyz[i * raw.scaleXYZDim + 0] * scalingModifier, 1e-6),
+    Math.max(raw.scale_xyz[i * raw.scaleXYZDim] * scalingModifier, 1e-6),
     Math.max(raw.scale_xyz[i * raw.scaleXYZDim + 1] * scalingModifier, 1e-6),
     Math.max(raw.scale_xyz[i * raw.scaleXYZDim + 2] * scalingModifier, 1e-6)
   ];
 
   const tCenter = raw.tDim > 0 ? raw.t[i * raw.tDim] : 0;
-  const scaleT = raw.scaleTDim > 0 ? Math.max(raw.scale_t[i * raw.scaleTDim] * scalingModifier, 1e-6) : 1e-6;
+  const scaleT = raw.scaleTDim > 0 ? Math.max(raw.scale_t[i * raw.scaleTDim] * scalingModifier * sigmaScale, 1e-6) : 1e-6;
   const dt = timestamp - tCenter;
 
   if (useRot4d && raw.rot4d && raw.rotationRDim >= 4 && raw.scaleTDim > 0) {
-    const qL = [
-      raw.rotation[i * raw.rotationDim + 0],
-      raw.rotation[i * raw.rotationDim + 1],
-      raw.rotation[i * raw.rotationDim + 2],
-      raw.rotation[i * raw.rotationDim + 3]
-    ];
-    const qR = [
-      raw.rotation_r[i * raw.rotationRDim + 0],
-      raw.rotation_r[i * raw.rotationRDim + 1],
-      raw.rotation_r[i * raw.rotationRDim + 2],
-      raw.rotation_r[i * raw.rotationRDim + 3]
-    ];
+    const qL = [raw.rotation[i * raw.rotationDim], raw.rotation[i * raw.rotationDim + 1], raw.rotation[i * raw.rotationDim + 2], raw.rotation[i * raw.rotationDim + 3]];
+    const qR = [raw.rotation_r[i * raw.rotationRDim], raw.rotation_r[i * raw.rotationRDim + 1], raw.rotation_r[i * raw.rotationRDim + 2], raw.rotation_r[i * raw.rotationRDim + 3]];
 
-    const R4 = buildRotation4D(qL, qR);
+    const R4 = flags.nativeRot4d ? buildRotation4DNative(qL, qR) : buildRotation4DOld(qL, qR);
+
     const S = [
       [scale[0], 0, 0, 0],
       [0, scale[1], 0, 0],
       [0, 0, scale[2], 0],
       [0, 0, 0, scaleT]
     ];
+
     const M = mat4Mul(R4, S);
     const Sigma = mat4Mul(M, mat4Transpose(M));
 
     const cov_t = Sigma[3][3];
-    const marginal_t = Math.exp(-0.5 * dt * dt / Math.max(1e-8, cov_t));
+    const denom = flags.nativeMarginal
+      ? ((prefilterVar > 0) ? (prefilterVar + cov_t) : cov_t)
+      : cov_t;
+
+    const marginal_t = Math.exp(-0.5 * dt * dt / Math.max(1e-8, denom));
     if (marginal_t <= 0.05) return null;
     opacity *= marginal_t;
 
@@ -220,22 +221,20 @@ export function computeGaussianState(raw, i, timestamp, scalingModifier, useRot4
     };
   }
 
-  const q = [
-    raw.rotation[i * raw.rotationDim + 0],
-    raw.rotation[i * raw.rotationDim + 1],
-    raw.rotation[i * raw.rotationDim + 2],
-    raw.rotation[i * raw.rotationDim + 3]
-  ];
+  const q = [raw.rotation[i * raw.rotationDim], raw.rotation[i * raw.rotationDim + 1], raw.rotation[i * raw.rotationDim + 2], raw.rotation[i * raw.rotationDim + 3]];
   const R = buildRotation3(q);
   const M = [
     [scale[0] * R[0][0], scale[0] * R[0][1], scale[0] * R[0][2]],
     [scale[1] * R[1][0], scale[1] * R[1][1], scale[1] * R[1][2]],
     [scale[2] * R[2][0], scale[2] * R[2][1], scale[2] * R[2][2]]
   ];
-  const Sigma = mat3Mul(mat3Transpose(M), M);
+  const Sigma = mat3Mul(M, mat3Transpose(M));
 
   if (raw.scaleTDim > 0) {
-    const marginal_t = Math.exp(-0.5 * dt * dt / Math.max(1e-8, scaleT));
+    const denom = flags.nativeMarginal
+      ? ((prefilterVar > 0) ? (prefilterVar + scaleT) : scaleT)
+      : scaleT;
+    const marginal_t = Math.exp(-0.5 * dt * dt / Math.max(1e-8, denom));
     if (marginal_t <= 0.05) return null;
     opacity *= marginal_t;
   }
@@ -248,16 +247,17 @@ export function computeScreenSplat(camera, pos, cov3, opacity, renderW, renderH)
   const zc = -mv.z;
   if (zc <= 1e-6) return null;
 
-  const limy = Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5));
-  const limx = limy * camera.aspect * 1.3;
+  const tanFovY = Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5));
+  const tanFovX = tanFovY * camera.aspect;
+  let txtz = mv.x / zc;
+  let tytz = mv.y / zc;
+  txtz = clamp(txtz, -1.3 * tanFovX, 1.3 * tanFovX);
+  tytz = clamp(tytz, -1.3 * tanFovY, 1.3 * tanFovY);
 
-  let tx = mv.x, ty = mv.y;
-  const txtz = tx / zc, tytz = ty / zc;
-  tx = clamp(txtz, -limx, limx) * zc;
-  ty = clamp(tytz, -1.3 * limy, 1.3 * limy) * zc;
-
-  const fy = renderH / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5)));
-  const fx = fy * (renderW / renderH);
+  const tx = txtz * zc;
+  const ty = tytz * zc;
+  const fy = renderH / (2 * tanFovY);
+  const fx = renderW / (2 * tanFovX);
 
   const J = [
     [fx / zc, 0.0, -(fx * tx) / (zc * zc)],
@@ -267,7 +267,6 @@ export function computeScreenSplat(camera, pos, cov3, opacity, renderW, renderH)
 
   const W = getViewRotation3x3(camera);
   const Tm = mat3Mul(W, J);
-
   let cov = mat3Mul(mat3Transpose(Tm), mat3Mul(cov3, Tm));
   cov[0][0] += 0.3;
   cov[1][1] += 0.3;
@@ -283,16 +282,17 @@ export function computeScreenSplat(camera, pos, cov3, opacity, renderW, renderH)
   const lambda1 = mid + Math.sqrt(Math.max(0.1, mid * mid - det));
   const lambda2 = mid - Math.sqrt(Math.max(0.1, mid * mid - det));
   const radius = Math.ceil(3 * Math.sqrt(Math.max(lambda1, lambda2)));
-  if (!(radius > 0.4) || radius > 4096) return null;
+  if (radius <= 0.4 || radius > 4096) return null;
 
   const clip = new THREE.Vector4(pos[0], pos[1], pos[2], 1.0)
     .applyMatrix4(camera.matrixWorldInverse)
     .applyMatrix4(camera.projectionMatrix);
-  const pw = 1 / (clip.w + 1e-7);
-  const ndcx = clip.x * pw;
-  const ndcy = clip.y * pw;
-  const px = 0.5 * (ndcx + 1.0) * renderW;
-  const py = 0.5 * (1.0 - ndcy) * renderH;
+
+  const p_w = 1 / (clip.w + 1e-7);
+  const p_proj_x = clip.x * p_w;
+  const p_proj_y = clip.y * p_w;
+  const px = ((p_proj_x + 1.0) * renderW - 1.0) * 0.5;
+  const py = ((p_proj_y + 1.0) * renderH - 1.0) * 0.5;
 
   return { px, py, conic, radius, depth: zc, opacity };
 }
