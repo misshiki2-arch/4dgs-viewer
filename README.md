@@ -36,6 +36,8 @@ The goal is a **true 4DGS viewer** that can:
 
 ## Checkpoint conversion
 
+`chkpnt_best.pth` can first be produced by training with a 4DGS implementation such as `fudan-zvg/4d-gaussian-splatting`, and then converted here using the exporter below.
+
 Use the converter from a 4DGS environment that can load the checkpoint.
 
 ### v2 format (recommended)
@@ -79,19 +81,26 @@ Current experimental viewers are in `demo/`:
 - `4dgs_elliptical_splat_viewer.html`
 - `4dgs_covariance_splat_viewer.html`
 
-Place a `.splat4d` file in `demo/` and open the viewer through a local web server.
+Place a `.splat4d` file in `demo/`, run the local demo server from the repository root, and then open one of the 4DGS demo viewer pages directly.
 
 Example:
 
 ```bash
-cd demo
-python -m http.server 8000
+npm run build
+npm run demo
 ```
 
 Then open one of the demo viewers in your browser, for example:
 
 ```text
-http://127.0.0.1:8000/4dgs_covariance_splat_viewer.html
+http://127.0.0.1:8080/demo/4dgs_covariance_splat_viewer.html
+```
+
+Other available demo viewer pages are:
+
+```text
+http://127.0.0.1:8080/demo/4dgs_gauss_viewer.html
+http://127.0.0.1:8080/demo/4dgs_elliptical_splat_viewer.html
 ```
 
 ## Large files
