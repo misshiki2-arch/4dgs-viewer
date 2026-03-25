@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>4DGS Covariance Viewer v2 SH rot4d True Composite</title>
+  <style>
+    html, body { margin: 0; width: 100%; height: 100%; overflow: hidden; background: #111; color: #eee; font-family: Arial, sans-serif; }
+    #wrap { position: relative; width: 100%; height: 100%; }
+    #cpuCanvas { position: absolute; inset: 0; width: 100%; height: 100%; image-rendering: auto; cursor: grab; background: #111; }
+    #cpuCanvas:active { cursor: grabbing; }
+    #ui { position: absolute; top: 10px; left: 10px; z-index: 10; background: rgba(0,0,0,0.72); padding: 12px; border-radius: 8px; min-width: 460px; max-height: calc(100% - 20px); overflow: auto; }
+    #ui input[type="range"] { width: 220px; }
+    #ui label { display: inline-block; width: 130px; }
+    .row { margin-bottom: 8px; }
+    #info { margin-top: 8px; font-size: 13px; line-height: 1.4; color: #ccc; white-space: pre-wrap; }
+    #drop { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.45); color: white; font-size: 24px; z-index: 20; }
+    button { cursor: pointer; }
+  </style>
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "./lib/three.module.js"
+    }
+  }
+  </script>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="cpuCanvas"></canvas>
+  <div id="ui">
+    <div class="row"><label>ファイル</label><input id="file" type="file" accept=".splat4d"></div>
+    <div class="row"><label>time</label><input id="time" type="range" min="0" max="33" step="0.01" value="0"><span id="timeVal">0.00</span></div>
+    <div class="row"><label>splat scale</label><input id="splatScale" type="range" min="0.25" max="5.0" step="0.01" value="1.0"><span id="splatScaleVal">1.00</span></div>
+    <div class="row"><label>render scale</label><input id="renderScale" type="range" min="0.1" max="1.0" step="0.05" value="0.35"><span id="renderScaleVal">0.35</span></div>
+    <div class="row"><label>stride</label><input id="stride" type="range" min="1" max="256" step="1" value="8"><span id="strideVal">8</span></div>
+    <div class="row"><label>max visible</label><input id="maxVisible" type="range" min="1000" max="200000" step="1000" value="30000"><span id="maxVisibleVal">30000</span></div>
+    <div class="row"><label>bg gray</label><input id="bgGray" type="range" min="0" max="255" step="1" value="17"><span id="bgGrayVal">17</span></div>
+    <div class="row"><label>use SH</label><input id="useSH" type="checkbox" checked><span>有効</span></div>
+    <div class="row"><label>use rot4d</label><input id="useRot4d" type="checkbox" checked><span>有効</span></div>
+    <div class="row"><label>force SH 3D</label><input id="forceSh3d" type="checkbox"><span>4D SH無効</span></div>
+    <div class="row"><label>time duration</label><input id="timeDuration" type="range" min="1" max="100" step="0.1" value="33"><span id="timeDurationVal">33.0</span></div>
+    <div class="row"><button id="play">再生</button><button id="renderBtn">再描画</button><button id="resetCam">視点リセット</button></div>
+    <div id="info">scene_v2.splat4d を選択してください。
+本家の T ベース合成に寄せた CPU 合成版です。精度優先・低速です。</div>
+  </div>
+  <div id="drop">ここに .splat4d をドロップ</div>
+</div>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js';
+const canvas = document.getElementById('cpuCanvas');
+const ctx = canvas.getContext('2d', { alpha: false, willReadFrequently: true });
+const fileInput = document.getElementById('file');
+const timeSlider = document.getElementById('time');
+const timeVal = document.getElementById('timeVal');
+const splatScaleSlider = document.getElementById('splatScale');
+const splatScaleVal = document.getElementById('splatScaleVal');
+const renderScaleSlider = document.getElementById('renderScale');
+const renderScaleVal = document.getElementById('renderScaleVal');
+const strideSlider = document.getElementById('stride');
+const strideVal = document.getElementById('strideVal');
+const maxVisibleSlider = document.getElementById('maxVisible');
+const maxVisibleVal = document.getElementById('maxVisibleVal');
+const bgGraySlider = document.getElementById('bgGray');
+const bgGrayVal = document.getElementById('bgGrayVal');
+const useSHCheck = document.getElementById('useSH');
+const useRot4dCheck = document.getElementById('useRot4d');
+const forceSh3dCheck = document.getElementById('forceSh3d');
+const timeDurationSlider = document.getElementById('timeDuration');
+const timeDurationVal = document.getElementById('timeDurationVal');
+const playBtn = document.getElementById('play');
+const renderBtn = document.getElementById('renderBtn');
+const resetCamBtn = document.getElementById('resetCam');
+const info = document.getElementById('info');
+const drop = document.getElementById('drop');
+const camera = new THREE.PerspectiveCamera(60, 1, 0.01, 5000);
+camera.position.set(40,20,20);
+const controls = new OrbitControls(camera, canvas);
+controls.target.set(35,20,2); controls.enableDamping = true; controls.dampingFactor = 0.08; controls.update();
+let raw = null, playing = false, lastTime = performance.now(), renderPending = false, rendering = false, latestRenderToken = 0;
+function clamp(x,a,b){ return Math.min(b, Math.max(a,x)); }
+function sigmoid(x){ return 1/(1+Math.exp(-x)); }
+function setCanvasSize(){ const dpr = window.devicePixelRatio||1; canvas.width=Math.max(1,Math.round(window.innerWidth*dpr)); canvas.height=Math.max(1,Math.round(window.innerHeight*dpr)); canvas.style.width=window.innerWidth+'px'; canvas.style.height=window.innerHeight+'px'; camera.aspect=canvas.width/canvas.height; camera.updateProjectionMatrix(); }
+setCanvasSize();
+function scheduleRender(){ if(rendering){ latestRenderToken++; return; } if(renderPending) return; renderPending=true; requestAnimationFrame(async()=>{ renderPending=false; await renderCpuComposite();}); }
+function parseSplat4DV2(arrayBuffer){ const dv=new DataView(arrayBuffer); const magic=String.fromCharCode(dv.getUint8(0),dv.getUint8(1),dv.getUint8(2),dv.getUint8(3)); if(magic!=='SPL4') throw new Error('Not SPL4'); const version=dv.getUint32(4,true); if(version!==2) throw new Error('Need SPL4 v2'); const N=dv.getUint32(8,true); const activeShDegree=dv.getInt32(12,true); const activeShDegreeT=dv.getInt32(16,true); const rot4d=!!dv.getUint8(20); const storeScaleLog=!!dv.getUint8(21); const xyzDim=dv.getUint32(24,true), rotationDim=dv.getUint32(28,true), rotationRDim=dv.getUint32(32,true), scaleXYZDim=dv.getUint32(36,true), fdcDim=dv.getUint32(40,true), frestDim=dv.getUint32(44,true), opacityDim=dv.getUint32(48,true), tDim=dv.getUint32(52,true), scaleTDim=dv.getUint32(56,true); const data=new Float32Array(arrayBuffer,128); const out={version,N,activeShDegree,activeShDegreeT,rot4d,storeScaleLog,xyzDim,rotationDim,rotationRDim,scaleXYZDim,fdcDim,frestDim,opacityDim,tDim,scaleTDim, xyz:new Float32Array(N*xyzDim), rotation:new Float32Array(N*rotationDim), rotation_r:new Float32Array(N*rotationRDim), scale_xyz:new Float32Array(N*scaleXYZDim), f_dc:new Float32Array(N*fdcDim), f_rest:new Float32Array(N*frestDim), opacity:new Float32Array(N*opacityDim), t:new Float32Array(N*tDim), scale_t:new Float32Array(N*scaleTDim)}; let p=0; for(let i=0;i<N;i++){ out.xyz.set(data.subarray(p,p+xyzDim), i*xyzDim); p+=xyzDim; out.rotation.set(data.subarray(p,p+rotationDim), i*rotationDim); p+=rotationDim; out.rotation_r.set(data.subarray(p,p+rotationRDim), i*rotationRDim); p+=rotationRDim; out.scale_xyz.set(data.subarray(p,p+scaleXYZDim), i*scaleXYZDim); p+=scaleXYZDim; out.f_dc.set(data.subarray(p,p+fdcDim), i*fdcDim); p+=fdcDim; out.f_rest.set(data.subarray(p,p+frestDim), i*frestDim); p+=frestDim; out.opacity.set(data.subarray(p,p+opacityDim), i*opacityDim); p+=opacityDim; out.t.set(data.subarray(p,p+tDim), i*tDim); p+=tDim; out.scale_t.set(data.subarray(p,p+scaleTDim), i*scaleTDim); p+=scaleTDim; } if(storeScaleLog){ for(let i=0;i<out.scale_xyz.length;i++) out.scale_xyz[i]=Math.exp(out.scale_xyz[i]); for(let i=0;i<out.scale_t.length;i++) out.scale_t[i]=Math.exp(out.scale_t[i]); } return out; }
+function fitCameraToRaw(){ if(!raw||raw.N===0) return; let minX=Infinity,minY=Infinity,minZ=Infinity,maxX=-Infinity,maxY=-Infinity,maxZ=-Infinity; for(let i=0;i<raw.N;i++){ const x=raw.xyz[i*raw.xyzDim], y=raw.xyz[i*raw.xyzDim+1], z=raw.xyz[i*raw.xyzDim+2]; if(x<minX)minX=x; if(y<minY)minY=y; if(z<minZ)minZ=z; if(x>maxX)maxX=x; if(y>maxY)maxY=y; if(z>maxZ)maxZ=z; } const cx=0.5*(minX+maxX), cy=0.5*(minY+maxY), cz=0.5*(minZ+maxZ); const r=Math.max(maxX-minX,maxY-minY,maxZ-minZ); controls.target.set(cx,cy,cz); camera.position.set(cx+1.5*r, cy+0.8*r, cz+0.8*r); camera.near=Math.max(0.001,r/1000); camera.far=Math.max(1000,r*10); camera.updateProjectionMatrix(); controls.update(); }
+function normalizeQuat4(q){ const n=Math.hypot(q[0],q[1],q[2],q[3])||1; return [q[0]/n,q[1]/n,q[2]/n,q[3]/n]; }
+function buildRotation3(qIn){ const q=normalizeQuat4(qIn); const r=q[0],x=q[1],y=q[2],z=q[3]; return [[1-2*(y*y+z*z),2*(x*y-r*z),2*(x*z+r*y)],[2*(x*y+r*z),1-2*(x*x+z*z),2*(y*z-r*x)],[2*(x*z-r*y),2*(y*z+r*x),1-2*(x*x+y*y)]]; }
+function mat4Mul(A,B){ const C=Array.from({length:4},()=>Array(4).fill(0)); for(let i=0;i<4;i++) for(let j=0;j<4;j++) for(let k=0;k<4;k++) C[i][j]+=A[i][k]*B[k][j]; return C; }
+function flip2D(M){ return [[M[3][3],M[3][2],M[3][1],M[3][0]],[M[2][3],M[2][2],M[2][1],M[2][0]],[M[1][3],M[1][2],M[1][1],M[1][0]],[M[0][3],M[0][2],M[0][1],M[0][0]]]; }
+function buildRotation4D(qLIn,qRIn){ const [a,b,c,d]=normalizeQuat4(qLIn); const [p,q,r,s]=normalizeQuat4(qRIn); const Ml=[[a,-b,-c,-d],[b,a,-d,c],[c,d,a,-b],[d,-c,b,a]]; const Mr=[[p,q,r,s],[-q,p,-s,r],[-r,s,p,-q],[-s,-r,q,p]]; return flip2D(mat4Mul(Ml,Mr)); }
+function mat3Mul(A,B){ const C=Array.from({length:3},()=>Array(3).fill(0)); for(let i=0;i<3;i++) for(let j=0;j<3;j++) for(let k=0;k<3;k++) C[i][j]+=A[i][k]*B[k][j]; return C; }
+function mat3Transpose(A){ return [[A[0][0],A[1][0],A[2][0]],[A[0][1],A[1][1],A[2][1]],[A[0][2],A[1][2],A[2][2]]]; }
+function mat4Transpose(A){ const R=Array.from({length:4},()=>Array(4).fill(0)); for(let i=0;i<4;i++) for(let j=0;j<4;j++) R[i][j]=A[j][i]; return R; }
+function outer3(a,b){ return [[a[0]*b[0],a[0]*b[1],a[0]*b[2]],[a[1]*b[0],a[1]*b[1],a[1]*b[2]],[a[2]*b[0],a[2]*b[1],a[2]*b[2]]]; }
+function sub3(A,B){ return [[A[0][0]-B[0][0],A[0][1]-B[0][1],A[0][2]-B[0][2]],[A[1][0]-B[1][0],A[1][1]-B[1][1],A[1][2]-B[1][2]],[A[2][0]-B[2][0],A[2][1]-B[2][1],A[2][2]-B[2][2]]]; }
+function mulScalar3(A,s){ return [[A[0][0]*s,A[0][1]*s,A[0][2]*s],[A[1][0]*s,A[1][1]*s,A[1][2]*s],[A[2][0]*s,A[2][1]*s,A[2][2]*s]]; }
+const SH_C0=0.28209479177387814, SH_C1=0.4886025119029199, SH_C2=[1.0925484305920792,1.0925484305920792,0.31539156525252005,1.0925484305920792,0.5462742152960396], SH_C3=[0.5900435899266435,2.890611442640554,0.4570457994644658,0.3731763325901154,0.4570457994644658,1.445305721320277,0.5900435899266435];
+function coeffVec(raw,i,k){ const base0=i*raw.fdcDim, restBase=i*raw.frestDim; if(k===0) return [raw.f_dc[base0]||0, raw.f_dc[base0+1]||0, raw.f_dc[base0+2]||0]; const j=(k-1)*3; return [raw.f_rest[restBase+j]||0, raw.f_rest[restBase+j+1]||0, raw.f_rest[restBase+j+2]||0]; }
+function addScaled(out,c,s){ out[0]+=c[0]*s; out[1]+=c[1]*s; out[2]+=c[2]*s; }
+function evalSHColor(raw,i,camPos,pos,timestamp,timeDuration,useSH,forceSh3d){ if(!useSH) return [clamp((raw.f_dc[i*raw.fdcDim]||0)+0.5,0,1), clamp((raw.f_dc[i*raw.fdcDim+1]||0)+0.5,0,1), clamp((raw.f_dc[i*raw.fdcDim+2]||0)+0.5,0,1)]; const deg=raw.activeShDegree, degT=raw.activeShDegreeT; const gaussianDim4=raw.tDim>0&&raw.scaleTDim>0; const dir=new THREE.Vector3(pos[0]-camPos.x,pos[1]-camPos.y,pos[2]-camPos.z); if(dir.lengthSq()<1e-12) dir.set(0,0,1); dir.normalize(); const x=dir.x,y=dir.y,z=dir.z; let result=[0,0,0]; const l0m0=SH_C0; addScaled(result, coeffVec(raw,i,0), l0m0); let l1m1=0,l1m0=0,l1p1=0,l2m2=0,l2m1=0,l2m0=0,l2p1=0,l2p2=0,l3m3=0,l3m2=0,l3m1=0,l3m0=0,l3p1=0,l3p2=0,l3p3=0; if(deg>0){ l1m1=-SH_C1*y; l1m0=SH_C1*z; l1p1=-SH_C1*x; addScaled(result, coeffVec(raw,i,1), l1m1); addScaled(result, coeffVec(raw,i,2), l1m0); addScaled(result, coeffVec(raw,i,3), l1p1); if(deg>1){ const xx=x*x,yy=y*y,zz=z*z,xy=x*y,yz=y*z,xz=x*z; l2m2=SH_C2[0]*xy; l2m1=SH_C2[1]*yz; l2m0=SH_C2[2]*(2*zz-xx-yy); l2p1=SH_C2[3]*xz; l2p2=SH_C2[4]*(xx-yy); addScaled(result, coeffVec(raw,i,4), l2m2); addScaled(result, coeffVec(raw,i,5), l2m1); addScaled(result, coeffVec(raw,i,6), l2m0); addScaled(result, coeffVec(raw,i,7), l2p1); addScaled(result, coeffVec(raw,i,8), l2p2); if(deg>2){ l3m3=SH_C3[0]*y*(3*xx-yy); l3m2=SH_C3[1]*xy*z; l3m1=SH_C3[2]*y*(4*zz-xx-yy); l3m0=SH_C3[3]*z*(2*zz-3*xx-3*yy); l3p1=SH_C3[4]*x*(4*zz-xx-yy); l3p2=SH_C3[5]*z*(xx-yy); l3p3=SH_C3[6]*x*(xx-3*yy); addScaled(result, coeffVec(raw,i,9), l3m3); addScaled(result, coeffVec(raw,i,10), l3m2); addScaled(result, coeffVec(raw,i,11), l3m1); addScaled(result, coeffVec(raw,i,12), l3m0); addScaled(result, coeffVec(raw,i,13), l3p1); addScaled(result, coeffVec(raw,i,14), l3p2); addScaled(result, coeffVec(raw,i,15), l3p3); if(gaussianDim4 && !forceSh3d && degT>0){ const dir_t=(raw.t[i*raw.tDim]||0)-timestamp; const t1=Math.cos(2*Math.PI*dir_t/Math.max(1e-6,timeDuration)); const terms=[l0m0,l1m1,l1m0,l1p1,l2m2,l2m1,l2m0,l2p1,l2p2,l3m3,l3m2,l3m1,l3m0,l3p1,l3p2,l3p3]; for(let k=0;k<terms.length;k++) addScaled(result, coeffVec(raw,i,16+k), t1*terms[k]); if(degT>1){ const t2=Math.cos(4*Math.PI*dir_t/Math.max(1e-6,timeDuration)); for(let k=0;k<terms.length;k++) addScaled(result, coeffVec(raw,i,32+k), t2*terms[k]); } } } } } result[0]=Math.max(result[0]+0.5,0); result[1]=Math.max(result[1]+0.5,0); result[2]=Math.max(result[2]+0.5,0); return [clamp(result[0],0,1),clamp(result[1],0,1),clamp(result[2],0,1)]; }
+function computeGaussianState(i,timestamp,scalingModifier,useRot4d){ const pos0=[raw.xyz[i*raw.xyzDim], raw.xyz[i*raw.xyzDim+1], raw.xyz[i*raw.xyzDim+2]]; let opacity=sigmoid(raw.opacity[i*raw.opacityDim]); const scale=[Math.max(raw.scale_xyz[i*raw.scaleXYZDim]*scalingModifier,1e-6),Math.max(raw.scale_xyz[i*raw.scaleXYZDim+1]*scalingModifier,1e-6),Math.max(raw.scale_xyz[i*raw.scaleXYZDim+2]*scalingModifier,1e-6)]; const tCenter=raw.tDim>0?raw.t[i*raw.tDim]:0; const scaleT=raw.scaleTDim>0?Math.max(raw.scale_t[i*raw.scaleTDim]*scalingModifier,1e-6):1e-6; const dt=timestamp-tCenter; if(useRot4d && raw.rot4d && raw.rotationRDim>=4 && raw.scaleTDim>0){ const qL=[raw.rotation[i*raw.rotationDim],raw.rotation[i*raw.rotationDim+1],raw.rotation[i*raw.rotationDim+2],raw.rotation[i*raw.rotationDim+3]]; const qR=[raw.rotation_r[i*raw.rotationRDim],raw.rotation_r[i*raw.rotationRDim+1],raw.rotation_r[i*raw.rotationRDim+2],raw.rotation_r[i*raw.rotationRDim+3]]; const R4=buildRotation4D(qL,qR); const S=[[scale[0],0,0,0],[0,scale[1],0,0],[0,0,scale[2],0],[0,0,0,scaleT]]; const M=mat4Mul(R4,S); const Sigma=mat4Mul(M,mat4Transpose(M)); const cov_t=Sigma[3][3]; const marginal_t=Math.exp(-0.5*dt*dt/Math.max(1e-8,cov_t)); if(marginal_t<=0.05) return null; opacity*=marginal_t; const cov11=[[Sigma[0][0],Sigma[0][1],Sigma[0][2]],[Sigma[1][0],Sigma[1][1],Sigma[1][2]],[Sigma[2][0],Sigma[2][1],Sigma[2][2]]]; const cov12=[Sigma[0][3],Sigma[1][3],Sigma[2][3]]; const cond=sub3(cov11,mulScalar3(outer3(cov12,cov12),1/Math.max(1e-8,cov_t))); const delta=[cov12[0]/cov_t*dt,cov12[1]/cov_t*dt,cov12[2]/cov_t*dt]; return {pos:[pos0[0]+delta[0],pos0[1]+delta[1],pos0[2]+delta[2]], cov3:cond, opacity}; } const q=[raw.rotation[i*raw.rotationDim],raw.rotation[i*raw.rotationDim+1],raw.rotation[i*raw.rotationDim+2],raw.rotation[i*raw.rotationDim+3]]; const R=buildRotation3(q); const M=[[scale[0]*R[0][0],scale[0]*R[0][1],scale[0]*R[0][2]],[scale[1]*R[1][0],scale[1]*R[1][1],scale[1]*R[1][2]],[scale[2]*R[2][0],scale[2]*R[2][1],scale[2]*R[2][2]]]; const Sigma=mat3Mul(mat3Transpose(M),M); if(raw.scaleTDim>0){ const marginal_t=Math.exp(-0.5*dt*dt/Math.max(1e-8,scaleT)); if(marginal_t<=0.05) return null; opacity*=marginal_t; } return {pos:pos0,cov3:Sigma,opacity}; }
+function getViewRotation3x3(){ camera.updateMatrixWorld(true); const e=camera.matrixWorldInverse.elements; return [[e[0],e[4],e[8]],[e[1],e[5],e[9]],[e[2],e[6],e[10]]]; }
+function computeScreenSplat(pos,cov3,opacity,renderW,renderH){ const mv=new THREE.Vector3(pos[0],pos[1],pos[2]).applyMatrix4(camera.matrixWorldInverse); const zc=-mv.z; if(zc<=1e-6) return null; const limy=Math.tan(THREE.MathUtils.degToRad(camera.fov*0.5)); const limx=limy*camera.aspect*1.3; let tx=mv.x, ty=mv.y; const txtz=tx/zc, tytz=ty/zc; tx=clamp(txtz,-limx,limx)*zc; ty=clamp(tytz,-1.3*limy,1.3*limy)*zc; const fy=renderH/(2*Math.tan(THREE.MathUtils.degToRad(camera.fov*0.5))); const fx=fy*(renderW/renderH); const J=[[fx/zc,0,-(fx*tx)/(zc*zc)],[0,fy/zc,-(fy*ty)/(zc*zc)],[0,0,0]]; const W=getViewRotation3x3(); const Tm=mat3Mul(W,J); let cov=mat3Mul(mat3Transpose(Tm), mat3Mul(cov3,Tm)); cov[0][0]+=0.3; cov[1][1]+=0.3; const a=cov[0][0], b=cov[0][1], c=cov[1][1]; const det=a*c-b*b; if(!isFinite(det)||det<=0) return null; const inv=1/det; const conic=[c*inv,-b*inv,a*inv]; const mid=0.5*(a+c); const lambda1=mid+Math.sqrt(Math.max(0.1,mid*mid-det)); const lambda2=mid-Math.sqrt(Math.max(0.1,mid*mid-det)); const radius=Math.ceil(3*Math.sqrt(Math.max(lambda1,lambda2))); if(!(radius>0.4)||radius>4096) return null; const clip=new THREE.Vector4(pos[0],pos[1],pos[2],1).applyMatrix4(camera.matrixWorldInverse).applyMatrix4(camera.projectionMatrix); const pw=1/(clip.w+1e-7); const ndcx=clip.x*pw, ndcy=clip.y*pw; const px=0.5*(ndcx+1)*renderW, py=0.5*(1-ndcy)*renderH; return {px,py,conic,radius,depth:zc,opacity}; }
+async function renderCpuComposite(){ if(!raw) return; rendering=true; const myToken=++latestRenderToken; const t0=performance.now(); const renderScale=parseFloat(renderScaleSlider.value); const renderW=Math.max(1,Math.round(canvas.width*renderScale)), renderH=Math.max(1,Math.round(canvas.height*renderScale)); const bg=parseInt(bgGraySlider.value,10)/255, bg255=parseInt(bgGraySlider.value,10); const stride=parseInt(strideSlider.value,10), maxVisible=parseInt(maxVisibleSlider.value,10), timestamp=parseFloat(timeSlider.value), scalingModifier=parseFloat(splatScaleSlider.value), useSH=useSHCheck.checked, useRot4d=useRot4dCheck.checked, forceSh3d=forceSh3dCheck.checked, timeDuration=parseFloat(timeDurationSlider.value); controls.update(); camera.updateMatrixWorld(true); const visible=[]; const camPos=camera.position.clone(); for(let i=0;i<raw.N;i+=stride){ const gs=computeGaussianState(i,timestamp,scalingModifier,useRot4d); if(!gs) continue; const color=evalSHColor(raw,i,camPos,gs.pos,timestamp,timeDuration,useSH,forceSh3d); const splat=computeScreenSplat(gs.pos,gs.cov3,gs.opacity,renderW,renderH); if(!splat) continue; visible.push({px:splat.px,py:splat.py,conic:splat.conic,radius:splat.radius,depth:splat.depth,opacity:splat.opacity,color}); if(visible.length>=maxVisible) break; if((visible.length&1023)===0 && performance.now()-t0>20){ await new Promise(r=>setTimeout(r,0)); if(myToken!==latestRenderToken){ rendering=false; return; } } } visible.sort((a,b)=>a.depth-b.depth); const pixelCount=renderW*renderH; const Tbuf=new Float32Array(pixelCount); Tbuf.fill(1); const Cbuf=new Float32Array(pixelCount*3); let processed=0; for(const s of visible){ const minX=Math.max(0,Math.floor(s.px-s.radius)), maxX=Math.min(renderW-1,Math.ceil(s.px+s.radius)), minY=Math.max(0,Math.floor(s.py-s.radius)), maxY=Math.min(renderH-1,Math.ceil(s.py+s.radius)); const [cx,cy,cz]=s.conic; for(let y=minY;y<=maxY;y++){ const dy=s.py-y; let idx=y*renderW+minX; for(let x=minX;x<=maxX;x++,idx++){ const T=Tbuf[idx]; if(T<1e-4) continue; const dx=s.px-x; const power=-0.5*(cx*dx*dx+cz*dy*dy)-cy*dx*dy; if(power>0) continue; const alpha=Math.min(0.99, s.opacity*Math.exp(power)); if(alpha<1/255) continue; const w=alpha*T; const base=idx*3; Cbuf[base]+=s.color[0]*w; Cbuf[base+1]+=s.color[1]*w; Cbuf[base+2]+=s.color[2]*w; Tbuf[idx]=T*(1-alpha); } } processed++; if((processed&255)===0){ await new Promise(r=>setTimeout(r,0)); if(myToken!==latestRenderToken){ rendering=false; return; } } } const img=ctx.createImageData(renderW,renderH), data=img.data; for(let p=0;p<pixelCount;p++){ const T=Tbuf[p], base=p*3, q=p*4; data[q]=Math.round(clamp(Cbuf[base]+T*bg,0,1)*255); data[q+1]=Math.round(clamp(Cbuf[base+1]+T*bg,0,1)*255); data[q+2]=Math.round(clamp(Cbuf[base+2]+T*bg,0,1)*255); data[q+3]=255; } const tmp=document.createElement('canvas'); tmp.width=renderW; tmp.height=renderH; tmp.getContext('2d').putImageData(img,0,0); ctx.save(); ctx.imageSmoothingEnabled=true; ctx.clearRect(0,0,canvas.width,canvas.height); ctx.fillStyle=`rgb(${bg255},${bg255},${bg255})`; ctx.fillRect(0,0,canvas.width,canvas.height); ctx.drawImage(tmp,0,0,canvas.width,canvas.height); ctx.restore(); const elapsed=performance.now()-t0; info.textContent=`format=v2
+N=${raw.N.toLocaleString()}  visible=${visible.length.toLocaleString()}  stride=${stride}
+active_sh_degree=${raw.activeShDegree}  active_sh_degree_t=${raw.activeShDegreeT}
+rot_4d(file)=${raw.rot4d}  useRot4d=${useRot4d}  useSH=${useSH}
+renderScale=${renderScale.toFixed(2)}  canvas=${renderW}x${renderH}
+time=${timestamp.toFixed(2)}  splatScale=${scalingModifier.toFixed(2)}
+CPU T-composite render=${elapsed.toFixed(1)} ms
+本家の renderCUDA にある front-to-back の T 合成に寄せた CPU 版です。`; rendering=false; }
+async function loadArrayBuffer(buf){ raw=parseSplat4DV2(buf); fitCameraToRaw(); scheduleRender(); }
+async function loadDefaultScene(){ try{ const res=await fetch('./scene_v2.splat4d'); if(!res.ok) return; await loadArrayBuffer(await res.arrayBuffer()); }catch(e){ console.warn(e); } }
+fileInput.addEventListener('change', async e=>{ const f=e.target.files[0]; if(f) await loadArrayBuffer(await f.arrayBuffer()); });
+timeSlider.addEventListener('input', ()=>{ timeVal.textContent=Number(timeSlider.value).toFixed(2); scheduleRender();});
+splatScaleSlider.addEventListener('input', ()=>{ splatScaleVal.textContent=Number(splatScaleSlider.value).toFixed(2); scheduleRender();});
+renderScaleSlider.addEventListener('input', ()=>{ renderScaleVal.textContent=Number(renderScaleSlider.value).toFixed(2); scheduleRender();});
+strideSlider.addEventListener('input', ()=>{ strideVal.textContent=strideSlider.value; scheduleRender();});
+maxVisibleSlider.addEventListener('input', ()=>{ maxVisibleVal.textContent=maxVisibleSlider.value; scheduleRender();});
+bgGraySlider.addEventListener('input', ()=>{ bgGrayVal.textContent=bgGraySlider.value; scheduleRender();});
+useSHCheck.addEventListener('change', scheduleRender); useRot4dCheck.addEventListener('change', scheduleRender); forceSh3dCheck.addEventListener('change', scheduleRender); timeDurationSlider.addEventListener('input', ()=>{ timeDurationVal.textContent=Number(timeDurationSlider.value).toFixed(1); scheduleRender();});
+playBtn.addEventListener('click', ()=>{ playing=!playing; playBtn.textContent=playing?'停止':'再生'; }); renderBtn.addEventListener('click', scheduleRender); resetCamBtn.addEventListener('click', ()=>{ if(raw) fitCameraToRaw(); scheduleRender();}); controls.addEventListener('change', scheduleRender);
+document.addEventListener('dragover', e=>{ e.preventDefault(); drop.style.display='flex';}); document.addEventListener('dragleave', e=>{ e.preventDefault(); drop.style.display='none';}); document.addEventListener('drop', async e=>{ e.preventDefault(); drop.style.display='none'; const f=e.dataTransfer.files[0]; if(f) await loadArrayBuffer(await f.arrayBuffer());});
+window.addEventListener('resize', ()=>{ setCanvasSize(); scheduleRender();});
+function animate(now){ const dt=Math.min((now-lastTime)/1000,0.1); lastTime=now; if(playing){ let t=parseFloat(timeSlider.value)+dt*2; if(t>parseFloat(timeSlider.max)) t=parseFloat(timeSlider.min); timeSlider.value=t.toFixed(2); timeVal.textContent=Number(timeSlider.value).toFixed(2); scheduleRender(); } controls.update(); requestAnimationFrame(animate); }
+timeVal.textContent=Number(timeSlider.value).toFixed(2); splatScaleVal.textContent=Number(splatScaleSlider.value).toFixed(2); renderScaleVal.textContent=Number(renderScaleSlider.value).toFixed(2); strideVal.textContent=strideSlider.value; maxVisibleVal.textContent=maxVisibleSlider.value; bgGrayVal.textContent=bgGraySlider.value; timeDurationVal.textContent=Number(timeDurationSlider.value).toFixed(1);
+requestAnimationFrame(animate); loadDefaultScene();
+</script>
+</body>
+</html>
