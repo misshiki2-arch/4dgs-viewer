@@ -1,0 +1,1090 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>4DGS Covariance Splat Viewer v2 + SH + rot4d</title>
+  <style>
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #111;
+      color: #eee;
+      font-family: Arial, sans-serif;
+    }
+    #ui {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 10;
+      background: rgba(0, 0, 0, 0.68);
+      padding: 12px;
+      border-radius: 8px;
+      min-width: 430px;
+    }
+    #ui input[type="range"] { width: 220px; }
+    #ui label { display: inline-block; width: 120px; }
+    #drop {
+      position: absolute;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(0,0,0,0.45);
+      color: white;
+      font-size: 24px;
+      z-index: 20;
+    }
+    #info {
+      margin-top: 8px;
+      font-size: 13px;
+      line-height: 1.4;
+      color: #ccc;
+    }
+    .row { margin-bottom: 8px; }
+    button { cursor: pointer; }
+  </style>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "./lib/three.module.js"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="ui">
+    <div class="row">
+      <label>ファイル</label>
+      <input id="file" type="file" accept=".splat4d">
+    </div>
+    <div class="row">
+      <label>time</label>
+      <input id="time" type="range" min="0" max="33" step="0.01" value="0">
+      <span id="timeVal">0.00</span>
+    </div>
+    <div class="row">
+      <label>sigma scale</label>
+      <input id="sigmaScale" type="range" min="0.1" max="5.0" step="0.01" value="1.0">
+      <span id="sigmaScaleVal">1.00</span>
+    </div>
+    <div class="row">
+      <label>splat scale</label>
+      <input id="splatScale" type="range" min="0.25" max="5.0" step="0.01" value="1.0">
+      <span id="splatScaleVal">1.00</span>
+    </div>
+    <div class="row">
+      <label>stride</label>
+      <input id="stride" type="range" min="1" max="256" step="1" value="1">
+      <span id="strideVal">1</span>
+    </div>
+    <div class="row">
+      <label>max visible</label>
+      <input id="maxVisible" type="range" min="1000" max="200000" step="1000" value="120000">
+      <span id="maxVisibleVal">120000</span>
+    </div>
+    <div class="row">
+      <label>depth sort</label>
+      <input id="depthSort" type="checkbox" checked>
+      <span>有効</span>
+    </div>
+    <div class="row">
+      <label>alpha sharpness</label>
+      <input id="sharpness" type="range" min="0.5" max="4.0" step="0.01" value="3.0">
+      <span id="sharpnessVal">3.00</span>
+    </div>
+    <div class="row">
+      <label>use SH</label>
+      <input id="useSh" type="checkbox" checked>
+      <span>有効</span>
+    </div>
+    <div class="row">
+      <label>use rot4d</label>
+      <input id="useRot4d" type="checkbox" checked>
+      <span>有効</span>
+    </div>
+    <div class="row">
+      <button id="play">再生</button>
+      <button id="resetCam">視点リセット</button>
+      <button id="rebuild">再構築</button>
+    </div>
+    <div id="info">
+      scene_v2.splat4d を選択してください。<br>
+      v2 + SH + rot4d 対応の共分散射影ベース楕円スプラット版です。
+    </div>
+  </div>
+
+  <div id="drop">ここに .splat4d をドロップ</div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js';
+
+    const SH_C0 = 0.28209479177387814;
+    const SH_C1 = 0.4886025119029199;
+    const SH_C2 = [
+      1.0925484305920792,
+      -1.0925484305920792,
+      0.31539156525252005,
+      -1.0925484305920792,
+      0.5462742152960396
+    ];
+    const SH_C3 = [
+      -0.5900435899266435,
+      2.890611442640554,
+      -0.4570457994644658,
+      0.3731763325901154,
+      -0.4570457994644658,
+      1.445305721320277,
+      -0.5900435899266435
+    ];
+
+    async function loadDefaultScene() {
+      try {
+        const res = await fetch('./scene_v2.splat4d');
+        if (!res.ok) {
+          console.warn('scene_v2.splat4d not found:', res.status);
+          return;
+        }
+        const buf = await res.arrayBuffer();
+        await loadArrayBuffer(buf);
+        document.getElementById('info').innerHTML += '<br>デフォルト scene_v2.splat4d を読み込みました。';
+      } catch (err) {
+        console.error('Failed to load default scene_v2.splat4d:', err);
+      }
+    }
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x111111);
+
+    const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.01, 5000);
+    camera.position.set(40, 20, 20);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.set(35, 20, 2);
+    controls.update();
+
+    scene.add(new THREE.AxesHelper(5));
+
+    let splatMesh = null;
+    let raw = null;
+    let playing = false;
+    let lastTime = performance.now();
+    let rebuildPending = false;
+    let cameraSortPending = false;
+
+    const fileInput = document.getElementById('file');
+    const timeSlider = document.getElementById('time');
+    const timeVal = document.getElementById('timeVal');
+    const sigmaScale = document.getElementById('sigmaScale');
+    const sigmaScaleVal = document.getElementById('sigmaScaleVal');
+    const splatScaleSlider = document.getElementById('splatScale');
+    const splatScaleVal = document.getElementById('splatScaleVal');
+    const strideSlider = document.getElementById('stride');
+    const strideVal = document.getElementById('strideVal');
+    const maxVisibleSlider = document.getElementById('maxVisible');
+    const maxVisibleVal = document.getElementById('maxVisibleVal');
+    const depthSortCheck = document.getElementById('depthSort');
+    const sharpnessSlider = document.getElementById('sharpness');
+    const sharpnessVal = document.getElementById('sharpnessVal');
+    const useShCheck = document.getElementById('useSh');
+    const useRot4dCheck = document.getElementById('useRot4d');
+    const playBtn = document.getElementById('play');
+    const resetCamBtn = document.getElementById('resetCam');
+    const rebuildBtn = document.getElementById('rebuild');
+    const drop = document.getElementById('drop');
+
+    function requestRebuild() {
+      if (rebuildPending) return;
+      rebuildPending = true;
+      requestAnimationFrame(() => {
+        rebuildPending = false;
+        rebuildSplats();
+      });
+    }
+
+    function sigmoid(x) {
+      return 1.0 / (1.0 + Math.exp(-x));
+    }
+
+    function clamp01(x) {
+      return Math.min(1.0, Math.max(0.0, x));
+    }
+
+    function parseSplat4D(arrayBuffer) {
+      const dv = new DataView(arrayBuffer);
+      const magic =
+        String.fromCharCode(dv.getUint8(0)) +
+        String.fromCharCode(dv.getUint8(1)) +
+        String.fromCharCode(dv.getUint8(2)) +
+        String.fromCharCode(dv.getUint8(3));
+
+      if (magic !== 'SPL4') {
+        throw new Error('Not a SPL4 file');
+      }
+
+      const maybeVersion = dv.getUint32(4, true);
+
+      if (maybeVersion === 2) {
+        const version = 2;
+        const N = dv.getUint32(8, true);
+        const activeShDegree = dv.getInt32(12, true);
+        const activeShDegreeT = dv.getInt32(16, true);
+        const rot4d = !!dv.getUint8(20);
+        const storeScaleLog = !!dv.getUint8(21);
+        const rawSh = !!dv.getUint8(22);
+        const rawOpacity = !!dv.getUint8(23);
+
+        const xyzDim = dv.getUint32(24, true);
+        const rotationDim = dv.getUint32(28, true);
+        const rotationRDim = dv.getUint32(32, true);
+        const scaleXYZDim = dv.getUint32(36, true);
+        const fDCDim = dv.getUint32(40, true);
+        const fRestDim = dv.getUint32(44, true);
+        const opacityDim = dv.getUint32(48, true);
+        const tDim = dv.getUint32(52, true);
+        const scaleTDim = dv.getUint32(56, true);
+
+        const headerSize = 128;
+        const totalDims =
+          xyzDim + rotationDim + rotationRDim + scaleXYZDim +
+          fDCDim + fRestDim + opacityDim + tDim + scaleTDim;
+
+        const out = {
+          version,
+          N,
+          activeShDegree,
+          activeShDegreeT,
+          rot4d,
+          storeScaleLog,
+          rawSh,
+          rawOpacity,
+          dims: {
+            xyz: xyzDim,
+            rotation: rotationDim,
+            rotation_r: rotationRDim,
+            scale_xyz: scaleXYZDim,
+            f_dc: fDCDim,
+            f_rest: fRestDim,
+            opacity: opacityDim,
+            t: tDim,
+            scale_t: scaleTDim
+          },
+          xyz: new Float32Array(N * Math.max(xyzDim, 3)),
+          quat: new Float32Array(N * Math.max(rotationDim, 4)),
+          quatR: new Float32Array(N * Math.max(rotationRDim, 4)),
+          scale: new Float32Array(N * Math.max(scaleXYZDim, 3)),
+          fdc: new Float32Array(N * fDCDim),
+          frest: new Float32Array(N * fRestDim),
+          opacity: new Float32Array(N * Math.max(opacityDim, 1)),
+          t: new Float32Array(N * Math.max(tDim, 1)),
+          sigmaT: new Float32Array(N * Math.max(scaleTDim, 1))
+        };
+
+        let off = headerSize;
+        for (let i = 0; i < N; i++) {
+          const row = new Float32Array(arrayBuffer, off, totalDims);
+          let p = 0;
+
+          for (let k = 0; k < xyzDim; k++) out.xyz[i * Math.max(xyzDim, 3) + k] = row[p++];
+          for (let k = 0; k < rotationDim; k++) out.quat[i * Math.max(rotationDim, 4) + k] = row[p++];
+          for (let k = 0; k < rotationRDim; k++) out.quatR[i * Math.max(rotationRDim, 4) + k] = row[p++];
+          for (let k = 0; k < scaleXYZDim; k++) out.scale[i * Math.max(scaleXYZDim, 3) + k] = row[p++];
+          for (let k = 0; k < fDCDim; k++) out.fdc[i * fDCDim + k] = row[p++];
+          for (let k = 0; k < fRestDim; k++) out.frest[i * fRestDim + k] = row[p++];
+          for (let k = 0; k < opacityDim; k++) out.opacity[i * Math.max(opacityDim, 1) + k] = row[p++];
+          for (let k = 0; k < tDim; k++) out.t[i * Math.max(tDim, 1) + k] = row[p++];
+          for (let k = 0; k < scaleTDim; k++) out.sigmaT[i * Math.max(scaleTDim, 1) + k] = row[p++];
+
+          if (out.storeScaleLog) {
+            for (let k = 0; k < scaleXYZDim; k++) {
+              out.scale[i * Math.max(scaleXYZDim, 3) + k] = Math.exp(out.scale[i * Math.max(scaleXYZDim, 3) + k]);
+            }
+            for (let k = 0; k < scaleTDim; k++) {
+              out.sigmaT[i * Math.max(scaleTDim, 1) + k] = Math.exp(out.sigmaT[i * Math.max(scaleTDim, 1) + k]);
+            }
+          }
+
+          off += totalDims * 4;
+        }
+
+        return out;
+      }
+
+      throw new Error('This viewer supports SPL4 v2 only.');
+    }
+
+    function fitCameraToRaw() {
+      if (!raw || raw.N === 0) return;
+
+      let minX = Infinity, minY = Infinity, minZ = Infinity;
+      let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+
+      for (let i = 0; i < raw.N; i++) {
+        const x = raw.xyz[i * 3 + 0];
+        const y = raw.xyz[i * 3 + 1];
+        const z = raw.xyz[i * 3 + 2];
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (z < minZ) minZ = z;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+        if (z > maxZ) maxZ = z;
+      }
+
+      const cx = 0.5 * (minX + maxX);
+      const cy = 0.5 * (minY + maxY);
+      const cz = 0.5 * (minZ + maxZ);
+
+      const ex = maxX - minX;
+      const ey = maxY - minY;
+      const ez = maxZ - minZ;
+      const r = Math.max(ex, ey, ez);
+
+      controls.target.set(cx, cy, cz);
+      camera.position.set(cx + 1.5 * r, cy + 0.8 * r, cz + 0.8 * r);
+      camera.near = Math.max(0.001, r / 1000);
+      camera.far = Math.max(1000, r * 10);
+      camera.updateProjectionMatrix();
+      controls.update();
+    }
+
+    function normalizeQuat(w, x, y, z) {
+      const n = Math.hypot(w, x, y, z);
+      if (n < 1e-12) return [1, 0, 0, 0];
+      return [w / n, x / n, y / n, z / n];
+    }
+
+    function quatToMat3(w, x, y, z) {
+      const xx = x * x, yy = y * y, zz = z * z;
+      const xy = x * y, xz = x * z, yz = y * z;
+      const wx = w * x, wy = w * y, wz = w * z;
+
+      return [
+        1 - 2 * (yy + zz), 2 * (xy - wz),     2 * (xz + wy),
+        2 * (xy + wz),     1 - 2 * (xx + zz), 2 * (yz - wx),
+        2 * (xz - wy),     2 * (yz + wx),     1 - 2 * (xx + yy)
+      ];
+    }
+
+    function mat3Mul(A, B) {
+      const C = new Array(9);
+      for (let r = 0; r < 3; r++) {
+        for (let c = 0; c < 3; c++) {
+          C[r * 3 + c] =
+            A[r * 3 + 0] * B[0 * 3 + c] +
+            A[r * 3 + 1] * B[1 * 3 + c] +
+            A[r * 3 + 2] * B[2 * 3 + c];
+        }
+      }
+      return C;
+    }
+
+    function mat3Transpose(A) {
+      return [
+        A[0], A[3], A[6],
+        A[1], A[4], A[7],
+        A[2], A[5], A[8]
+      ];
+    }
+
+    function getViewRotation3x3() {
+      camera.updateMatrixWorld(true);
+      const e = camera.matrixWorldInverse.elements;
+      return [
+        e[0], e[4], e[8],
+        e[1], e[5], e[9],
+        e[2], e[6], e[10]
+      ];
+    }
+    function mat4Mul(A, B) {
+      const C = new Array(16).fill(0.0);
+      for (let r = 0; r < 4; r++) {
+        for (let c = 0; c < 4; c++) {
+          C[r * 4 + c] =
+            A[r * 4 + 0] * B[0 * 4 + c] +
+            A[r * 4 + 1] * B[1 * 4 + c] +
+            A[r * 4 + 2] * B[2 * 4 + c] +
+            A[r * 4 + 3] * B[3 * 4 + c];
+        }
+      }
+      return C;
+    }
+
+    function mat4Transpose(A) {
+      return [
+        A[0], A[4], A[8],  A[12],
+        A[1], A[5], A[9],  A[13],
+        A[2], A[6], A[10], A[14],
+        A[3], A[7], A[11], A[15]
+      ];
+    }
+
+    function buildRotation4D(lw, lx, ly, lz, rw, rx, ry, rz) {
+      const [a, b, c, d] = normalizeQuat(lw, lx, ly, lz);
+      const [p, q, r, s] = normalizeQuat(rw, rx, ry, rz);
+
+      const Ml = [
+        a, -b, -c, -d,
+        b,  a, -d,  c,
+        c,  d,  a, -b,
+        d, -c,  b,  a
+      ];
+
+      const Mr = [
+         p,  q,  r,  s,
+        -q,  p, -s,  r,
+        -r,  s,  p, -q,
+        -s, -r,  q,  p
+      ];
+
+      const A = mat4Mul(Ml, Mr);
+      return [
+        A[15], A[14], A[13], A[12],
+        A[11], A[10], A[9],  A[8],
+        A[7],  A[6],  A[5],  A[4],
+        A[3],  A[2],  A[1],  A[0]
+      ];
+    }
+
+    function buildScalingRotation4D(sx, sy, sz, st, lq, rq) {
+      const R = buildRotation4D(lq[0], lq[1], lq[2], lq[3], rq[0], rq[1], rq[2], rq[3]);
+      const D = [
+        sx, 0,  0,  0,
+        0,  sy, 0,  0,
+        0,  0,  sz, 0,
+        0,  0,  0,  st
+      ];
+      return mat4Mul(R, D);
+    }
+
+    function computeTimeWeight(baseAlpha, dt, sigmaVar) {
+      const safeVar = Math.max(sigmaVar, 1e-8);
+      return baseAlpha * Math.exp(-0.5 * dt * dt / safeVar);
+    }
+
+    function computeCurrentGaussianAtTime(i, tNow, splatScale, sigmaScale) {
+      const baseAlpha = sigmoid(raw.opacity[i]);
+      const mx = raw.xyz[i * 3 + 0];
+      const my = raw.xyz[i * 3 + 1];
+      const mz = raw.xyz[i * 3 + 2];
+      const dt = tNow - raw.t[i];
+
+      const sx = Math.max(raw.scale[i * 3 + 0] * splatScale, 1e-6);
+      const sy = Math.max(raw.scale[i * 3 + 1] * splatScale, 1e-6);
+      const sz = Math.max(raw.scale[i * 3 + 2] * splatScale, 1e-6);
+      const st = Math.max(raw.sigmaT[i] * sigmaScale, 1e-6);
+
+      if (useRot4dCheck.checked && raw.rot4d && raw.dims.rotation_r >= 4) {
+        const lq = [
+          raw.quat[i * 4 + 0],
+          raw.quat[i * 4 + 1],
+          raw.quat[i * 4 + 2],
+          raw.quat[i * 4 + 3]
+        ];
+        const rq = [
+          raw.quatR[i * 4 + 0],
+          raw.quatR[i * 4 + 1],
+          raw.quatR[i * 4 + 2],
+          raw.quatR[i * 4 + 3]
+        ];
+
+        const L = buildScalingRotation4D(sx, sy, sz, st, lq, rq);
+        const Lt = mat4Transpose(L);
+        const Sigma4 = mat4Mul(L, Lt);
+
+        const cov11 = [
+          Sigma4[0], Sigma4[1], Sigma4[2],
+          Sigma4[4], Sigma4[5], Sigma4[6],
+          Sigma4[8], Sigma4[9], Sigma4[10]
+        ];
+        const cov12 = [Sigma4[3], Sigma4[7], Sigma4[11]];
+        const covt = Math.max(Sigma4[15], 1e-8);
+
+        const meanOffset = [
+          (cov12[0] / covt) * dt,
+          (cov12[1] / covt) * dt,
+          (cov12[2] / covt) * dt
+        ];
+
+        const Sigma3 = [
+          cov11[0] - (cov12[0] * cov12[0]) / covt,
+          cov11[1] - (cov12[0] * cov12[1]) / covt,
+          cov11[2] - (cov12[0] * cov12[2]) / covt,
+          cov11[3] - (cov12[1] * cov12[0]) / covt,
+          cov11[4] - (cov12[1] * cov12[1]) / covt,
+          cov11[5] - (cov12[1] * cov12[2]) / covt,
+          cov11[6] - (cov12[2] * cov12[0]) / covt,
+          cov11[7] - (cov12[2] * cov12[1]) / covt,
+          cov11[8] - (cov12[2] * cov12[2]) / covt
+        ];
+
+        return {
+          x: mx + meanOffset[0],
+          y: my + meanOffset[1],
+          z: mz + meanOffset[2],
+          cov3: Sigma3,
+          alpha: computeTimeWeight(baseAlpha, dt, covt),
+          sigmaVar: covt,
+          usedRot4d: true
+        };
+      }
+
+      const sigmaVar = Math.max(st * st, 1e-8);
+      const qw = raw.quat[i * 4 + 0];
+      const qx = raw.quat[i * 4 + 1];
+      const qy = raw.quat[i * 4 + 2];
+      const qz = raw.quat[i * 4 + 3];
+      const [nw, nx, ny, nz] = normalizeQuat(qw, qx, qy, qz);
+      const Robj = quatToMat3(nw, nx, ny, nz);
+      const S2 = [
+        sx * sx, 0, 0,
+        0, sy * sy, 0,
+        0, 0, sz * sz
+      ];
+      const Rt = mat3Transpose(Robj);
+      const Sigma3 = mat3Mul(mat3Mul(Robj, S2), Rt);
+
+      return {
+        x: mx,
+        y: my,
+        z: mz,
+        cov3: Sigma3,
+        alpha: computeTimeWeight(baseAlpha, dt, sigmaVar),
+        sigmaVar,
+        usedRot4d: false
+      };
+    }
+
+    function computeScreenSpaceEllipseFromCovariance(mx, my, mz, Sigma3) {
+      const V = getViewRotation3x3();
+      const Vt = mat3Transpose(V);
+      const SigmaCam = mat3Mul(mat3Mul(V, Sigma3), Vt);
+
+      const mv = new THREE.Vector3(mx, my, mz).applyMatrix4(camera.matrixWorldInverse);
+      const x = mv.x;
+      const y = mv.y;
+      const zc = -mv.z;
+
+      if (zc <= 1e-6) return null;
+
+      const h = renderer.domElement.height;
+      const w = renderer.domElement.width;
+      const fy = h / (2.0 * Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5)));
+      const fx = fy * (w / h);
+
+      const invz = 1.0 / zc;
+      const invz2 = invz * invz;
+
+      const J = [
+        fx * invz, 0.0,      -fx * x * invz2,
+        0.0,      fy * invz, -fy * y * invz2
+      ];
+
+      const A00 = J[0], A01 = J[1], A02 = J[2];
+      const A10 = J[3], A11 = J[4], A12 = J[5];
+
+      const s00 = SigmaCam[0], s01 = SigmaCam[1], s02 = SigmaCam[2];
+      const s10 = SigmaCam[3], s11 = SigmaCam[4], s12 = SigmaCam[5];
+      const s20 = SigmaCam[6], s21 = SigmaCam[7], s22 = SigmaCam[8];
+
+      const B00 = A00 * s00 + A01 * s10 + A02 * s20;
+      const B01 = A00 * s01 + A01 * s11 + A02 * s21;
+      const B02 = A00 * s02 + A01 * s12 + A02 * s22;
+
+      const B10 = A10 * s00 + A11 * s10 + A12 * s20;
+      const B11 = A10 * s01 + A11 * s11 + A12 * s21;
+      const B12 = A10 * s02 + A11 * s12 + A12 * s22;
+
+      let C00 = B00 * A00 + B01 * A01 + B02 * A02;
+      let C01 = B00 * A10 + B01 * A11 + B02 * A12;
+      let C11 = B10 * A10 + B11 * A11 + B12 * A12;
+
+      C00 += 1e-4;
+      C11 += 1e-4;
+
+      const tr = C00 + C11;
+      const det = C00 * C11 - C01 * C01;
+      const disc = Math.max(tr * tr * 0.25 - det, 0.0);
+      const root = Math.sqrt(disc);
+
+      let l1 = Math.max(tr * 0.5 + root, 1e-8);
+      let l2 = Math.max(tr * 0.5 - root, 1e-8);
+
+      let vx1, vy1;
+      if (Math.abs(C01) > 1e-8) {
+        vx1 = l1 - C11;
+        vy1 = C01;
+      } else if (C00 >= C11) {
+        vx1 = 1; vy1 = 0;
+      } else {
+        vx1 = 0; vy1 = 1;
+      }
+
+      const n1 = Math.hypot(vx1, vy1);
+      vx1 /= n1;
+      vy1 /= n1;
+      const vx2 = -vy1;
+      const vy2 = vx1;
+
+      const r1 = Math.sqrt(l1) * 3.0;
+      const r2 = Math.sqrt(l2) * 3.0;
+
+      const clip = projectToClip(mx, my, mz);
+      if (clip.w <= 0) return null;
+
+      return {
+        clipX: clip.x,
+        clipY: clip.y,
+        clipZ: clip.z,
+        clipW: clip.w,
+        axis1x: vx1 * r1,
+        axis1y: vy1 * r1,
+        axis2x: vx2 * r2,
+        axis2y: vy2 * r2,
+        depth: zc
+      };
+    }
+
+
+    function projectToClip(x, y, z) {
+      const v = new THREE.Vector4(x, y, z, 1.0);
+      v.applyMatrix4(camera.matrixWorldInverse);
+      v.applyMatrix4(camera.projectionMatrix);
+      return v;
+    }
+
+    function coeffCountForDegree(deg) {
+      return (deg + 1) * (deg + 1);
+    }
+
+    function evalSHColorAt(i, px, py, pz) {
+      const deg = Math.max(0, raw.activeShDegree | 0);
+      const fdcBase = i * raw.dims.f_dc;
+      const frBase = i * raw.dims.f_rest;
+
+      if (!useShCheck.checked || deg <= 0 || raw.dims.f_rest <= 0) {
+        return [
+          clamp01(raw.fdc[fdcBase + 0] + 0.5),
+          clamp01(raw.fdc[fdcBase + 1] + 0.5),
+          clamp01(raw.fdc[fdcBase + 2] + 0.5)
+        ];
+      }
+
+      const camPos = camera.position;
+      let x = px - camPos.x;
+      let y = py - camPos.y;
+      let z = pz - camPos.z;
+      const n = Math.hypot(x, y, z);
+      if (n < 1e-12) {
+        x = 0.0; y = 0.0; z = 1.0;
+      } else {
+        x /= n; y /= n; z /= n;
+      }
+
+      const coeffCount = coeffCountForDegree(deg);
+      const neededRest = Math.max(0, coeffCount - 1);
+      const availableRest = Math.floor(raw.dims.f_rest / 3);
+      const useRest = Math.min(neededRest, availableRest);
+
+      let r = SH_C0 * raw.fdc[fdcBase + 0];
+      let g = SH_C0 * raw.fdc[fdcBase + 1];
+      let b = SH_C0 * raw.fdc[fdcBase + 2];
+
+      function addCoeff(idx, basis) {
+        if (idx - 1 >= useRest) return;
+        const base = frBase + (idx - 1) * 3;
+        r += basis * raw.frest[base + 0];
+        g += basis * raw.frest[base + 1];
+        b += basis * raw.frest[base + 2];
+      }
+
+      if (deg > 0) {
+        addCoeff(1, -SH_C1 * y);
+        addCoeff(2,  SH_C1 * z);
+        addCoeff(3, -SH_C1 * x);
+
+        if (deg > 1) {
+          const xx = x * x, yy = y * y, zz = z * z;
+          const xy = x * y, yz = y * z, xz = x * z;
+
+          addCoeff(4, SH_C2[0] * xy);
+          addCoeff(5, SH_C2[1] * yz);
+          addCoeff(6, SH_C2[2] * (2.0 * zz - xx - yy));
+          addCoeff(7, SH_C2[3] * xz);
+          addCoeff(8, SH_C2[4] * (xx - yy));
+
+          if (deg > 2) {
+            addCoeff(9,  SH_C3[0] * y * (3.0 * xx - yy));
+            addCoeff(10, SH_C3[1] * xy * z);
+            addCoeff(11, SH_C3[2] * y * (4.0 * zz - xx - yy));
+            addCoeff(12, SH_C3[3] * z * (2.0 * zz - 3.0 * xx - 3.0 * yy));
+            addCoeff(13, SH_C3[4] * x * (4.0 * zz - xx - yy));
+            addCoeff(14, SH_C3[5] * z * (xx - yy));
+            addCoeff(15, SH_C3[6] * x * (xx - 3.0 * yy));
+          }
+        }
+      }
+
+      return [clamp01(r + 0.5), clamp01(g + 0.5), clamp01(b + 0.5)];
+    }
+
+    function computeScreenSpaceEllipse(mx, my, mz, qw, qx, qy, qz, sx, sy, sz, splatScale) {
+      const [nw, nx, ny, nz] = normalizeQuat(qw, qx, qy, qz);
+      const Robj = quatToMat3(nw, nx, ny, nz);
+      const S2 = [
+        Math.max(sx * splatScale, 1e-6) ** 2, 0, 0,
+        0, Math.max(sy * splatScale, 1e-6) ** 2, 0,
+        0, 0, Math.max(sz * splatScale, 1e-6) ** 2
+      ];
+      const Sigma3 = mat3Mul(mat3Mul(Robj, S2), mat3Transpose(Robj));
+      return computeScreenSpaceEllipseFromCovariance(mx, my, mz, Sigma3);
+    }
+
+    function makeSplatMaterial() {
+      return new THREE.ShaderMaterial({
+        transparent: true,
+        depthWrite: false,
+        depthTest: true,
+        uniforms: {
+          uViewport: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
+          uSharpness: { value: 3.0 }
+        },
+        vertexShader: `
+          attribute vec2 corner;
+          attribute vec4 iClip;
+          attribute vec3 iColor;
+          attribute float iAlpha;
+          attribute vec2 iAxis1;
+          attribute vec2 iAxis2;
+
+          varying vec3 vColor;
+          varying float vAlpha;
+          varying vec2 vLocal;
+
+          uniform vec2 uViewport;
+
+          void main() {
+            vColor = iColor;
+            vAlpha = iAlpha;
+            vLocal = corner;
+
+            vec2 pixelOffset = corner.x * iAxis1 + corner.y * iAxis2;
+            vec2 ndcOffset = 2.0 * pixelOffset / uViewport;
+
+            vec4 clip = iClip;
+            clip.xy += ndcOffset * clip.w;
+
+            gl_Position = clip;
+          }
+        `,
+        fragmentShader: `
+          varying vec3 vColor;
+          varying float vAlpha;
+          varying vec2 vLocal;
+
+          uniform float uSharpness;
+
+          void main() {
+            float r2 = dot(vLocal, vLocal);
+            if (r2 > 1.0) discard;
+
+            float g = exp(-0.5 * uSharpness * 9.0 * r2);
+            float alpha = vAlpha * g;
+
+            if (alpha < 0.003) discard;
+
+            gl_FragColor = vec4(vColor, alpha);
+          }
+        `
+      });
+    }
+
+    function createBaseQuadGeometry() {
+      const geometry = new THREE.InstancedBufferGeometry();
+
+      const corners = new Float32Array([
+        -1, -1,
+         1, -1,
+         1,  1,
+        -1, -1,
+         1,  1,
+        -1,  1
+      ]);
+
+      const positions = new Float32Array([
+        0, 0, 0,
+        0, 0, 0,
+        0, 0, 0,
+        0, 0, 0,
+        0, 0, 0,
+        0, 0, 0
+      ]);
+
+      geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      geometry.setAttribute('corner', new THREE.BufferAttribute(corners, 2));
+      geometry.setDrawRange(0, 6);
+
+      return geometry;
+    }
+
+    function rebuildSplats() {
+      if (!raw) return;
+
+      if (splatMesh) {
+        scene.remove(splatMesh);
+        splatMesh.geometry.dispose();
+        splatMesh.material.dispose();
+        splatMesh = null;
+      }
+
+      camera.updateMatrixWorld(true);
+      controls.update();
+
+      const stride = parseInt(strideSlider.value, 10);
+      const tNow = parseFloat(timeSlider.value);
+      const sigScale = parseFloat(sigmaScale.value);
+      const maxVisible = parseInt(maxVisibleSlider.value, 10);
+      const doDepthSort = depthSortCheck.checked;
+      const splatScale = parseFloat(splatScaleSlider.value);
+      const sharpness = parseFloat(sharpnessSlider.value);
+
+      const visible = [];
+      const N = raw.N;
+
+      for (let i = 0; i < N; i += stride) {
+        const current = computeCurrentGaussianAtTime(i, tNow, splatScale, sigScale);
+        const a = current.alpha;
+        if (a < 0.01) continue;
+
+        const ell = computeScreenSpaceEllipseFromCovariance(current.x, current.y, current.z, current.cov3);
+        if (!ell) continue;
+
+        const majorPix = Math.hypot(ell.axis1x, ell.axis1y);
+        const minorPix = Math.hypot(ell.axis2x, ell.axis2y);
+        if (majorPix < 0.2 && minorPix < 0.2) continue;
+        if (majorPix > 5000 || minorPix > 5000) continue;
+
+        const color = evalSHColorAt(i, current.x, current.y, current.z);
+
+        visible.push({
+          clipX: ell.clipX,
+          clipY: ell.clipY,
+          clipZ: ell.clipZ,
+          clipW: ell.clipW,
+          axis1x: ell.axis1x,
+          axis1y: ell.axis1y,
+          axis2x: ell.axis2x,
+          axis2y: ell.axis2y,
+          depth: ell.depth,
+          usedRot4d: current.usedRot4d,
+          r: color[0],
+          g: color[1],
+          b: color[2],
+          a
+        });
+
+        if (visible.length >= maxVisible) break;
+      }
+
+      if (doDepthSort) {
+        visible.sort((a, b) => b.depth - a.depth);
+      }
+
+      const count = visible.length;
+      const base = createBaseQuadGeometry();
+
+      const iClip = new Float32Array(count * 4);
+      const iColor = new Float32Array(count * 3);
+      const iAlpha = new Float32Array(count);
+      const iAxis1 = new Float32Array(count * 2);
+      const iAxis2 = new Float32Array(count * 2);
+
+      for (let i = 0; i < count; i++) {
+        const v = visible[i];
+
+        iClip[i * 4 + 0] = v.clipX;
+        iClip[i * 4 + 1] = v.clipY;
+        iClip[i * 4 + 2] = v.clipZ;
+        iClip[i * 4 + 3] = v.clipW;
+
+        iColor[i * 3 + 0] = v.r;
+        iColor[i * 3 + 1] = v.g;
+        iColor[i * 3 + 2] = v.b;
+
+        iAlpha[i] = v.a;
+
+        iAxis1[i * 2 + 0] = v.axis1x;
+        iAxis1[i * 2 + 1] = v.axis1y;
+
+        iAxis2[i * 2 + 0] = v.axis2x;
+        iAxis2[i * 2 + 1] = v.axis2y;
+      }
+
+      base.setAttribute('iClip', new THREE.InstancedBufferAttribute(iClip, 4));
+      base.setAttribute('iColor', new THREE.InstancedBufferAttribute(iColor, 3));
+      base.setAttribute('iAlpha', new THREE.InstancedBufferAttribute(iAlpha, 1));
+      base.setAttribute('iAxis1', new THREE.InstancedBufferAttribute(iAxis1, 2));
+      base.setAttribute('iAxis2', new THREE.InstancedBufferAttribute(iAxis2, 2));
+      base.instanceCount = count;
+      base.computeBoundingSphere();
+
+      const material = makeSplatMaterial();
+      material.uniforms.uViewport.value.set(renderer.domElement.width, renderer.domElement.height);
+      material.uniforms.uSharpness.value = sharpness;
+
+      splatMesh = new THREE.Mesh(base, material);
+      splatMesh.frustumCulled = false;
+      scene.add(splatMesh);
+
+      const shMode = useShCheck.checked ? `SH(deg=${raw.activeShDegree})` : 'f_dc only';
+      const rotMode = (useRot4dCheck.checked && raw.rot4d && raw.dims.rotation_r >= 4) ? 'rot4d ON' : 'rot4d OFF';
+      document.getElementById('info').innerHTML =
+        `SPL4 v${raw.version} / N=${raw.N.toLocaleString()} / 表示=${count.toLocaleString()} / stride=${stride}<br>` +
+        `time=${tNow.toFixed(2)} / sigma scale=${sigScale.toFixed(2)} / splat scale=${splatScale.toFixed(2)} / depth sort=${doDepthSort ? 'ON' : 'OFF'} / sharpness=${sharpness.toFixed(2)}<br>` +
+        `mode=${shMode} / ${rotMode} / dims: rot=${raw.dims.rotation}, rot_r=${raw.dims.rotation_r}, f_dc=${raw.dims.f_dc}, f_rest=${raw.dims.f_rest}`;
+    }
+
+    async function loadArrayBuffer(buf) {
+      raw = parseSplat4D(buf);
+      useRot4dCheck.checked = !!raw.rot4d;
+      fitCameraToRaw();
+      requestRebuild();
+    }
+
+    fileInput.addEventListener('change', async (e) => {
+      const f = e.target.files[0];
+      if (!f) return;
+      const buf = await f.arrayBuffer();
+      await loadArrayBuffer(buf);
+    });
+
+    timeSlider.addEventListener('input', () => {
+      timeVal.textContent = Number(timeSlider.value).toFixed(2);
+      requestRebuild();
+    });
+
+    sigmaScale.addEventListener('input', () => {
+      sigmaScaleVal.textContent = Number(sigmaScale.value).toFixed(2);
+      requestRebuild();
+    });
+
+    splatScaleSlider.addEventListener('input', () => {
+      splatScaleVal.textContent = Number(splatScaleSlider.value).toFixed(2);
+      requestRebuild();
+    });
+
+    strideSlider.addEventListener('input', () => {
+      strideVal.textContent = strideSlider.value;
+      requestRebuild();
+    });
+
+    maxVisibleSlider.addEventListener('input', () => {
+      maxVisibleVal.textContent = maxVisibleSlider.value;
+      requestRebuild();
+    });
+
+    depthSortCheck.addEventListener('change', requestRebuild);
+    useShCheck.addEventListener('change', requestRebuild);
+    useRot4dCheck.addEventListener('change', requestRebuild);
+
+    sharpnessSlider.addEventListener('input', () => {
+      sharpnessVal.textContent = Number(sharpnessSlider.value).toFixed(2);
+      requestRebuild();
+    });
+
+    playBtn.addEventListener('click', () => {
+      playing = !playing;
+      playBtn.textContent = playing ? '停止' : '再生';
+    });
+
+    rebuildBtn.addEventListener('click', requestRebuild);
+
+    resetCamBtn.addEventListener('click', () => {
+      if (raw) {
+        fitCameraToRaw();
+      } else {
+        camera.position.set(40, 20, 20);
+        controls.target.set(35, 20, 2);
+        camera.updateProjectionMatrix();
+        controls.update();
+      }
+      requestRebuild();
+    });
+
+    controls.addEventListener('change', () => {
+      if (cameraSortPending) return;
+      cameraSortPending = true;
+      requestAnimationFrame(() => {
+        cameraSortPending = false;
+        if (raw) rebuildSplats();
+      });
+    });
+
+    document.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      drop.style.display = 'flex';
+    });
+
+    document.addEventListener('dragleave', (e) => {
+      e.preventDefault();
+      drop.style.display = 'none';
+    });
+
+    document.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      drop.style.display = 'none';
+      const f = e.dataTransfer.files[0];
+      if (!f) return;
+      const buf = await f.arrayBuffer();
+      await loadArrayBuffer(buf);
+    });
+
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      requestRebuild();
+    });
+
+    function animate(now) {
+      const dt = Math.min((now - lastTime) / 1000.0, 0.1);
+      lastTime = now;
+
+      if (playing) {
+        let t = parseFloat(timeSlider.value) + dt * 2.0;
+        if (t > parseFloat(timeSlider.max)) t = parseFloat(timeSlider.min);
+        timeSlider.value = t.toFixed(2);
+        timeVal.textContent = Number(timeSlider.value).toFixed(2);
+        requestRebuild();
+      }
+
+      if (splatMesh && splatMesh.material && splatMesh.material.uniforms) {
+        splatMesh.material.uniforms.uViewport.value.set(renderer.domElement.width, renderer.domElement.height);
+      }
+
+      controls.update();
+      renderer.render(scene, camera);
+      requestAnimationFrame(animate);
+    }
+
+    timeVal.textContent = Number(timeSlider.value).toFixed(2);
+    sigmaScaleVal.textContent = Number(sigmaScale.value).toFixed(2);
+    splatScaleVal.textContent = Number(splatScaleSlider.value).toFixed(2);
+    strideVal.textContent = strideSlider.value;
+    maxVisibleVal.textContent = maxVisibleSlider.value;
+    sharpnessVal.textContent = Number(sharpnessSlider.value).toFixed(2);
+
+    requestAnimationFrame(animate);
+    loadDefaultScene();
+  </script>
+</body>
+</html>
