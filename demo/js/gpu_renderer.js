@@ -53,11 +53,13 @@ export function createGpuRenderer(canvas) {
   in vec2 aCenterPx;
   in float aRadiusPx;
   in vec4 aColorAlpha;
+  in vec3 aConic;
 
   uniform vec2 uViewportPx;
 
   out vec4 vColorAlpha;
   out float vRadiusPx;
+  out vec3 vConic;
 
   void main() {
     vec2 ndc = vec2(
@@ -68,6 +70,7 @@ export function createGpuRenderer(canvas) {
     gl_PointSize = max(1.0, aRadiusPx * 2.0);
     vColorAlpha = aColorAlpha;
     vRadiusPx = aRadiusPx;
+    vConic = aConic;
   }`;
 
   const fsSource = `#version 300 es
@@ -75,18 +78,24 @@ export function createGpuRenderer(canvas) {
 
   in vec4 vColorAlpha;
   in float vRadiusPx;
+  in vec3 vConic;
 
   out vec4 outColor;
 
   void main() {
     vec2 uv = gl_PointCoord * 2.0 - 1.0;
-    float r2 = dot(uv, uv);
-    if (r2 > 1.0) discard;
+    vec2 d = uv * vRadiusPx;
+    float dx = d.x;
+    float dy = d.y;
 
-    // Minimal Step1 approximation:
-    // point sprite circular Gaussian-like falloff
-    float alpha = vColorAlpha.a * exp(-2.0 * r2);
-    outColor = vec4(vColorAlpha.rgb * alpha, alpha);
+    float power = -0.5 * (vConic.x * dx * dx + vConic.z * dy * dy) - vConic.y * dx * dy;
+    if (power > 0.0) discard;
+
+    float alpha = min(0.99, vColorAlpha.a * exp(power));
+    if (alpha < (1.0 / 255.0)) discard;
+
+    // Step3: straight color output + standard alpha blending
+    outColor = vec4(vColorAlpha.rgb, alpha);
   }`;
 
   const program = createProgram(gl, vsSource, fsSource);
@@ -94,6 +103,7 @@ export function createGpuRenderer(canvas) {
   const centerBuffer = gl.createBuffer();
   const radiusBuffer = gl.createBuffer();
   const colorBuffer = gl.createBuffer();
+  const conicBuffer = gl.createBuffer();
   const vao = gl.createVertexArray();
 
   gl.bindVertexArray(vao);
@@ -113,6 +123,11 @@ export function createGpuRenderer(canvas) {
   gl.enableVertexAttribArray(aColorAlpha);
   gl.vertexAttribPointer(aColorAlpha, 4, gl.FLOAT, false, 0, 0);
 
+  const aConic = gl.getAttribLocation(program, 'aConic');
+  gl.bindBuffer(gl.ARRAY_BUFFER, conicBuffer);
+  gl.enableVertexAttribArray(aConic);
+  gl.vertexAttribPointer(aConic, 3, gl.FLOAT, false, 0, 0);
+
   gl.bindVertexArray(null);
   gl.bindBuffer(gl.ARRAY_BUFFER, null);
 
@@ -125,6 +140,7 @@ export function createGpuRenderer(canvas) {
     centerBuffer,
     radiusBuffer,
     colorBuffer,
+    conicBuffer,
     uViewportPx,
     width: canvas.width,
     height: canvas.height,
@@ -177,7 +193,7 @@ export async function renderGpuFrame({
     gl.disable(gl.BLEND);
     gl.clearColor(bg, bg, bg, 1.0);
     gl.clear(gl.COLOR_BUFFER_BIT);
-    infoEl.textContent = 'GPU Step1 viewer\nNo scene loaded.';
+    infoEl.textContent = 'GPU Step3 viewer\nNo scene loaded.';
     return;
   }
 
@@ -191,6 +207,9 @@ export async function renderGpuFrame({
 
   const visible = [];
   const camPos = camera.position.clone();
+
+  const sx = canvas.width / renderW;
+  const sy = canvas.height / renderH;
 
   for (let i = 0; i < raw.N; i += stride) {
     const gs = computeGaussianState(
@@ -227,47 +246,54 @@ export async function renderGpuFrame({
     if (!splat) continue;
 
     visible.push({
-      px: splat.px,
-      py: splat.py,
-      radius: splat.radius,
+      px: splat.px * sx,
+      py: splat.py * sy,
+      radius: Math.max(1.0, splat.radius * Math.max(sx, sy)),
       depth: splat.depth,
       opacity: splat.opacity,
-      color
+      color,
+      conic: [
+        splat.conic[0] / (sx * sx),
+        splat.conic[1] / (sx * sy),
+        splat.conic[2] / (sy * sy)
+      ]
     });
 
     if (visible.length >= maxVisible) break;
 
     if ((visible.length & 2047) === 0) {
       await new Promise(r => setTimeout(r, 0));
-      if (frameToken !== tokenRef.value) return;
+      if (frameToken != tokenRef.value) return;
     }
   }
 
-  // Front-to-back approximation:
-  // draw far to near with standard alpha blending
   visible.sort((a, b) => b.depth - a.depth);
 
   const n = visible.length;
   const centers = new Float32Array(n * 2);
   const radii = new Float32Array(n);
   const colors = new Float32Array(n * 4);
+  const conics = new Float32Array(n * 3);
 
   for (let k = 0; k < n; k++) {
     const s = visible[k];
-    centers[2 * k + 0] = s.px / renderW * canvas.width;
-    centers[2 * k + 1] = s.py / renderH * canvas.height;
-    radii[k] = Math.max(1.0, s.radius / renderW * canvas.width);
+    centers[2 * k + 0] = s.px;
+    centers[2 * k + 1] = s.py;
+    radii[k] = s.radius;
     colors[4 * k + 0] = clamp01(s.color[0]);
     colors[4 * k + 1] = clamp01(s.color[1]);
     colors[4 * k + 2] = clamp01(s.color[2]);
     colors[4 * k + 3] = clamp01(s.opacity);
+    conics[3 * k + 0] = s.conic[0];
+    conics[3 * k + 1] = s.conic[1];
+    conics[3 * k + 2] = s.conic[2];
   }
 
   gpu.resize(canvas.width, canvas.height);
 
   gl.disable(gl.DEPTH_TEST);
   gl.enable(gl.BLEND);
-  gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
   gl.clearColor(bg, bg, bg, 1.0);
   gl.clear(gl.COLOR_BUFFER_BIT);
@@ -285,6 +311,9 @@ export async function renderGpuFrame({
   gl.bindBuffer(gl.ARRAY_BUFFER, gpu.colorBuffer);
   gl.bufferData(gl.ARRAY_BUFFER, colors, gl.DYNAMIC_DRAW);
 
+  gl.bindBuffer(gl.ARRAY_BUFFER, gpu.conicBuffer);
+  gl.bufferData(gl.ARRAY_BUFFER, conics, gl.DYNAMIC_DRAW);
+
   gl.drawArrays(gl.POINTS, 0, n);
 
   gl.bindVertexArray(null);
@@ -300,10 +329,11 @@ nativeRot4d=${useNativeRot4d}  nativeMarginal=${useNativeMarginal}
 prefilterVar=${prefilterVar.toFixed(2)}  sigmaScale=${sigmaScale.toFixed(2)}
 renderScale=${renderScale.toFixed(2)}  canvas=${canvas.width}x${canvas.height}
 time=${timestamp.toFixed(2)}  splatScale=${scalingModifier.toFixed(2)}
-GPU Step1 render=${elapsed.toFixed(1)} ms
+GPU Step3 render=${elapsed.toFixed(1)} ms
 
-Step1 note:
+Step3 note:
 - CPU computes screen-space splats
-- GPU draws circular point-sprite splats
-- This is an approximate first GPU stage, not the final native conic compositor.`;
+- GPU draws anisotropic conic splats
+- Blend mode changed to SRC_ALPHA / ONE_MINUS_SRC_ALPHA
+- Goal: bring the GPU composition closer to the CPU viewer than Step2.`;
 }
