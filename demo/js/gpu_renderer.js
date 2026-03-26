@@ -36,6 +36,10 @@ function clamp01(x) {
   return Math.min(1, Math.max(0, x));
 }
 
+function clamp(v, lo, hi) {
+  return Math.min(hi, Math.max(lo, v));
+}
+
 export function createGpuRenderer(canvas) {
   const gl = canvas.getContext('webgl2', {
     alpha: false,
@@ -94,7 +98,6 @@ export function createGpuRenderer(canvas) {
     float alpha = min(0.99, vColorAlpha.a * exp(power));
     if (alpha < (1.0 / 255.0)) discard;
 
-    // Step3: straight color output + standard alpha blending
     outColor = vec4(vColorAlpha.rgb, alpha);
   }`;
 
@@ -193,7 +196,7 @@ export async function renderGpuFrame({
     gl.disable(gl.BLEND);
     gl.clearColor(bg, bg, bg, 1.0);
     gl.clear(gl.COLOR_BUFFER_BIT);
-    infoEl.textContent = 'GPU Step3 viewer\nNo scene loaded.';
+    infoEl.textContent = 'GPU Step4 viewer\nNo scene loaded.';
     return;
   }
 
@@ -210,6 +213,13 @@ export async function renderGpuFrame({
 
   const sx = canvas.width / renderW;
   const sy = canvas.height / renderH;
+
+  const tileSize = 32;
+  const tileCols = Math.ceil(canvas.width / tileSize);
+  const tileRows = Math.ceil(canvas.height / tileSize);
+  const tileCounts = new Uint32Array(tileCols * tileRows);
+  let totalTileRefs = 0;
+  let minTileX = tileCols, minTileY = tileRows, maxTileX = -1, maxTileY = -1;
 
   for (let i = 0; i < raw.N; i += stride) {
     const gs = computeGaussianState(
@@ -245,10 +255,37 @@ export async function renderGpuFrame({
     );
     if (!splat) continue;
 
+    const px = splat.px * sx;
+    const py = splat.py * sy;
+    const radius = Math.max(1.0, splat.radius * Math.max(sx, sy));
+
+    const minX = clamp(Math.floor(px - radius), 0, canvas.width - 1);
+    const maxX = clamp(Math.ceil(px + radius), 0, canvas.width - 1);
+    const minY = clamp(Math.floor(py - radius), 0, canvas.height - 1);
+    const maxY = clamp(Math.ceil(py + radius), 0, canvas.height - 1);
+
+    const tminX = clamp(Math.floor(minX / tileSize), 0, tileCols - 1);
+    const tmaxX = clamp(Math.floor(maxX / tileSize), 0, tileCols - 1);
+    const tminY = clamp(Math.floor(minY / tileSize), 0, tileRows - 1);
+    const tmaxY = clamp(Math.floor(maxY / tileSize), 0, tileRows - 1);
+
+    minTileX = Math.min(minTileX, tminX);
+    minTileY = Math.min(minTileY, tminY);
+    maxTileX = Math.max(maxTileX, tmaxX);
+    maxTileY = Math.max(maxTileY, tmaxY);
+
+    for (let ty = tminY; ty <= tmaxY; ty++) {
+      const rowBase = ty * tileCols;
+      for (let tx = tminX; tx <= tmaxX; tx++) {
+        tileCounts[rowBase + tx]++;
+        totalTileRefs++;
+      }
+    }
+
     visible.push({
-      px: splat.px * sx,
-      py: splat.py * sy,
-      radius: Math.max(1.0, splat.radius * Math.max(sx, sy)),
+      px,
+      py,
+      radius,
       depth: splat.depth,
       opacity: splat.opacity,
       color,
@@ -256,14 +293,16 @@ export async function renderGpuFrame({
         splat.conic[0] / (sx * sx),
         splat.conic[1] / (sx * sy),
         splat.conic[2] / (sy * sy)
-      ]
+      ],
+      aabb: [minX, minY, maxX, maxY],
+      tileRange: [tminX, tminY, tmaxX, tmaxY]
     });
 
     if (visible.length >= maxVisible) break;
 
     if ((visible.length & 2047) === 0) {
       await new Promise(r => setTimeout(r, 0));
-      if (frameToken != tokenRef.value) return;
+      if (frameToken !== tokenRef.value) return;
     }
   }
 
@@ -287,6 +326,16 @@ export async function renderGpuFrame({
     conics[3 * k + 0] = s.conic[0];
     conics[3 * k + 1] = s.conic[1];
     conics[3 * k + 2] = s.conic[2];
+  }
+
+  let maxPerTile = 0;
+  let nonEmptyTiles = 0;
+  for (let i = 0; i < tileCounts.length; i++) {
+    const c = tileCounts[i];
+    if (c > 0) {
+      nonEmptyTiles++;
+      if (c > maxPerTile) maxPerTile = c;
+    }
   }
 
   gpu.resize(canvas.width, canvas.height);
@@ -320,6 +369,11 @@ export async function renderGpuFrame({
   gl.useProgram(null);
 
   const elapsed = performance.now() - t0;
+  const avgRefsPerVisible = n > 0 ? (totalTileRefs / n) : 0;
+  const activeTileBox = (maxTileX >= minTileX && maxTileY >= minTileY)
+    ? `${minTileX},${minTileY} -> ${maxTileX},${maxTileY}`
+    : 'none';
+
   infoEl.textContent =
 `format=v2
 N=${raw.N.toLocaleString()}  visible=${visible.length.toLocaleString()}  stride=${stride}
@@ -329,11 +383,14 @@ nativeRot4d=${useNativeRot4d}  nativeMarginal=${useNativeMarginal}
 prefilterVar=${prefilterVar.toFixed(2)}  sigmaScale=${sigmaScale.toFixed(2)}
 renderScale=${renderScale.toFixed(2)}  canvas=${canvas.width}x${canvas.height}
 time=${timestamp.toFixed(2)}  splatScale=${scalingModifier.toFixed(2)}
-GPU Step3 render=${elapsed.toFixed(1)} ms
+GPU Step4 render=${elapsed.toFixed(1)} ms
 
-Step3 note:
-- CPU computes screen-space splats
-- GPU draws anisotropic conic splats
-- Blend mode changed to SRC_ALPHA / ONE_MINUS_SRC_ALPHA
-- Goal: bring the GPU composition closer to the CPU viewer than Step2.`;
+Step4 note:
+- CPU computes screen-space splats + AABB
+- CPU bins splats to ${tileSize}x${tileSize} tiles (preparation only)
+- GPU still draws ordered anisotropic conic splats
+
+tileCols=${tileCols}  tileRows=${tileRows}  nonEmptyTiles=${nonEmptyTiles}
+totalTileRefs=${totalTileRefs.toLocaleString()}  avgRefsPerVisible=${avgRefsPerVisible.toFixed(2)}
+maxPerTile=${maxPerTile}  activeTileBox=${activeTileBox}`;
 }
