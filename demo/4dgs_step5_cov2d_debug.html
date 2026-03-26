@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>4DGS Step5 Cov2D Debug</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      background: #111;
+      color: #eee;
+    }
+    h1, h2 { margin-top: 0; }
+    .panel {
+      background: #1b1b1b;
+      border: 1px solid #333;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 14px;
+    }
+    .row { margin-bottom: 10px; }
+    label {
+      display: inline-block;
+      width: 170px;
+      vertical-align: top;
+    }
+    input[type="text"] {
+      width: 420px;
+      background: #222;
+      color: #eee;
+      border: 1px solid #444;
+      padding: 6px;
+      border-radius: 4px;
+    }
+    button {
+      background: #2d6cdf;
+      color: white;
+      border: none;
+      padding: 8px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      margin-right: 8px;
+    }
+    button:hover { background: #3d7cff; }
+    pre {
+      white-space: pre-wrap;
+      word-break: break-word;
+      background: #0d0d0d;
+      color: #d7ffd7;
+      border: 1px solid #333;
+      border-radius: 6px;
+      padding: 10px;
+      overflow-x: auto;
+    }
+    .small { color: #bbb; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <h1>4DGS Step5 Cov2D Debug</h1>
+
+  <div class="panel">
+    <div class="row">
+      <label for="pos">Gaussian pos</label>
+      <input id="pos" type="text" value="[0.35, -0.12, 2.8]">
+    </div>
+    <div class="row">
+      <label for="cov3">3x3 covariance</label>
+      <input id="cov3" type="text" value="[[0.82,0.15,-0.08],[0.15,0.38,0.05],[-0.08,0.05,0.21]]">
+    </div>
+    <div class="row">
+      <label for="view">View 4x4</label>
+      <input id="view" type="text" value="[[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]]">
+    </div>
+    <div class="row">
+      <label for="fovYDeg">fovY degree</label>
+      <input id="fovYDeg" type="text" value="60">
+    </div>
+    <div class="row">
+      <label for="aspect">aspect</label>
+      <input id="aspect" type="text" value="1.7777778">
+    </div>
+    <div class="row">
+      <label for="renderW">render width</label>
+      <input id="renderW" type="text" value="1280">
+    </div>
+    <div class="row">
+      <label for="renderH">render height</label>
+      <input id="renderH" type="text" value="720">
+    </div>
+    <div class="row">
+      <label for="blurPad">blur pad</label>
+      <input id="blurPad" type="text" value="0.3">
+    </div>
+    <div class="row">
+      <button id="runBtn">計算</button>
+      <button id="presetBtn">別の例</button>
+    </div>
+    <div class="small">
+      Step5 用。固定した pos / cov3 / camera 条件から、CPU viewer 側の Step3 と native-style 候補式の両方を計算し、
+      cov2D / conic / radius / screen center を数値比較します。
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>出力</h2>
+    <pre id="out">まだ計算していません。</pre>
+  </div>
+
+  <script type="module" src="./step5_cov2d_debug.js"></script>
+</body>
+</html>
