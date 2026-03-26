@@ -38,6 +38,23 @@ const ui = {
   drop: document.getElementById('drop')
 };
 
+function ensureTileDebugToggle() {
+  let row = document.getElementById('tileDebugRow');
+  if (!row) {
+    row = document.createElement('div');
+    row.className = 'row';
+    row.id = 'tileDebugRow';
+    row.innerHTML = '<label>show tile debug</label><input id="showTileDebug" type="checkbox"><span>heatmap overlay</span>';
+
+    const info = ui.info;
+    const parent = info.parentElement;
+    parent.insertBefore(row, info);
+  }
+  ui.showTileDebugCheck = document.getElementById('showTileDebug');
+}
+
+ensureTileDebugToggle();
+
 const camera = new THREE.PerspectiveCamera(60, 1, 0.01, 5000);
 camera.position.set(40, 20, 20);
 
@@ -60,6 +77,8 @@ const state = {
 const tokenRef = {
   value: 0
 };
+
+window.__GPU_TILE_DEBUG_OVERLAY__ = false;
 
 function setCanvasSize() {
   const dpr = window.devicePixelRatio || 1;
@@ -174,6 +193,11 @@ ui.bgGraySlider.addEventListener('input', () => {
   ui[key].addEventListener('change', scheduleRender);
 });
 
+ui.showTileDebugCheck.addEventListener('change', () => {
+  window.__GPU_TILE_DEBUG_OVERLAY__ = ui.showTileDebugCheck.checked;
+  scheduleRender();
+});
+
 ui.playBtn.addEventListener('click', () => {
   playing = !playing;
   ui.playBtn.textContent = playing ? '停止' : '再生';
@@ -236,6 +260,7 @@ ui.strideVal.textContent = ui.strideSlider.value;
 ui.maxVisibleVal.textContent = ui.maxVisibleSlider.value;
 ui.bgGrayVal.textContent = ui.bgGraySlider.value;
 ui.timeDurationVal.textContent = Number(ui.timeDurationSlider.value).toFixed(1);
+ui.showTileDebugCheck.checked = false;
 
 setCanvasSize();
 requestAnimationFrame(animate);

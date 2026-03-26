@@ -20,9 +20,33 @@ import {
   buildTileLists,
   summarizeTileLists
 } from './gpu_tile_utils.js';
+import {
+  findMaxCountTile,
+  buildTileHeatmapImageData,
+  drawTileHeatmapOverlay,
+  formatTileDebugSummary
+} from './gpu_tile_debug.js';
 
 function clamp01(x) {
   return Math.min(1, Math.max(0, x));
+}
+
+function ensureDebugOverlayCanvas(mainCanvas) {
+  let overlay = document.getElementById('gpuTileDebugOverlay');
+  if (!overlay) {
+    overlay = document.createElement('canvas');
+    overlay.id = 'gpuTileDebugOverlay';
+    overlay.style.position = 'absolute';
+    overlay.style.inset = '0';
+    overlay.style.width = '100%';
+    overlay.style.height = '100%';
+    overlay.style.pointerEvents = 'none';
+    overlay.style.zIndex = '2';
+    overlay.style.display = 'none';
+    const parent = mainCanvas.parentElement || document.body;
+    parent.appendChild(overlay);
+  }
+  return overlay;
 }
 
 export function createGpuRenderer(canvas) {
@@ -135,11 +159,21 @@ export async function renderGpuFrame({
   controls.update();
   camera.updateMatrixWorld(true);
 
+  const debugOverlayEnabled = !!window.__GPU_TILE_DEBUG_OVERLAY__;
+  const debugOverlayCanvas = ensureDebugOverlayCanvas(canvas);
+  const debugCtx = debugOverlayCanvas.getContext('2d');
+
   if (!raw) {
     gpu.resize(canvas.width, canvas.height);
     gl.disable(gl.BLEND);
     clearToGray(gl, bg);
-    infoEl.textContent = 'GPU Step5 viewer\nNo scene loaded.';
+
+    debugOverlayCanvas.width = canvas.width;
+    debugOverlayCanvas.height = canvas.height;
+    debugCtx.clearRect(0, 0, debugOverlayCanvas.width, debugOverlayCanvas.height);
+    debugOverlayCanvas.style.display = 'none';
+
+    infoEl.textContent = 'GPU Step6 viewer\nNo scene loaded.';
     return;
   }
 
@@ -248,6 +282,7 @@ export async function renderGpuFrame({
     tileGrid.tileRows,
     [minTileX, minTileY, maxTileX, maxTileY]
   );
+  const maxTileInfo = findMaxCountTile(tileData.counts);
 
   const n = visible.length;
   const centers = new Float32Array(n * 2);
@@ -289,8 +324,39 @@ export async function renderGpuFrame({
   gl.bindVertexArray(null);
   gl.useProgram(null);
 
+  debugOverlayCanvas.width = canvas.width;
+  debugOverlayCanvas.height = canvas.height;
+  debugCtx.clearRect(0, 0, debugOverlayCanvas.width, debugOverlayCanvas.height);
+
+  if (debugOverlayEnabled) {
+    const heatmap = buildTileHeatmapImageData({
+      tileCounts: tileData.counts,
+      tileCols: tileGrid.tileCols,
+      tileRows: tileGrid.tileRows,
+      tileSize: tileGrid.tileSize,
+      canvasWidth: canvas.width,
+      canvasHeight: canvas.height,
+      highlightTileId: maxTileInfo.maxTileId,
+      selectedTileIds: null,
+      alpha: 0.35
+    });
+    drawTileHeatmapOverlay(debugCtx, heatmap);
+    debugOverlayCanvas.style.display = 'block';
+  } else {
+    debugOverlayCanvas.style.display = 'none';
+  }
+
   const elapsed = performance.now() - t0;
   const avgRefsPerVisible = n > 0 ? (tileSummary.totalRefs / n) : 0;
+  const tileDebugText = formatTileDebugSummary({
+    tileData,
+    tileCols: tileGrid.tileCols,
+    tileRows: tileGrid.tileRows,
+    tileSize: tileGrid.tileSize,
+    highlightTileId: maxTileInfo.maxTileId,
+    canvasWidth: canvas.width,
+    canvasHeight: canvas.height
+  });
 
   infoEl.textContent =
 `format=v2
@@ -301,17 +367,21 @@ nativeRot4d=${useNativeRot4d}  nativeMarginal=${useNativeMarginal}
 prefilterVar=${prefilterVar.toFixed(2)}  sigmaScale=${sigmaScale.toFixed(2)}
 renderScale=${renderScale.toFixed(2)}  canvas=${canvas.width}x${canvas.height}
 time=${timestamp.toFixed(2)}  splatScale=${scalingModifier.toFixed(2)}
-GPU Step5 render=${elapsed.toFixed(1)} ms
+GPU Step6 render=${elapsed.toFixed(1)} ms
 
-Step5 note:
+Step6 note:
 - CPU computes screen-space splats + AABB
 - CPU builds explicit tile->splat lists
 - GPU still draws ordered anisotropic conic splats
+- gpu_tile_debug.js is now used for tile inspection
+- window.__GPU_TILE_DEBUG_OVERLAY__ = true で heatmap overlay を表示
 
 tileCols=${tileSummary.tileCols}  tileRows=${tileSummary.tileRows}  nonEmptyTiles=${tileSummary.nonEmptyTiles}
 totalTileRefs=${tileSummary.totalRefs.toLocaleString()}  avgRefsPerVisible=${avgRefsPerVisible.toFixed(2)}
 avgPerNonEmptyTile=${tileSummary.avgPerNonEmptyTile.toFixed(2)}  maxPerTile=${tileSummary.maxPerTile}
 activeTileBox=${tileSummary.activeTileBoxText}
 offsetsLen=${tileSummary.offsetsLen.toLocaleString()}  indicesLen=${tileSummary.indicesLen.toLocaleString()}
-countEnergy=${tileSummary.countEnergy.toLocaleString()}  ${tileSummary.sampleTileText}`;
+countEnergy=${tileSummary.countEnergy.toLocaleString()}  ${tileSummary.sampleTileText}
+
+${tileDebugText}`;
 }
