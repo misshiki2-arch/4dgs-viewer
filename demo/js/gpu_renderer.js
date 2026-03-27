@@ -18,7 +18,8 @@ import {
 import {
   buildTileHeatmapImageData,
   drawTileHeatmapOverlay,
-  formatTileDebugSummary
+  formatTileDebugSummary,
+  getTilePixelRect
 } from './gpu_tile_debug.js';
 import {
   getDrawTileMode,
@@ -27,8 +28,8 @@ import {
   buildDrawIndexList,
   formatTileSelectionState
 } from './gpu_tile_select.js';
-import { buildVisibleSplats } from './gpu_visible_builder.js';
-import { buildDrawArraysFromIndices, uploadAndDraw } from './gpu_draw_utils.js';
+import { buildVisibleSplats, getVisibleBuildConfig } from './gpu_visible_builder.js';
+import { buildDrawArraysFromIndices, uploadAndDraw, buildDrawStats, formatDrawStats } from './gpu_draw_utils.js';
 import { formatGpuViewerInfo, setInfoText } from './gpu_info_utils.js';
 
 function ensureDebugOverlayCanvas(mainCanvas) {
@@ -47,6 +48,36 @@ function ensureDebugOverlayCanvas(mainCanvas) {
     parent.appendChild(overlay);
   }
   return overlay;
+}
+
+function applyUiTileModeToGlobals(ui) {
+  if (ui.showTileDebugCheck) {
+    window.__GPU_TILE_DEBUG_OVERLAY__ = !!ui.showTileDebugCheck.checked;
+  }
+  if (ui.drawSelectedTileOnlyCheck) {
+    window.__GPU_TILE_DRAW_SELECTED_ONLY__ = !!ui.drawSelectedTileOnlyCheck.checked;
+  }
+  if (ui.useMaxTileCheck) {
+    window.__GPU_TILE_USE_MAX_TILE__ = !!ui.useMaxTileCheck.checked;
+  }
+  if (ui.selectedTileIdInput) {
+    const v = Number(ui.selectedTileIdInput.value);
+    window.__GPU_TILE_SELECTED_ID__ = Number.isInteger(v) ? v : -1;
+  }
+}
+
+function enableTileScissor(gl, canvas, tileRect) {
+  const [x0, y0, x1, y1] = tileRect;
+  const w = Math.max(0, x1 - x0);
+  const h = Math.max(0, y1 - y0);
+  // Canvas/UI coordinates are top-left origin, WebGL scissor uses bottom-left origin.
+  const scY = canvas.height - y1;
+  gl.enable(gl.SCISSOR_TEST);
+  gl.scissor(x0, scY, w, h);
+}
+
+function disableTileScissor(gl) {
+  gl.disable(gl.SCISSOR_TEST);
 }
 
 export function createGpuRenderer(canvas) {
@@ -111,41 +142,13 @@ export async function renderGpuFrame({
 
   const bg255 = parseInt(ui.bgGraySlider.value, 10);
   const bg = bg255 / 255.0;
-  const renderScale = parseFloat(ui.renderScaleSlider.value);
-  const stride = parseInt(ui.strideSlider.value, 10);
-  const maxVisible = parseInt(ui.maxVisibleSlider.value, 10);
-  const timestamp = parseFloat(ui.timeSlider.value);
-  const scalingModifier = parseFloat(ui.splatScaleSlider.value);
-  const sigmaScale = parseFloat(ui.sigmaScaleSlider.value);
-  const prefilterVar = parseFloat(ui.prefilterVarSlider.value);
-  const useSH = ui.useSHCheck.checked;
-  const useRot4d = ui.useRot4dCheck.checked;
-  const useNativeRot4d = ui.useNativeRot4dCheck.checked;
-  const useNativeMarginal = ui.useNativeMarginalCheck.checked;
-  const forceSh3d = ui.forceSh3dCheck.checked;
-  const timeDuration = parseFloat(ui.timeDurationSlider.value);
 
   controls.update();
   camera.updateMatrixWorld(true);
 
   setDefaultDrawTileMode(window);
-
-  // UI values win over stale globals when the corresponding widgets exist.
-  if (ui.showTileDebugCheck) {
-    window.__GPU_TILE_DEBUG_OVERLAY__ = !!ui.showTileDebugCheck.checked;
-  }
-  if (ui.drawSelectedTileOnlyCheck) {
-    window.__GPU_TILE_DRAW_SELECTED_ONLY__ = !!ui.drawSelectedTileOnlyCheck.checked;
-  }
-  if (ui.useMaxTileCheck) {
-    window.__GPU_TILE_USE_MAX_TILE__ = !!ui.useMaxTileCheck.checked;
-  }
-  if (ui.selectedTileIdInput) {
-    const v = Number(ui.selectedTileIdInput.value);
-    window.__GPU_TILE_SELECTED_ID__ = Number.isInteger(v) ? v : -1;
-  }
-
-  const mode = getDrawTileMode(window);
+  applyUiTileModeToGlobals(ui);
+  const mode = getDrawTileMode(window, ui);
 
   const debugOverlayCanvas = ensureDebugOverlayCanvas(canvas);
   const debugCtx = debugOverlayCanvas.getContext('2d');
@@ -160,13 +163,14 @@ export async function renderGpuFrame({
     debugCtx.clearRect(0, 0, debugOverlayCanvas.width, debugOverlayCanvas.height);
     debugOverlayCanvas.style.display = 'none';
 
-    setInfoText(infoEl, 'GPU Step7 viewer\nNo scene loaded.');
+    setInfoText(infoEl, 'GPU Step8 viewer\nNo scene loaded.');
     return;
   }
 
   const frameToken = ++tokenRef.value;
   const t0 = performance.now();
 
+  const buildConfig = getVisibleBuildConfig(ui);
   const tileGrid = computeTileGrid(canvas.width, canvas.height, 32);
   const camPos = camera.position.clone();
 
@@ -175,28 +179,16 @@ export async function renderGpuFrame({
     camera,
     canvasWidth: canvas.width,
     canvasHeight: canvas.height,
-    renderScale,
-    stride,
-    maxVisible,
-    timestamp,
-    scalingModifier,
-    sigmaScale,
-    prefilterVar,
-    useSH,
-    useRot4d,
-    useNativeRot4d,
-    useNativeMarginal,
-    forceSh3d,
-    timeDuration,
     camPos,
     tokenRef,
     frameToken,
-    tileGrid
+    tileGrid,
+    ...buildConfig
   });
 
   if (visibleResult === null) return;
 
-  const { visible, activeTileBox } = visibleResult;
+  const { visible, activeTileBox, buildStats } = visibleResult;
 
   const tileData = buildTileLists(visible, tileGrid.tileCols, tileGrid.tileRows);
   const tileSummary = summarizeTileLists(
@@ -210,13 +202,29 @@ export async function renderGpuFrame({
   const drawIndices = buildDrawIndexList(visible, tileData, focusTileId, mode.drawSelectedOnly);
   const drawData = buildDrawArraysFromIndices(visible, drawIndices);
 
+  let focusTileRect = null;
+  if (focusTileId >= 0) {
+    const tx = focusTileId % tileGrid.tileCols;
+    const ty = Math.floor(focusTileId / tileGrid.tileCols);
+    focusTileRect = getTilePixelRect(tx, ty, tileGrid.tileSize, canvas.width, canvas.height);
+  }
+
   gpu.resize(canvas.width, canvas.height);
 
   disableDepth(gl);
   enableStandardAlphaBlend(gl);
   clearToGray(gl, bg);
 
+  const scissorEnabled = !!(mode.drawSelectedOnly && focusTileRect);
+  if (scissorEnabled) {
+    enableTileScissor(gl, canvas, focusTileRect);
+  }
+
   uploadAndDraw(gl, gpu, drawData, canvas.width, canvas.height);
+
+  if (scissorEnabled) {
+    disableTileScissor(gl);
+  }
 
   debugOverlayCanvas.width = canvas.width;
   debugOverlayCanvas.height = canvas.height;
@@ -253,42 +261,58 @@ export async function renderGpuFrame({
   });
   const tileSelectionText = formatTileSelectionState(mode, focusTileId);
 
+  const drawStats = buildDrawStats({
+    visibleCount: visible.length,
+    drawData,
+    mode,
+    focusTileId
+  });
+  const drawStatsText = formatDrawStats(drawStats);
+
+  const extraLines = [
+    '',
+    `scissorEnabled=${scissorEnabled}`,
+    `focusTileRect=${focusTileRect ? '[' + focusTileRect.join(', ') + ']' : 'none'}`,
+    `buildAccepted=${buildStats.accepted}  buildProcessed=${buildStats.processed}  buildCulled=${buildStats.culled}`,
+    '',
+    tileSelectionText,
+    '',
+    drawStatsText,
+    '',
+    tileDebugText
+  ];
+
   const infoText = formatGpuViewerInfo({
     raw,
     visibleCount: visible.length,
     drawCount: drawData.nDraw,
-    stride,
-    useRot4d,
-    useSH,
-    useNativeRot4d,
-    useNativeMarginal,
-    prefilterVar,
-    sigmaScale,
-    renderScale,
+    stride: buildConfig.stride,
+    useRot4d: buildConfig.useRot4d,
+    useSH: buildConfig.useSH,
+    useNativeRot4d: buildConfig.useNativeRot4d,
+    useNativeMarginal: buildConfig.useNativeMarginal,
+    prefilterVar: buildConfig.prefilterVar,
+    sigmaScale: buildConfig.sigmaScale,
+    renderScale: buildConfig.renderScale,
     canvasWidth: canvas.width,
     canvasHeight: canvas.height,
-    timestamp,
-    splatScale: scalingModifier,
+    timestamp: buildConfig.timestamp,
+    splatScale: buildConfig.scalingModifier,
     elapsedMs: elapsed,
-    stepLabel: 'GPU Step7',
+    stepLabel: 'GPU Step8',
     stepNotes: [
       'CPU computes screen-space splats + AABB',
       'CPU builds explicit tile->splat lists',
       'GPU can draw all visible splats OR a single tile subset',
-      'UI toggles are wired to tile selection globals',
-      'draw selected tile only = true で単一tile描画',
-      'use max tile = true なら最大密度tileを描画',
-      'tile id で任意tile描画',
+      'When single-tile draw is enabled, selected tile rect is clipped by scissor test',
       'show tile debug = true で heatmap overlay を表示'
     ],
     tileSummary,
     avgRefsPerVisible,
-    extraLines: [
-      '',
-      tileSelectionText,
-      '',
-      tileDebugText
-    ]
+    drawStats,
+    tileSelectionText,
+    tileDebugText,
+    extraLines
   });
 
   setInfoText(infoEl, infoText);
