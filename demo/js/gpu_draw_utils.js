@@ -32,6 +32,44 @@ export function buildDrawArraysFromIndices(visible, drawIndices) {
   };
 }
 
+export function buildPerTileDrawArrays(visible, tileBatches) {
+  const out = [];
+  for (const batch of tileBatches) {
+    const drawData = buildDrawArraysFromIndices(visible, batch.drawIndices);
+    out.push({
+      tileId: batch.tileId,
+      drawIndices: batch.drawIndices,
+      drawCount: batch.drawCount,
+      drawData
+    });
+  }
+  return out;
+}
+
+export function summarizePerTileDrawArrays(perTileDrawArrays) {
+  let totalTileDrawCount = 0;
+  let maxTileDrawCount = 0;
+  let maxTileId = -1;
+
+  for (const item of perTileDrawArrays) {
+    totalTileDrawCount += item.drawCount;
+    if (item.drawCount > maxTileDrawCount) {
+      maxTileDrawCount = item.drawCount;
+      maxTileId = item.tileId;
+    }
+  }
+
+  return {
+    tileBatchCount: perTileDrawArrays.length,
+    totalTileDrawCount,
+    maxTileDrawCount,
+    maxTileId,
+    avgTileDrawCount: perTileDrawArrays.length > 0
+      ? (totalTileDrawCount / perTileDrawArrays.length)
+      : 0
+  };
+}
+
 export function uploadDrawArrays(gl, gpu, drawData) {
   gl.bindVertexArray(gpu.vao);
 
@@ -62,11 +100,20 @@ export function uploadAndDraw(gl, gpu, drawData, viewportWidth, viewportHeight) 
   drawUploadedArrays(gl, gpu, viewportWidth, viewportHeight, drawData.nDraw);
 }
 
+export function uploadAndDrawPerTile(gl, gpu, perTileDrawArrays, viewportWidth, viewportHeight, drawTileFn) {
+  for (const item of perTileDrawArrays) {
+    if (drawTileFn) drawTileFn(item);
+    uploadAndDraw(gl, gpu, item.drawData, viewportWidth, viewportHeight);
+  }
+}
+
 export function buildDrawStats({
   visibleCount,
   drawData,
   mode = null,
-  focusTileId = -1
+  focusTileId = -1,
+  focusTileIds = null,
+  tileBatchSummary = null
 }) {
   return {
     visibleCount,
@@ -76,12 +123,19 @@ export function buildDrawStats({
     showOverlay: mode ? !!mode.showOverlay : false,
     useMaxTile: mode ? !!mode.useMaxTile : false,
     selectedTileId: mode ? mode.selectedTileId : -1,
-    focusTileId
+    tileRadius: mode ? mode.tileRadius : 0,
+    focusTileId,
+    focusTileIds: focusTileIds || [],
+    tileBatchSummary
   };
 }
 
 export function formatDrawStats(drawStats) {
-  return [
+  const idsText = drawStats.focusTileIds && drawStats.focusTileIds.length > 0
+    ? `[${drawStats.focusTileIds.join(', ')}]`
+    : 'none';
+
+  const lines = [
     `drawCount=${drawStats.drawCount}`,
     `visibleCount=${drawStats.visibleCount}`,
     `drawFraction=${drawStats.drawFraction.toFixed(3)}`,
@@ -89,6 +143,18 @@ export function formatDrawStats(drawStats) {
     `showOverlay=${drawStats.showOverlay}`,
     `useMaxTile=${drawStats.useMaxTile}`,
     `selectedTileId=${drawStats.selectedTileId}`,
-    `focusTileId=${drawStats.focusTileId}`
-  ].join('  ');
+    `tileRadius=${drawStats.tileRadius}`,
+    `focusTileId=${drawStats.focusTileId}`,
+    `focusTileIds=${idsText}`
+  ];
+
+  if (drawStats.tileBatchSummary) {
+    lines.push(`tileBatchCount=${drawStats.tileBatchSummary.tileBatchCount}`);
+    lines.push(`totalTileDrawCount=${drawStats.tileBatchSummary.totalTileDrawCount}`);
+    lines.push(`maxTileDrawCount=${drawStats.tileBatchSummary.maxTileDrawCount}`);
+    lines.push(`maxTileId=${drawStats.tileBatchSummary.maxTileId}`);
+    lines.push(`avgTileDrawCount=${drawStats.tileBatchSummary.avgTileDrawCount.toFixed(2)}`);
+  }
+
+  return lines.join('  ');
 }

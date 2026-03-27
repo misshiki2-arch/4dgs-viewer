@@ -38,6 +38,26 @@ const ui = {
   drop: document.getElementById('drop')
 };
 
+function applyInfoWrapStyle() {
+  if (!ui.info) return;
+  ui.info.style.whiteSpace = 'pre-wrap';
+  ui.info.style.overflowWrap = 'anywhere';
+  ui.info.style.wordBreak = 'break-word';
+  ui.info.style.maxWidth = '100%';
+}
+
+function applyPanelResizeStyle() {
+  if (!ui.info || !ui.info.parentElement) return;
+  const panel = ui.info.parentElement;
+
+  panel.style.resize = 'horizontal';
+  panel.style.overflow = 'auto';
+  panel.style.minWidth = '280px';
+  panel.style.maxWidth = '70vw';
+  panel.style.width = panel.style.width || '540px';
+  panel.style.boxSizing = 'border-box';
+}
+
 function ensureTileDebugControls() {
   const parent = ui.info.parentElement;
 
@@ -85,6 +105,8 @@ function ensureTileDebugControls() {
 }
 
 ensureTileDebugControls();
+applyInfoWrapStyle();
+applyPanelResizeStyle();
 
 const camera = new THREE.PerspectiveCamera(60, 1, 0.01, 5000);
 camera.position.set(40, 20, 20);
@@ -109,7 +131,6 @@ const tokenRef = {
   value: 0
 };
 
-// Step9 globals read by gpu_renderer.js / gpu_tile_select.js
 window.__GPU_TILE_DEBUG_OVERLAY__ = false;
 window.__GPU_TILE_DRAW_SELECTED_ONLY__ = false;
 window.__GPU_TILE_USE_MAX_TILE__ = true;

@@ -26,11 +26,20 @@ import {
   setDefaultDrawTileMode,
   chooseFocusTileId,
   buildNeighborTileIds,
-  buildMultiTileDrawIndexList,
+  buildPerTileDrawIndexLists,
+  summarizeTileDrawBatches,
   formatTileSelectionState
 } from './gpu_tile_select.js';
 import { buildVisibleSplats, getVisibleBuildConfig } from './gpu_visible_builder.js';
-import { buildDrawArraysFromIndices, uploadAndDraw, buildDrawStats, formatDrawStats } from './gpu_draw_utils.js';
+import {
+  buildDrawArraysFromIndices,
+  buildPerTileDrawArrays,
+  summarizePerTileDrawArrays,
+  uploadAndDraw,
+  uploadAndDrawPerTile,
+  buildDrawStats,
+  formatDrawStats
+} from './gpu_draw_utils.js';
 import { formatGpuViewerInfo, setInfoText } from './gpu_info_utils.js';
 
 function ensureDebugOverlayCanvas(mainCanvas) {
@@ -179,7 +188,7 @@ export async function renderGpuFrame({
     debugOverlayCanvas.height = canvas.height;
     debugCtx.clearRect(0, 0, debugOverlayCanvas.width, debugOverlayCanvas.height);
     debugOverlayCanvas.style.display = 'none';
-    setInfoText(infoEl, 'GPU Step9 viewer\nNo scene loaded.');
+    setInfoText(infoEl, 'GPU Step10 viewer\nNo scene loaded.');
     return;
   }
 
@@ -217,11 +226,34 @@ export async function renderGpuFrame({
   const focusTileIds = mode.drawSelectedOnly
     ? buildNeighborTileIds(focusTileId, tileGrid.tileCols, tileGrid.tileRows, mode.tileRadius)
     : [];
-  const drawIndices = buildMultiTileDrawIndexList(visible, tileData, focusTileIds, mode.drawSelectedOnly);
-  const drawData = buildDrawArraysFromIndices(visible, drawIndices);
+
+  const tileBatches = mode.drawSelectedOnly
+    ? buildPerTileDrawIndexLists(visible, tileData, focusTileIds, true)
+    : [];
+
+  const perTileDrawArrays = mode.drawSelectedOnly
+    ? buildPerTileDrawArrays(visible, tileBatches)
+    : [];
+
+  const tileBatchSummary = mode.drawSelectedOnly
+    ? summarizeTileDrawBatches(tileBatches)
+    : null;
+
+  const perTileDrawSummary = mode.drawSelectedOnly
+    ? summarizePerTileDrawArrays(perTileDrawArrays)
+    : null;
+
+  const effectiveTileSummary = perTileDrawSummary || tileBatchSummary;
+
   const focusTileRects = mode.drawSelectedOnly
     ? buildFocusTileRects(focusTileIds, tileGrid, canvas.width, canvas.height)
     : [];
+
+  const allDrawIndices = new Uint32Array(visible.length);
+  for (let i = 0; i < visible.length; i++) {
+    allDrawIndices[i] = i;
+  }
+  const unionDrawData = buildDrawArraysFromIndices(visible, allDrawIndices);
 
   gpu.resize(canvas.width, canvas.height);
 
@@ -230,13 +262,25 @@ export async function renderGpuFrame({
   clearToGray(gl, bg);
 
   if (!mode.drawSelectedOnly) {
-    uploadAndDraw(gl, gpu, drawData, canvas.width, canvas.height);
+    uploadAndDraw(gl, gpu, unionDrawData, canvas.width, canvas.height);
   } else {
-    for (const item of focusTileRects) {
-      enableTileScissor(gl, canvas, item.rect);
-      uploadAndDraw(gl, gpu, drawData, canvas.width, canvas.height);
-      disableTileScissor(gl);
-    }
+    const rectMap = new Map(focusTileRects.map(item => [item.tileId, item.rect]));
+    uploadAndDrawPerTile(
+      gl,
+      gpu,
+      perTileDrawArrays,
+      canvas.width,
+      canvas.height,
+      (item) => {
+        const rect = rectMap.get(item.tileId);
+        if (rect) {
+          enableTileScissor(gl, canvas, rect);
+        } else {
+          disableTileScissor(gl);
+        }
+      }
+    );
+    disableTileScissor(gl);
   }
 
   debugOverlayCanvas.width = canvas.width;
@@ -272,13 +316,25 @@ export async function renderGpuFrame({
     canvasWidth: canvas.width,
     canvasHeight: canvas.height
   });
-  const tileSelectionText = formatTileSelectionState(mode, focusTileId, focusTileIds);
+
+  const tileSelectionText = formatTileSelectionState(
+    mode,
+    focusTileId,
+    focusTileIds,
+    effectiveTileSummary
+  );
+
+  const effectiveDrawData = mode.drawSelectedOnly
+    ? { nDraw: effectiveTileSummary ? effectiveTileSummary.totalTileDrawCount : 0 }
+    : unionDrawData;
 
   const drawStats = buildDrawStats({
     visibleCount: visible.length,
-    drawData,
+    drawData: effectiveDrawData,
     mode,
-    focusTileId
+    focusTileId,
+    focusTileIds,
+    tileBatchSummary: effectiveTileSummary
   });
   const drawStatsText = formatDrawStats(drawStats);
 
@@ -287,20 +343,23 @@ export async function renderGpuFrame({
     `tileRadius=${mode.tileRadius}`,
     `focusTileIds=${focusTileIds.length > 0 ? '[' + focusTileIds.join(', ') + ']' : 'none'}`,
     `focusTileRects=${focusTileRects.length}`,
-    `multiTileScissor=${mode.drawSelectedOnly}`,
+    `perTileMode=${mode.drawSelectedOnly}`,
     `buildAccepted=${buildStats.accepted}  buildProcessed=${buildStats.processed}  buildCulled=${buildStats.culled}`,
+    effectiveTileSummary
+      ? `tileBatchCount=${effectiveTileSummary.tileBatchCount}  totalTileDrawCount=${effectiveTileSummary.totalTileDrawCount}  maxTileDrawCount=${effectiveTileSummary.maxTileDrawCount}  maxTileId=${effectiveTileSummary.maxTileId}  avgTileDrawCount=${effectiveTileSummary.avgTileDrawCount.toFixed(2)}`
+      : '',
     '',
     tileSelectionText,
     '',
     drawStatsText,
     '',
     tileDebugText
-  ];
+  ].filter(Boolean);
 
   const infoText = formatGpuViewerInfo({
     raw,
     visibleCount: visible.length,
-    drawCount: drawData.nDraw,
+    drawCount: effectiveDrawData.nDraw,
     stride: buildConfig.stride,
     useRot4d: buildConfig.useRot4d,
     useSH: buildConfig.useSH,
@@ -314,13 +373,13 @@ export async function renderGpuFrame({
     timestamp: buildConfig.timestamp,
     splatScale: buildConfig.scalingModifier,
     elapsedMs: elapsed,
-    stepLabel: 'GPU Step9',
+    stepLabel: 'GPU Step10',
     stepNotes: [
       'CPU computes screen-space splats + AABB',
       'CPU builds explicit tile->splat lists',
-      'GPU can draw all visible splats OR a multi-tile subset',
-      'When tile-subset draw is enabled, selected neighbor tiles are clipped by scissor test',
-      'This is the first multi-tile tile-loop validation step toward tile-based rendering'
+      'GPU now draws per-tile batches when tile-subset mode is enabled',
+      'Each tile uses its own drawIndices / drawData instead of one union batch',
+      'This is the first true per-tile rendering path toward tile-based compositing'
     ],
     tileSummary,
     avgRefsPerVisible,

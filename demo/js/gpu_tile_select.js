@@ -161,12 +161,62 @@ export function buildMultiTileDrawIndexList(visible, tileData, tileIds, drawSele
   return out;
 }
 
-export function formatTileSelectionState(mode, focusTileId, focusTileIds = null) {
+export function buildPerTileDrawIndexLists(visible, tileData, tileIds, drawSelectedOnly) {
+  if (!drawSelectedOnly || !tileIds || tileIds.length === 0) {
+    const all = new Uint32Array(visible.length);
+    for (let i = 0; i < visible.length; i++) all[i] = i;
+    return [{
+      tileId: -1,
+      drawIndices: all,
+      drawCount: all.length
+    }];
+  }
+
+  const batches = [];
+  for (const tileId of tileIds) {
+    if (tileId < 0 || tileId + 1 >= tileData.offsets.length) continue;
+    const start = tileData.offsets[tileId];
+    const end = tileData.offsets[tileId + 1];
+    const src = tileData.indices.subarray(start, end);
+    const out = new Uint32Array(src.length);
+    out.set(src);
+    batches.push({
+      tileId,
+      drawIndices: out,
+      drawCount: out.length
+    });
+  }
+  return batches;
+}
+
+export function summarizeTileDrawBatches(tileBatches) {
+  let totalTileDrawCount = 0;
+  let maxTileDrawCount = 0;
+  let maxTileId = -1;
+
+  for (const batch of tileBatches) {
+    totalTileDrawCount += batch.drawCount;
+    if (batch.drawCount > maxTileDrawCount) {
+      maxTileDrawCount = batch.drawCount;
+      maxTileId = batch.tileId;
+    }
+  }
+
+  return {
+    tileBatchCount: tileBatches.length,
+    totalTileDrawCount,
+    maxTileDrawCount,
+    maxTileId,
+    avgTileDrawCount: tileBatches.length > 0 ? (totalTileDrawCount / tileBatches.length) : 0
+  };
+}
+
+export function formatTileSelectionState(mode, focusTileId, focusTileIds = null, tileBatchSummary = null) {
   const idsText = focusTileIds && focusTileIds.length > 0
     ? `[${focusTileIds.join(', ')}]`
     : 'none';
 
-  return [
+  const lines = [
     `showOverlay=${mode.showOverlay}`,
     `drawSelectedOnly=${mode.drawSelectedOnly}`,
     `useMaxTile=${mode.useMaxTile}`,
@@ -174,5 +224,15 @@ export function formatTileSelectionState(mode, focusTileId, focusTileIds = null)
     `tileRadius=${mode.tileRadius}`,
     `focusTileId=${focusTileId}`,
     `focusTileIds=${idsText}`
-  ].join('  ');
+  ];
+
+  if (tileBatchSummary) {
+    lines.push(`tileBatchCount=${tileBatchSummary.tileBatchCount}`);
+    lines.push(`totalTileDrawCount=${tileBatchSummary.totalTileDrawCount}`);
+    lines.push(`maxTileDrawCount=${tileBatchSummary.maxTileDrawCount}`);
+    lines.push(`maxTileId=${tileBatchSummary.maxTileId}`);
+    lines.push(`avgTileDrawCount=${tileBatchSummary.avgTileDrawCount.toFixed(2)}`);
+  }
+
+  return lines.join('  ');
 }

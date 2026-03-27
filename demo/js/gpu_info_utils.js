@@ -26,7 +26,7 @@ export function formatGpuViewerInfo({
 }) {
   const lines = [];
 
-  lines.push(`format=v2`);
+  lines.push('format=v2');
   lines.push(
     `N=${raw ? raw.N.toLocaleString() : 0}  visible=${(visibleCount ?? 0).toLocaleString()}  draw=${(drawCount ?? 0).toLocaleString()}  stride=${stride}`
   );
@@ -39,13 +39,11 @@ export function formatGpuViewerInfo({
       `rot_4d(file)=${raw.rot4d}  useRot4d=${useRot4d}  useSH=${useSH}`
     );
   } else {
-    lines.push(`active_sh_degree=0  active_sh_degree_t=0`);
+    lines.push('active_sh_degree=0  active_sh_degree_t=0');
     lines.push(`rot_4d(file)=false  useRot4d=${useRot4d}  useSH=${useSH}`);
   }
 
-  lines.push(
-    `nativeRot4d=${useNativeRot4d}  nativeMarginal=${useNativeMarginal}`
-  );
+  lines.push(`nativeRot4d=${useNativeRot4d}  nativeMarginal=${useNativeMarginal}`);
   lines.push(
     `prefilterVar=${Number(prefilterVar).toFixed(2)}  sigmaScale=${Number(sigmaScale).toFixed(2)}`
   );
@@ -87,7 +85,7 @@ export function formatGpuViewerInfo({
   }
 
   if (drawStats) {
-    lines.push(`draw stats:`);
+    lines.push('draw stats:');
     lines.push(`- drawCount=${drawStats.drawCount}`);
     lines.push(`- visibleCount=${drawStats.visibleCount}`);
     lines.push(`- drawFraction=${Number(drawStats.drawFraction).toFixed(3)}`);
@@ -95,7 +93,18 @@ export function formatGpuViewerInfo({
     lines.push(`- showOverlay=${drawStats.showOverlay}`);
     lines.push(`- useMaxTile=${drawStats.useMaxTile}`);
     lines.push(`- selectedTileId=${drawStats.selectedTileId}`);
+    lines.push(`- tileRadius=${drawStats.tileRadius}`);
     lines.push(`- focusTileId=${drawStats.focusTileId}`);
+    lines.push(
+      `- focusTileIds=${drawStats.focusTileIds && drawStats.focusTileIds.length > 0 ? '[' + drawStats.focusTileIds.join(', ') + ']' : 'none'}`
+    );
+    if (drawStats.tileBatchSummary) {
+      lines.push(`- tileBatchCount=${drawStats.tileBatchSummary.tileBatchCount}`);
+      lines.push(`- totalTileDrawCount=${drawStats.tileBatchSummary.totalTileDrawCount}`);
+      lines.push(`- maxTileDrawCount=${drawStats.tileBatchSummary.maxTileDrawCount}`);
+      lines.push(`- maxTileId=${drawStats.tileBatchSummary.maxTileId}`);
+      lines.push(`- avgTileDrawCount=${Number(drawStats.tileBatchSummary.avgTileDrawCount).toFixed(2)}`);
+    }
     lines.push('');
   }
 
