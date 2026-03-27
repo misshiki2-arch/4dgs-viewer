@@ -41,44 +41,38 @@ const ui = {
 function ensureTileDebugControls() {
   const parent = ui.info.parentElement;
 
-  let row1 = document.getElementById('tileDebugRow1');
-  if (!row1) {
-    row1 = document.createElement('div');
-    row1.className = 'row';
-    row1.id = 'tileDebugRow1';
-    row1.innerHTML =
-      '<label>show tile debug</label><input id="showTileDebug" type="checkbox"><span>heatmap overlay</span>';
-    parent.insertBefore(row1, ui.info);
-  }
+  const rows = [
+    {
+      id: 'tileDebugRow1',
+      html: '<label>show tile debug</label><input id="showTileDebug" type="checkbox"><span>heatmap overlay</span>'
+    },
+    {
+      id: 'tileDebugRow2',
+      html: '<label>draw selected tile only</label><input id="drawSelectedTileOnly" type="checkbox"><span>single/multi-tile draw</span>'
+    },
+    {
+      id: 'tileDebugRow3',
+      html: '<label>use max tile</label><input id="useMaxTile" type="checkbox"><span>densest focus tile</span>'
+    },
+    {
+      id: 'tileDebugRow4',
+      html: '<label>tile id</label><input id="selectedTileId" type="number" min="-1" step="1" value="-1" style="width:120px;"><span id="selectedTileIdNote">manual tile id</span>'
+    },
+    {
+      id: 'tileDebugRow5',
+      html: '<label>tile radius</label><input id="tileRadius" type="number" min="0" step="1" value="0" style="width:120px;"><span id="tileRadiusNote">0=single, 1=3x3, 2=5x5</span>'
+    }
+  ];
 
-  let row2 = document.getElementById('tileDebugRow2');
-  if (!row2) {
-    row2 = document.createElement('div');
-    row2.className = 'row';
-    row2.id = 'tileDebugRow2';
-    row2.innerHTML =
-      '<label>draw selected tile only</label><input id="drawSelectedTileOnly" type="checkbox"><span>single-tile draw</span>';
-    parent.insertBefore(row2, ui.info);
-  }
-
-  let row3 = document.getElementById('tileDebugRow3');
-  if (!row3) {
-    row3 = document.createElement('div');
-    row3.className = 'row';
-    row3.id = 'tileDebugRow3';
-    row3.innerHTML =
-      '<label>use max tile</label><input id="useMaxTile" type="checkbox"><span>densest tile</span>';
-    parent.insertBefore(row3, ui.info);
-  }
-
-  let row4 = document.getElementById('tileDebugRow4');
-  if (!row4) {
-    row4 = document.createElement('div');
-    row4.className = 'row';
-    row4.id = 'tileDebugRow4';
-    row4.innerHTML =
-      '<label>tile id</label><input id="selectedTileId" type="number" min="-1" step="1" value="-1" style="width:120px;"><span id="selectedTileIdNote">manual tile id</span>';
-    parent.insertBefore(row4, ui.info);
+  for (const rowDef of rows) {
+    let row = document.getElementById(rowDef.id);
+    if (!row) {
+      row = document.createElement('div');
+      row.className = 'row';
+      row.id = rowDef.id;
+      row.innerHTML = rowDef.html;
+      parent.insertBefore(row, ui.info);
+    }
   }
 
   ui.showTileDebugCheck = document.getElementById('showTileDebug');
@@ -86,6 +80,8 @@ function ensureTileDebugControls() {
   ui.useMaxTileCheck = document.getElementById('useMaxTile');
   ui.selectedTileIdInput = document.getElementById('selectedTileId');
   ui.selectedTileIdNote = document.getElementById('selectedTileIdNote');
+  ui.tileRadiusInput = document.getElementById('tileRadius');
+  ui.tileRadiusNote = document.getElementById('tileRadiusNote');
 }
 
 ensureTileDebugControls();
@@ -113,22 +109,31 @@ const tokenRef = {
   value: 0
 };
 
+// Step9 globals read by gpu_renderer.js / gpu_tile_select.js
 window.__GPU_TILE_DEBUG_OVERLAY__ = false;
 window.__GPU_TILE_DRAW_SELECTED_ONLY__ = false;
 window.__GPU_TILE_USE_MAX_TILE__ = true;
 window.__GPU_TILE_SELECTED_ID__ = -1;
+window.__GPU_TILE_RADIUS__ = 0;
 
 function syncTileDebugGlobalsFromUI() {
   window.__GPU_TILE_DEBUG_OVERLAY__ = !!ui.showTileDebugCheck.checked;
   window.__GPU_TILE_DRAW_SELECTED_ONLY__ = !!ui.drawSelectedTileOnlyCheck.checked;
   window.__GPU_TILE_USE_MAX_TILE__ = !!ui.useMaxTileCheck.checked;
 
-  const v = Number(ui.selectedTileIdInput.value);
-  window.__GPU_TILE_SELECTED_ID__ = Number.isInteger(v) ? v : -1;
+  const tileId = Number(ui.selectedTileIdInput.value);
+  window.__GPU_TILE_SELECTED_ID__ = Number.isInteger(tileId) ? tileId : -1;
+
+  const tileRadius = Number(ui.tileRadiusInput.value);
+  window.__GPU_TILE_RADIUS__ = Number.isInteger(tileRadius) && tileRadius >= 0 ? tileRadius : 0;
 
   const manualEnabled = ui.drawSelectedTileOnlyCheck.checked && !ui.useMaxTileCheck.checked;
   ui.selectedTileIdInput.disabled = !manualEnabled;
   ui.selectedTileIdNote.textContent = manualEnabled ? 'manual tile id' : 'used only when max tile is off';
+
+  const radiusEnabled = ui.drawSelectedTileOnlyCheck.checked;
+  ui.tileRadiusInput.disabled = !radiusEnabled;
+  ui.tileRadiusNote.textContent = radiusEnabled ? '0=single, 1=3x3, 2=5x5' : 'used only when single/multi-tile draw is on';
 }
 
 function setCanvasSize() {
@@ -255,9 +260,14 @@ ui.bgGraySlider.addEventListener('input', () => {
   });
 });
 
-ui.selectedTileIdInput.addEventListener('input', () => {
-  syncTileDebugGlobalsFromUI();
-  scheduleRender();
+[
+  'selectedTileIdInput',
+  'tileRadiusInput'
+].forEach(key => {
+  ui[key].addEventListener('input', () => {
+    syncTileDebugGlobalsFromUI();
+    scheduleRender();
+  });
 });
 
 ui.playBtn.addEventListener('click', () => {
@@ -327,6 +337,7 @@ ui.showTileDebugCheck.checked = false;
 ui.drawSelectedTileOnlyCheck.checked = false;
 ui.useMaxTileCheck.checked = true;
 ui.selectedTileIdInput.value = '-1';
+ui.tileRadiusInput.value = '0';
 syncTileDebugGlobalsFromUI();
 
 setCanvasSize();

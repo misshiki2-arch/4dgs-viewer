@@ -25,7 +25,8 @@ import {
   getDrawTileMode,
   setDefaultDrawTileMode,
   chooseFocusTileId,
-  buildDrawIndexList,
+  buildNeighborTileIds,
+  buildMultiTileDrawIndexList,
   formatTileSelectionState
 } from './gpu_tile_select.js';
 import { buildVisibleSplats, getVisibleBuildConfig } from './gpu_visible_builder.js';
@@ -64,13 +65,31 @@ function applyUiTileModeToGlobals(ui) {
     const v = Number(ui.selectedTileIdInput.value);
     window.__GPU_TILE_SELECTED_ID__ = Number.isInteger(v) ? v : -1;
   }
+  if (ui.tileRadiusInput) {
+    const r = Number(ui.tileRadiusInput.value);
+    window.__GPU_TILE_RADIUS__ = Number.isInteger(r) && r >= 0 ? r : 0;
+  }
+}
+
+function buildFocusTileRects(tileIds, tileGrid, canvasWidth, canvasHeight) {
+  const rects = [];
+  for (const tileId of tileIds) {
+    const tx = tileId % tileGrid.tileCols;
+    const ty = Math.floor(tileId / tileGrid.tileCols);
+    rects.push({
+      tileId,
+      tx,
+      ty,
+      rect: getTilePixelRect(tx, ty, tileGrid.tileSize, canvasWidth, canvasHeight)
+    });
+  }
+  return rects;
 }
 
 function enableTileScissor(gl, canvas, tileRect) {
   const [x0, y0, x1, y1] = tileRect;
   const w = Math.max(0, x1 - x0);
   const h = Math.max(0, y1 - y0);
-  // Canvas/UI coordinates are top-left origin, WebGL scissor uses bottom-left origin.
   const scY = canvas.height - y1;
   gl.enable(gl.SCISSOR_TEST);
   gl.scissor(x0, scY, w, h);
@@ -139,7 +158,6 @@ export async function renderGpuFrame({
   infoEl
 }) {
   const gl = gpu.gl;
-
   const bg255 = parseInt(ui.bgGraySlider.value, 10);
   const bg = bg255 / 255.0;
 
@@ -157,13 +175,11 @@ export async function renderGpuFrame({
     gpu.resize(canvas.width, canvas.height);
     gl.disable(gl.BLEND);
     clearToGray(gl, bg);
-
     debugOverlayCanvas.width = canvas.width;
     debugOverlayCanvas.height = canvas.height;
     debugCtx.clearRect(0, 0, debugOverlayCanvas.width, debugOverlayCanvas.height);
     debugOverlayCanvas.style.display = 'none';
-
-    setInfoText(infoEl, 'GPU Step8 viewer\nNo scene loaded.');
+    setInfoText(infoEl, 'GPU Step9 viewer\nNo scene loaded.');
     return;
   }
 
@@ -185,7 +201,6 @@ export async function renderGpuFrame({
     tileGrid,
     ...buildConfig
   });
-
   if (visibleResult === null) return;
 
   const { visible, activeTileBox, buildStats } = visibleResult;
@@ -199,15 +214,14 @@ export async function renderGpuFrame({
   );
 
   const focusTileId = chooseFocusTileId(tileData, mode);
-  const drawIndices = buildDrawIndexList(visible, tileData, focusTileId, mode.drawSelectedOnly);
+  const focusTileIds = mode.drawSelectedOnly
+    ? buildNeighborTileIds(focusTileId, tileGrid.tileCols, tileGrid.tileRows, mode.tileRadius)
+    : [];
+  const drawIndices = buildMultiTileDrawIndexList(visible, tileData, focusTileIds, mode.drawSelectedOnly);
   const drawData = buildDrawArraysFromIndices(visible, drawIndices);
-
-  let focusTileRect = null;
-  if (focusTileId >= 0) {
-    const tx = focusTileId % tileGrid.tileCols;
-    const ty = Math.floor(focusTileId / tileGrid.tileCols);
-    focusTileRect = getTilePixelRect(tx, ty, tileGrid.tileSize, canvas.width, canvas.height);
-  }
+  const focusTileRects = mode.drawSelectedOnly
+    ? buildFocusTileRects(focusTileIds, tileGrid, canvas.width, canvas.height)
+    : [];
 
   gpu.resize(canvas.width, canvas.height);
 
@@ -215,15 +229,14 @@ export async function renderGpuFrame({
   enableStandardAlphaBlend(gl);
   clearToGray(gl, bg);
 
-  const scissorEnabled = !!(mode.drawSelectedOnly && focusTileRect);
-  if (scissorEnabled) {
-    enableTileScissor(gl, canvas, focusTileRect);
-  }
-
-  uploadAndDraw(gl, gpu, drawData, canvas.width, canvas.height);
-
-  if (scissorEnabled) {
-    disableTileScissor(gl);
+  if (!mode.drawSelectedOnly) {
+    uploadAndDraw(gl, gpu, drawData, canvas.width, canvas.height);
+  } else {
+    for (const item of focusTileRects) {
+      enableTileScissor(gl, canvas, item.rect);
+      uploadAndDraw(gl, gpu, drawData, canvas.width, canvas.height);
+      disableTileScissor(gl);
+    }
   }
 
   debugOverlayCanvas.width = canvas.width;
@@ -239,7 +252,7 @@ export async function renderGpuFrame({
       canvasWidth: canvas.width,
       canvasHeight: canvas.height,
       highlightTileId: focusTileId,
-      selectedTileIds: mode.drawSelectedOnly && focusTileId >= 0 ? [focusTileId] : null,
+      selectedTileIds: mode.drawSelectedOnly ? focusTileIds : null,
       alpha: 0.35
     });
     drawTileHeatmapOverlay(debugCtx, heatmap);
@@ -259,7 +272,7 @@ export async function renderGpuFrame({
     canvasWidth: canvas.width,
     canvasHeight: canvas.height
   });
-  const tileSelectionText = formatTileSelectionState(mode, focusTileId);
+  const tileSelectionText = formatTileSelectionState(mode, focusTileId, focusTileIds);
 
   const drawStats = buildDrawStats({
     visibleCount: visible.length,
@@ -271,8 +284,10 @@ export async function renderGpuFrame({
 
   const extraLines = [
     '',
-    `scissorEnabled=${scissorEnabled}`,
-    `focusTileRect=${focusTileRect ? '[' + focusTileRect.join(', ') + ']' : 'none'}`,
+    `tileRadius=${mode.tileRadius}`,
+    `focusTileIds=${focusTileIds.length > 0 ? '[' + focusTileIds.join(', ') + ']' : 'none'}`,
+    `focusTileRects=${focusTileRects.length}`,
+    `multiTileScissor=${mode.drawSelectedOnly}`,
     `buildAccepted=${buildStats.accepted}  buildProcessed=${buildStats.processed}  buildCulled=${buildStats.culled}`,
     '',
     tileSelectionText,
@@ -299,13 +314,13 @@ export async function renderGpuFrame({
     timestamp: buildConfig.timestamp,
     splatScale: buildConfig.scalingModifier,
     elapsedMs: elapsed,
-    stepLabel: 'GPU Step8',
+    stepLabel: 'GPU Step9',
     stepNotes: [
       'CPU computes screen-space splats + AABB',
       'CPU builds explicit tile->splat lists',
-      'GPU can draw all visible splats OR a single tile subset',
-      'When single-tile draw is enabled, selected tile rect is clipped by scissor test',
-      'show tile debug = true で heatmap overlay を表示'
+      'GPU can draw all visible splats OR a multi-tile subset',
+      'When tile-subset draw is enabled, selected neighbor tiles are clipped by scissor test',
+      'This is the first multi-tile tile-loop validation step toward tile-based rendering'
     ],
     tileSummary,
     avgRefsPerVisible,
