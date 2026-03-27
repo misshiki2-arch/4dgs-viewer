@@ -129,6 +129,22 @@ export async function renderGpuFrame({
   camera.updateMatrixWorld(true);
 
   setDefaultDrawTileMode(window);
+
+  // UI values win over stale globals when the corresponding widgets exist.
+  if (ui.showTileDebugCheck) {
+    window.__GPU_TILE_DEBUG_OVERLAY__ = !!ui.showTileDebugCheck.checked;
+  }
+  if (ui.drawSelectedTileOnlyCheck) {
+    window.__GPU_TILE_DRAW_SELECTED_ONLY__ = !!ui.drawSelectedTileOnlyCheck.checked;
+  }
+  if (ui.useMaxTileCheck) {
+    window.__GPU_TILE_USE_MAX_TILE__ = !!ui.useMaxTileCheck.checked;
+  }
+  if (ui.selectedTileIdInput) {
+    const v = Number(ui.selectedTileIdInput.value);
+    window.__GPU_TILE_SELECTED_ID__ = Number.isInteger(v) ? v : -1;
+  }
+
   const mode = getDrawTileMode(window);
 
   const debugOverlayCanvas = ensureDebugOverlayCanvas(canvas);
@@ -144,7 +160,7 @@ export async function renderGpuFrame({
     debugCtx.clearRect(0, 0, debugOverlayCanvas.width, debugOverlayCanvas.height);
     debugOverlayCanvas.style.display = 'none';
 
-    setInfoText(infoEl, 'GPU viewer\nNo scene loaded.');
+    setInfoText(infoEl, 'GPU Step7 viewer\nNo scene loaded.');
     return;
   }
 
@@ -259,10 +275,11 @@ export async function renderGpuFrame({
       'CPU computes screen-space splats + AABB',
       'CPU builds explicit tile->splat lists',
       'GPU can draw all visible splats OR a single tile subset',
-      'window.__GPU_TILE_DRAW_SELECTED_ONLY__ = true で単一tile描画',
-      'window.__GPU_TILE_USE_MAX_TILE__ = true なら最大密度tileを描画',
-      'window.__GPU_TILE_SELECTED_ID__ = <tileId> で任意tile描画',
-      'window.__GPU_TILE_DEBUG_OVERLAY__ = true で heatmap overlay を表示'
+      'UI toggles are wired to tile selection globals',
+      'draw selected tile only = true で単一tile描画',
+      'use max tile = true なら最大密度tileを描画',
+      'tile id で任意tile描画',
+      'show tile debug = true で heatmap overlay を表示'
     ],
     tileSummary,
     avgRefsPerVisible,

@@ -19,6 +19,9 @@ export function formatGpuViewerInfo({
   stepNotes = [],
   tileSummary = null,
   avgRefsPerVisible = null,
+  drawStats = null,
+  tileSelectionText = '',
+  tileDebugText = '',
   extraLines = []
 }) {
   const lines = [];
@@ -80,6 +83,29 @@ export function formatGpuViewerInfo({
     lines.push(
       `countEnergy=${tileSummary.countEnergy.toLocaleString()}  ${tileSummary.sampleTileText}`
     );
+    lines.push('');
+  }
+
+  if (drawStats) {
+    lines.push(`draw stats:`);
+    lines.push(`- drawCount=${drawStats.drawCount}`);
+    lines.push(`- visibleCount=${drawStats.visibleCount}`);
+    lines.push(`- drawFraction=${Number(drawStats.drawFraction).toFixed(3)}`);
+    lines.push(`- drawSelectedOnly=${drawStats.drawSelectedOnly}`);
+    lines.push(`- showOverlay=${drawStats.showOverlay}`);
+    lines.push(`- useMaxTile=${drawStats.useMaxTile}`);
+    lines.push(`- selectedTileId=${drawStats.selectedTileId}`);
+    lines.push(`- focusTileId=${drawStats.focusTileId}`);
+    lines.push('');
+  }
+
+  if (tileSelectionText) {
+    lines.push(tileSelectionText);
+    lines.push('');
+  }
+
+  if (tileDebugText) {
+    lines.push(tileDebugText);
     lines.push('');
   }
 

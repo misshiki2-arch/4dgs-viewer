@@ -2,6 +2,24 @@ import { computeGaussianState, computeScreenSplat } from './rot4d_math.js';
 import { evalSHColor } from './sh_eval.js';
 import { clampInt, computeTileRangeFromAABB } from './gpu_tile_utils.js';
 
+export function getVisibleBuildConfig(ui) {
+  return {
+    renderScale: parseFloat(ui.renderScaleSlider.value),
+    stride: parseInt(ui.strideSlider.value, 10),
+    maxVisible: parseInt(ui.maxVisibleSlider.value, 10),
+    timestamp: parseFloat(ui.timeSlider.value),
+    scalingModifier: parseFloat(ui.splatScaleSlider.value),
+    sigmaScale: parseFloat(ui.sigmaScaleSlider.value),
+    prefilterVar: parseFloat(ui.prefilterVarSlider.value),
+    useSH: !!ui.useSHCheck.checked,
+    useRot4d: !!ui.useRot4dCheck.checked,
+    useNativeRot4d: !!ui.useNativeRot4dCheck.checked,
+    useNativeMarginal: !!ui.useNativeMarginalCheck.checked,
+    forceSh3d: !!ui.forceSh3dCheck.checked,
+    timeDuration: parseFloat(ui.timeDurationSlider.value),
+  };
+}
+
 export async function buildVisibleSplats({
   raw,
   camera,
@@ -32,7 +50,12 @@ export async function buildVisibleSplats({
       renderH: 0,
       sx: 1,
       sy: 1,
-      activeTileBox: null
+      activeTileBox: null,
+      buildStats: {
+        accepted: 0,
+        processed: 0,
+        culled: 0
+      }
     };
   }
 
@@ -47,6 +70,8 @@ export async function buildVisibleSplats({
   };
 
   const visible = [];
+  let processed = 0;
+  let culled = 0;
 
   let minTileX = tileGrid ? tileGrid.tileCols : 0;
   let minTileY = tileGrid ? tileGrid.tileRows : 0;
@@ -54,6 +79,8 @@ export async function buildVisibleSplats({
   let maxTileY = -1;
 
   for (let i = 0; i < raw.N; i += stride) {
+    processed++;
+
     const gs = computeGaussianState(
       raw,
       i,
@@ -64,7 +91,10 @@ export async function buildVisibleSplats({
       useRot4d,
       flags
     );
-    if (!gs) continue;
+    if (!gs) {
+      culled++;
+      continue;
+    }
 
     const color = evalSHColor(
       raw,
@@ -85,7 +115,10 @@ export async function buildVisibleSplats({
       renderW,
       renderH
     );
-    if (!splat) continue;
+    if (!splat) {
+      culled++;
+      continue;
+    }
 
     const px = splat.px * sx;
     const py = splat.py * sy;
@@ -111,6 +144,7 @@ export async function buildVisibleSplats({
     }
 
     visible.push({
+      srcIndex: i,
       px,
       py,
       radius,
@@ -149,6 +183,11 @@ export async function buildVisibleSplats({
     renderH,
     sx,
     sy,
-    activeTileBox
+    activeTileBox,
+    buildStats: {
+      accepted: visible.length,
+      processed,
+      culled
+    }
   };
 }

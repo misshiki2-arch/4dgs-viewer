@@ -61,3 +61,34 @@ export function uploadAndDraw(gl, gpu, drawData, viewportWidth, viewportHeight) 
   uploadDrawArrays(gl, gpu, drawData);
   drawUploadedArrays(gl, gpu, viewportWidth, viewportHeight, drawData.nDraw);
 }
+
+export function buildDrawStats({
+  visibleCount,
+  drawData,
+  mode = null,
+  focusTileId = -1
+}) {
+  return {
+    visibleCount,
+    drawCount: drawData ? drawData.nDraw : 0,
+    drawFraction: visibleCount > 0 && drawData ? (drawData.nDraw / visibleCount) : 0,
+    drawSelectedOnly: mode ? !!mode.drawSelectedOnly : false,
+    showOverlay: mode ? !!mode.showOverlay : false,
+    useMaxTile: mode ? !!mode.useMaxTile : false,
+    selectedTileId: mode ? mode.selectedTileId : -1,
+    focusTileId
+  };
+}
+
+export function formatDrawStats(drawStats) {
+  return [
+    `drawCount=${drawStats.drawCount}`,
+    `visibleCount=${drawStats.visibleCount}`,
+    `drawFraction=${drawStats.drawFraction.toFixed(3)}`,
+    `drawSelectedOnly=${drawStats.drawSelectedOnly}`,
+    `showOverlay=${drawStats.showOverlay}`,
+    `useMaxTile=${drawStats.useMaxTile}`,
+    `selectedTileId=${drawStats.selectedTileId}`,
+    `focusTileId=${drawStats.focusTileId}`
+  ].join('  ');
+}

@@ -1,7 +1,7 @@
 import { findMaxCountTile } from './gpu_tile_debug.js';
 
-export function getDrawTileMode(globalObj = window) {
-  return {
+export function getDrawTileMode(globalObj = window, ui = null) {
+  const mode = {
     showOverlay: !!globalObj.__GPU_TILE_DEBUG_OVERLAY__,
     drawSelectedOnly: !!globalObj.__GPU_TILE_DRAW_SELECTED_ONLY__,
     useMaxTile: globalObj.__GPU_TILE_USE_MAX_TILE__ !== false,
@@ -9,6 +9,25 @@ export function getDrawTileMode(globalObj = window) {
       ? globalObj.__GPU_TILE_SELECTED_ID__
       : -1,
   };
+
+  // If UI exists, UI values take precedence.
+  if (ui) {
+    if (ui.showTileDebugCheck) {
+      mode.showOverlay = !!ui.showTileDebugCheck.checked;
+    }
+    if (ui.drawSelectedTileOnlyCheck) {
+      mode.drawSelectedOnly = !!ui.drawSelectedTileOnlyCheck.checked;
+    }
+    if (ui.useMaxTileCheck) {
+      mode.useMaxTile = !!ui.useMaxTileCheck.checked;
+    }
+    if (ui.selectedTileIdInput) {
+      const v = Number(ui.selectedTileIdInput.value);
+      mode.selectedTileId = Number.isInteger(v) ? v : -1;
+    }
+  }
+
+  return mode;
 }
 
 export function setDefaultDrawTileMode(globalObj = window) {
@@ -24,6 +43,30 @@ export function setDefaultDrawTileMode(globalObj = window) {
   if (typeof globalObj.__GPU_TILE_SELECTED_ID__ === 'undefined') {
     globalObj.__GPU_TILE_SELECTED_ID__ = -1;
   }
+}
+
+export function syncDrawTileModeToGlobals(mode, globalObj = window) {
+  globalObj.__GPU_TILE_DEBUG_OVERLAY__ = !!mode.showOverlay;
+  globalObj.__GPU_TILE_DRAW_SELECTED_ONLY__ = !!mode.drawSelectedOnly;
+  globalObj.__GPU_TILE_USE_MAX_TILE__ = !!mode.useMaxTile;
+  globalObj.__GPU_TILE_SELECTED_ID__ = Number.isInteger(mode.selectedTileId)
+    ? mode.selectedTileId
+    : -1;
+}
+
+export function syncDrawTileModeFromUI(ui, globalObj = window) {
+  const mode = getDrawTileMode(globalObj, ui);
+  syncDrawTileModeToGlobals(mode, globalObj);
+
+  if (ui && ui.selectedTileIdInput && ui.selectedTileIdNote) {
+    const manualEnabled = mode.drawSelectedOnly && !mode.useMaxTile;
+    ui.selectedTileIdInput.disabled = !manualEnabled;
+    ui.selectedTileIdNote.textContent = manualEnabled
+      ? 'manual tile id'
+      : 'used only when max tile is off';
+  }
+
+  return mode;
 }
 
 export function chooseFocusTileId(tileData, mode) {
@@ -59,6 +102,7 @@ export function buildDrawIndexList(visible, tileData, focusTileId, drawSelectedO
 
 export function formatTileSelectionState(mode, focusTileId) {
   return [
+    `showOverlay=${mode.showOverlay}`,
     `drawSelectedOnly=${mode.drawSelectedOnly}`,
     `useMaxTile=${mode.useMaxTile}`,
     `selectedTileId=${mode.selectedTileId}`,
