@@ -1,9 +1,6 @@
-import { computeGaussianState, computeScreenSplat } from './rot4d_math.js';
-import { evalSHColor } from './sh_eval.js';
 import {
   createProgram,
   createArrayBuffer,
-  updateArrayBuffer,
   bindFloatAttrib,
   clearToGray,
   enableStandardAlphaBlend,
@@ -14,22 +11,25 @@ import {
   GPU_STEP_FRAGMENT_SHADER
 } from './gpu_shaders.js';
 import {
-  clampInt,
   computeTileGrid,
-  computeTileRangeFromAABB,
   buildTileLists,
   summarizeTileLists
 } from './gpu_tile_utils.js';
 import {
-  findMaxCountTile,
   buildTileHeatmapImageData,
   drawTileHeatmapOverlay,
   formatTileDebugSummary
 } from './gpu_tile_debug.js';
-
-function clamp01(x) {
-  return Math.min(1, Math.max(0, x));
-}
+import {
+  getDrawTileMode,
+  setDefaultDrawTileMode,
+  chooseFocusTileId,
+  buildDrawIndexList,
+  formatTileSelectionState
+} from './gpu_tile_select.js';
+import { buildVisibleSplats } from './gpu_visible_builder.js';
+import { buildDrawArraysFromIndices, uploadAndDraw } from './gpu_draw_utils.js';
+import { formatGpuViewerInfo, setInfoText } from './gpu_info_utils.js';
 
 function ensureDebugOverlayCanvas(mainCanvas) {
   let overlay = document.getElementById('gpuTileDebugOverlay');
@@ -56,9 +56,7 @@ export function createGpuRenderer(canvas) {
     premultipliedAlpha: false,
     preserveDrawingBuffer: false
   });
-  if (!gl) {
-    throw new Error('WebGL2 is not available in this browser.');
-  }
+  if (!gl) throw new Error('WebGL2 is not available in this browser.');
 
   const program = createProgram(gl, GPU_STEP_VERTEX_SHADER, GPU_STEP_FRAGMENT_SHADER);
 
@@ -70,37 +68,10 @@ export function createGpuRenderer(canvas) {
 
   const vao = gl.createVertexArray();
 
-  bindFloatAttrib(gl, {
-    vao,
-    program,
-    buffer: centerBuffer,
-    name: 'aCenterPx',
-    size: 2
-  });
-
-  bindFloatAttrib(gl, {
-    vao,
-    program,
-    buffer: radiusBuffer,
-    name: 'aRadiusPx',
-    size: 1
-  });
-
-  bindFloatAttrib(gl, {
-    vao,
-    program,
-    buffer: colorBuffer,
-    name: 'aColorAlpha',
-    size: 4
-  });
-
-  bindFloatAttrib(gl, {
-    vao,
-    program,
-    buffer: conicBuffer,
-    name: 'aConic',
-    size: 3
-  });
+  bindFloatAttrib(gl, { vao, program, buffer: centerBuffer, name: 'aCenterPx', size: 2 });
+  bindFloatAttrib(gl, { vao, program, buffer: radiusBuffer, name: 'aRadiusPx', size: 1 });
+  bindFloatAttrib(gl, { vao, program, buffer: colorBuffer, name: 'aColorAlpha', size: 4 });
+  bindFloatAttrib(gl, { vao, program, buffer: conicBuffer, name: 'aConic', size: 3 });
 
   const uViewportPx = gl.getUniformLocation(program, 'uViewportPx');
 
@@ -141,8 +112,6 @@ export async function renderGpuFrame({
   const bg255 = parseInt(ui.bgGraySlider.value, 10);
   const bg = bg255 / 255.0;
   const renderScale = parseFloat(ui.renderScaleSlider.value);
-  const renderW = Math.max(1, Math.round(canvas.width * renderScale));
-  const renderH = Math.max(1, Math.round(canvas.height * renderScale));
   const stride = parseInt(ui.strideSlider.value, 10);
   const maxVisible = parseInt(ui.maxVisibleSlider.value, 10);
   const timestamp = parseFloat(ui.timeSlider.value);
@@ -159,7 +128,9 @@ export async function renderGpuFrame({
   controls.update();
   camera.updateMatrixWorld(true);
 
-  const debugOverlayEnabled = !!window.__GPU_TILE_DEBUG_OVERLAY__;
+  setDefaultDrawTileMode(window);
+  const mode = getDrawTileMode(window);
+
   const debugOverlayCanvas = ensureDebugOverlayCanvas(canvas);
   const debugCtx = debugOverlayCanvas.getContext('2d');
 
@@ -173,136 +144,55 @@ export async function renderGpuFrame({
     debugCtx.clearRect(0, 0, debugOverlayCanvas.width, debugOverlayCanvas.height);
     debugOverlayCanvas.style.display = 'none';
 
-    infoEl.textContent = 'GPU Step6 viewer\nNo scene loaded.';
+    setInfoText(infoEl, 'GPU viewer\nNo scene loaded.');
     return;
   }
 
   const frameToken = ++tokenRef.value;
   const t0 = performance.now();
 
-  const flags = {
-    nativeRot4d: useNativeRot4d,
-    nativeMarginal: useNativeMarginal
-  };
-
-  const visible = [];
+  const tileGrid = computeTileGrid(canvas.width, canvas.height, 32);
   const camPos = camera.position.clone();
 
-  const sx = canvas.width / renderW;
-  const sy = canvas.height / renderH;
+  const visibleResult = await buildVisibleSplats({
+    raw,
+    camera,
+    canvasWidth: canvas.width,
+    canvasHeight: canvas.height,
+    renderScale,
+    stride,
+    maxVisible,
+    timestamp,
+    scalingModifier,
+    sigmaScale,
+    prefilterVar,
+    useSH,
+    useRot4d,
+    useNativeRot4d,
+    useNativeMarginal,
+    forceSh3d,
+    timeDuration,
+    camPos,
+    tokenRef,
+    frameToken,
+    tileGrid
+  });
 
-  const tileGrid = computeTileGrid(canvas.width, canvas.height, 32);
-  let minTileX = tileGrid.tileCols, minTileY = tileGrid.tileRows, maxTileX = -1, maxTileY = -1;
+  if (visibleResult === null) return;
 
-  for (let i = 0; i < raw.N; i += stride) {
-    const gs = computeGaussianState(
-      raw,
-      i,
-      timestamp,
-      scalingModifier,
-      sigmaScale,
-      prefilterVar,
-      useRot4d,
-      flags
-    );
-    if (!gs) continue;
-
-    const color = evalSHColor(
-      raw,
-      i,
-      camPos,
-      gs.pos,
-      timestamp,
-      timeDuration,
-      useSH,
-      forceSh3d
-    );
-
-    const splat = computeScreenSplat(
-      camera,
-      gs.pos,
-      gs.cov3,
-      gs.opacity,
-      renderW,
-      renderH
-    );
-    if (!splat) continue;
-
-    const px = splat.px * sx;
-    const py = splat.py * sy;
-    const radius = Math.max(1.0, splat.radius * Math.max(sx, sy));
-
-    const minX = clampInt(Math.floor(px - radius), 0, canvas.width - 1);
-    const maxX = clampInt(Math.ceil(px + radius), 0, canvas.width - 1);
-    const minY = clampInt(Math.floor(py - radius), 0, canvas.height - 1);
-    const maxY = clampInt(Math.ceil(py + radius), 0, canvas.height - 1);
-
-    const tileRange = computeTileRangeFromAABB(
-      [minX, minY, maxX, maxY],
-      tileGrid.tileCols,
-      tileGrid.tileRows,
-      tileGrid.tileSize
-    );
-
-    minTileX = Math.min(minTileX, tileRange[0]);
-    minTileY = Math.min(minTileY, tileRange[1]);
-    maxTileX = Math.max(maxTileX, tileRange[2]);
-    maxTileY = Math.max(maxTileY, tileRange[3]);
-
-    visible.push({
-      px,
-      py,
-      radius,
-      depth: splat.depth,
-      opacity: splat.opacity,
-      color,
-      conic: [
-        splat.conic[0] / (sx * sx),
-        splat.conic[1] / (sx * sy),
-        splat.conic[2] / (sy * sy)
-      ],
-      aabb: [minX, minY, maxX, maxY],
-      tileRange
-    });
-
-    if (visible.length >= maxVisible) break;
-
-    if ((visible.length & 2047) === 0) {
-      await new Promise(r => setTimeout(r, 0));
-      if (frameToken !== tokenRef.value) return;
-    }
-  }
-
-  visible.sort((a, b) => b.depth - a.depth);
+  const { visible, activeTileBox } = visibleResult;
 
   const tileData = buildTileLists(visible, tileGrid.tileCols, tileGrid.tileRows);
   const tileSummary = summarizeTileLists(
     tileData,
     tileGrid.tileCols,
     tileGrid.tileRows,
-    [minTileX, minTileY, maxTileX, maxTileY]
+    activeTileBox
   );
-  const maxTileInfo = findMaxCountTile(tileData.counts);
 
-  const n = visible.length;
-  const centers = new Float32Array(n * 2);
-  const radii = new Float32Array(n);
-  const colors = new Float32Array(n * 4);
-  const conics = new Float32Array(n * 3);
-
-  for (let k = 0; k < n; k++) {
-    const s = visible[k];
-    centers[2 * k + 0] = s.px;
-    centers[2 * k + 1] = s.py;
-    radii[k] = s.radius;
-    colors[4 * k + 0] = clamp01(s.color[0]);
-    colors[4 * k + 1] = clamp01(s.color[1]);
-    colors[4 * k + 2] = clamp01(s.color[2]);
-    colors[4 * k + 3] = clamp01(s.opacity);
-    conics[3 * k + 0] = s.conic[0];
-    conics[3 * k + 1] = s.conic[1];
-    conics[3 * k + 2] = s.conic[2];
-  }
+  const focusTileId = chooseFocusTileId(tileData, mode);
+  const drawIndices = buildDrawIndexList(visible, tileData, focusTileId, mode.drawSelectedOnly);
+  const drawData = buildDrawArraysFromIndices(visible, drawIndices);
 
   gpu.resize(canvas.width, canvas.height);
 
@@ -310,25 +200,13 @@ export async function renderGpuFrame({
   enableStandardAlphaBlend(gl);
   clearToGray(gl, bg);
 
-  gl.useProgram(gpu.program);
-  gl.uniform2f(gpu.uViewportPx, canvas.width, canvas.height);
-  gl.bindVertexArray(gpu.vao);
-
-  updateArrayBuffer(gl, gpu.centerBuffer, centers);
-  updateArrayBuffer(gl, gpu.radiusBuffer, radii);
-  updateArrayBuffer(gl, gpu.colorBuffer, colors);
-  updateArrayBuffer(gl, gpu.conicBuffer, conics);
-
-  gl.drawArrays(gl.POINTS, 0, n);
-
-  gl.bindVertexArray(null);
-  gl.useProgram(null);
+  uploadAndDraw(gl, gpu, drawData, canvas.width, canvas.height);
 
   debugOverlayCanvas.width = canvas.width;
   debugOverlayCanvas.height = canvas.height;
   debugCtx.clearRect(0, 0, debugOverlayCanvas.width, debugOverlayCanvas.height);
 
-  if (debugOverlayEnabled) {
+  if (mode.showOverlay) {
     const heatmap = buildTileHeatmapImageData({
       tileCounts: tileData.counts,
       tileCols: tileGrid.tileCols,
@@ -336,8 +214,8 @@ export async function renderGpuFrame({
       tileSize: tileGrid.tileSize,
       canvasWidth: canvas.width,
       canvasHeight: canvas.height,
-      highlightTileId: maxTileInfo.maxTileId,
-      selectedTileIds: null,
+      highlightTileId: focusTileId,
+      selectedTileIds: mode.drawSelectedOnly && focusTileId >= 0 ? [focusTileId] : null,
       alpha: 0.35
     });
     drawTileHeatmapOverlay(debugCtx, heatmap);
@@ -347,41 +225,54 @@ export async function renderGpuFrame({
   }
 
   const elapsed = performance.now() - t0;
-  const avgRefsPerVisible = n > 0 ? (tileSummary.totalRefs / n) : 0;
+  const avgRefsPerVisible = visible.length > 0 ? (tileSummary.totalRefs / visible.length) : 0;
   const tileDebugText = formatTileDebugSummary({
     tileData,
     tileCols: tileGrid.tileCols,
     tileRows: tileGrid.tileRows,
     tileSize: tileGrid.tileSize,
-    highlightTileId: maxTileInfo.maxTileId,
+    highlightTileId: focusTileId,
     canvasWidth: canvas.width,
     canvasHeight: canvas.height
   });
+  const tileSelectionText = formatTileSelectionState(mode, focusTileId);
 
-  infoEl.textContent =
-`format=v2
-N=${raw.N.toLocaleString()}  visible=${visible.length.toLocaleString()}  stride=${stride}
-active_sh_degree=${raw.activeShDegree}  active_sh_degree_t=${raw.activeShDegreeT}
-rot_4d(file)=${raw.rot4d}  useRot4d=${useRot4d}  useSH=${useSH}
-nativeRot4d=${useNativeRot4d}  nativeMarginal=${useNativeMarginal}
-prefilterVar=${prefilterVar.toFixed(2)}  sigmaScale=${sigmaScale.toFixed(2)}
-renderScale=${renderScale.toFixed(2)}  canvas=${canvas.width}x${canvas.height}
-time=${timestamp.toFixed(2)}  splatScale=${scalingModifier.toFixed(2)}
-GPU Step6 render=${elapsed.toFixed(1)} ms
+  const infoText = formatGpuViewerInfo({
+    raw,
+    visibleCount: visible.length,
+    drawCount: drawData.nDraw,
+    stride,
+    useRot4d,
+    useSH,
+    useNativeRot4d,
+    useNativeMarginal,
+    prefilterVar,
+    sigmaScale,
+    renderScale,
+    canvasWidth: canvas.width,
+    canvasHeight: canvas.height,
+    timestamp,
+    splatScale: scalingModifier,
+    elapsedMs: elapsed,
+    stepLabel: 'GPU Step7',
+    stepNotes: [
+      'CPU computes screen-space splats + AABB',
+      'CPU builds explicit tile->splat lists',
+      'GPU can draw all visible splats OR a single tile subset',
+      'window.__GPU_TILE_DRAW_SELECTED_ONLY__ = true で単一tile描画',
+      'window.__GPU_TILE_USE_MAX_TILE__ = true なら最大密度tileを描画',
+      'window.__GPU_TILE_SELECTED_ID__ = <tileId> で任意tile描画',
+      'window.__GPU_TILE_DEBUG_OVERLAY__ = true で heatmap overlay を表示'
+    ],
+    tileSummary,
+    avgRefsPerVisible,
+    extraLines: [
+      '',
+      tileSelectionText,
+      '',
+      tileDebugText
+    ]
+  });
 
-Step6 note:
-- CPU computes screen-space splats + AABB
-- CPU builds explicit tile->splat lists
-- GPU still draws ordered anisotropic conic splats
-- gpu_tile_debug.js is now used for tile inspection
-- window.__GPU_TILE_DEBUG_OVERLAY__ = true で heatmap overlay を表示
-
-tileCols=${tileSummary.tileCols}  tileRows=${tileSummary.tileRows}  nonEmptyTiles=${tileSummary.nonEmptyTiles}
-totalTileRefs=${tileSummary.totalRefs.toLocaleString()}  avgRefsPerVisible=${avgRefsPerVisible.toFixed(2)}
-avgPerNonEmptyTile=${tileSummary.avgPerNonEmptyTile.toFixed(2)}  maxPerTile=${tileSummary.maxPerTile}
-activeTileBox=${tileSummary.activeTileBoxText}
-offsetsLen=${tileSummary.offsetsLen.toLocaleString()}  indicesLen=${tileSummary.indicesLen.toLocaleString()}
-countEnergy=${tileSummary.countEnergy.toLocaleString()}  ${tileSummary.sampleTileText}
-
-${tileDebugText}`;
+  setInfoText(infoEl, infoText);
 }
