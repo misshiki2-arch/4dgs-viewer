@@ -36,9 +36,8 @@ import {
   buildPerTileDrawBatches,
   summarizePerTileDrawBatches,
   uploadAndDraw,
-  uploadAndDrawPerTile,
-  buildDrawStats,
-  formatDrawStats
+  renderPerTileBatches,
+  buildDrawStats
 } from './gpu_draw_utils.js';
 import { formatGpuViewerInfo, setInfoText } from './gpu_info_utils.js';
 
@@ -61,15 +60,9 @@ function ensureDebugOverlayCanvas(mainCanvas) {
 }
 
 function applyUiTileModeToGlobals(ui) {
-  if (ui.showTileDebugCheck) {
-    window.__GPU_TILE_DEBUG_OVERLAY__ = !!ui.showTileDebugCheck.checked;
-  }
-  if (ui.drawSelectedTileOnlyCheck) {
-    window.__GPU_TILE_DRAW_SELECTED_ONLY__ = !!ui.drawSelectedTileOnlyCheck.checked;
-  }
-  if (ui.useMaxTileCheck) {
-    window.__GPU_TILE_USE_MAX_TILE__ = !!ui.useMaxTileCheck.checked;
-  }
+  if (ui.showTileDebugCheck) window.__GPU_TILE_DEBUG_OVERLAY__ = !!ui.showTileDebugCheck.checked;
+  if (ui.drawSelectedTileOnlyCheck) window.__GPU_TILE_DRAW_SELECTED_ONLY__ = !!ui.drawSelectedTileOnlyCheck.checked;
+  if (ui.useMaxTileCheck) window.__GPU_TILE_USE_MAX_TILE__ = !!ui.useMaxTileCheck.checked;
   if (ui.selectedTileIdInput) {
     const v = Number(ui.selectedTileIdInput.value);
     window.__GPU_TILE_SELECTED_ID__ = Number.isInteger(v) ? v : -1;
@@ -110,9 +103,7 @@ function disableTileScissor(gl) {
 
 function buildAllVisibleDrawData(visible) {
   const allDrawIndices = new Uint32Array(visible.length);
-  for (let i = 0; i < visible.length; i++) {
-    allDrawIndices[i] = i;
-  }
+  for (let i = 0; i < visible.length; i++) allDrawIndices[i] = i;
   return buildDrawArraysFromIndices(visible, allDrawIndices);
 }
 
@@ -196,7 +187,7 @@ export async function renderGpuFrame({
     debugOverlayCanvas.height = canvas.height;
     debugCtx.clearRect(0, 0, debugOverlayCanvas.width, debugOverlayCanvas.height);
     debugOverlayCanvas.style.display = 'none';
-    setInfoText(infoEl, 'GPU Step11 viewer\nNo scene loaded.');
+    setInfoText(infoEl, 'GPU Step12 viewer\nNo scene loaded.');
     return;
   }
 
@@ -265,11 +256,14 @@ export async function renderGpuFrame({
   enableStandardAlphaBlend(gl);
   clearToGray(gl, bg);
 
+  let executionSummary = null;
+
   if (!mode.drawSelectedOnly) {
     uploadAndDraw(gl, gpu, fullDrawData, canvas.width, canvas.height);
+    executionSummary = { tileBatchCount: 1, uploadCount: 1, drawCallCount: 1 };
   } else {
     const rectMap = new Map(focusTileRects.map(item => [item.tileId, item.rect]));
-    uploadAndDrawPerTile(
+    executionSummary = renderPerTileBatches(
       gl,
       gpu,
       perTileDrawBatches,
@@ -278,11 +272,8 @@ export async function renderGpuFrame({
       {
         beforeTile: (item) => {
           const rect = rectMap.get(item.tileId);
-          if (rect) {
-            enableTileScissor(gl, canvas, rect);
-          } else {
-            disableTileScissor(gl);
-          }
+          if (rect) enableTileScissor(gl, canvas, rect);
+          else disableTileScissor(gl);
         },
         afterTile: () => {
           disableTileScissor(gl);
@@ -344,27 +335,17 @@ export async function renderGpuFrame({
     mode,
     focusTileId,
     focusTileIds,
-    tileBatchSummary: effectiveTileSummary
+    tileBatchSummary: effectiveTileSummary,
+    executionSummary
   });
-  const drawStatsText = formatDrawStats(drawStats);
 
   const extraLines = [
-    '',
     `tileRadius=${mode.tileRadius}`,
     `focusTileIds=${focusTileIds.length > 0 ? '[' + focusTileIds.join(', ') + ']' : 'none'}`,
     `focusTileRects=${focusTileRects.length}`,
     `perTileMode=${mode.drawSelectedOnly}`,
-    `buildAccepted=${buildStats.accepted}  buildProcessed=${buildStats.processed}  buildCulled=${buildStats.culled}`,
-    effectiveTileSummary
-      ? `tileBatchCount=${effectiveTileSummary.tileBatchCount}  totalTileDrawCount=${effectiveTileSummary.totalTileDrawCount}  maxTileDrawCount=${effectiveTileSummary.maxTileDrawCount}  maxTileId=${effectiveTileSummary.maxTileId}  avgTileDrawCount=${effectiveTileSummary.avgTileDrawCount.toFixed(2)}`
-      : '',
-    '',
-    tileSelectionText,
-    '',
-    drawStatsText,
-    '',
-    tileDebugText
-  ].filter(Boolean);
+    `buildAccepted=${buildStats.accepted}  buildProcessed=${buildStats.processed}  buildCulled=${buildStats.culled}`
+  ];
 
   const infoText = formatGpuViewerInfo({
     raw,
@@ -383,13 +364,13 @@ export async function renderGpuFrame({
     timestamp: buildConfig.timestamp,
     splatScale: buildConfig.scalingModifier,
     elapsedMs: elapsed,
-    stepLabel: 'GPU Step11',
+    stepLabel: 'GPU Step12',
     stepNotes: [
       'CPU computes screen-space splats + AABB',
       'CPU builds explicit tile->splat lists',
-      'GPU uses draw-utils tile batches when tile-subset mode is enabled',
-      'Per-tile batch build, draw, and summary are more clearly separated than Step10',
-      'This prepares the renderer for later upload reduction and tile-level optimization'
+      'GPU records per-tile execution stats when tile-subset mode is enabled',
+      'Execution summary now distinguishes upload count and draw call count',
+      'This prepares later upload reduction and tile-batch reuse work'
     ],
     tileSummary,
     avgRefsPerVisible,

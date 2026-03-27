@@ -121,13 +121,42 @@ export function uploadAndDrawPerTile(gl, gpu, perTileDrawArrays, viewportWidth, 
   }
 }
 
+export function renderPerTileBatches(gl, gpu, perTileDrawBatches, viewportWidth, viewportHeight, hooks = {}) {
+  const {
+    beforeTile = null,
+    afterTile = null
+  } = hooks;
+
+  let uploadCount = 0;
+  let drawCallCount = 0;
+
+  for (const item of perTileDrawBatches) {
+    if (beforeTile) beforeTile(item);
+
+    uploadDrawArrays(gl, gpu, item.drawData);
+    uploadCount += 1;
+
+    drawUploadedArrays(gl, gpu, viewportWidth, viewportHeight, item.drawData.nDraw);
+    drawCallCount += 1;
+
+    if (afterTile) afterTile(item);
+  }
+
+  return {
+    tileBatchCount: perTileDrawBatches.length,
+    uploadCount,
+    drawCallCount
+  };
+}
+
 export function buildDrawStats({
   visibleCount,
   drawData,
   mode = null,
   focusTileId = -1,
   focusTileIds = null,
-  tileBatchSummary = null
+  tileBatchSummary = null,
+  executionSummary = null
 }) {
   return {
     visibleCount,
@@ -140,7 +169,8 @@ export function buildDrawStats({
     tileRadius: mode ? mode.tileRadius : 0,
     focusTileId,
     focusTileIds: focusTileIds || [],
-    tileBatchSummary
+    tileBatchSummary,
+    executionSummary
   };
 }
 
@@ -168,6 +198,11 @@ export function formatDrawStats(drawStats) {
     lines.push(`maxTileDrawCount=${drawStats.tileBatchSummary.maxTileDrawCount}`);
     lines.push(`maxTileId=${drawStats.tileBatchSummary.maxTileId}`);
     lines.push(`avgTileDrawCount=${drawStats.tileBatchSummary.avgTileDrawCount.toFixed(2)}`);
+  }
+
+  if (drawStats.executionSummary) {
+    lines.push(`uploadCount=${drawStats.executionSummary.uploadCount}`);
+    lines.push(`drawCallCount=${drawStats.executionSummary.drawCallCount}`);
   }
 
   return lines.join('  ');

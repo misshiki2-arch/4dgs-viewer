@@ -99,6 +99,8 @@ export function formatGpuViewerInfo({
     lines.push(
       `- focusTileIds=${drawStats.focusTileIds && drawStats.focusTileIds.length > 0 ? '[' + drawStats.focusTileIds.join(', ') + ']' : 'none'}`
     );
+    lines.push('');
+
     if (drawStats.tileBatchSummary) {
       lines.push('per-tile batch summary:');
       lines.push(`- tileBatchCount=${drawStats.tileBatchSummary.tileBatchCount}`);
@@ -106,8 +108,18 @@ export function formatGpuViewerInfo({
       lines.push(`- maxTileDrawCount=${drawStats.tileBatchSummary.maxTileDrawCount}`);
       lines.push(`- maxTileId=${drawStats.tileBatchSummary.maxTileId}`);
       lines.push(`- avgTileDrawCount=${Number(drawStats.tileBatchSummary.avgTileDrawCount).toFixed(2)}`);
+      lines.push('');
     }
-    lines.push('');
+
+    if (drawStats.executionSummary) {
+      lines.push('execution summary:');
+      lines.push(`- uploadCount=${drawStats.executionSummary.uploadCount}`);
+      lines.push(`- drawCallCount=${drawStats.executionSummary.drawCallCount}`);
+      if (typeof drawStats.executionSummary.tileBatchCount !== 'undefined') {
+        lines.push(`- executionTileBatchCount=${drawStats.executionSummary.tileBatchCount}`);
+      }
+      lines.push('');
+    }
   }
 
   if (tileSelectionText) {
