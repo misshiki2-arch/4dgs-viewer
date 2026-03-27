@@ -33,8 +33,8 @@ import {
 import { buildVisibleSplats, getVisibleBuildConfig } from './gpu_visible_builder.js';
 import {
   buildDrawArraysFromIndices,
-  buildPerTileDrawArrays,
-  summarizePerTileDrawArrays,
+  buildPerTileDrawBatches,
+  summarizePerTileDrawBatches,
   uploadAndDraw,
   uploadAndDrawPerTile,
   buildDrawStats,
@@ -106,6 +106,14 @@ function enableTileScissor(gl, canvas, tileRect) {
 
 function disableTileScissor(gl) {
   gl.disable(gl.SCISSOR_TEST);
+}
+
+function buildAllVisibleDrawData(visible) {
+  const allDrawIndices = new Uint32Array(visible.length);
+  for (let i = 0; i < visible.length; i++) {
+    allDrawIndices[i] = i;
+  }
+  return buildDrawArraysFromIndices(visible, allDrawIndices);
 }
 
 export function createGpuRenderer(canvas) {
@@ -188,7 +196,7 @@ export async function renderGpuFrame({
     debugOverlayCanvas.height = canvas.height;
     debugCtx.clearRect(0, 0, debugOverlayCanvas.width, debugOverlayCanvas.height);
     debugOverlayCanvas.style.display = 'none';
-    setInfoText(infoEl, 'GPU Step10 viewer\nNo scene loaded.');
+    setInfoText(infoEl, 'GPU Step11 viewer\nNo scene loaded.');
     return;
   }
 
@@ -231,8 +239,8 @@ export async function renderGpuFrame({
     ? buildPerTileDrawIndexLists(visible, tileData, focusTileIds, true)
     : [];
 
-  const perTileDrawArrays = mode.drawSelectedOnly
-    ? buildPerTileDrawArrays(visible, tileBatches)
+  const perTileDrawBatches = mode.drawSelectedOnly
+    ? buildPerTileDrawBatches(visible, tileBatches)
     : [];
 
   const tileBatchSummary = mode.drawSelectedOnly
@@ -240,7 +248,7 @@ export async function renderGpuFrame({
     : null;
 
   const perTileDrawSummary = mode.drawSelectedOnly
-    ? summarizePerTileDrawArrays(perTileDrawArrays)
+    ? summarizePerTileDrawBatches(perTileDrawBatches)
     : null;
 
   const effectiveTileSummary = perTileDrawSummary || tileBatchSummary;
@@ -249,11 +257,7 @@ export async function renderGpuFrame({
     ? buildFocusTileRects(focusTileIds, tileGrid, canvas.width, canvas.height)
     : [];
 
-  const allDrawIndices = new Uint32Array(visible.length);
-  for (let i = 0; i < visible.length; i++) {
-    allDrawIndices[i] = i;
-  }
-  const unionDrawData = buildDrawArraysFromIndices(visible, allDrawIndices);
+  const fullDrawData = buildAllVisibleDrawData(visible);
 
   gpu.resize(canvas.width, canvas.height);
 
@@ -262,20 +266,25 @@ export async function renderGpuFrame({
   clearToGray(gl, bg);
 
   if (!mode.drawSelectedOnly) {
-    uploadAndDraw(gl, gpu, unionDrawData, canvas.width, canvas.height);
+    uploadAndDraw(gl, gpu, fullDrawData, canvas.width, canvas.height);
   } else {
     const rectMap = new Map(focusTileRects.map(item => [item.tileId, item.rect]));
     uploadAndDrawPerTile(
       gl,
       gpu,
-      perTileDrawArrays,
+      perTileDrawBatches,
       canvas.width,
       canvas.height,
-      (item) => {
-        const rect = rectMap.get(item.tileId);
-        if (rect) {
-          enableTileScissor(gl, canvas, rect);
-        } else {
+      {
+        beforeTile: (item) => {
+          const rect = rectMap.get(item.tileId);
+          if (rect) {
+            enableTileScissor(gl, canvas, rect);
+          } else {
+            disableTileScissor(gl);
+          }
+        },
+        afterTile: () => {
           disableTileScissor(gl);
         }
       }
@@ -307,6 +316,7 @@ export async function renderGpuFrame({
 
   const elapsed = performance.now() - t0;
   const avgRefsPerVisible = visible.length > 0 ? (tileSummary.totalRefs / visible.length) : 0;
+
   const tileDebugText = formatTileDebugSummary({
     tileData,
     tileCols: tileGrid.tileCols,
@@ -326,7 +336,7 @@ export async function renderGpuFrame({
 
   const effectiveDrawData = mode.drawSelectedOnly
     ? { nDraw: effectiveTileSummary ? effectiveTileSummary.totalTileDrawCount : 0 }
-    : unionDrawData;
+    : fullDrawData;
 
   const drawStats = buildDrawStats({
     visibleCount: visible.length,
@@ -373,13 +383,13 @@ export async function renderGpuFrame({
     timestamp: buildConfig.timestamp,
     splatScale: buildConfig.scalingModifier,
     elapsedMs: elapsed,
-    stepLabel: 'GPU Step10',
+    stepLabel: 'GPU Step11',
     stepNotes: [
       'CPU computes screen-space splats + AABB',
       'CPU builds explicit tile->splat lists',
-      'GPU now draws per-tile batches when tile-subset mode is enabled',
-      'Each tile uses its own drawIndices / drawData instead of one union batch',
-      'This is the first true per-tile rendering path toward tile-based compositing'
+      'GPU uses draw-utils tile batches when tile-subset mode is enabled',
+      'Per-tile batch build, draw, and summary are more clearly separated than Step10',
+      'This prepares the renderer for later upload reduction and tile-level optimization'
     ],
     tileSummary,
     avgRefsPerVisible,

@@ -46,6 +46,10 @@ export function buildPerTileDrawArrays(visible, tileBatches) {
   return out;
 }
 
+export function buildPerTileDrawBatches(visible, tileBatches) {
+  return buildPerTileDrawArrays(visible, tileBatches);
+}
+
 export function summarizePerTileDrawArrays(perTileDrawArrays) {
   let totalTileDrawCount = 0;
   let maxTileDrawCount = 0;
@@ -68,6 +72,10 @@ export function summarizePerTileDrawArrays(perTileDrawArrays) {
       ? (totalTileDrawCount / perTileDrawArrays.length)
       : 0
   };
+}
+
+export function summarizePerTileDrawBatches(perTileDrawBatches) {
+  return summarizePerTileDrawArrays(perTileDrawBatches);
 }
 
 export function uploadDrawArrays(gl, gpu, drawData) {
@@ -100,10 +108,16 @@ export function uploadAndDraw(gl, gpu, drawData, viewportWidth, viewportHeight) 
   drawUploadedArrays(gl, gpu, viewportWidth, viewportHeight, drawData.nDraw);
 }
 
-export function uploadAndDrawPerTile(gl, gpu, perTileDrawArrays, viewportWidth, viewportHeight, drawTileFn) {
+export function uploadAndDrawPerTile(gl, gpu, perTileDrawArrays, viewportWidth, viewportHeight, hooks = {}) {
+  const {
+    beforeTile = null,
+    afterTile = null
+  } = hooks;
+
   for (const item of perTileDrawArrays) {
-    if (drawTileFn) drawTileFn(item);
+    if (beforeTile) beforeTile(item);
     uploadAndDraw(gl, gpu, item.drawData, viewportWidth, viewportHeight);
+    if (afterTile) afterTile(item);
   }
 }
 

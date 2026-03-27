@@ -65,21 +65,22 @@ export function formatGpuViewerInfo({
   }
 
   if (tileSummary) {
+    lines.push('tile summary:');
     lines.push(
-      `tileCols=${tileSummary.tileCols}  tileRows=${tileSummary.tileRows}  nonEmptyTiles=${tileSummary.nonEmptyTiles}`
+      `- tileCols=${tileSummary.tileCols}  tileRows=${tileSummary.tileRows}  nonEmptyTiles=${tileSummary.nonEmptyTiles}`
     );
     lines.push(
-      `totalTileRefs=${tileSummary.totalRefs.toLocaleString()}  avgRefsPerVisible=${avgRefsPerVisible !== null ? Number(avgRefsPerVisible).toFixed(2) : '0.00'}`
+      `- totalTileRefs=${tileSummary.totalRefs.toLocaleString()}  avgRefsPerVisible=${avgRefsPerVisible !== null ? Number(avgRefsPerVisible).toFixed(2) : '0.00'}`
     );
     lines.push(
-      `avgPerNonEmptyTile=${Number(tileSummary.avgPerNonEmptyTile).toFixed(2)}  maxPerTile=${tileSummary.maxPerTile}`
+      `- avgPerNonEmptyTile=${Number(tileSummary.avgPerNonEmptyTile).toFixed(2)}  maxPerTile=${tileSummary.maxPerTile}`
     );
-    lines.push(`activeTileBox=${tileSummary.activeTileBoxText}`);
+    lines.push(`- activeTileBox=${tileSummary.activeTileBoxText}`);
     lines.push(
-      `offsetsLen=${tileSummary.offsetsLen.toLocaleString()}  indicesLen=${tileSummary.indicesLen.toLocaleString()}`
+      `- offsetsLen=${tileSummary.offsetsLen.toLocaleString()}  indicesLen=${tileSummary.indicesLen.toLocaleString()}`
     );
     lines.push(
-      `countEnergy=${tileSummary.countEnergy.toLocaleString()}  ${tileSummary.sampleTileText}`
+      `- countEnergy=${tileSummary.countEnergy.toLocaleString()}  ${tileSummary.sampleTileText}`
     );
     lines.push('');
   }
@@ -99,6 +100,7 @@ export function formatGpuViewerInfo({
       `- focusTileIds=${drawStats.focusTileIds && drawStats.focusTileIds.length > 0 ? '[' + drawStats.focusTileIds.join(', ') + ']' : 'none'}`
     );
     if (drawStats.tileBatchSummary) {
+      lines.push('per-tile batch summary:');
       lines.push(`- tileBatchCount=${drawStats.tileBatchSummary.tileBatchCount}`);
       lines.push(`- totalTileDrawCount=${drawStats.tileBatchSummary.totalTileDrawCount}`);
       lines.push(`- maxTileDrawCount=${drawStats.tileBatchSummary.maxTileDrawCount}`);
@@ -109,16 +111,19 @@ export function formatGpuViewerInfo({
   }
 
   if (tileSelectionText) {
+    lines.push('tile selection:');
     lines.push(tileSelectionText);
     lines.push('');
   }
 
   if (tileDebugText) {
+    lines.push('tile debug:');
     lines.push(tileDebugText);
     lines.push('');
   }
 
   if (extraLines && extraLines.length > 0) {
+    lines.push('extra:');
     for (const line of extraLines) {
       lines.push(line);
     }
