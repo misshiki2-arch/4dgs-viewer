@@ -60,9 +60,15 @@ function ensureDebugOverlayCanvas(mainCanvas) {
 }
 
 function applyUiTileModeToGlobals(ui) {
-  if (ui.showTileDebugCheck) window.__GPU_TILE_DEBUG_OVERLAY__ = !!ui.showTileDebugCheck.checked;
-  if (ui.drawSelectedTileOnlyCheck) window.__GPU_TILE_DRAW_SELECTED_ONLY__ = !!ui.drawSelectedTileOnlyCheck.checked;
-  if (ui.useMaxTileCheck) window.__GPU_TILE_USE_MAX_TILE__ = !!ui.useMaxTileCheck.checked;
+  if (ui.showTileDebugCheck) {
+    window.__GPU_TILE_DEBUG_OVERLAY__ = !!ui.showTileDebugCheck.checked;
+  }
+  if (ui.drawSelectedTileOnlyCheck) {
+    window.__GPU_TILE_DRAW_SELECTED_ONLY__ = !!ui.drawSelectedTileOnlyCheck.checked;
+  }
+  if (ui.useMaxTileCheck) {
+    window.__GPU_TILE_USE_MAX_TILE__ = !!ui.useMaxTileCheck.checked;
+  }
   if (ui.selectedTileIdInput) {
     const v = Number(ui.selectedTileIdInput.value);
     window.__GPU_TILE_SELECTED_ID__ = Number.isInteger(v) ? v : -1;
@@ -103,7 +109,9 @@ function disableTileScissor(gl) {
 
 function buildAllVisibleDrawData(visible) {
   const allDrawIndices = new Uint32Array(visible.length);
-  for (let i = 0; i < visible.length; i++) allDrawIndices[i] = i;
+  for (let i = 0; i < visible.length; i++) {
+    allDrawIndices[i] = i;
+  }
   return buildDrawArraysFromIndices(visible, allDrawIndices);
 }
 
@@ -187,7 +195,7 @@ export async function renderGpuFrame({
     debugOverlayCanvas.height = canvas.height;
     debugCtx.clearRect(0, 0, debugOverlayCanvas.width, debugOverlayCanvas.height);
     debugOverlayCanvas.style.display = 'none';
-    setInfoText(infoEl, 'GPU Step12 viewer\nNo scene loaded.');
+    setInfoText(infoEl, 'GPU Step13 viewer\nNo scene loaded.');
     return;
   }
 
@@ -207,6 +215,7 @@ export async function renderGpuFrame({
     tokenRef,
     frameToken,
     tileGrid,
+    temporalSigmaThreshold: 3.0,
     ...buildConfig
   });
   if (visibleResult === null) return;
@@ -260,7 +269,11 @@ export async function renderGpuFrame({
 
   if (!mode.drawSelectedOnly) {
     uploadAndDraw(gl, gpu, fullDrawData, canvas.width, canvas.height);
-    executionSummary = { tileBatchCount: 1, uploadCount: 1, drawCallCount: 1 };
+    executionSummary = {
+      tileBatchCount: 1,
+      uploadCount: 1,
+      drawCallCount: 1
+    };
   } else {
     const rectMap = new Map(focusTileRects.map(item => [item.tileId, item.rect]));
     executionSummary = renderPerTileBatches(
@@ -272,8 +285,11 @@ export async function renderGpuFrame({
       {
         beforeTile: (item) => {
           const rect = rectMap.get(item.tileId);
-          if (rect) enableTileScissor(gl, canvas, rect);
-          else disableTileScissor(gl);
+          if (rect) {
+            enableTileScissor(gl, canvas, rect);
+          } else {
+            disableTileScissor(gl);
+          }
         },
         afterTile: () => {
           disableTileScissor(gl);
@@ -344,7 +360,8 @@ export async function renderGpuFrame({
     `focusTileIds=${focusTileIds.length > 0 ? '[' + focusTileIds.join(', ') + ']' : 'none'}`,
     `focusTileRects=${focusTileRects.length}`,
     `perTileMode=${mode.drawSelectedOnly}`,
-    `buildAccepted=${buildStats.accepted}  buildProcessed=${buildStats.processed}  buildCulled=${buildStats.culled}`
+    `buildAccepted=${buildStats.accepted}  buildProcessed=${buildStats.processed}  buildCulled=${buildStats.culled}`,
+    `temporalPassed=${buildStats.temporalPassed}  temporalRejected=${buildStats.temporalRejected}  temporalCullRatio=${buildStats.temporalCullRatio.toFixed(3)}`
   ];
 
   const infoText = formatGpuViewerInfo({
@@ -364,13 +381,12 @@ export async function renderGpuFrame({
     timestamp: buildConfig.timestamp,
     splatScale: buildConfig.scalingModifier,
     elapsedMs: elapsed,
-    stepLabel: 'GPU Step12',
+    stepLabel: 'GPU Step13',
     stepNotes: [
-      'CPU computes screen-space splats + AABB',
-      'CPU builds explicit tile->splat lists',
-      'GPU records per-tile execution stats when tile-subset mode is enabled',
-      'Execution summary now distinguishes upload count and draw call count',
-      'This prepares later upload reduction and tile-batch reuse work'
+      'CPU now performs temporal culling before costly screen-space work',
+      'Temporal stats show how many Gaussians are rejected before later stages',
+      'Tile batching and per-tile execution stats remain available',
+      'This step targets CPU-side candidate reduction rather than tile-count reduction'
     ],
     tileSummary,
     avgRefsPerVisible,

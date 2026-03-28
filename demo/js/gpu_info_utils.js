@@ -122,6 +122,19 @@ export function formatGpuViewerInfo({
     }
   }
 
+  let temporalLine = null;
+  if (extraLines && extraLines.length > 0) {
+    temporalLine = extraLines.find(
+      line => typeof line === 'string' && line.startsWith('temporalPassed=')
+    ) || null;
+  }
+
+  if (temporalLine) {
+    lines.push('temporal culling summary:');
+    lines.push(`- ${temporalLine}`);
+    lines.push('');
+  }
+
   if (tileSelectionText) {
     lines.push('tile selection:');
     lines.push(tileSelectionText);
@@ -135,9 +148,12 @@ export function formatGpuViewerInfo({
   }
 
   if (extraLines && extraLines.length > 0) {
-    lines.push('extra:');
-    for (const line of extraLines) {
-      lines.push(line);
+    const filteredExtra = extraLines.filter(line => line !== temporalLine);
+    if (filteredExtra.length > 0) {
+      lines.push('extra:');
+      for (const line of filteredExtra) {
+        lines.push(line);
+      }
     }
   }
 

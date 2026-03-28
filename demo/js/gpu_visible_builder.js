@@ -20,6 +20,29 @@ export function getVisibleBuildConfig(ui) {
   };
 }
 
+function getTemporalSigma(raw, i, sigmaScale = 1.0) {
+  // parser 側で storeScaleLog=true の場合はすでに exp 済みの scale_t を返している
+  // したがって viewer 側で再度 exp してはいけない
+  if (!raw || !raw.scale_t) return Infinity;
+  const s = raw.scale_t[i];
+  if (!Number.isFinite(s)) return Infinity;
+  const sigma = s * sigmaScale;
+  return Number.isFinite(sigma) && sigma > 0 ? sigma : Infinity;
+}
+
+function passesTemporalCulling(raw, i, timestamp, sigmaScale = 1.0, sigmaThreshold = 3.0) {
+  if (!raw || !raw.t || !raw.scale_t) return true;
+
+  const t0 = raw.t[i];
+  if (!Number.isFinite(t0)) return true;
+
+  const sigmaT = getTemporalSigma(raw, i, sigmaScale);
+  if (!Number.isFinite(sigmaT)) return true;
+
+  const dt = Math.abs(timestamp - t0);
+  return dt <= sigmaThreshold * sigmaT;
+}
+
 export async function buildVisibleSplats({
   raw,
   camera,
@@ -41,7 +64,8 @@ export async function buildVisibleSplats({
   camPos,
   tokenRef = null,
   frameToken = null,
-  tileGrid = null
+  tileGrid = null,
+  temporalSigmaThreshold = 3.0
 }) {
   if (!raw) {
     return {
@@ -54,7 +78,10 @@ export async function buildVisibleSplats({
       buildStats: {
         accepted: 0,
         processed: 0,
-        culled: 0
+        culled: 0,
+        temporalRejected: 0,
+        temporalPassed: 0,
+        temporalCullRatio: 0
       }
     };
   }
@@ -72,6 +99,8 @@ export async function buildVisibleSplats({
   const visible = [];
   let processed = 0;
   let culled = 0;
+  let temporalRejected = 0;
+  let temporalPassed = 0;
 
   let minTileX = tileGrid ? tileGrid.tileCols : 0;
   let minTileY = tileGrid ? tileGrid.tileRows : 0;
@@ -80,6 +109,13 @@ export async function buildVisibleSplats({
 
   for (let i = 0; i < raw.N; i += stride) {
     processed++;
+
+    if (!passesTemporalCulling(raw, i, timestamp, sigmaScale, temporalSigmaThreshold)) {
+      temporalRejected++;
+      culled++;
+      continue;
+    }
+    temporalPassed++;
 
     const gs = computeGaussianState(
       raw,
@@ -187,7 +223,10 @@ export async function buildVisibleSplats({
     buildStats: {
       accepted: visible.length,
       processed,
-      culled
+      culled,
+      temporalRejected,
+      temporalPassed,
+      temporalCullRatio: processed > 0 ? (temporalRejected / processed) : 0
     }
   };
 }
