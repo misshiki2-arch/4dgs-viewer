@@ -2,8 +2,8 @@ import { computeGaussianState, computeScreenSplat } from './rot4d_math.js';
 import { evalSHColor } from './sh_eval.js';
 import { clampInt, computeTileRangeFromAABB } from './gpu_tile_utils.js';
 
-export function getVisibleBuildConfig(ui) {
-  return {
+export function getVisibleBuildConfig(ui, interactionOverride = null) {
+  const baseConfig = {
     renderScale: parseFloat(ui.renderScaleSlider.value),
     stride: parseInt(ui.strideSlider.value, 10),
     maxVisible: parseInt(ui.maxVisibleSlider.value, 10),
@@ -17,6 +17,19 @@ export function getVisibleBuildConfig(ui) {
     useNativeMarginal: !!ui.useNativeMarginalCheck.checked,
     forceSh3d: !!ui.forceSh3dCheck.checked,
     timeDuration: parseFloat(ui.timeDurationSlider.value),
+    interactionActive: false
+  };
+
+  if (!interactionOverride || !interactionOverride.interactionActive) {
+    return baseConfig;
+  }
+
+  return {
+    ...baseConfig,
+    interactionActive: true,
+    stride: interactionOverride.stride,
+    maxVisible: interactionOverride.maxVisible,
+    renderScale: interactionOverride.renderScale
   };
 }
 
@@ -65,7 +78,8 @@ export async function buildVisibleSplats({
   tokenRef = null,
   frameToken = null,
   tileGrid = null,
-  temporalSigmaThreshold = 3.0
+  temporalSigmaThreshold = 3.0,
+  interactionActive = false
 }) {
   if (!raw) {
     return {
@@ -81,7 +95,8 @@ export async function buildVisibleSplats({
         culled: 0,
         temporalRejected: 0,
         temporalPassed: 0,
-        temporalCullRatio: 0
+        temporalCullRatio: 0,
+        interactionActive: false
       }
     };
   }
@@ -226,7 +241,8 @@ export async function buildVisibleSplats({
       culled,
       temporalRejected,
       temporalPassed,
-      temporalCullRatio: processed > 0 ? (temporalRejected / processed) : 0
+      temporalCullRatio: processed > 0 ? (temporalRejected / processed) : 0,
+      interactionActive
     }
   };
 }

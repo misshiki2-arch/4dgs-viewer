@@ -3,6 +3,11 @@ import { OrbitControls } from 'https://unpkg.com/three@0.160.0/examples/jsm/cont
 import { parseSplat4DV2 } from './splat4d_parser_v2.js';
 import { fitCameraToRaw } from './rot4d_math.js';
 import { renderGpuFrame, createGpuRenderer } from './gpu_renderer.js';
+import {
+  createGpuInteractionState,
+  bindGpuDragInteraction,
+  getGpuInteractionOverride
+} from './gpu_interaction_utils.js';
 
 const canvas = document.getElementById('glCanvas');
 
@@ -49,7 +54,6 @@ function applyInfoWrapStyle() {
 function applyPanelResizeStyle() {
   if (!ui.info || !ui.info.parentElement) return;
   const panel = ui.info.parentElement;
-
   panel.style.resize = 'horizontal';
   panel.style.overflow = 'auto';
   panel.style.minWidth = '280px';
@@ -131,6 +135,8 @@ const tokenRef = {
   value: 0
 };
 
+const interactionState = createGpuInteractionState();
+
 window.__GPU_TILE_DEBUG_OVERLAY__ = false;
 window.__GPU_TILE_DRAW_SELECTED_ONLY__ = false;
 window.__GPU_TILE_USE_MAX_TILE__ = true;
@@ -193,6 +199,7 @@ async function scheduleRender() {
 
     try {
       ensureGpu();
+      const interactionOverride = getGpuInteractionOverride(ui, interactionState);
       await renderGpuFrame({
         raw,
         gpu,
@@ -201,7 +208,8 @@ async function scheduleRender() {
         controls,
         ui,
         tokenRef,
-        infoEl: ui.info
+        infoEl: ui.info,
+        interactionOverride
       });
     } finally {
       state.rendering = false;
@@ -304,6 +312,10 @@ ui.resetCamBtn.addEventListener('click', () => {
 });
 
 controls.addEventListener('change', scheduleRender);
+
+bindGpuDragInteraction(canvas, controls, interactionState, () => {
+  scheduleRender();
+});
 
 document.addEventListener('dragover', e => {
   e.preventDefault();

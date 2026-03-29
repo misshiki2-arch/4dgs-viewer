@@ -171,7 +171,8 @@ export async function renderGpuFrame({
   controls,
   ui,
   tokenRef,
-  infoEl
+  infoEl,
+  interactionOverride = null
 }) {
   const gl = gpu.gl;
   const bg255 = parseInt(ui.bgGraySlider.value, 10);
@@ -195,14 +196,14 @@ export async function renderGpuFrame({
     debugOverlayCanvas.height = canvas.height;
     debugCtx.clearRect(0, 0, debugOverlayCanvas.width, debugOverlayCanvas.height);
     debugOverlayCanvas.style.display = 'none';
-    setInfoText(infoEl, 'GPU Step13 viewer\nNo scene loaded.');
+    setInfoText(infoEl, 'GPU Step14 viewer\nNo scene loaded.');
     return;
   }
 
   const frameToken = ++tokenRef.value;
   const t0 = performance.now();
 
-  const buildConfig = getVisibleBuildConfig(ui);
+  const buildConfig = getVisibleBuildConfig(ui, interactionOverride);
   const tileGrid = computeTileGrid(canvas.width, canvas.height, 32);
   const camPos = camera.position.clone();
 
@@ -356,6 +357,10 @@ export async function renderGpuFrame({
   });
 
   const extraLines = [
+    `interactionActive=${!!buildConfig.interactionActive}`,
+    `effectiveStride=${buildConfig.stride}`,
+    `effectiveMaxVisible=${buildConfig.maxVisible}`,
+    `effectiveRenderScale=${Number(buildConfig.renderScale).toFixed(2)}`,
     `tileRadius=${mode.tileRadius}`,
     `focusTileIds=${focusTileIds.length > 0 ? '[' + focusTileIds.join(', ') + ']' : 'none'}`,
     `focusTileRects=${focusTileRects.length}`,
@@ -381,12 +386,12 @@ export async function renderGpuFrame({
     timestamp: buildConfig.timestamp,
     splatScale: buildConfig.scalingModifier,
     elapsedMs: elapsed,
-    stepLabel: 'GPU Step13',
+    stepLabel: 'GPU Step14',
     stepNotes: [
-      'CPU now performs temporal culling before costly screen-space work',
-      'Temporal stats show how many Gaussians are rejected before later stages',
+      'During drag interaction, viewer uses temporary lower-quality build settings',
+      'Temporal culling remains active before costly screen-space work',
       'Tile batching and per-tile execution stats remain available',
-      'This step targets CPU-side candidate reduction rather than tile-count reduction'
+      'Release drag to return to the normal higher-quality settings'
     ],
     tileSummary,
     avgRefsPerVisible,
