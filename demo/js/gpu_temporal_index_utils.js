@@ -1,4 +1,29 @@
-export function buildTemporalSortedIndex(raw) {
+const temporalSortedIndexCache = new WeakMap();
+const temporalWindowStatsCache = new WeakMap();
+
+function lowerBound(arr, x) {
+  let lo = 0;
+  let hi = arr.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (arr[mid] < x) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+function upperBound(arr, x) {
+  let lo = 0;
+  let hi = arr.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (arr[mid] <= x) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+function computeTemporalSortedIndex(raw) {
   if (!raw || !raw.t || !raw.N) {
     return {
       sortedIndices: new Uint32Array(0),
@@ -32,54 +57,140 @@ export function buildTemporalSortedIndex(raw) {
   };
 }
 
-function lowerBound(arr, x) {
-  let lo = 0;
-  let hi = arr.length;
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1;
-    if (arr[mid] < x) lo = mid + 1;
-    else hi = mid;
+export function buildTemporalSortedIndex(raw, options = {}) {
+  const useCache = options.useCache !== false;
+
+  if (!raw) {
+    return {
+      indexData: computeTemporalSortedIndex(raw),
+      cacheHit: false,
+      builtThisFrame: false
+    };
   }
-  return lo;
+
+  if (useCache) {
+    const cached = temporalSortedIndexCache.get(raw);
+    if (cached) {
+      return {
+        indexData: cached,
+        cacheHit: true,
+        builtThisFrame: false
+      };
+    }
+  }
+
+  const indexData = computeTemporalSortedIndex(raw);
+  if (useCache) {
+    temporalSortedIndexCache.set(raw, indexData);
+  }
+
+  return {
+    indexData,
+    cacheHit: false,
+    builtThisFrame: true
+  };
 }
 
-function upperBound(arr, x) {
-  let lo = 0;
-  let hi = arr.length;
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1;
-    if (arr[mid] <= x) lo = mid + 1;
-    else hi = mid;
-  }
-  return lo;
-}
-
-export function estimateTemporalWindow(raw, sigmaScale = 1.0, sigmaThreshold = 3.0) {
+function computeTemporalWindowStats(raw, sigmaScale = 1.0) {
   if (!raw || !raw.scale_t || !raw.N) {
     return {
       maxSigmaT: Infinity,
       medianSigmaT: Infinity,
-      windowRadius: Infinity
+      meanSigmaT: Infinity,
+      p90SigmaT: Infinity,
+      sampleCount: 0
     };
   }
 
   const N = raw.N;
   const vals = new Float32Array(N);
   let maxSigmaT = 0;
+  let sumSigmaT = 0;
+
   for (let i = 0; i < N; i++) {
     const s = raw.scale_t[i] * sigmaScale;
-    vals[i] = Number.isFinite(s) && s > 0 ? s : 0;
-    if (vals[i] > maxSigmaT) maxSigmaT = vals[i];
+    const v = Number.isFinite(s) && s > 0 ? s : 0;
+    vals[i] = v;
+    if (v > maxSigmaT) maxSigmaT = v;
+    sumSigmaT += v;
   }
 
   const copy = Array.from(vals);
   copy.sort((a, b) => a - b);
-  const medianSigmaT = copy.length > 0 ? copy[(copy.length / 2) | 0] : Infinity;
+
+  const mid = copy.length > 0 ? ((copy.length / 2) | 0) : 0;
+  const p90Idx = copy.length > 0 ? Math.min(copy.length - 1, Math.floor(copy.length * 0.9)) : 0;
 
   return {
     maxSigmaT,
-    medianSigmaT,
-    windowRadius: maxSigmaT * sigmaThreshold
+    medianSigmaT: copy.length > 0 ? copy[mid] : Infinity,
+    meanSigmaT: copy.length > 0 ? (sumSigmaT / copy.length) : Infinity,
+    p90SigmaT: copy.length > 0 ? copy[p90Idx] : Infinity,
+    sampleCount: N
+  };
+}
+
+export function estimateTemporalWindow(raw, sigmaScale = 1.0, sigmaThreshold = 3.0, options = {}) {
+  const useCache = options.useCache !== false;
+  const mode = options.mode || 'max'; // max | median | mean | p90 | fixed
+  const fixedWindowRadius = Number.isFinite(options.fixedWindowRadius) ? options.fixedWindowRadius : 0.5;
+
+  if (!raw || !raw.scale_t || !raw.N) {
+    return {
+      maxSigmaT: Infinity,
+      medianSigmaT: Infinity,
+      meanSigmaT: Infinity,
+      p90SigmaT: Infinity,
+      windowRadius: Infinity,
+      mode,
+      cacheHit: false,
+      builtThisFrame: false
+    };
+  }
+
+  let stats = null;
+  let cacheHit = false;
+  let builtThisFrame = false;
+
+  if (mode === 'fixed') {
+    return {
+      maxSigmaT: Infinity,
+      medianSigmaT: Infinity,
+      meanSigmaT: Infinity,
+      p90SigmaT: Infinity,
+      windowRadius: fixedWindowRadius,
+      mode,
+      cacheHit: false,
+      builtThisFrame: false
+    };
+  }
+
+  if (useCache) {
+    stats = temporalWindowStatsCache.get(raw);
+    if (stats) {
+      cacheHit = true;
+    }
+  }
+
+  if (!stats) {
+    stats = computeTemporalWindowStats(raw, sigmaScale);
+    builtThisFrame = true;
+    if (useCache) {
+      temporalWindowStatsCache.set(raw, stats);
+    }
+  }
+
+  let sigmaBase = stats.maxSigmaT;
+  if (mode === 'median') sigmaBase = stats.medianSigmaT;
+  else if (mode === 'mean') sigmaBase = stats.meanSigmaT;
+  else if (mode === 'p90') sigmaBase = stats.p90SigmaT;
+
+  return {
+    ...stats,
+    windowRadius: sigmaBase * sigmaThreshold,
+    mode,
+    cacheHit,
+    builtThisFrame
   };
 }
 
@@ -140,4 +251,22 @@ export function summarizeTemporalRange(indexData, rangeInfo, candidateIndices) {
     rangeFraction: total > 0 ? rangeCount / total : 0,
     candidateFraction: total > 0 ? candidateCount / total : 0
   };
+}
+
+export function getTemporalIndexUiOptions(ui) {
+  return {
+    useTemporalIndex: !!(ui && ui.useTemporalIndexCheck ? ui.useTemporalIndexCheck.checked : true),
+    useTemporalIndexCache: !!(ui && ui.useTemporalIndexCacheCheck ? ui.useTemporalIndexCacheCheck.checked : true),
+    temporalWindowMode: ui && ui.temporalWindowModeSelect ? ui.temporalWindowModeSelect.value : 'max',
+    fixedWindowRadius: ui && ui.fixedWindowRadiusInput ? Number(ui.fixedWindowRadiusInput.value) : 0.5
+  };
+}
+
+export function clearTemporalIndexCaches(raw = null) {
+  if (raw) {
+    temporalSortedIndexCache.delete(raw);
+    temporalWindowStatsCache.delete(raw);
+    return;
+  }
+  // WeakMap cannot be fully cleared, so this only exists for API symmetry.
 }

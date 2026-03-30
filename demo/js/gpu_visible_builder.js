@@ -6,22 +6,13 @@ import {
   estimateTemporalWindow,
   getTemporalCandidateRange,
   buildTemporalCandidateIndices,
-  summarizeTemporalRange
+  summarizeTemporalRange,
+  getTemporalIndexUiOptions
 } from './gpu_temporal_index_utils.js';
 
-const temporalIndexCache = new WeakMap();
-
-function getOrBuildTemporalIndex(raw) {
-  if (!raw) return null;
-  let cached = temporalIndexCache.get(raw);
-  if (!cached) {
-    cached = buildTemporalSortedIndex(raw);
-    temporalIndexCache.set(raw, cached);
-  }
-  return cached;
-}
-
 export function getVisibleBuildConfig(ui, interactionOverride = null) {
+  const temporalIndexOptions = getTemporalIndexUiOptions(ui);
+
   const baseConfig = {
     renderScale: parseFloat(ui.renderScaleSlider.value),
     stride: parseInt(ui.strideSlider.value, 10),
@@ -36,7 +27,8 @@ export function getVisibleBuildConfig(ui, interactionOverride = null) {
     useNativeMarginal: !!ui.useNativeMarginalCheck.checked,
     forceSh3d: !!ui.forceSh3dCheck.checked,
     timeDuration: parseFloat(ui.timeDurationSlider.value),
-    interactionActive: false
+    interactionActive: false,
+    ...temporalIndexOptions
   };
 
   if (!interactionOverride || !interactionOverride.interactionActive) {
@@ -53,8 +45,6 @@ export function getVisibleBuildConfig(ui, interactionOverride = null) {
 }
 
 function getTemporalSigma(raw, i, sigmaScale = 1.0) {
-  // parser 側で storeScaleLog=true の場合はすでに exp 済みの scale_t を返している
-  // したがって viewer 側で再度 exp してはいけない
   if (!raw || !raw.scale_t) return Infinity;
   const s = raw.scale_t[i];
   if (!Number.isFinite(s)) return Infinity;
@@ -75,33 +65,88 @@ function passesTemporalCulling(raw, i, timestamp, sigmaScale = 1.0, sigmaThresho
   return dt <= sigmaThreshold * sigmaT;
 }
 
-function buildCandidateIndices(raw, timestamp, stride, sigmaScale, temporalSigmaThreshold) {
-  if (!raw || !raw.t || !raw.scale_t) {
+function buildFallbackStrideIndices(raw, stride) {
+  if (!raw || !raw.N) return new Uint32Array(0);
+  const s = Math.max(1, stride | 0);
+  const count = Math.ceil(raw.N / s);
+  const out = new Uint32Array(count);
+  let w = 0;
+  for (let i = 0; i < raw.N; i += s) {
+    out[w++] = i;
+  }
+  return out;
+}
+
+function buildCandidateIndices({
+  raw,
+  timestamp,
+  stride,
+  sigmaScale,
+  temporalSigmaThreshold,
+  useTemporalIndex,
+  useTemporalIndexCache,
+  temporalWindowMode,
+  fixedWindowRadius
+}) {
+  const total = raw ? raw.N : 0;
+
+  if (!raw || !raw.t || !raw.scale_t || !useTemporalIndex) {
     return {
-      candidateIndices: null,
+      candidateIndices: buildFallbackStrideIndices(raw, stride),
       temporalWindow: {
         maxSigmaT: Infinity,
         medianSigmaT: Infinity,
-        windowRadius: Infinity
+        meanSigmaT: Infinity,
+        p90SigmaT: Infinity,
+        windowRadius: Infinity,
+        mode: useTemporalIndex ? (temporalWindowMode || 'max') : 'disabled',
+        cacheHit: false,
+        builtThisFrame: false
       },
       rangeInfo: {
         start: 0,
-        end: raw ? raw.N : 0,
-        count: raw ? raw.N : 0
+        end: total,
+        count: total
       },
       rangeSummary: {
-        totalCount: raw ? raw.N : 0,
-        rangeCount: raw ? raw.N : 0,
-        candidateCount: raw ? Math.ceil(raw.N / Math.max(1, stride | 0)) : 0,
+        totalCount: total,
+        rangeCount: total,
+        candidateCount: total > 0 ? Math.ceil(total / Math.max(1, stride | 0)) : 0,
         rangeFraction: 1,
         candidateFraction: 1
+      },
+      temporalIndexDebug: {
+        enabled: !!useTemporalIndex,
+        cacheHit: false,
+        builtThisFrame: false,
+        totalCount: total,
+        tMin: NaN,
+        tMax: NaN
       }
     };
   }
 
-  const temporalIndex = getOrBuildTemporalIndex(raw);
-  const temporalWindow = estimateTemporalWindow(raw, sigmaScale, temporalSigmaThreshold);
-  const rangeInfo = getTemporalCandidateRange(temporalIndex, timestamp, temporalWindow.windowRadius);
+  const temporalIndexResult = buildTemporalSortedIndex(raw, {
+    useCache: useTemporalIndexCache
+  });
+  const temporalIndex = temporalIndexResult.indexData;
+
+  const temporalWindow = estimateTemporalWindow(
+    raw,
+    sigmaScale,
+    temporalSigmaThreshold,
+    {
+      useCache: useTemporalIndexCache,
+      mode: temporalWindowMode,
+      fixedWindowRadius
+    }
+  );
+
+  const rangeInfo = getTemporalCandidateRange(
+    temporalIndex,
+    timestamp,
+    temporalWindow.windowRadius
+  );
   const candidateIndices = buildTemporalCandidateIndices(temporalIndex, rangeInfo, stride);
   const rangeSummary = summarizeTemporalRange(temporalIndex, rangeInfo, candidateIndices);
 
@@ -109,7 +154,15 @@ function buildCandidateIndices(raw, timestamp, stride, sigmaScale, temporalSigma
     candidateIndices,
     temporalWindow,
     rangeInfo,
-    rangeSummary
+    rangeSummary,
+    temporalIndexDebug: {
+      enabled: true,
+      cacheHit: temporalIndexResult.cacheHit,
+      builtThisFrame: temporalIndexResult.builtThisFrame,
+      totalCount: temporalIndex ? temporalIndex.count : 0,
+      tMin: temporalIndex ? temporalIndex.tMin : NaN,
+      tMax: temporalIndex ? temporalIndex.tMax : NaN
+    }
   };
 }
 
@@ -136,7 +189,11 @@ export async function buildVisibleSplats({
   frameToken = null,
   tileGrid = null,
   temporalSigmaThreshold = 3.0,
-  interactionActive = false
+  interactionActive = false,
+  useTemporalIndex = true,
+  useTemporalIndexCache = true,
+  temporalWindowMode = 'max',
+  fixedWindowRadius = 0.5
 }) {
   if (!raw) {
     return {
@@ -153,11 +210,21 @@ export async function buildVisibleSplats({
         temporalRejected: 0,
         temporalPassed: 0,
         temporalCullRatio: 0,
+        temporalIndexEnabled: false,
+        temporalIndexCacheEnabled: false,
+        temporalIndexCacheHit: false,
+        temporalIndexBuiltThisFrame: false,
+        temporalIndexTotalCount: 0,
+        temporalIndexTMin: NaN,
+        temporalIndexTMax: NaN,
         temporalIndexRangeCount: 0,
         temporalIndexCandidateCount: 0,
         temporalIndexRangeFraction: 0,
         temporalIndexCandidateFraction: 0,
+        temporalWindowMode: 'disabled',
         temporalWindowRadius: Infinity,
+        temporalWindowCacheHit: false,
+        temporalWindowBuiltThisFrame: false,
         interactionActive: false
       }
     };
@@ -173,13 +240,17 @@ export async function buildVisibleSplats({
     nativeMarginal: useNativeMarginal
   };
 
-  const candidateInfo = buildCandidateIndices(
+  const candidateInfo = buildCandidateIndices({
     raw,
     timestamp,
     stride,
     sigmaScale,
-    temporalSigmaThreshold
-  );
+    temporalSigmaThreshold,
+    useTemporalIndex,
+    useTemporalIndexCache,
+    temporalWindowMode,
+    fixedWindowRadius
+  });
 
   const candidateIndices = candidateInfo.candidateIndices;
 
@@ -194,203 +265,102 @@ export async function buildVisibleSplats({
   let maxTileX = -1;
   let maxTileY = -1;
 
-  if (candidateIndices) {
-    for (let k = 0; k < candidateIndices.length; k++) {
-      const i = candidateIndices[k];
-      processed++;
+  for (let k = 0; k < candidateIndices.length; k++) {
+    const i = candidateIndices[k];
+    processed++;
 
-      if (!passesTemporalCulling(raw, i, timestamp, sigmaScale, temporalSigmaThreshold)) {
-        temporalRejected++;
-        culled++;
-        continue;
-      }
-      temporalPassed++;
-
-      const gs = computeGaussianState(
-        raw,
-        i,
-        timestamp,
-        scalingModifier,
-        sigmaScale,
-        prefilterVar,
-        useRot4d,
-        flags
-      );
-      if (!gs) {
-        culled++;
-        continue;
-      }
-
-      const color = evalSHColor(
-        raw,
-        i,
-        camPos,
-        gs.pos,
-        timestamp,
-        timeDuration,
-        useSH,
-        forceSh3d
-      );
-
-      const splat = computeScreenSplat(
-        camera,
-        gs.pos,
-        gs.cov3,
-        gs.opacity,
-        renderW,
-        renderH
-      );
-      if (!splat) {
-        culled++;
-        continue;
-      }
-
-      const px = splat.px * sx;
-      const py = splat.py * sy;
-      const radius = Math.max(1.0, splat.radius * Math.max(sx, sy));
-
-      const minX = clampInt(Math.floor(px - radius), 0, canvasWidth - 1);
-      const maxX = clampInt(Math.ceil(px + radius), 0, canvasWidth - 1);
-      const minY = clampInt(Math.floor(py - radius), 0, canvasHeight - 1);
-      const maxY = clampInt(Math.ceil(py + radius), 0, canvasHeight - 1);
-
-      let tileRange = null;
-      if (tileGrid) {
-        tileRange = computeTileRangeFromAABB(
-          [minX, minY, maxX, maxY],
-          tileGrid.tileCols,
-          tileGrid.tileRows,
-          tileGrid.tileSize
-        );
-        minTileX = Math.min(minTileX, tileRange[0]);
-        minTileY = Math.min(minTileY, tileRange[1]);
-        maxTileX = Math.max(maxTileX, tileRange[2]);
-        maxTileY = Math.max(maxTileY, tileRange[3]);
-      }
-
-      visible.push({
-        srcIndex: i,
-        px,
-        py,
-        radius,
-        depth: splat.depth,
-        opacity: splat.opacity,
-        color,
-        conic: [
-          splat.conic[0] / (sx * sx),
-          splat.conic[1] / (sx * sy),
-          splat.conic[2] / (sy * sy)
-        ],
-        aabb: [minX, minY, maxX, maxY],
-        tileRange
-      });
-
-      if (visible.length >= maxVisible) break;
-
-      if ((visible.length & 2047) === 0) {
-        await new Promise(r => setTimeout(r, 0));
-        if (tokenRef && frameToken !== null && frameToken !== tokenRef.value) {
-          return null;
-        }
-      }
+    if (!passesTemporalCulling(raw, i, timestamp, sigmaScale, temporalSigmaThreshold)) {
+      temporalRejected++;
+      culled++;
+      continue;
     }
-  } else {
-    for (let i = 0; i < raw.N; i += stride) {
-      processed++;
+    temporalPassed++;
 
-      if (!passesTemporalCulling(raw, i, timestamp, sigmaScale, temporalSigmaThreshold)) {
-        temporalRejected++;
-        culled++;
-        continue;
-      }
-      temporalPassed++;
+    const gs = computeGaussianState(
+      raw,
+      i,
+      timestamp,
+      scalingModifier,
+      sigmaScale,
+      prefilterVar,
+      useRot4d,
+      flags
+    );
+    if (!gs) {
+      culled++;
+      continue;
+    }
 
-      const gs = computeGaussianState(
-        raw,
-        i,
-        timestamp,
-        scalingModifier,
-        sigmaScale,
-        prefilterVar,
-        useRot4d,
-        flags
+    const color = evalSHColor(
+      raw,
+      i,
+      camPos,
+      gs.pos,
+      timestamp,
+      timeDuration,
+      useSH,
+      forceSh3d
+    );
+
+    const splat = computeScreenSplat(
+      camera,
+      gs.pos,
+      gs.cov3,
+      gs.opacity,
+      renderW,
+      renderH
+    );
+    if (!splat) {
+      culled++;
+      continue;
+    }
+
+    const px = splat.px * sx;
+    const py = splat.py * sy;
+    const radius = Math.max(1.0, splat.radius * Math.max(sx, sy));
+
+    const minX = clampInt(Math.floor(px - radius), 0, canvasWidth - 1);
+    const maxX = clampInt(Math.ceil(px + radius), 0, canvasWidth - 1);
+    const minY = clampInt(Math.floor(py - radius), 0, canvasHeight - 1);
+    const maxY = clampInt(Math.ceil(py + radius), 0, canvasHeight - 1);
+
+    let tileRange = null;
+    if (tileGrid) {
+      tileRange = computeTileRangeFromAABB(
+        [minX, minY, maxX, maxY],
+        tileGrid.tileCols,
+        tileGrid.tileRows,
+        tileGrid.tileSize
       );
-      if (!gs) {
-        culled++;
-        continue;
-      }
+      minTileX = Math.min(minTileX, tileRange[0]);
+      minTileY = Math.min(minTileY, tileRange[1]);
+      maxTileX = Math.max(maxTileX, tileRange[2]);
+      maxTileY = Math.max(maxTileY, tileRange[3]);
+    }
 
-      const color = evalSHColor(
-        raw,
-        i,
-        camPos,
-        gs.pos,
-        timestamp,
-        timeDuration,
-        useSH,
-        forceSh3d
-      );
+    visible.push({
+      srcIndex: i,
+      px,
+      py,
+      radius,
+      depth: splat.depth,
+      opacity: splat.opacity,
+      color,
+      conic: [
+        splat.conic[0] / (sx * sx),
+        splat.conic[1] / (sx * sy),
+        splat.conic[2] / (sy * sy)
+      ],
+      aabb: [minX, minY, maxX, maxY],
+      tileRange
+    });
 
-      const splat = computeScreenSplat(
-        camera,
-        gs.pos,
-        gs.cov3,
-        gs.opacity,
-        renderW,
-        renderH
-      );
-      if (!splat) {
-        culled++;
-        continue;
-      }
+    if (visible.length >= maxVisible) break;
 
-      const px = splat.px * sx;
-      const py = splat.py * sy;
-      const radius = Math.max(1.0, splat.radius * Math.max(sx, sy));
-
-      const minX = clampInt(Math.floor(px - radius), 0, canvasWidth - 1);
-      const maxX = clampInt(Math.ceil(px + radius), 0, canvasWidth - 1);
-      const minY = clampInt(Math.floor(py - radius), 0, canvasHeight - 1);
-      const maxY = clampInt(Math.ceil(py + radius), 0, canvasHeight - 1);
-
-      let tileRange = null;
-      if (tileGrid) {
-        tileRange = computeTileRangeFromAABB(
-          [minX, minY, maxX, maxY],
-          tileGrid.tileCols,
-          tileGrid.tileRows,
-          tileGrid.tileSize
-        );
-        minTileX = Math.min(minTileX, tileRange[0]);
-        minTileY = Math.min(minTileY, tileRange[1]);
-        maxTileX = Math.max(maxTileX, tileRange[2]);
-        maxTileY = Math.max(maxTileY, tileRange[3]);
-      }
-
-      visible.push({
-        srcIndex: i,
-        px,
-        py,
-        radius,
-        depth: splat.depth,
-        opacity: splat.opacity,
-        color,
-        conic: [
-          splat.conic[0] / (sx * sx),
-          splat.conic[1] / (sx * sy),
-          splat.conic[2] / (sy * sy)
-        ],
-        aabb: [minX, minY, maxX, maxY],
-        tileRange
-      });
-
-      if (visible.length >= maxVisible) break;
-
-      if ((visible.length & 2047) === 0) {
-        await new Promise(r => setTimeout(r, 0));
-        if (tokenRef && frameToken !== null && frameToken !== tokenRef.value) {
-          return null;
-        }
+    if ((visible.length & 2047) === 0) {
+      await new Promise(r => setTimeout(r, 0));
+      if (tokenRef && frameToken !== null && frameToken !== tokenRef.value) {
+        return null;
       }
     }
   }
@@ -416,11 +386,21 @@ export async function buildVisibleSplats({
       temporalRejected,
       temporalPassed,
       temporalCullRatio: processed > 0 ? (temporalRejected / processed) : 0,
+      temporalIndexEnabled: !!useTemporalIndex,
+      temporalIndexCacheEnabled: !!useTemporalIndexCache,
+      temporalIndexCacheHit: candidateInfo.temporalIndexDebug.cacheHit,
+      temporalIndexBuiltThisFrame: candidateInfo.temporalIndexDebug.builtThisFrame,
+      temporalIndexTotalCount: candidateInfo.temporalIndexDebug.totalCount,
+      temporalIndexTMin: candidateInfo.temporalIndexDebug.tMin,
+      temporalIndexTMax: candidateInfo.temporalIndexDebug.tMax,
       temporalIndexRangeCount: candidateInfo.rangeSummary.rangeCount,
       temporalIndexCandidateCount: candidateInfo.rangeSummary.candidateCount,
       temporalIndexRangeFraction: candidateInfo.rangeSummary.rangeFraction,
       temporalIndexCandidateFraction: candidateInfo.rangeSummary.candidateFraction,
+      temporalWindowMode: candidateInfo.temporalWindow.mode,
       temporalWindowRadius: candidateInfo.temporalWindow.windowRadius,
+      temporalWindowCacheHit: !!candidateInfo.temporalWindow.cacheHit,
+      temporalWindowBuiltThisFrame: !!candidateInfo.temporalWindow.builtThisFrame,
       interactionActive
     }
   };

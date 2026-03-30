@@ -108,7 +108,63 @@ function ensureTileDebugControls() {
   ui.tileRadiusNote = document.getElementById('tileRadiusNote');
 }
 
+function ensureTemporalIndexControls() {
+  const parent = ui.info.parentElement;
+
+  const rows = [
+    {
+      id: 'temporalIndexRow1',
+      html: '<label>use temporal index</label><input id="useTemporalIndex" type="checkbox"><span>candidate narrowing</span>'
+    },
+    {
+      id: 'temporalIndexRow2',
+      html: '<label>use index cache</label><input id="useTemporalIndexCache" type="checkbox"><span>sorted/window cache</span>'
+    },
+    {
+      id: 'temporalIndexRow3',
+      html: '<label>window mode</label><select id="temporalWindowMode" style="width:120px;"><option value="max">max</option><option value="median">median</option><option value="mean">mean</option><option value="p90">p90</option><option value="fixed">fixed</option></select><span id="temporalWindowModeNote">temporal window policy</span>'
+    },
+    {
+      id: 'temporalIndexRow4',
+      html: '<label>fixed window</label><input id="fixedWindowRadius" type="number" min="0" step="0.01" value="0.50" style="width:120px;"><span id="fixedWindowRadiusNote">used when window mode=fixed</span>'
+    }
+  ];
+
+  for (const rowDef of rows) {
+    let row = document.getElementById(rowDef.id);
+    if (!row) {
+      row = document.createElement('div');
+      row.className = 'row';
+      row.id = rowDef.id;
+      row.innerHTML = rowDef.html;
+      parent.insertBefore(row, ui.info);
+    }
+  }
+
+  ui.useTemporalIndexCheck = document.getElementById('useTemporalIndex');
+  ui.useTemporalIndexCacheCheck = document.getElementById('useTemporalIndexCache');
+  ui.temporalWindowModeSelect = document.getElementById('temporalWindowMode');
+  ui.temporalWindowModeNote = document.getElementById('temporalWindowModeNote');
+  ui.fixedWindowRadiusInput = document.getElementById('fixedWindowRadius');
+  ui.fixedWindowRadiusNote = document.getElementById('fixedWindowRadiusNote');
+}
+
+function syncTemporalIndexUiState() {
+  const enabled = !!ui.useTemporalIndexCheck.checked;
+  const fixedMode = ui.temporalWindowModeSelect.value === 'fixed';
+
+  ui.useTemporalIndexCacheCheck.disabled = !enabled;
+  ui.temporalWindowModeSelect.disabled = !enabled;
+  ui.fixedWindowRadiusInput.disabled = !(enabled && fixedMode);
+
+  ui.temporalWindowModeNote.textContent = enabled ? 'temporal window policy' : 'used only when temporal index is on';
+  ui.fixedWindowRadiusNote.textContent = (enabled && fixedMode)
+    ? 'used when window mode=fixed'
+    : 'used only when temporal index is on and mode=fixed';
+}
+
 ensureTileDebugControls();
+ensureTemporalIndexControls();
 applyInfoWrapStyle();
 applyPanelResizeStyle();
 
@@ -299,6 +355,26 @@ ui.bgGraySlider.addEventListener('input', () => {
   });
 });
 
+[
+  'useTemporalIndexCheck',
+  'useTemporalIndexCacheCheck'
+].forEach(key => {
+  ui[key].addEventListener('change', () => {
+    syncTemporalIndexUiState();
+    scheduleRender();
+  });
+});
+
+[
+  'temporalWindowModeSelect',
+  'fixedWindowRadiusInput'
+].forEach(key => {
+  ui[key].addEventListener('input', () => {
+    syncTemporalIndexUiState();
+    scheduleRender();
+  });
+});
+
 ui.playBtn.addEventListener('click', () => {
   playing = !playing;
   ui.playBtn.textContent = playing ? '停止' : '再生';
@@ -371,7 +447,14 @@ ui.drawSelectedTileOnlyCheck.checked = false;
 ui.useMaxTileCheck.checked = true;
 ui.selectedTileIdInput.value = '-1';
 ui.tileRadiusInput.value = '0';
+
+ui.useTemporalIndexCheck.checked = true;
+ui.useTemporalIndexCacheCheck.checked = true;
+ui.temporalWindowModeSelect.value = 'max';
+ui.fixedWindowRadiusInput.value = '0.50';
+
 syncTileDebugGlobalsFromUI();
+syncTemporalIndexUiState();
 
 setCanvasSize();
 requestAnimationFrame(animate);

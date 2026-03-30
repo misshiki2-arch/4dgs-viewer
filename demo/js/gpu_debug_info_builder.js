@@ -27,6 +27,15 @@ export function buildInteractionExtraLines(buildConfig, buildStats) {
         `temporalWindowRadius=${Number(buildStats.temporalWindowRadius).toFixed(6)}`
       );
     }
+
+    if (typeof buildStats.temporalIndexCacheHit !== 'undefined') {
+      lines.push(
+        `temporalIndexCacheHit=${!!buildStats.temporalIndexCacheHit}  temporalIndexBuiltThisFrame=${!!buildStats.temporalIndexBuiltThisFrame}`
+      );
+      lines.push(
+        `temporalIndexTotalCount=${buildStats.temporalIndexTotalCount}  temporalIndexTMin=${Number(buildStats.temporalIndexTMin).toFixed(6)}  temporalIndexTMax=${Number(buildStats.temporalIndexTMax).toFixed(6)}`
+      );
+    }
   }
 
   return lines;
