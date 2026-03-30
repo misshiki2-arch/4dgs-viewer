@@ -149,6 +149,47 @@ function ensureTemporalIndexControls() {
   ui.fixedWindowRadiusNote = document.getElementById('fixedWindowRadiusNote');
 }
 
+function ensureTemporalBucketControls() {
+  const parent = ui.info.parentElement;
+
+  const rows = [
+    {
+      id: 'temporalBucketRow1',
+      html: '<label>use temporal bucket</label><input id="useTemporalBucket" type="checkbox"><span>bucket candidate narrowing</span>'
+    },
+    {
+      id: 'temporalBucketRow2',
+      html: '<label>use bucket cache</label><input id="useTemporalBucketCache" type="checkbox"><span>bucket cache</span>'
+    },
+    {
+      id: 'temporalBucketRow3',
+      html: '<label>bucket width</label><input id="temporalBucketWidth" type="number" min="0.001" step="0.01" value="0.10" style="width:120px;"><span id="temporalBucketWidthNote">time width per bucket</span>'
+    },
+    {
+      id: 'temporalBucketRow4',
+      html: '<label>bucket radius</label><input id="temporalBucketRadius" type="number" min="0" step="1" value="0" style="width:120px;"><span id="temporalBucketRadiusNote">neighbor bucket count</span>'
+    }
+  ];
+
+  for (const rowDef of rows) {
+    let row = document.getElementById(rowDef.id);
+    if (!row) {
+      row = document.createElement('div');
+      row.className = 'row';
+      row.id = rowDef.id;
+      row.innerHTML = rowDef.html;
+      parent.insertBefore(row, ui.info);
+    }
+  }
+
+  ui.useTemporalBucketCheck = document.getElementById('useTemporalBucket');
+  ui.useTemporalBucketCacheCheck = document.getElementById('useTemporalBucketCache');
+  ui.temporalBucketWidthInput = document.getElementById('temporalBucketWidth');
+  ui.temporalBucketWidthNote = document.getElementById('temporalBucketWidthNote');
+  ui.temporalBucketRadiusInput = document.getElementById('temporalBucketRadius');
+  ui.temporalBucketRadiusNote = document.getElementById('temporalBucketRadiusNote');
+}
+
 function syncTemporalIndexUiState() {
   const enabled = !!ui.useTemporalIndexCheck.checked;
   const fixedMode = ui.temporalWindowModeSelect.value === 'fixed';
@@ -163,8 +204,20 @@ function syncTemporalIndexUiState() {
     : 'used only when temporal index is on and mode=fixed';
 }
 
+function syncTemporalBucketUiState() {
+  const enabled = !!ui.useTemporalBucketCheck.checked;
+
+  ui.useTemporalBucketCacheCheck.disabled = !enabled;
+  ui.temporalBucketWidthInput.disabled = !enabled;
+  ui.temporalBucketRadiusInput.disabled = !enabled;
+
+  ui.temporalBucketWidthNote.textContent = enabled ? 'time width per bucket' : 'used only when temporal bucket is on';
+  ui.temporalBucketRadiusNote.textContent = enabled ? 'neighbor bucket count' : 'used only when temporal bucket is on';
+}
+
 ensureTileDebugControls();
 ensureTemporalIndexControls();
+ensureTemporalBucketControls();
 applyInfoWrapStyle();
 applyPanelResizeStyle();
 
@@ -375,6 +428,26 @@ ui.bgGraySlider.addEventListener('input', () => {
   });
 });
 
+[
+  'useTemporalBucketCheck',
+  'useTemporalBucketCacheCheck'
+].forEach(key => {
+  ui[key].addEventListener('change', () => {
+    syncTemporalBucketUiState();
+    scheduleRender();
+  });
+});
+
+[
+  'temporalBucketWidthInput',
+  'temporalBucketRadiusInput'
+].forEach(key => {
+  ui[key].addEventListener('input', () => {
+    syncTemporalBucketUiState();
+    scheduleRender();
+  });
+});
+
 ui.playBtn.addEventListener('click', () => {
   playing = !playing;
   ui.playBtn.textContent = playing ? '停止' : '再生';
@@ -450,11 +523,17 @@ ui.tileRadiusInput.value = '0';
 
 ui.useTemporalIndexCheck.checked = true;
 ui.useTemporalIndexCacheCheck.checked = true;
-ui.temporalWindowModeSelect.value = 'max';
+ui.temporalWindowModeSelect.value = 'median';
 ui.fixedWindowRadiusInput.value = '0.50';
+
+ui.useTemporalBucketCheck.checked = false;
+ui.useTemporalBucketCacheCheck.checked = true;
+ui.temporalBucketWidthInput.value = '0.10';
+ui.temporalBucketRadiusInput.value = '0';
 
 syncTileDebugGlobalsFromUI();
 syncTemporalIndexUiState();
+syncTemporalBucketUiState();
 
 setCanvasSize();
 requestAnimationFrame(animate);
