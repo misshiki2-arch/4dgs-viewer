@@ -58,9 +58,11 @@ export function getGpuInteractionOverride(ui, state) {
     };
   }
 
-  const interactionStride = Math.max(baseStride, 8);
-  const interactionMaxVisible = Math.min(baseMaxVisible, 30000);
-  const interactionRenderScale = Math.min(baseRenderScale, 0.75);
+  // Step14 tuned:
+  // Make dragging much lighter than the initial trial.
+  const interactionStride = Math.max(baseStride, 64);
+  const interactionMaxVisible = Math.min(baseMaxVisible, 10000);
+  const interactionRenderScale = Math.min(baseRenderScale, 0.50);
 
   return {
     interactionActive: true,

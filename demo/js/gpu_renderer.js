@@ -40,6 +40,7 @@ import {
   buildDrawStats
 } from './gpu_draw_utils.js';
 import { formatGpuViewerInfo, setInfoText } from './gpu_info_utils.js';
+import { buildGpuDebugExtraLines } from './gpu_debug_info_builder.js';
 
 function ensureDebugOverlayCanvas(mainCanvas) {
   let overlay = document.getElementById('gpuTileDebugOverlay');
@@ -196,7 +197,7 @@ export async function renderGpuFrame({
     debugOverlayCanvas.height = canvas.height;
     debugCtx.clearRect(0, 0, debugOverlayCanvas.width, debugOverlayCanvas.height);
     debugOverlayCanvas.style.display = 'none';
-    setInfoText(infoEl, 'GPU Step14 viewer\nNo scene loaded.');
+    setInfoText(infoEl, 'GPU Step15 viewer\nNo scene loaded.');
     return;
   }
 
@@ -356,18 +357,13 @@ export async function renderGpuFrame({
     executionSummary
   });
 
-  const extraLines = [
-    `interactionActive=${!!buildConfig.interactionActive}`,
-    `effectiveStride=${buildConfig.stride}`,
-    `effectiveMaxVisible=${buildConfig.maxVisible}`,
-    `effectiveRenderScale=${Number(buildConfig.renderScale).toFixed(2)}`,
-    `tileRadius=${mode.tileRadius}`,
-    `focusTileIds=${focusTileIds.length > 0 ? '[' + focusTileIds.join(', ') + ']' : 'none'}`,
-    `focusTileRects=${focusTileRects.length}`,
-    `perTileMode=${mode.drawSelectedOnly}`,
-    `buildAccepted=${buildStats.accepted}  buildProcessed=${buildStats.processed}  buildCulled=${buildStats.culled}`,
-    `temporalPassed=${buildStats.temporalPassed}  temporalRejected=${buildStats.temporalRejected}  temporalCullRatio=${buildStats.temporalCullRatio.toFixed(3)}`
-  ];
+  const extraLines = buildGpuDebugExtraLines({
+    buildConfig,
+    buildStats,
+    mode,
+    focusTileIds,
+    focusTileRects
+  });
 
   const infoText = formatGpuViewerInfo({
     raw,
@@ -386,12 +382,12 @@ export async function renderGpuFrame({
     timestamp: buildConfig.timestamp,
     splatScale: buildConfig.scalingModifier,
     elapsedMs: elapsed,
-    stepLabel: 'GPU Step14',
+    stepLabel: 'GPU Step15',
     stepNotes: [
-      'During drag interaction, viewer uses temporary lower-quality build settings',
+      'Temporal index narrows candidate ranges before visible build',
+      'During drag interaction, viewer may use temporary lower-quality settings',
       'Temporal culling remains active before costly screen-space work',
-      'Tile batching and per-tile execution stats remain available',
-      'Release drag to return to the normal higher-quality settings'
+      'Renderer delegates debug extra-line construction to gpu_debug_info_builder.js'
     ],
     tileSummary,
     avgRefsPerVisible,
