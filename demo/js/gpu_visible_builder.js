@@ -1,25 +1,25 @@
 import { computeGaussianState, computeScreenSplat } from './rot4d_math.js';
 import { evalSHColor } from './sh_eval.js';
 import { clampInt, computeTileRangeFromAABB } from './gpu_tile_utils.js';
-import {
-  buildTemporalSortedIndex,
-  estimateTemporalWindow,
-  getTemporalCandidateRange,
-  buildTemporalCandidateIndices,
-  summarizeTemporalRange,
-  getTemporalIndexUiOptions
-} from './gpu_temporal_index_utils.js';
-import {
-  buildTemporalBucketIndex,
-  getTemporalBucketCandidateRange,
-  buildTemporalBucketCandidateIndices,
-  summarizeTemporalBucketRange,
-  getTemporalBucketUiOptions
-} from './gpu_temporal_bucket_utils.js';
+import { getTemporalIndexUiOptions } from './gpu_temporal_index_utils.js';
+import { getTemporalBucketUiOptions } from './gpu_temporal_bucket_utils.js';
+import { buildFallbackCandidateInfo } from './gpu_candidate_builder_fallback.js';
+import { buildSortedCandidateInfo } from './gpu_candidate_builder_sorted.js';
+import { buildBucketCandidateInfo } from './gpu_candidate_builder_bucket.js';
+import { buildHybridCandidateInfo } from './gpu_candidate_builder_hybrid.js';
 
-export function getVisibleBuildConfig(ui, interactionOverride = null) {
+function deriveTemporalPrefilterMode(ui, temporalIndexOptions, temporalBucketOptions) {
+  if (ui?.temporalPrefilterModeSelect) return ui.temporalPrefilterModeSelect.value;
+  if (temporalBucketOptions.useTemporalBucket && temporalIndexOptions.useTemporalIndex) return 'hybrid';
+  if (temporalBucketOptions.useTemporalBucket) return 'bucket';
+  if (temporalIndexOptions.useTemporalIndex) return 'sorted';
+  return 'off';
+}
+
+export function getVisibleBuildConfig(ui, qualityOverride = null) {
   const temporalIndexOptions = getTemporalIndexUiOptions(ui);
   const temporalBucketOptions = getTemporalBucketUiOptions(ui);
+  const temporalPrefilterMode = deriveTemporalPrefilterMode(ui, temporalIndexOptions, temporalBucketOptions);
 
   const baseConfig = {
     renderScale: parseFloat(ui.renderScaleSlider.value),
@@ -36,29 +36,16 @@ export function getVisibleBuildConfig(ui, interactionOverride = null) {
     forceSh3d: !!ui.forceSh3dCheck.checked,
     timeDuration: parseFloat(ui.timeDurationSlider.value),
     interactionActive: false,
+    playbackActive: false,
+    qualityOverrideActive: false,
+    qualityOverrideReason: 'none',
+    temporalPrefilterMode,
     ...temporalIndexOptions,
     ...temporalBucketOptions
   };
 
-  if (!interactionOverride || !interactionOverride.interactionActive) {
-    return baseConfig;
-  }
-
-  return {
-    ...baseConfig,
-    interactionActive: true,
-    stride: interactionOverride.stride,
-    maxVisible: interactionOverride.maxVisible,
-    renderScale: interactionOverride.renderScale
-  };
-}
-
-function getTemporalSigma(raw, i, sigmaScale = 1.0) {
-  if (!raw || !raw.scale_t) return Infinity;
-  const s = raw.scale_t[i];
-  if (!Number.isFinite(s)) return Infinity;
-  const sigma = s * sigmaScale;
-  return Number.isFinite(sigma) && sigma > 0 ? sigma : Infinity;
+  if (!qualityOverride) return baseConfig;
+  return { ...baseConfig, ...qualityOverride };
 }
 
 function passesTemporalCulling(raw, i, timestamp, sigmaScale = 1.0, sigmaThreshold = 3.0) {
@@ -67,240 +54,19 @@ function passesTemporalCulling(raw, i, timestamp, sigmaScale = 1.0, sigmaThresho
   const t0 = raw.t[i];
   if (!Number.isFinite(t0)) return true;
 
-  const sigmaT = getTemporalSigma(raw, i, sigmaScale);
-  if (!Number.isFinite(sigmaT)) return true;
+  const s = raw.scale_t[i];
+  if (!Number.isFinite(s)) return true;
 
-  const dt = Math.abs(timestamp - t0);
-  return dt <= sigmaThreshold * sigmaT;
+  const sigmaT = s * sigmaScale;
+  if (!Number.isFinite(sigmaT) || sigmaT <= 0) return true;
+
+  return Math.abs(timestamp - t0) <= sigmaThreshold * sigmaT;
 }
 
-function buildFallbackStrideIndices(raw, stride) {
-  if (!raw || !raw.N) return new Uint32Array(0);
-  const s = Math.max(1, stride | 0);
-  const count = Math.ceil(raw.N / s);
-  const out = new Uint32Array(count);
-  let w = 0;
-  for (let i = 0; i < raw.N; i += s) {
-    out[w++] = i;
-  }
-  return out;
-}
-
-function buildFallbackCandidateInfo(raw, stride, reason = 'fallback') {
-  const total = raw ? raw.N : 0;
-  return {
-    candidateIndices: buildFallbackStrideIndices(raw, stride),
-    candidateMode: reason,
-    temporalWindow: {
-      maxSigmaT: Infinity,
-      medianSigmaT: Infinity,
-      meanSigmaT: Infinity,
-      p90SigmaT: Infinity,
-      windowRadius: Infinity,
-      mode: reason,
-      cacheHit: false,
-      builtThisFrame: false
-    },
-    rangeInfo: {
-      start: 0,
-      end: total,
-      count: total
-    },
-    rangeSummary: {
-      totalCount: total,
-      rangeCount: total,
-      candidateCount: total > 0 ? Math.ceil(total / Math.max(1, stride | 0)) : 0,
-      rangeFraction: 1,
-      candidateFraction: 1
-    },
-    temporalIndexDebug: {
-      enabled: false,
-      cacheEnabled: false,
-      cacheHit: false,
-      builtThisFrame: false,
-      totalCount: total,
-      tMin: NaN,
-      tMax: NaN
-    },
-    temporalBucketDebug: {
-      enabled: false,
-      cacheEnabled: false,
-      cacheHit: false,
-      builtThisFrame: false,
-      bucketWidth: NaN,
-      bucketRadius: 0,
-      bucketCount: 0,
-      bucketStart: 0,
-      bucketEnd: -1,
-      bucketSourceCount: 0,
-      candidateCount: 0,
-      bucketSourceFraction: 0,
-      candidateFraction: 0,
-      tMin: NaN,
-      tMax: NaN
-    }
-  };
-}
-
-function buildSortedIndexCandidateInfo({
+function buildCandidateInfo({
   raw,
-  timestamp,
   stride,
-  sigmaScale,
-  temporalSigmaThreshold,
-  useTemporalIndexCache,
-  temporalWindowMode,
-  fixedWindowRadius
-}) {
-  const temporalIndexResult = buildTemporalSortedIndex(raw, {
-    useCache: useTemporalIndexCache
-  });
-  const temporalIndex = temporalIndexResult.indexData;
-
-  const temporalWindow = estimateTemporalWindow(
-    raw,
-    sigmaScale,
-    temporalSigmaThreshold,
-    {
-      useCache: useTemporalIndexCache,
-      mode: temporalWindowMode,
-      fixedWindowRadius
-    }
-  );
-
-  const rangeInfo = getTemporalCandidateRange(
-    temporalIndex,
-    timestamp,
-    temporalWindow.windowRadius
-  );
-  const candidateIndices = buildTemporalCandidateIndices(temporalIndex, rangeInfo, stride);
-  const rangeSummary = summarizeTemporalRange(temporalIndex, rangeInfo, candidateIndices);
-
-  return {
-    candidateIndices,
-    candidateMode: 'sorted',
-    temporalWindow,
-    rangeInfo,
-    rangeSummary,
-    temporalIndexDebug: {
-      enabled: true,
-      cacheEnabled: !!useTemporalIndexCache,
-      cacheHit: temporalIndexResult.cacheHit,
-      builtThisFrame: temporalIndexResult.builtThisFrame,
-      totalCount: temporalIndex ? temporalIndex.count : 0,
-      tMin: temporalIndex ? temporalIndex.tMin : NaN,
-      tMax: temporalIndex ? temporalIndex.tMax : NaN
-    },
-    temporalBucketDebug: {
-      enabled: false,
-      cacheEnabled: false,
-      cacheHit: false,
-      builtThisFrame: false,
-      bucketWidth: NaN,
-      bucketRadius: 0,
-      bucketCount: 0,
-      bucketStart: 0,
-      bucketEnd: -1,
-      bucketSourceCount: 0,
-      candidateCount: 0,
-      bucketSourceFraction: 0,
-      candidateFraction: 0,
-      tMin: NaN,
-      tMax: NaN
-    }
-  };
-}
-
-function buildBucketCandidateInfo({
-  raw,
-  timestamp,
-  stride,
-  useTemporalBucketCache,
-  temporalBucketWidth,
-  temporalBucketRadius
-}) {
-  const bucketResult = buildTemporalBucketIndex(raw, {
-    bucketWidth: temporalBucketWidth,
-    useCache: useTemporalBucketCache
-  });
-  const bucketData = bucketResult.bucketData;
-
-  const bucketRange = getTemporalBucketCandidateRange(
-    bucketData,
-    timestamp,
-    temporalBucketRadius
-  );
-  const candidateIndices = buildTemporalBucketCandidateIndices(
-    bucketData,
-    bucketRange,
-    stride
-  );
-  const bucketSummary = summarizeTemporalBucketRange(
-    bucketData,
-    bucketRange,
-    candidateIndices
-  );
-
-  return {
-    candidateIndices,
-    candidateMode: 'bucket',
-    temporalWindow: {
-      maxSigmaT: Infinity,
-      medianSigmaT: Infinity,
-      meanSigmaT: Infinity,
-      p90SigmaT: Infinity,
-      windowRadius: Infinity,
-      mode: 'bucket',
-      cacheHit: false,
-      builtThisFrame: false
-    },
-    rangeInfo: {
-      start: bucketRange.bucketStart,
-      end: bucketRange.bucketEnd,
-      count: bucketSummary.bucketSourceCount
-    },
-    rangeSummary: {
-      totalCount: bucketSummary.totalCount,
-      rangeCount: bucketSummary.bucketSourceCount,
-      candidateCount: bucketSummary.candidateCount,
-      rangeFraction: bucketSummary.bucketSourceFraction,
-      candidateFraction: bucketSummary.candidateFraction
-    },
-    temporalIndexDebug: {
-      enabled: false,
-      cacheEnabled: false,
-      cacheHit: false,
-      builtThisFrame: false,
-      totalCount: raw ? raw.N : 0,
-      tMin: NaN,
-      tMax: NaN
-    },
-    temporalBucketDebug: {
-      enabled: true,
-      cacheEnabled: !!useTemporalBucketCache,
-      cacheHit: bucketResult.cacheHit,
-      builtThisFrame: bucketResult.builtThisFrame,
-      bucketWidth: bucketData ? bucketData.bucketWidth : NaN,
-      bucketRadius: temporalBucketRadius,
-      bucketCount: bucketData ? bucketData.bucketCount : 0,
-      bucketStart: bucketRange.bucketStart,
-      bucketEnd: bucketRange.bucketEnd,
-      bucketSourceCount: bucketSummary.bucketSourceCount,
-      candidateCount: bucketSummary.candidateCount,
-      bucketSourceFraction: bucketSummary.bucketSourceFraction,
-      candidateFraction: bucketSummary.candidateFraction,
-      tMin: bucketData ? bucketData.tMin : NaN,
-      tMax: bucketData ? bucketData.tMax : NaN
-    }
-  };
-}
-
-function buildCandidateIndices({
-  raw,
-  timestamp,
-  stride,
-  sigmaScale,
-  temporalSigmaThreshold,
+  temporalPrefilterMode,
   useTemporalIndex,
   useTemporalIndexCache,
   temporalWindowMode,
@@ -308,13 +74,43 @@ function buildCandidateIndices({
   useTemporalBucket,
   useTemporalBucketCache,
   temporalBucketWidth,
-  temporalBucketRadius
+  temporalBucketRadius,
+  timestamp,
+  sigmaScale,
+  temporalSigmaThreshold
 }) {
   if (!raw || !raw.t || !raw.scale_t) {
-    return buildFallbackCandidateInfo(raw, stride, 'no-temporal-data');
+    return buildFallbackCandidateInfo({
+      raw,
+      stride,
+      reason: 'no-temporal-data'
+    });
   }
 
-  if (useTemporalBucket) {
+  const mode = temporalPrefilterMode || (
+    useTemporalBucket && useTemporalIndex ? 'hybrid' :
+    useTemporalBucket ? 'bucket' :
+    useTemporalIndex ? 'sorted' :
+    'off'
+  );
+
+  if (mode === 'hybrid' && useTemporalBucket && useTemporalIndex) {
+    return buildHybridCandidateInfo({
+      raw,
+      timestamp,
+      stride,
+      sigmaScale,
+      temporalSigmaThreshold,
+      useTemporalIndexCache,
+      temporalWindowMode,
+      fixedWindowRadius,
+      useTemporalBucketCache,
+      temporalBucketWidth,
+      temporalBucketRadius
+    });
+  }
+
+  if (mode === 'bucket' && useTemporalBucket) {
     return buildBucketCandidateInfo({
       raw,
       timestamp,
@@ -325,8 +121,8 @@ function buildCandidateIndices({
     });
   }
 
-  if (useTemporalIndex) {
-    return buildSortedIndexCandidateInfo({
+  if (mode === 'sorted' && useTemporalIndex) {
+    return buildSortedCandidateInfo({
       raw,
       timestamp,
       stride,
@@ -338,7 +134,11 @@ function buildCandidateIndices({
     });
   }
 
-  return buildFallbackCandidateInfo(raw, stride, 'disabled');
+  return buildFallbackCandidateInfo({
+    raw,
+    stride,
+    reason: mode
+  });
 }
 
 export async function buildVisibleSplats({
@@ -365,9 +165,13 @@ export async function buildVisibleSplats({
   tileGrid = null,
   temporalSigmaThreshold = 3.0,
   interactionActive = false,
+  playbackActive = false,
+  qualityOverrideActive = false,
+  qualityOverrideReason = 'none',
+  temporalPrefilterMode = 'sorted',
   useTemporalIndex = true,
   useTemporalIndexCache = true,
-  temporalWindowMode = 'max',
+  temporalWindowMode = 'median',
   fixedWindowRadius = 0.5,
   useTemporalBucket = false,
   useTemporalBucketCache = true,
@@ -390,6 +194,8 @@ export async function buildVisibleSplats({
         temporalPassed: 0,
         temporalCullRatio: 0,
         candidateMode: 'none',
+        qualityOverrideActive: false,
+        qualityOverrideReason: 'none',
         temporalIndexEnabled: false,
         temporalIndexCacheEnabled: false,
         temporalIndexCacheHit: false,
@@ -418,9 +224,12 @@ export async function buildVisibleSplats({
         temporalBucketCandidateCount: 0,
         temporalBucketSourceFraction: 0,
         temporalBucketCandidateFraction: 0,
+        temporalBucketPostWindowCandidateCount: 0,
+        temporalBucketPostWindowCandidateFraction: 0,
         temporalBucketTMin: NaN,
         temporalBucketTMax: NaN,
-        interactionActive: false
+        interactionActive: false,
+        playbackActive: false
       }
     };
   }
@@ -435,12 +244,10 @@ export async function buildVisibleSplats({
     nativeMarginal: useNativeMarginal
   };
 
-  const candidateInfo = buildCandidateIndices({
+  const candidateInfo = buildCandidateInfo({
     raw,
-    timestamp,
     stride,
-    sigmaScale,
-    temporalSigmaThreshold,
+    temporalPrefilterMode,
     useTemporalIndex,
     useTemporalIndexCache,
     temporalWindowMode,
@@ -448,7 +255,10 @@ export async function buildVisibleSplats({
     useTemporalBucket,
     useTemporalBucketCache,
     temporalBucketWidth,
-    temporalBucketRadius
+    temporalBucketRadius,
+    timestamp,
+    sigmaScale,
+    temporalSigmaThreshold
   });
 
   const candidateIndices = candidateInfo.candidateIndices;
@@ -586,6 +396,8 @@ export async function buildVisibleSplats({
       temporalPassed,
       temporalCullRatio: processed > 0 ? (temporalRejected / processed) : 0,
       candidateMode: candidateInfo.candidateMode,
+      qualityOverrideActive,
+      qualityOverrideReason,
       temporalIndexEnabled: !!useTemporalIndex,
       temporalIndexCacheEnabled: !!useTemporalIndexCache,
       temporalIndexCacheHit: candidateInfo.temporalIndexDebug.cacheHit,
@@ -614,9 +426,12 @@ export async function buildVisibleSplats({
       temporalBucketCandidateCount: candidateInfo.temporalBucketDebug.candidateCount,
       temporalBucketSourceFraction: candidateInfo.temporalBucketDebug.bucketSourceFraction,
       temporalBucketCandidateFraction: candidateInfo.temporalBucketDebug.candidateFraction,
+      temporalBucketPostWindowCandidateCount: candidateInfo.temporalBucketDebug.postWindowCandidateCount,
+      temporalBucketPostWindowCandidateFraction: candidateInfo.temporalBucketDebug.postWindowCandidateFraction,
       temporalBucketTMin: candidateInfo.temporalBucketDebug.tMin,
       temporalBucketTMax: candidateInfo.temporalBucketDebug.tMax,
-      interactionActive
+      interactionActive,
+      playbackActive
     }
   };
 }
