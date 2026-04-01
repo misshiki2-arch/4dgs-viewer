@@ -197,7 +197,7 @@ export async function renderGpuFrame({
     debugOverlayCanvas.height = canvas.height;
     debugCtx.clearRect(0, 0, debugOverlayCanvas.width, debugOverlayCanvas.height);
     debugOverlayCanvas.style.display = 'none';
-    setInfoText(infoEl, 'GPU Step16 viewer\nNo scene loaded.');
+    setInfoText(infoEl, 'GPU Step17 viewer\nNo scene loaded.');
     return;
   }
 
@@ -382,12 +382,12 @@ export async function renderGpuFrame({
     timestamp: buildConfig.timestamp,
     splatScale: buildConfig.scalingModifier,
     elapsedMs: elapsed,
-    stepLabel: 'GPU Step16',
+    stepLabel: 'GPU Step17',
     stepNotes: [
-      'Bucket-based temporal prefilter can be compared against sorted-index prefilter',
-      'During drag interaction, viewer may use temporary lower-quality settings',
+      'Playback and interaction quality overrides can be merged before visible-build',
+      'Hybrid candidate mode can use bucket prefilter followed by temporal window filtering',
       'Temporal culling remains active before costly screen-space work',
-      'Renderer delegates index and bucket debug-line construction to gpu_debug_info_builder.js'
+      'Renderer delegates debug-line construction to gpu_debug_info_builder.js'
     ],
     tileSummary,
     avgRefsPerVisible,

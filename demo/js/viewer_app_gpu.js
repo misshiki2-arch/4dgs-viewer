@@ -3,9 +3,9 @@ import { fitCameraToRaw } from './rot4d_math.js';
 import { renderGpuFrame } from './gpu_renderer.js';
 import {
   createGpuInteractionState,
-  bindGpuDragInteraction,
-  getGpuInteractionOverride
+  bindGpuDragInteraction
 } from './gpu_interaction_utils.js';
+import { buildEffectiveGpuQualityConfig } from './gpu_quality_override_utils.js';
 import {
   applyInfoWrapStyle,
   applyPanelResizeStyle,
@@ -66,16 +66,24 @@ applyInfoWrapStyle(ui.info);
 applyPanelResizeStyle(ui.info);
 
 const scene = createViewerScene(canvas);
-const { camera, controls, ensureGpu, setCanvasSize, getGpu } = scene;
+const { camera, controls, ensureGpu, getGpu, setCanvasSize } = scene;
 
 let raw = null;
 const tokenRef = { value: 0 };
 const interactionState = createGpuInteractionState();
 
+let playback = null;
+
 const scheduler = createRenderScheduler({
   renderFrame: async () => {
     ensureGpu();
-    const interactionOverride = getGpuInteractionOverride(ui, interactionState);
+
+    const quality = buildEffectiveGpuQualityConfig({
+      ui,
+      interactionState,
+      isPlaying: playback ? playback.isPlaying() : false
+    });
+
     await renderGpuFrame({
       raw,
       gpu: getGpu(),
@@ -85,14 +93,14 @@ const scheduler = createRenderScheduler({
       ui,
       tokenRef,
       infoEl: ui.info,
-      interactionOverride
+      interactionOverride: quality.effectiveConfig
     });
   },
   tokenRef,
-  isPlaying: () => playback.isPlaying()
+  isPlaying: () => (playback ? playback.isPlaying() : false)
 });
 
-const playback = createViewerPlayback({
+playback = createViewerPlayback({
   ui,
   controls,
   scheduleRender: scheduler.scheduleRender,
@@ -100,7 +108,11 @@ const playback = createViewerPlayback({
     min: parseFloat(ui.timeSlider.min),
     max: parseFloat(ui.timeSlider.max)
   }),
-  requestNextFrame: (cb) => requestAnimationFrame(cb)
+  requestNextFrame: (cb) => requestAnimationFrame(cb),
+  onPlaybackStateChange: () => {
+    scheduler.scheduleRender();
+  },
+  playbackSpeed: 2.0
 });
 
 const fileIO = createViewerFileIO({

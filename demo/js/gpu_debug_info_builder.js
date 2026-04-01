@@ -3,6 +3,9 @@ export function buildInteractionExtraLines(buildConfig, buildStats) {
 
   if (buildConfig) {
     lines.push(`interactionActive=${!!buildConfig.interactionActive}`);
+    lines.push(`playbackActive=${!!buildConfig.playbackActive}`);
+    lines.push(`qualityOverrideActive=${!!buildConfig.qualityOverrideActive}`);
+    lines.push(`qualityOverrideReason=${buildConfig.qualityOverrideReason ?? 'none'}`);
     lines.push(`effectiveStride=${buildConfig.stride}`);
     lines.push(`effectiveMaxVisible=${buildConfig.maxVisible}`);
     lines.push(`effectiveRenderScale=${Number(buildConfig.renderScale).toFixed(2)}`);
@@ -18,6 +21,15 @@ export function buildInteractionExtraLines(buildConfig, buildStats) {
 
     if (typeof buildStats.candidateMode !== 'undefined') {
       lines.push(`candidateMode=${buildStats.candidateMode}`);
+    }
+
+    if (typeof buildStats.qualityOverrideActive !== 'undefined') {
+      lines.push(
+        `statsQualityOverrideActive=${!!buildStats.qualityOverrideActive}  statsQualityOverrideReason=${buildStats.qualityOverrideReason ?? 'none'}`
+      );
+      lines.push(
+        `statsInteractionActive=${!!buildStats.interactionActive}  statsPlaybackActive=${!!buildStats.playbackActive}`
+      );
     }
 
     if (typeof buildStats.temporalIndexRangeCount !== 'undefined') {
@@ -63,6 +75,13 @@ export function buildInteractionExtraLines(buildConfig, buildStats) {
       lines.push(
         `temporalBucketSourceFraction=${Number(buildStats.temporalBucketSourceFraction).toFixed(3)}  temporalBucketCandidateFraction=${Number(buildStats.temporalBucketCandidateFraction).toFixed(3)}`
       );
+
+      if (typeof buildStats.temporalBucketPostWindowCandidateCount !== 'undefined') {
+        lines.push(
+          `temporalBucketPostWindowCandidateCount=${buildStats.temporalBucketPostWindowCandidateCount}  temporalBucketPostWindowCandidateFraction=${Number(buildStats.temporalBucketPostWindowCandidateFraction).toFixed(3)}`
+        );
+      }
+
       lines.push(
         `temporalBucketTMin=${Number(buildStats.temporalBucketTMin).toFixed(6)}  temporalBucketTMax=${Number(buildStats.temporalBucketTMax).toFixed(6)}`
       );
