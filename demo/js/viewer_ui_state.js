@@ -89,6 +89,13 @@ export function syncQualityOverrideUiState(ui) {
     : 'interaction override is off';
 }
 
+export function syncPackedPathUiState(ui) {
+  const enabled = !!ui.usePackedVisiblePathCheck.checked;
+  ui.usePackedVisiblePathNote.textContent = enabled
+    ? 'parallel packed visible buffer generation'
+    : 'packed visible path is off';
+}
+
 export function syncDebugLogUiState(ui) {
   if (!ui.debugLogArea) return;
 
@@ -124,6 +131,8 @@ export function initializeViewerUiDefaults(ui) {
   ui.interactionMaxVisibleInput.value = '10000';
   ui.interactionRenderScaleInput.value = '0.50';
 
+  ui.usePackedVisiblePathCheck.checked = true;
+
   if (ui.debugLogArea) {
     ui.debugLogArea.value = '';
   }
@@ -137,5 +146,6 @@ export function syncAllViewerUiState(ui, win = window) {
   syncTemporalIndexUiState(ui);
   syncTemporalBucketUiState(ui);
   syncQualityOverrideUiState(ui);
+  syncPackedPathUiState(ui);
   syncDebugLogUiState(ui);
 }

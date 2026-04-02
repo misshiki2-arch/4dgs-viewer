@@ -1,30 +1,49 @@
-export function clamp01(x) {
-  return Math.min(1, Math.max(0, x));
+import {
+  computeVisiblePackFieldFloatOffset,
+  GPU_VISIBLE_PACK_FLOATS_PER_ITEM
+} from './gpu_buffer_layout_utils.js';
+
+// Step20:
+// 従来の object-array draw 経路を維持しつつ、packed visible path の観測・将来接続に向けた
+// 補助関数を追加する。
+
+function ensureFloat32Array(value, name) {
+  if (!(value instanceof Float32Array)) {
+    throw new Error(`${name} must be a Float32Array`);
+  }
 }
 
 export function buildDrawArraysFromIndices(visible, drawIndices) {
-  const nDraw = drawIndices.length;
-  const centers = new Float32Array(nDraw * 2);
-  const radii = new Float32Array(nDraw);
-  const colors = new Float32Array(nDraw * 4);
-  const conics = new Float32Array(nDraw * 3);
+  const drawCount = drawIndices ? drawIndices.length : 0;
 
-  for (let k = 0; k < nDraw; k++) {
-    const s = visible[drawIndices[k]];
-    centers[2 * k + 0] = s.px;
-    centers[2 * k + 1] = s.py;
-    radii[k] = s.radius;
-    colors[4 * k + 0] = clamp01(s.color[0]);
-    colors[4 * k + 1] = clamp01(s.color[1]);
-    colors[4 * k + 2] = clamp01(s.color[2]);
-    colors[4 * k + 3] = clamp01(s.opacity);
-    conics[3 * k + 0] = s.conic[0];
-    conics[3 * k + 1] = s.conic[1];
-    conics[3 * k + 2] = s.conic[2];
+  const centers = new Float32Array(drawCount * 2);
+  const radii = new Float32Array(drawCount);
+  const colors = new Float32Array(drawCount * 4);
+  const conics = new Float32Array(drawCount * 3);
+
+  for (let j = 0; j < drawCount; j++) {
+    const src = visible[drawIndices[j]];
+
+    const c2 = j * 2;
+    centers[c2 + 0] = src.px;
+    centers[c2 + 1] = src.py;
+
+    radii[j] = src.radius;
+
+    const c4 = j * 4;
+    colors[c4 + 0] = src.color[0];
+    colors[c4 + 1] = src.color[1];
+    colors[c4 + 2] = src.color[2];
+    colors[c4 + 3] = src.color[3];
+
+    const c3 = j * 3;
+    conics[c3 + 0] = src.conic[0];
+    conics[c3 + 1] = src.conic[1];
+    conics[c3 + 2] = src.conic[2];
   }
 
   return {
-    nDraw,
+    nDraw: drawCount,
     centers,
     radii,
     colors,
@@ -32,53 +51,83 @@ export function buildDrawArraysFromIndices(visible, drawIndices) {
   };
 }
 
-export function buildPerTileDrawArrays(visible, tileBatches) {
-  const out = [];
-  for (const batch of tileBatches) {
-    const drawData = buildDrawArraysFromIndices(visible, batch.drawIndices);
-    out.push({
-      tileId: batch.tileId,
-      drawIndices: batch.drawIndices,
-      drawCount: batch.drawCount,
-      drawData
-    });
+export function buildDrawArraysFromPacked(packed, count) {
+  ensureFloat32Array(packed, 'packed');
+  const n = Math.max(0, count | 0);
+
+  const centers = new Float32Array(n * 2);
+  const radii = new Float32Array(n);
+  const colors = new Float32Array(n * 4);
+  const conics = new Float32Array(n * 3);
+
+  for (let i = 0; i < n; i++) {
+    const centerOffset = computeVisiblePackFieldFloatOffset(i, 'centerPx');
+    const radiusOffset = computeVisiblePackFieldFloatOffset(i, 'radiusPx');
+    const colorOffset = computeVisiblePackFieldFloatOffset(i, 'color');
+    const conicOffset = computeVisiblePackFieldFloatOffset(i, 'conic');
+
+    const c2 = i * 2;
+    centers[c2 + 0] = packed[centerOffset + 0];
+    centers[c2 + 1] = packed[centerOffset + 1];
+
+    radii[i] = packed[radiusOffset];
+
+    const c4 = i * 4;
+    colors[c4 + 0] = packed[colorOffset + 0];
+    colors[c4 + 1] = packed[colorOffset + 1];
+    colors[c4 + 2] = packed[colorOffset + 2];
+    colors[c4 + 3] = packed[colorOffset + 3];
+
+    const c3 = i * 3;
+    conics[c3 + 0] = packed[conicOffset + 0];
+    conics[c3 + 1] = packed[conicOffset + 1];
+    conics[c3 + 2] = packed[conicOffset + 2];
   }
-  return out;
+
+  return {
+    nDraw: n,
+    centers,
+    radii,
+    colors,
+    conics
+  };
 }
 
 export function buildPerTileDrawBatches(visible, tileBatches) {
-  return buildPerTileDrawArrays(visible, tileBatches);
+  if (!tileBatches || tileBatches.length === 0) return [];
+
+  return tileBatches.map((batch) => ({
+    tileId: batch.tileId,
+    tileCount: batch.indices.length,
+    drawData: buildDrawArraysFromIndices(visible, batch.indices)
+  }));
 }
 
-export function summarizePerTileDrawArrays(perTileDrawArrays) {
+export function summarizePerTileDrawBatches(perTileDrawBatches) {
+  const batches = perTileDrawBatches || [];
   let totalTileDrawCount = 0;
   let maxTileDrawCount = 0;
   let maxTileId = -1;
 
-  for (const item of perTileDrawArrays) {
-    totalTileDrawCount += item.drawCount;
-    if (item.drawCount > maxTileDrawCount) {
-      maxTileDrawCount = item.drawCount;
-      maxTileId = item.tileId;
+  for (const batch of batches) {
+    const n = batch?.drawData?.nDraw || 0;
+    totalTileDrawCount += n;
+    if (n > maxTileDrawCount) {
+      maxTileDrawCount = n;
+      maxTileId = batch.tileId;
     }
   }
 
   return {
-    tileBatchCount: perTileDrawArrays.length,
+    tileBatchCount: batches.length,
     totalTileDrawCount,
     maxTileDrawCount,
-    maxTileId,
-    avgTileDrawCount: perTileDrawArrays.length > 0
-      ? (totalTileDrawCount / perTileDrawArrays.length)
-      : 0
+    maxTileId
   };
 }
 
-export function summarizePerTileDrawBatches(perTileDrawBatches) {
-  return summarizePerTileDrawArrays(perTileDrawBatches);
-}
-
-export function uploadDrawArrays(gl, gpu, drawData) {
+export function uploadAndDraw(gl, gpu, drawData, canvasWidth, canvasHeight) {
+  gl.useProgram(gpu.program);
   gl.bindVertexArray(gpu.vao);
 
   gl.bindBuffer(gl.ARRAY_BUFFER, gpu.centerBuffer);
@@ -92,54 +141,32 @@ export function uploadDrawArrays(gl, gpu, drawData) {
 
   gl.bindBuffer(gl.ARRAY_BUFFER, gpu.conicBuffer);
   gl.bufferData(gl.ARRAY_BUFFER, drawData.conics, gl.DYNAMIC_DRAW);
-}
 
-export function drawUploadedArrays(gl, gpu, viewportWidth, viewportHeight, nDraw) {
-  gl.useProgram(gpu.program);
-  gl.uniform2f(gpu.uViewportPx, viewportWidth, viewportHeight);
-  gl.bindVertexArray(gpu.vao);
-  gl.drawArrays(gl.POINTS, 0, nDraw);
+  gl.uniform2f(gpu.uViewportPx, canvasWidth, canvasHeight);
+  gl.drawArrays(gl.POINTS, 0, drawData.nDraw);
+
   gl.bindVertexArray(null);
-  gl.useProgram(null);
 }
 
-export function uploadAndDraw(gl, gpu, drawData, viewportWidth, viewportHeight) {
-  uploadDrawArrays(gl, gpu, drawData);
-  drawUploadedArrays(gl, gpu, viewportWidth, viewportHeight, drawData.nDraw);
-}
-
-export function uploadAndDrawPerTile(gl, gpu, perTileDrawArrays, viewportWidth, viewportHeight, hooks = {}) {
-  const {
-    beforeTile = null,
-    afterTile = null
-  } = hooks;
-
-  for (const item of perTileDrawArrays) {
-    if (beforeTile) beforeTile(item);
-    uploadAndDraw(gl, gpu, item.drawData, viewportWidth, viewportHeight);
-    if (afterTile) afterTile(item);
-  }
-}
-
-export function renderPerTileBatches(gl, gpu, perTileDrawBatches, viewportWidth, viewportHeight, hooks = {}) {
-  const {
-    beforeTile = null,
-    afterTile = null
-  } = hooks;
-
+export function renderPerTileBatches(
+  gl,
+  gpu,
+  perTileDrawBatches,
+  canvasWidth,
+  canvasHeight,
+  hooks = {}
+) {
   let uploadCount = 0;
   let drawCallCount = 0;
 
   for (const item of perTileDrawBatches) {
-    if (beforeTile) beforeTile(item);
+    if (hooks.beforeTile) hooks.beforeTile(item);
 
-    uploadDrawArrays(gl, gpu, item.drawData);
+    uploadAndDraw(gl, gpu, item.drawData, canvasWidth, canvasHeight);
     uploadCount += 1;
-
-    drawUploadedArrays(gl, gpu, viewportWidth, viewportHeight, item.drawData.nDraw);
     drawCallCount += 1;
 
-    if (afterTile) afterTile(item);
+    if (hooks.afterTile) hooks.afterTile(item);
   }
 
   return {
@@ -149,61 +176,53 @@ export function renderPerTileBatches(gl, gpu, perTileDrawBatches, viewportWidth,
   };
 }
 
-export function buildDrawStats({
-  visibleCount,
-  drawData,
-  mode = null,
-  focusTileId = -1,
-  focusTileIds = null,
-  tileBatchSummary = null,
-  executionSummary = null
-}) {
+export function buildPackedDrawStats(packedScreenSpace) {
+  const packed = packedScreenSpace?.packed;
+  const packedCount = packedScreenSpace?.packedCount ?? 0;
+  const packedLength = packed instanceof Float32Array ? packed.length : 0;
+
   return {
-    visibleCount,
-    drawCount: drawData ? drawData.nDraw : 0,
-    drawFraction: visibleCount > 0 && drawData ? (drawData.nDraw / visibleCount) : 0,
-    drawSelectedOnly: mode ? !!mode.drawSelectedOnly : false,
-    showOverlay: mode ? !!mode.showOverlay : false,
-    useMaxTile: mode ? !!mode.useMaxTile : false,
-    selectedTileId: mode ? mode.selectedTileId : -1,
-    tileRadius: mode ? mode.tileRadius : 0,
-    focusTileId,
-    focusTileIds: focusTileIds || [],
-    tileBatchSummary,
-    executionSummary
+    packedPath: packedScreenSpace?.path ?? 'none',
+    packedCount,
+    packedLength,
+    packedFloatsPerItem: packedScreenSpace?.floatsPerItem ?? GPU_VISIBLE_PACK_FLOATS_PER_ITEM
   };
 }
 
-export function formatDrawStats(drawStats) {
-  const idsText = drawStats.focusTileIds && drawStats.focusTileIds.length > 0
-    ? `[${drawStats.focusTileIds.join(', ')}]`
-    : 'none';
+export function buildDrawStats({
+  visibleCount,
+  drawData,
+  mode,
+  focusTileId,
+  focusTileIds,
+  tileBatchSummary,
+  executionSummary,
+  packedScreenSpace = null
+}) {
+  const drawCount = drawData?.nDraw || 0;
+  const packedStats = buildPackedDrawStats(packedScreenSpace);
 
-  const lines = [
-    `drawCount=${drawStats.drawCount}`,
-    `visibleCount=${drawStats.visibleCount}`,
-    `drawFraction=${drawStats.drawFraction.toFixed(3)}`,
-    `drawSelectedOnly=${drawStats.drawSelectedOnly}`,
-    `showOverlay=${drawStats.showOverlay}`,
-    `useMaxTile=${drawStats.useMaxTile}`,
-    `selectedTileId=${drawStats.selectedTileId}`,
-    `tileRadius=${drawStats.tileRadius}`,
-    `focusTileId=${drawStats.focusTileId}`,
-    `focusTileIds=${idsText}`
-  ];
-
-  if (drawStats.tileBatchSummary) {
-    lines.push(`tileBatchCount=${drawStats.tileBatchSummary.tileBatchCount}`);
-    lines.push(`totalTileDrawCount=${drawStats.tileBatchSummary.totalTileDrawCount}`);
-    lines.push(`maxTileDrawCount=${drawStats.tileBatchSummary.maxTileDrawCount}`);
-    lines.push(`maxTileId=${drawStats.tileBatchSummary.maxTileId}`);
-    lines.push(`avgTileDrawCount=${drawStats.tileBatchSummary.avgTileDrawCount.toFixed(2)}`);
-  }
-
-  if (drawStats.executionSummary) {
-    lines.push(`uploadCount=${drawStats.executionSummary.uploadCount}`);
-    lines.push(`drawCallCount=${drawStats.executionSummary.drawCallCount}`);
-  }
-
-  return lines.join('  ');
+  return {
+    drawCount,
+    visibleCount,
+    drawFraction: visibleCount > 0 ? drawCount / visibleCount : 0,
+    drawSelectedOnly: !!mode?.drawSelectedOnly,
+    showOverlay: !!mode?.showOverlay,
+    useMaxTile: !!mode?.useMaxTile,
+    selectedTileId: mode?.selectedTileId ?? -1,
+    tileRadius: mode?.tileRadius ?? 0,
+    focusTileId,
+    focusTileIds,
+    tileBatchCount: tileBatchSummary?.tileBatchCount ?? executionSummary?.tileBatchCount ?? 0,
+    totalTileDrawCount: tileBatchSummary?.totalTileDrawCount ?? drawCount,
+    maxTileDrawCount: tileBatchSummary?.maxTileDrawCount ?? drawCount,
+    maxTileDrawTileId: tileBatchSummary?.maxTileId ?? focusTileId ?? -1,
+    uploadCount: executionSummary?.uploadCount ?? 0,
+    drawCallCount: executionSummary?.drawCallCount ?? 0,
+    executionTileBatchCount: executionSummary?.tileBatchCount ?? 0,
+    packedPath: packedStats.packedPath,
+    packedCount: packedStats.packedCount,
+    packedLength: packedStats.packedLength,
+    packedFloatsPerItem: packedStats.packedFloatsPerItem
+  };
 }

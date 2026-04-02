@@ -7,6 +7,11 @@ import { buildFallbackCandidateInfo } from './gpu_candidate_builder_fallback.js'
 import { buildSortedCandidateInfo } from './gpu_candidate_builder_sorted.js';
 import { buildBucketCandidateInfo } from './gpu_candidate_builder_bucket.js';
 import { buildHybridCandidateInfo } from './gpu_candidate_builder_hybrid.js';
+import {
+  createScreenSpaceBuildContext,
+  buildPackedScreenSpaceWithContext,
+  summarizePackedScreenSpace
+} from './gpu_screen_space_builder.js';
 
 function deriveTemporalPrefilterMode(ui, temporalIndexOptions, temporalBucketOptions) {
   if (ui?.temporalPrefilterModeSelect) return ui.temporalPrefilterModeSelect.value;
@@ -176,11 +181,15 @@ export async function buildVisibleSplats({
   useTemporalBucket = false,
   useTemporalBucketCache = true,
   temporalBucketWidth = 0.1,
-  temporalBucketRadius = 0
+  temporalBucketRadius = 0,
+  enablePackedVisiblePath = true,
+  screenSpaceContext = null
 }) {
   if (!raw) {
     return {
       visible: [],
+      packedScreenSpace: null,
+      packedSummary: summarizePackedScreenSpace(null),
       renderW: 0,
       renderH: 0,
       sx: 1,
@@ -194,6 +203,12 @@ export async function buildVisibleSplats({
         temporalPassed: 0,
         temporalCullRatio: 0,
         candidateMode: 'none',
+        packedVisiblePathEnabled: !!enablePackedVisiblePath,
+        packedVisiblePathUsed: false,
+        packedVisibleCount: 0,
+        packedVisibleLength: 0,
+        packedVisibleFloatsPerItem: 0,
+        packedVisiblePath: 'none',
         qualityOverrideActive: false,
         qualityOverrideReason: 'none',
         temporalIndexEnabled: false,
@@ -381,8 +396,21 @@ export async function buildVisibleSplats({
     activeTileBox = [minTileX, minTileY, maxTileX, maxTileY];
   }
 
+  const packedCtx = screenSpaceContext || createScreenSpaceBuildContext();
+  const packedScreenSpace = enablePackedVisiblePath
+    ? buildPackedScreenSpaceWithContext(packedCtx, visible, {
+        renderW,
+        renderH,
+        sx,
+        sy
+      })
+    : null;
+  const packedSummary = summarizePackedScreenSpace(packedScreenSpace);
+
   return {
     visible,
+    packedScreenSpace,
+    packedSummary,
     renderW,
     renderH,
     sx,
@@ -396,6 +424,12 @@ export async function buildVisibleSplats({
       temporalPassed,
       temporalCullRatio: processed > 0 ? (temporalRejected / processed) : 0,
       candidateMode: candidateInfo.candidateMode,
+      packedVisiblePathEnabled: !!enablePackedVisiblePath,
+      packedVisiblePathUsed: !!packedScreenSpace,
+      packedVisibleCount: packedSummary.packedCount,
+      packedVisibleLength: packedSummary.packedLength,
+      packedVisibleFloatsPerItem: packedSummary.floatsPerItem,
+      packedVisiblePath: packedSummary.path,
       qualityOverrideActive,
       qualityOverrideReason,
       temporalIndexEnabled: !!useTemporalIndex,

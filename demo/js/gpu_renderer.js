@@ -189,9 +189,16 @@ export async function renderGpuFrame({
     debugOverlayCanvas.height = canvas.height;
     debugCtx.clearRect(0, 0, debugOverlayCanvas.width, debugOverlayCanvas.height);
     debugOverlayCanvas.style.display = 'none';
-    const emptyInfo = 'GPU Step19 viewer\nNo scene loaded.';
+    const emptyInfo = 'GPU Step20 viewer\nNo scene loaded.';
     setInfoText(infoEl, emptyInfo);
-    return { infoText: emptyInfo, visible: [], buildStats: null, drawStats: null };
+    return {
+      infoText: emptyInfo,
+      visible: [],
+      packedScreenSpace: null,
+      packedSummary: null,
+      buildStats: null,
+      drawStats: null
+    };
   }
 
   const frameToken = ++tokenRef.value;
@@ -211,11 +218,18 @@ export async function renderGpuFrame({
     frameToken,
     tileGrid,
     temporalSigmaThreshold: 3.0,
+    enablePackedVisiblePath: true,
     ...buildConfig
   });
   if (visibleResult === null) return null;
 
-  const { visible, activeTileBox, buildStats } = visibleResult;
+  const {
+    visible,
+    packedScreenSpace,
+    packedSummary,
+    activeTileBox,
+    buildStats
+  } = visibleResult;
 
   const tileData = buildTileLists(visible, tileGrid.tileCols, tileGrid.tileRows);
   const tileSummary = summarizeTileLists(
@@ -352,6 +366,15 @@ export async function renderGpuFrame({
     ui
   });
 
+  const packedLines = [
+    `packedVisiblePathEnabled=${!!buildStats?.packedVisiblePathEnabled}`,
+    `packedVisiblePathUsed=${!!buildStats?.packedVisiblePathUsed}`,
+    `packedVisiblePath=${buildStats?.packedVisiblePath ?? 'none'}`,
+    `packedVisibleCount=${buildStats?.packedVisibleCount ?? 0}`,
+    `packedVisibleLength=${buildStats?.packedVisibleLength ?? 0}`,
+    `packedVisibleFloatsPerItem=${buildStats?.packedVisibleFloatsPerItem ?? 0}`
+  ];
+
   const infoText = formatGpuViewerInfo({
     raw,
     visibleCount: visible.length,
@@ -369,19 +392,19 @@ export async function renderGpuFrame({
     timestamp: buildConfig.timestamp,
     splatScale: buildConfig.scalingModifier,
     elapsedMs: elapsed,
-    stepLabel: 'GPU Step19',
+    stepLabel: 'GPU Step20',
     stepNotes: [
-      'Playback and interaction degradation are now GUI-tunable for CPU-side evaluation',
-      'Interaction and playback quality overrides can be merged before visible-build',
-      'Hybrid candidate mode can use bucket prefilter followed by temporal window filtering',
-      'Renderer passes ui into gpu_debug_info_builder.js so GUI values appear in logs'
+      'Packed visible path is introduced in parallel with the legacy object-array path',
+      'Renderer still draws from the legacy CPU path, but receives packed-screen-space results for comparison',
+      'This step prepares GPU-side screen-space and upload migration without breaking the current renderer',
+      'Logs now include packed-visible path usage and buffer summary'
     ],
     tileSummary,
     avgRefsPerVisible,
     drawStats,
     tileSelectionText,
     tileDebugText,
-    extraLines
+    extraLines: [...extraLines, ...packedLines]
   });
 
   setInfoText(infoEl, infoText);
@@ -389,6 +412,8 @@ export async function renderGpuFrame({
   return {
     infoText,
     visible,
+    packedScreenSpace,
+    packedSummary,
     buildStats,
     drawStats,
     tileSummary

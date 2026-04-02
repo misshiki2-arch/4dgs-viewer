@@ -13,6 +13,7 @@ import {
   ensureTemporalIndexControls,
   ensureTemporalBucketControls,
   ensureQualityOverrideControls,
+  ensurePackedPathControls,
   ensureDebugLogControls,
   setDebugLogText,
   copyDebugLogText
@@ -22,6 +23,7 @@ import {
   syncTemporalIndexUiState,
   syncTemporalBucketUiState,
   syncQualityOverrideUiState,
+  syncPackedPathUiState,
   initializeViewerUiDefaults,
   syncAllViewerUiState
 } from './viewer_ui_state.js';
@@ -68,6 +70,7 @@ ensureTileDebugControls(ui);
 ensureTemporalIndexControls(ui);
 ensureTemporalBucketControls(ui);
 ensureQualityOverrideControls(ui);
+ensurePackedPathControls(ui);
 ensureDebugLogControls(ui);
 applyInfoWrapStyle(ui.info);
 applyPanelResizeStyle(ui.info);
@@ -114,7 +117,10 @@ const scheduler = createRenderScheduler({
       ui,
       tokenRef,
       infoEl: ui.info,
-      interactionOverride: quality.effectiveConfig
+      interactionOverride: {
+        ...quality.effectiveConfig,
+        enablePackedVisiblePath: !!ui.usePackedVisiblePathCheck?.checked
+      }
     });
 
     if (renderResult && typeof renderResult.infoText === 'string') {
@@ -280,6 +286,13 @@ function bindUiEvents() {
       scheduler.scheduleRender();
     });
   });
+
+  if (ui.usePackedVisiblePathCheck) {
+    ui.usePackedVisiblePathCheck.addEventListener('change', () => {
+      syncPackedPathUiState(ui);
+      scheduler.scheduleRender();
+    });
+  }
 
   if (ui.debugLogBtn) {
     ui.debugLogBtn.addEventListener('click', () => {

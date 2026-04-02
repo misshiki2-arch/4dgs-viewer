@@ -44,6 +44,18 @@ export function buildInteractionExtraLines(buildConfig, buildStats, ui = null) {
       );
     }
 
+    if (typeof buildStats.packedVisiblePathEnabled !== 'undefined') {
+      lines.push(
+        `packedVisiblePathEnabled=${!!buildStats.packedVisiblePathEnabled}  packedVisiblePathUsed=${!!buildStats.packedVisiblePathUsed}`
+      );
+      lines.push(
+        `packedVisiblePath=${buildStats.packedVisiblePath ?? 'none'}  packedVisibleCount=${buildStats.packedVisibleCount ?? 0}`
+      );
+      lines.push(
+        `packedVisibleLength=${buildStats.packedVisibleLength ?? 0}  packedVisibleFloatsPerItem=${buildStats.packedVisibleFloatsPerItem ?? 0}`
+      );
+    }
+
     if (typeof buildStats.temporalIndexRangeCount !== 'undefined') {
       lines.push(
         `temporalIndexEnabled=${!!buildStats.temporalIndexEnabled}  temporalIndexCacheEnabled=${!!buildStats.temporalIndexCacheEnabled}`

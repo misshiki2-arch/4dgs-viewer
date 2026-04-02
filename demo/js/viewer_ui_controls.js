@@ -213,6 +213,31 @@ export function ensureQualityOverrideControls(ui) {
   ui.interactionRenderScaleNote = document.getElementById('interactionRenderScaleNote');
 }
 
+export function ensurePackedPathControls(ui) {
+  const parent = ui.info.parentElement;
+
+  const rows = [
+    {
+      id: 'packedPathRow1',
+      html: '<label>use packed visible path</label><input id="usePackedVisiblePath" type="checkbox"><span id="usePackedVisiblePathNote">parallel packed visible buffer generation</span>'
+    }
+  ];
+
+  for (const rowDef of rows) {
+    let row = document.getElementById(rowDef.id);
+    if (!row) {
+      row = document.createElement('div');
+      row.className = 'row';
+      row.id = rowDef.id;
+      row.innerHTML = rowDef.html;
+      parent.insertBefore(row, ui.info);
+    }
+  }
+
+  ui.usePackedVisiblePathCheck = document.getElementById('usePackedVisiblePath');
+  ui.usePackedVisiblePathNote = document.getElementById('usePackedVisiblePathNote');
+}
+
 export function ensureDebugLogControls(ui) {
   const parent = ui.info.parentElement;
 
