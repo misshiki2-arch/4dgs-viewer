@@ -32,7 +32,8 @@ export function createViewerPlayback({
 
     notifyPlaybackStateChange();
 
-    // 再生開始・停止のどちらでも、quality override や表示更新のために再描画する
+    // Step18:
+    // playback override の実効化のため、再生開始/停止どちらでも即座に再描画を要求する。
     if (typeof scheduleRender === 'function') {
       scheduleRender();
     }
@@ -45,6 +46,7 @@ export function createViewerPlayback({
   function stepPlayback(dtSeconds) {
     const range = getTimeRange();
     let t = parseFloat(ui.timeSlider.value) + dtSeconds * playbackSpeed;
+
     if (t > range.max) t = range.min;
     if (t < range.min) t = range.max;
 
@@ -60,6 +62,9 @@ export function createViewerPlayback({
 
     if (playing) {
       stepPlayback(dt);
+
+      // Step18:
+      // 再生中は毎フレーム scheduleRender を発行し、playback override 適用下で描画する。
       if (typeof scheduleRender === 'function') {
         scheduleRender();
       }

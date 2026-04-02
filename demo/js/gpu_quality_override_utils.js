@@ -32,6 +32,9 @@ export function getGpuInteractionOverride(ui, interactionState) {
     };
   }
 
+  // Step18:
+  // CPU 側最適化の評価用として、ドラッグ中はかなり強めに品質を落とす。
+  // ただし最終目標は stride=1 のまま動かすことなので、これは暫定的な測定用 override。
   return {
     active: true,
     reason: 'interaction',
@@ -55,12 +58,15 @@ export function getGpuPlaybackOverride(ui, isPlaying) {
     };
   }
 
+  // Step18:
+  // 再生時の実効化。interaction よりは少し緩めだが、通常時よりは明確に軽量化する。
+  // ここで再生体感と debug 値を比較し、CPU 側でどこまで粘れるかを確認する。
   return {
     active: true,
     reason: 'playback',
-    stride: Math.max(base.stride, 8),
-    maxVisible: Math.min(base.maxVisible, 50000),
-    renderScale: Math.min(base.renderScale, 0.75)
+    stride: Math.max(base.stride, 32),
+    maxVisible: Math.min(base.maxVisible, 30000),
+    renderScale: Math.min(base.renderScale, 0.50)
   };
 }
 
@@ -77,6 +83,7 @@ export function mergeGpuQualityOverrides(baseConfig, overrides = []) {
     if (!ov || !ov.active) continue;
 
     result.qualityOverrideActive = true;
+
     if (ov.reason && ov.reason !== 'none') {
       result.qualityOverrideReasons.push(ov.reason);
     }
@@ -84,12 +91,17 @@ export function mergeGpuQualityOverrides(baseConfig, overrides = []) {
     if (ov.reason === 'interaction') result.interactionActive = true;
     if (ov.reason === 'playback') result.playbackActive = true;
 
+    // stride は「大きいほど粗い」ので最大値を採用
     if (Number.isFinite(ov.stride)) {
       result.stride = Math.max(result.stride, ov.stride);
     }
+
+    // maxVisible は小さいほど軽いので最小値を採用
     if (Number.isFinite(ov.maxVisible)) {
       result.maxVisible = Math.min(result.maxVisible, ov.maxVisible);
     }
+
+    // renderScale は小さいほど軽いので最小値を採用
     if (Number.isFinite(ov.renderScale)) {
       result.renderScale = Math.min(result.renderScale, ov.renderScale);
     }

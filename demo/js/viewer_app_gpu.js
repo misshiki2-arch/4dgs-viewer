@@ -11,7 +11,10 @@ import {
   applyPanelResizeStyle,
   ensureTileDebugControls,
   ensureTemporalIndexControls,
-  ensureTemporalBucketControls
+  ensureTemporalBucketControls,
+  ensureDebugLogControls,
+  setDebugLogText,
+  copyDebugLogText
 } from './viewer_ui_controls.js';
 import {
   syncTileDebugGlobalsFromUI,
@@ -62,6 +65,7 @@ const ui = {
 ensureTileDebugControls(ui);
 ensureTemporalIndexControls(ui);
 ensureTemporalBucketControls(ui);
+ensureDebugLogControls(ui);
 applyInfoWrapStyle(ui.info);
 applyPanelResizeStyle(ui.info);
 
@@ -69,10 +73,24 @@ const scene = createViewerScene(canvas);
 const { camera, controls, ensureGpu, getGpu, setCanvasSize } = scene;
 
 let raw = null;
+let lastDebugText = '';
 const tokenRef = { value: 0 };
 const interactionState = createGpuInteractionState();
 
 let playback = null;
+
+function refreshLatestDebugText(explicitText = null) {
+  const text = explicitText ?? ui.info?.textContent ?? '';
+  lastDebugText = text;
+  return text;
+}
+
+function exportLatestDebugTextToArea() {
+  setDebugLogText(ui, refreshLatestDebugText());
+  if (ui.debugLogNote) {
+    ui.debugLogNote.textContent = lastDebugText ? 'latest debug text exported' : 'no debug text';
+  }
+}
 
 const scheduler = createRenderScheduler({
   renderFrame: async () => {
@@ -84,7 +102,7 @@ const scheduler = createRenderScheduler({
       isPlaying: playback ? playback.isPlaying() : false
     });
 
-    await renderGpuFrame({
+    const renderResult = await renderGpuFrame({
       raw,
       gpu: getGpu(),
       canvas,
@@ -95,6 +113,12 @@ const scheduler = createRenderScheduler({
       infoEl: ui.info,
       interactionOverride: quality.effectiveConfig
     });
+
+    if (renderResult && typeof renderResult.infoText === 'string') {
+      refreshLatestDebugText(renderResult.infoText);
+    } else {
+      refreshLatestDebugText();
+    }
   },
   tokenRef,
   isPlaying: () => (playback ? playback.isPlaying() : false)
@@ -229,6 +253,21 @@ function bindUiEvents() {
       scheduler.scheduleRender();
     });
   });
+
+  if (ui.debugLogBtn) {
+    ui.debugLogBtn.addEventListener('click', () => {
+      exportLatestDebugTextToArea();
+    });
+  }
+
+  if (ui.debugLogCopyBtn) {
+    ui.debugLogCopyBtn.addEventListener('click', async () => {
+      if (!ui.debugLogArea?.value) {
+        exportLatestDebugTextToArea();
+      }
+      await copyDebugLogText(ui);
+    });
+  }
 
   ui.playBtn.addEventListener('click', () => {
     playback.togglePlaying();

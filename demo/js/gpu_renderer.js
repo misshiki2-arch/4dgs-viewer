@@ -61,15 +61,9 @@ function ensureDebugOverlayCanvas(mainCanvas) {
 }
 
 function applyUiTileModeToGlobals(ui) {
-  if (ui.showTileDebugCheck) {
-    window.__GPU_TILE_DEBUG_OVERLAY__ = !!ui.showTileDebugCheck.checked;
-  }
-  if (ui.drawSelectedTileOnlyCheck) {
-    window.__GPU_TILE_DRAW_SELECTED_ONLY__ = !!ui.drawSelectedTileOnlyCheck.checked;
-  }
-  if (ui.useMaxTileCheck) {
-    window.__GPU_TILE_USE_MAX_TILE__ = !!ui.useMaxTileCheck.checked;
-  }
+  if (ui.showTileDebugCheck) window.__GPU_TILE_DEBUG_OVERLAY__ = !!ui.showTileDebugCheck.checked;
+  if (ui.drawSelectedTileOnlyCheck) window.__GPU_TILE_DRAW_SELECTED_ONLY__ = !!ui.drawSelectedTileOnlyCheck.checked;
+  if (ui.useMaxTileCheck) window.__GPU_TILE_USE_MAX_TILE__ = !!ui.useMaxTileCheck.checked;
   if (ui.selectedTileIdInput) {
     const v = Number(ui.selectedTileIdInput.value);
     window.__GPU_TILE_SELECTED_ID__ = Number.isInteger(v) ? v : -1;
@@ -110,9 +104,7 @@ function disableTileScissor(gl) {
 
 function buildAllVisibleDrawData(visible) {
   const allDrawIndices = new Uint32Array(visible.length);
-  for (let i = 0; i < visible.length; i++) {
-    allDrawIndices[i] = i;
-  }
+  for (let i = 0; i < visible.length; i++) allDrawIndices[i] = i;
   return buildDrawArraysFromIndices(visible, allDrawIndices);
 }
 
@@ -197,8 +189,9 @@ export async function renderGpuFrame({
     debugOverlayCanvas.height = canvas.height;
     debugCtx.clearRect(0, 0, debugOverlayCanvas.width, debugOverlayCanvas.height);
     debugOverlayCanvas.style.display = 'none';
-    setInfoText(infoEl, 'GPU Step17 viewer\nNo scene loaded.');
-    return;
+    const emptyInfo = 'GPU Step18 viewer\nNo scene loaded.';
+    setInfoText(infoEl, emptyInfo);
+    return { infoText: emptyInfo, visible: [], buildStats: null, drawStats: null };
   }
 
   const frameToken = ++tokenRef.value;
@@ -220,7 +213,7 @@ export async function renderGpuFrame({
     temporalSigmaThreshold: 3.0,
     ...buildConfig
   });
-  if (visibleResult === null) return;
+  if (visibleResult === null) return null;
 
   const { visible, activeTileBox, buildStats } = visibleResult;
 
@@ -271,11 +264,7 @@ export async function renderGpuFrame({
 
   if (!mode.drawSelectedOnly) {
     uploadAndDraw(gl, gpu, fullDrawData, canvas.width, canvas.height);
-    executionSummary = {
-      tileBatchCount: 1,
-      uploadCount: 1,
-      drawCallCount: 1
-    };
+    executionSummary = { tileBatchCount: 1, uploadCount: 1, drawCallCount: 1 };
   } else {
     const rectMap = new Map(focusTileRects.map(item => [item.tileId, item.rect]));
     executionSummary = renderPerTileBatches(
@@ -287,11 +276,8 @@ export async function renderGpuFrame({
       {
         beforeTile: (item) => {
           const rect = rectMap.get(item.tileId);
-          if (rect) {
-            enableTileScissor(gl, canvas, rect);
-          } else {
-            disableTileScissor(gl);
-          }
+          if (rect) enableTileScissor(gl, canvas, rect);
+          else disableTileScissor(gl);
         },
         afterTile: () => {
           disableTileScissor(gl);
@@ -382,12 +368,12 @@ export async function renderGpuFrame({
     timestamp: buildConfig.timestamp,
     splatScale: buildConfig.scalingModifier,
     elapsedMs: elapsed,
-    stepLabel: 'GPU Step17',
+    stepLabel: 'GPU Step18',
     stepNotes: [
-      'Playback and interaction quality overrides can be merged before visible-build',
+      'Playback override is now an explicit CPU-side optimization step for evaluation',
+      'Interaction and playback quality overrides can be merged before visible-build',
       'Hybrid candidate mode can use bucket prefilter followed by temporal window filtering',
-      'Temporal culling remains active before costly screen-space work',
-      'Renderer delegates debug-line construction to gpu_debug_info_builder.js'
+      'Renderer returns infoText so UI can export the latest debug text'
     ],
     tileSummary,
     avgRefsPerVisible,
@@ -398,4 +384,12 @@ export async function renderGpuFrame({
   });
 
   setInfoText(infoEl, infoText);
+
+  return {
+    infoText,
+    visible,
+    buildStats,
+    drawStats,
+    tileSummary
+  };
 }

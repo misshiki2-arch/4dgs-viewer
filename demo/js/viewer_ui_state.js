@@ -51,6 +51,14 @@ export function syncTemporalBucketUiState(ui) {
     : 'used only when temporal bucket is on';
 }
 
+export function syncDebugLogUiState(ui) {
+  if (!ui.debugLogArea) return;
+
+  if (ui.debugLogNote && !ui.debugLogArea.value) {
+    ui.debugLogNote.textContent = 'latest debug text';
+  }
+}
+
 export function initializeViewerUiDefaults(ui) {
   ui.showTileDebugCheck.checked = false;
   ui.drawSelectedTileOnlyCheck.checked = false;
@@ -67,10 +75,18 @@ export function initializeViewerUiDefaults(ui) {
   ui.useTemporalBucketCacheCheck.checked = true;
   ui.temporalBucketWidthInput.value = '0.10';
   ui.temporalBucketRadiusInput.value = '0';
+
+  if (ui.debugLogArea) {
+    ui.debugLogArea.value = '';
+  }
+  if (ui.debugLogNote) {
+    ui.debugLogNote.textContent = 'latest debug text';
+  }
 }
 
 export function syncAllViewerUiState(ui, win = window) {
   syncTileDebugGlobalsFromUI(ui, win);
   syncTemporalIndexUiState(ui);
   syncTemporalBucketUiState(ui);
+  syncDebugLogUiState(ui);
 }

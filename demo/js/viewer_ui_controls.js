@@ -144,3 +144,61 @@ export function ensureTemporalBucketControls(ui) {
   ui.temporalBucketRadiusInput = document.getElementById('temporalBucketRadius');
   ui.temporalBucketRadiusNote = document.getElementById('temporalBucketRadiusNote');
 }
+
+export function ensureDebugLogControls(ui) {
+  const parent = ui.info.parentElement;
+
+  const rows = [
+    {
+      id: 'debugLogRow1',
+      html: '<label>debug log</label><button id="debugLogBtn" type="button">ログ出力</button><button id="debugLogCopyBtn" type="button">コピー</button><span id="debugLogNote">latest debug text</span>'
+    },
+    {
+      id: 'debugLogRow2',
+      html: '<label>debug text</label><textarea id="debugLogArea" rows="10" style="width:100%; box-sizing:border-box; resize:vertical;" spellcheck="false" placeholder="ここに最新のデバッグ情報を出力します。"></textarea>'
+    }
+  ];
+
+  for (const rowDef of rows) {
+    let row = document.getElementById(rowDef.id);
+    if (!row) {
+      row = document.createElement('div');
+      row.className = 'row';
+      row.id = rowDef.id;
+      row.innerHTML = rowDef.html;
+      parent.insertBefore(row, ui.info);
+    }
+  }
+
+  ui.debugLogBtn = document.getElementById('debugLogBtn');
+  ui.debugLogCopyBtn = document.getElementById('debugLogCopyBtn');
+  ui.debugLogNote = document.getElementById('debugLogNote');
+  ui.debugLogArea = document.getElementById('debugLogArea');
+}
+
+export function setDebugLogText(ui, text) {
+  if (!ui || !ui.debugLogArea) return;
+  ui.debugLogArea.value = text ?? '';
+  if (ui.debugLogNote) {
+    ui.debugLogNote.textContent = text ? 'latest debug text' : 'no debug text';
+  }
+}
+
+export async function copyDebugLogText(ui) {
+  const text = ui?.debugLogArea?.value ?? '';
+  if (!text) return false;
+
+  try {
+    await navigator.clipboard.writeText(text);
+    if (ui?.debugLogNote) {
+      ui.debugLogNote.textContent = 'copied';
+    }
+    return true;
+  } catch (err) {
+    console.warn(err);
+    if (ui?.debugLogNote) {
+      ui.debugLogNote.textContent = 'copy failed';
+    }
+    return false;
+  }
+}
