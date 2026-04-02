@@ -145,6 +145,74 @@ export function ensureTemporalBucketControls(ui) {
   ui.temporalBucketRadiusNote = document.getElementById('temporalBucketRadiusNote');
 }
 
+export function ensureQualityOverrideControls(ui) {
+  const parent = ui.info.parentElement;
+
+  const rows = [
+    {
+      id: 'qualityOverrideRow1',
+      html: '<label>use playback override</label><input id="usePlaybackOverride" type="checkbox"><span id="usePlaybackOverrideNote">GUI-tunable playback degradation</span>'
+    },
+    {
+      id: 'qualityOverrideRow2',
+      html: '<label>playback stride</label><input id="playbackStride" type="number" min="1" step="1" value="32" style="width:120px;"><span id="playbackStrideNote">coarser draw sampling while playing</span>'
+    },
+    {
+      id: 'qualityOverrideRow3',
+      html: '<label>playback max visible</label><input id="playbackMaxVisible" type="number" min="1" step="1000" value="30000" style="width:120px;"><span id="playbackMaxVisibleNote">limit visible splats while playing</span>'
+    },
+    {
+      id: 'qualityOverrideRow4',
+      html: '<label>playback render scale</label><input id="playbackRenderScale" type="number" min="0.05" max="1.00" step="0.05" value="0.50" style="width:120px;"><span id="playbackRenderScaleNote">lower internal resolution while playing</span>'
+    },
+    {
+      id: 'qualityOverrideRow5',
+      html: '<label>use interaction override</label><input id="useInteractionOverride" type="checkbox"><span id="useInteractionOverrideNote">GUI-tunable drag degradation</span>'
+    },
+    {
+      id: 'qualityOverrideRow6',
+      html: '<label>interaction stride</label><input id="interactionStride" type="number" min="1" step="1" value="64" style="width:120px;"><span id="interactionStrideNote">coarser draw sampling while dragging</span>'
+    },
+    {
+      id: 'qualityOverrideRow7',
+      html: '<label>interaction max visible</label><input id="interactionMaxVisible" type="number" min="1" step="1000" value="10000" style="width:120px;"><span id="interactionMaxVisibleNote">limit visible splats while dragging</span>'
+    },
+    {
+      id: 'qualityOverrideRow8',
+      html: '<label>interaction render scale</label><input id="interactionRenderScale" type="number" min="0.05" max="1.00" step="0.05" value="0.50" style="width:120px;"><span id="interactionRenderScaleNote">lower internal resolution while dragging</span>'
+    }
+  ];
+
+  for (const rowDef of rows) {
+    let row = document.getElementById(rowDef.id);
+    if (!row) {
+      row = document.createElement('div');
+      row.className = 'row';
+      row.id = rowDef.id;
+      row.innerHTML = rowDef.html;
+      parent.insertBefore(row, ui.info);
+    }
+  }
+
+  ui.usePlaybackOverrideCheck = document.getElementById('usePlaybackOverride');
+  ui.usePlaybackOverrideNote = document.getElementById('usePlaybackOverrideNote');
+  ui.playbackStrideInput = document.getElementById('playbackStride');
+  ui.playbackStrideNote = document.getElementById('playbackStrideNote');
+  ui.playbackMaxVisibleInput = document.getElementById('playbackMaxVisible');
+  ui.playbackMaxVisibleNote = document.getElementById('playbackMaxVisibleNote');
+  ui.playbackRenderScaleInput = document.getElementById('playbackRenderScale');
+  ui.playbackRenderScaleNote = document.getElementById('playbackRenderScaleNote');
+
+  ui.useInteractionOverrideCheck = document.getElementById('useInteractionOverride');
+  ui.useInteractionOverrideNote = document.getElementById('useInteractionOverrideNote');
+  ui.interactionStrideInput = document.getElementById('interactionStride');
+  ui.interactionStrideNote = document.getElementById('interactionStrideNote');
+  ui.interactionMaxVisibleInput = document.getElementById('interactionMaxVisible');
+  ui.interactionMaxVisibleNote = document.getElementById('interactionMaxVisibleNote');
+  ui.interactionRenderScaleInput = document.getElementById('interactionRenderScale');
+  ui.interactionRenderScaleNote = document.getElementById('interactionRenderScaleNote');
+}
+
 export function ensureDebugLogControls(ui) {
   const parent = ui.info.parentElement;
 

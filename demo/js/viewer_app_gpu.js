@@ -12,6 +12,7 @@ import {
   ensureTileDebugControls,
   ensureTemporalIndexControls,
   ensureTemporalBucketControls,
+  ensureQualityOverrideControls,
   ensureDebugLogControls,
   setDebugLogText,
   copyDebugLogText
@@ -20,6 +21,7 @@ import {
   syncTileDebugGlobalsFromUI,
   syncTemporalIndexUiState,
   syncTemporalBucketUiState,
+  syncQualityOverrideUiState,
   initializeViewerUiDefaults,
   syncAllViewerUiState
 } from './viewer_ui_state.js';
@@ -65,6 +67,7 @@ const ui = {
 ensureTileDebugControls(ui);
 ensureTemporalIndexControls(ui);
 ensureTemporalBucketControls(ui);
+ensureQualityOverrideControls(ui);
 ensureDebugLogControls(ui);
 applyInfoWrapStyle(ui.info);
 applyPanelResizeStyle(ui.info);
@@ -250,6 +253,30 @@ function bindUiEvents() {
   ].forEach((key) => {
     ui[key].addEventListener('input', () => {
       syncTemporalBucketUiState(ui);
+      scheduler.scheduleRender();
+    });
+  });
+
+  [
+    'usePlaybackOverrideCheck',
+    'useInteractionOverrideCheck'
+  ].forEach((key) => {
+    ui[key].addEventListener('change', () => {
+      syncQualityOverrideUiState(ui);
+      scheduler.scheduleRender();
+    });
+  });
+
+  [
+    'playbackStrideInput',
+    'playbackMaxVisibleInput',
+    'playbackRenderScaleInput',
+    'interactionStrideInput',
+    'interactionMaxVisibleInput',
+    'interactionRenderScaleInput'
+  ].forEach((key) => {
+    ui[key].addEventListener('input', () => {
+      syncQualityOverrideUiState(ui);
       scheduler.scheduleRender();
     });
   });

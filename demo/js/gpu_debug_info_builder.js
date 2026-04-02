@@ -1,5 +1,17 @@
-export function buildInteractionExtraLines(buildConfig, buildStats) {
+export function buildInteractionExtraLines(buildConfig, buildStats, ui = null) {
   const lines = [];
+
+  if (ui) {
+    lines.push(
+      `uiPlaybackOverrideEnabled=${!!ui.usePlaybackOverrideCheck?.checked}  uiInteractionOverrideEnabled=${!!ui.useInteractionOverrideCheck?.checked}`
+    );
+    lines.push(
+      `uiPlaybackStride=${ui.playbackStrideInput?.value ?? 'n/a'}  uiPlaybackMaxVisible=${ui.playbackMaxVisibleInput?.value ?? 'n/a'}  uiPlaybackRenderScale=${ui.playbackRenderScaleInput?.value ?? 'n/a'}`
+    );
+    lines.push(
+      `uiInteractionStride=${ui.interactionStrideInput?.value ?? 'n/a'}  uiInteractionMaxVisible=${ui.interactionMaxVisibleInput?.value ?? 'n/a'}  uiInteractionRenderScale=${ui.interactionRenderScaleInput?.value ?? 'n/a'}`
+    );
+  }
 
   if (buildConfig) {
     lines.push(`interactionActive=${!!buildConfig.interactionActive}`);
@@ -105,10 +117,11 @@ export function buildGpuDebugExtraLines({
   buildStats,
   mode,
   focusTileIds,
-  focusTileRects
+  focusTileRects,
+  ui = null
 }) {
   return [
-    ...buildInteractionExtraLines(buildConfig, buildStats),
+    ...buildInteractionExtraLines(buildConfig, buildStats, ui),
     ...buildTileExtraLines(mode, focusTileIds, focusTileRects)
   ];
 }

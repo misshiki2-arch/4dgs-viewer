@@ -51,6 +51,44 @@ export function syncTemporalBucketUiState(ui) {
     : 'used only when temporal bucket is on';
 }
 
+export function syncQualityOverrideUiState(ui) {
+  const playbackEnabled = !!ui.usePlaybackOverrideCheck.checked;
+  ui.playbackStrideInput.disabled = !playbackEnabled;
+  ui.playbackMaxVisibleInput.disabled = !playbackEnabled;
+  ui.playbackRenderScaleInput.disabled = !playbackEnabled;
+
+  ui.playbackStrideNote.textContent = playbackEnabled
+    ? 'coarser draw sampling while playing'
+    : 'used only when playback override is on';
+  ui.playbackMaxVisibleNote.textContent = playbackEnabled
+    ? 'limit visible splats while playing'
+    : 'used only when playback override is on';
+  ui.playbackRenderScaleNote.textContent = playbackEnabled
+    ? 'lower internal resolution while playing'
+    : 'used only when playback override is on';
+  ui.usePlaybackOverrideNote.textContent = playbackEnabled
+    ? 'GUI-tunable playback degradation'
+    : 'playback override is off';
+
+  const interactionEnabled = !!ui.useInteractionOverrideCheck.checked;
+  ui.interactionStrideInput.disabled = !interactionEnabled;
+  ui.interactionMaxVisibleInput.disabled = !interactionEnabled;
+  ui.interactionRenderScaleInput.disabled = !interactionEnabled;
+
+  ui.interactionStrideNote.textContent = interactionEnabled
+    ? 'coarser draw sampling while dragging'
+    : 'used only when interaction override is on';
+  ui.interactionMaxVisibleNote.textContent = interactionEnabled
+    ? 'limit visible splats while dragging'
+    : 'used only when interaction override is on';
+  ui.interactionRenderScaleNote.textContent = interactionEnabled
+    ? 'lower internal resolution while dragging'
+    : 'used only when interaction override is on';
+  ui.useInteractionOverrideNote.textContent = interactionEnabled
+    ? 'GUI-tunable drag degradation'
+    : 'interaction override is off';
+}
+
 export function syncDebugLogUiState(ui) {
   if (!ui.debugLogArea) return;
 
@@ -76,6 +114,16 @@ export function initializeViewerUiDefaults(ui) {
   ui.temporalBucketWidthInput.value = '0.10';
   ui.temporalBucketRadiusInput.value = '0';
 
+  ui.usePlaybackOverrideCheck.checked = true;
+  ui.playbackStrideInput.value = '32';
+  ui.playbackMaxVisibleInput.value = '30000';
+  ui.playbackRenderScaleInput.value = '0.50';
+
+  ui.useInteractionOverrideCheck.checked = true;
+  ui.interactionStrideInput.value = '64';
+  ui.interactionMaxVisibleInput.value = '10000';
+  ui.interactionRenderScaleInput.value = '0.50';
+
   if (ui.debugLogArea) {
     ui.debugLogArea.value = '';
   }
@@ -88,5 +136,6 @@ export function syncAllViewerUiState(ui, win = window) {
   syncTileDebugGlobalsFromUI(ui, win);
   syncTemporalIndexUiState(ui);
   syncTemporalBucketUiState(ui);
+  syncQualityOverrideUiState(ui);
   syncDebugLogUiState(ui);
 }

@@ -189,7 +189,7 @@ export async function renderGpuFrame({
     debugOverlayCanvas.height = canvas.height;
     debugCtx.clearRect(0, 0, debugOverlayCanvas.width, debugOverlayCanvas.height);
     debugOverlayCanvas.style.display = 'none';
-    const emptyInfo = 'GPU Step18 viewer\nNo scene loaded.';
+    const emptyInfo = 'GPU Step19 viewer\nNo scene loaded.';
     setInfoText(infoEl, emptyInfo);
     return { infoText: emptyInfo, visible: [], buildStats: null, drawStats: null };
   }
@@ -348,7 +348,8 @@ export async function renderGpuFrame({
     buildStats,
     mode,
     focusTileIds,
-    focusTileRects
+    focusTileRects,
+    ui
   });
 
   const infoText = formatGpuViewerInfo({
@@ -368,12 +369,12 @@ export async function renderGpuFrame({
     timestamp: buildConfig.timestamp,
     splatScale: buildConfig.scalingModifier,
     elapsedMs: elapsed,
-    stepLabel: 'GPU Step18',
+    stepLabel: 'GPU Step19',
     stepNotes: [
-      'Playback override is now an explicit CPU-side optimization step for evaluation',
+      'Playback and interaction degradation are now GUI-tunable for CPU-side evaluation',
       'Interaction and playback quality overrides can be merged before visible-build',
       'Hybrid candidate mode can use bucket prefilter followed by temporal window filtering',
-      'Renderer returns infoText so UI can export the latest debug text'
+      'Renderer passes ui into gpu_debug_info_builder.js so GUI values appear in logs'
     ],
     tileSummary,
     avgRefsPerVisible,
