@@ -146,6 +146,16 @@ function buildCandidateInfo({
   });
 }
 
+function buildColorAlpha(color, opacity) {
+  const r = Array.isArray(color) && Number.isFinite(color[0]) ? color[0] : 0;
+  const g = Array.isArray(color) && Number.isFinite(color[1]) ? color[1] : 0;
+  const b = Array.isArray(color) && Number.isFinite(color[2]) ? color[2] : 0;
+  const a = Number.isFinite(opacity)
+    ? opacity
+    : (Array.isArray(color) && Number.isFinite(color[3]) ? color[3] : 0);
+  return [r, g, b, a];
+}
+
 export async function buildVisibleSplats({
   raw,
   camera,
@@ -362,21 +372,25 @@ export async function buildVisibleSplats({
       maxTileY = Math.max(maxTileY, tileRange[3]);
     }
 
+    const colorAlpha = buildColorAlpha(color, splat.opacity);
+
     visible.push({
       srcIndex: i,
       px,
       py,
       radius,
       depth: splat.depth,
-      opacity: splat.opacity,
-      color,
+      colorAlpha,
       conic: [
         splat.conic[0] / (sx * sx),
         splat.conic[1] / (sx * sy),
         splat.conic[2] / (sy * sy)
       ],
       aabb: [minX, minY, maxX, maxY],
-      tileRange
+      tileRange,
+      // backward compatibility only; draw contract should use colorAlpha
+      color,
+      opacity: splat.opacity
     });
 
     if (visible.length >= maxVisible) break;

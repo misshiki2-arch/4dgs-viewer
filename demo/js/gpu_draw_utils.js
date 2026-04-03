@@ -3,14 +3,33 @@ import {
   GPU_VISIBLE_PACK_FLOATS_PER_ITEM
 } from './gpu_buffer_layout_utils.js';
 
-// Step20:
-// 従来の object-array draw 経路を維持しつつ、packed visible path の観測・将来接続に向けた
-// 補助関数を追加する。
+// Step20.1:
+// visible の描画契約を colorAlpha 基準へ寄せる。
+// draw 側では src.color[3] ではなく、src.colorAlpha を正本として扱う。
+// 旧構造との互換のため、colorAlpha が無い場合のみ color / opacity へ fallback する。
 
 function ensureFloat32Array(value, name) {
   if (!(value instanceof Float32Array)) {
     throw new Error(`${name} must be a Float32Array`);
   }
+}
+
+function resolveColorAlpha(src) {
+  if (Array.isArray(src?.colorAlpha) && src.colorAlpha.length >= 4) {
+    return src.colorAlpha;
+  }
+
+  const color = Array.isArray(src?.color) ? src.color : [0, 0, 0, 0];
+  const opacity = Number.isFinite(src?.opacity)
+    ? src.opacity
+    : (Number.isFinite(color[3]) ? color[3] : 0);
+
+  return [
+    Number.isFinite(color[0]) ? color[0] : 0,
+    Number.isFinite(color[1]) ? color[1] : 0,
+    Number.isFinite(color[2]) ? color[2] : 0,
+    opacity
+  ];
 }
 
 export function buildDrawArraysFromIndices(visible, drawIndices) {
@@ -30,11 +49,12 @@ export function buildDrawArraysFromIndices(visible, drawIndices) {
 
     radii[j] = src.radius;
 
+    const colorAlpha = resolveColorAlpha(src);
     const c4 = j * 4;
-    colors[c4 + 0] = src.color[0];
-    colors[c4 + 1] = src.color[1];
-    colors[c4 + 2] = src.color[2];
-    colors[c4 + 3] = src.color[3];
+    colors[c4 + 0] = colorAlpha[0];
+    colors[c4 + 1] = colorAlpha[1];
+    colors[c4 + 2] = colorAlpha[2];
+    colors[c4 + 3] = colorAlpha[3];
 
     const c3 = j * 3;
     conics[c3 + 0] = src.conic[0];

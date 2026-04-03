@@ -1,7 +1,8 @@
-// Step20:
+// Step20.2:
 // WebGL ユーティリティ。
-// 従来の shader / attribute / clear 補助に加えて、packed path を今後 GPU upload へ
-// 寄せやすくするための dynamic buffer 更新補助を追加する。
+// Step20 で追加した buffer 管理補助は維持しつつ、
+// shader 側の outColor = vec4(rgb, alpha) という非 premultiplied alpha 出力に合わせて
+// blend 設定を通常 alpha 合成へ修正する。
 
 export function createShader(gl, type, source) {
   const shader = gl.createShader(type);
@@ -138,7 +139,15 @@ export function clearToGray(gl, gray) {
 
 export function enableStandardAlphaBlend(gl) {
   gl.enable(gl.BLEND);
-  gl.blendFuncSeparate(gl.ONE, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+  // Step20.2:
+  // fragment shader は非 premultiplied alpha を出力しているため、
+  // source RGB は SRC_ALPHA を掛ける通常 alpha 合成にする。
+  gl.blendFuncSeparate(
+    gl.SRC_ALPHA,
+    gl.ONE_MINUS_SRC_ALPHA,
+    gl.ONE,
+    gl.ONE_MINUS_SRC_ALPHA
+  );
 }
 
 export function disableDepth(gl) {
