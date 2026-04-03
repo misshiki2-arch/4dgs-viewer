@@ -1,4 +1,4 @@
-export function buildInteractionExtraLines(buildConfig, buildStats, ui = null) {
+export function buildInteractionExtraLines(buildConfig, buildStats, ui = null, drawStats = null) {
   const lines = [];
 
   if (ui) {
@@ -11,6 +11,9 @@ export function buildInteractionExtraLines(buildConfig, buildStats, ui = null) {
     lines.push(
       `uiInteractionStride=${ui.interactionStrideInput?.value ?? 'n/a'}  uiInteractionMaxVisible=${ui.interactionMaxVisibleInput?.value ?? 'n/a'}  uiInteractionRenderScale=${ui.interactionRenderScaleInput?.value ?? 'n/a'}`
     );
+    lines.push(
+      `uiPackedVisiblePathEnabled=${!!ui.usePackedVisiblePathCheck?.checked}  uiDrawPath=${ui.drawPathSelect?.value ?? 'legacy'}`
+    );
   }
 
   if (buildConfig) {
@@ -21,6 +24,24 @@ export function buildInteractionExtraLines(buildConfig, buildStats, ui = null) {
     lines.push(`effectiveStride=${buildConfig.stride}`);
     lines.push(`effectiveMaxVisible=${buildConfig.maxVisible}`);
     lines.push(`effectiveRenderScale=${Number(buildConfig.renderScale).toFixed(2)}`);
+  }
+
+  if (drawStats) {
+    lines.push(
+      `requestedDrawPath=${drawStats.requestedDrawPath ?? 'legacy'}  actualDrawPath=${drawStats.actualDrawPath ?? 'legacy'}`
+    );
+    lines.push(
+      `drawPathFallbackReason=${drawStats.drawPathFallbackReason ?? 'none'}`
+    );
+    lines.push(
+      `packedUploadBytes=${drawStats.packedUploadBytes ?? 0}  packedUploadCount=${drawStats.packedUploadCount ?? 0}`
+    );
+    lines.push(
+      `packedUploadLength=${drawStats.packedUploadLength ?? 0}  packedUploadCapacityBytes=${drawStats.packedUploadCapacityBytes ?? 0}`
+    );
+    lines.push(
+      `packedUploadReusedCapacity=${!!drawStats.packedUploadReusedCapacity}`
+    );
   }
 
   if (buildStats) {
@@ -127,13 +148,14 @@ export function buildTileExtraLines(mode, focusTileIds, focusTileRects) {
 export function buildGpuDebugExtraLines({
   buildConfig,
   buildStats,
+  drawStats = null,
   mode,
   focusTileIds,
   focusTileRects,
   ui = null
 }) {
   return [
-    ...buildInteractionExtraLines(buildConfig, buildStats, ui),
+    ...buildInteractionExtraLines(buildConfig, buildStats, ui, drawStats),
     ...buildTileExtraLines(mode, focusTileIds, focusTileRects)
   ];
 }

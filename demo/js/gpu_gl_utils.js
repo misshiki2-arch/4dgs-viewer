@@ -1,8 +1,7 @@
-// Step20.2:
+// Step22:
 // WebGL ユーティリティ。
-// Step20 で追加した buffer 管理補助は維持しつつ、
-// shader 側の outColor = vec4(rgb, alpha) という非 premultiplied alpha 出力に合わせて
-// blend 設定を通常 alpha 合成へ修正する。
+// Step20.2 の通常 alpha 合成は維持しつつ、
+// Step22 では managed buffer の再利用状況を追いやすくする。
 
 export function createShader(gl, type, source) {
   const shader = gl.createShader(type);
@@ -71,7 +70,13 @@ export function ensureArrayBufferCapacity(gl, state, requiredByteLength, usage =
   }
 
   const need = Math.max(0, requiredByteLength | 0);
-  if ((state.capacityBytes | 0) >= need) return state;
+  state.lastRequiredBytes = need;
+
+  if ((state.capacityBytes | 0) >= need) {
+    state.capacityReused = true;
+    state.capacityGrown = false;
+    return state;
+  }
 
   let nextCapacity = Math.max(256, state.capacityBytes | 0);
   while (nextCapacity < need) {
@@ -81,6 +86,8 @@ export function ensureArrayBufferCapacity(gl, state, requiredByteLength, usage =
   orphanArrayBuffer(gl, state.buffer, nextCapacity, usage);
   state.capacityBytes = nextCapacity;
   state.usage = usage;
+  state.capacityReused = false;
+  state.capacityGrown = true;
   return state;
 }
 
@@ -89,7 +96,12 @@ export function createManagedArrayBuffer(gl, initialByteLength = 0, usage = gl.D
   const state = {
     buffer,
     capacityBytes: 0,
-    usage
+    usage,
+    lastUploadBytes: 0,
+    lastRequiredBytes: 0,
+    capacityReused: false,
+    capacityGrown: false,
+    uploadCount: 0
   };
   ensureArrayBufferCapacity(gl, state, initialByteLength, usage);
   return state;
@@ -108,7 +120,19 @@ export function uploadManagedArrayBuffer(gl, state, data, usage = state?.usage ?
 
   state.usage = usage;
   state.lastUploadBytes = requiredByteLength;
+  state.uploadCount = (state.uploadCount | 0) + 1;
   return state;
+}
+
+export function summarizeManagedArrayBuffer(state) {
+  return {
+    capacityBytes: state?.capacityBytes ?? 0,
+    lastUploadBytes: state?.lastUploadBytes ?? 0,
+    lastRequiredBytes: state?.lastRequiredBytes ?? 0,
+    capacityReused: !!state?.capacityReused,
+    capacityGrown: !!state?.capacityGrown,
+    uploadCount: state?.uploadCount ?? 0
+  };
 }
 
 export function bindFloatAttrib(gl, {
@@ -139,9 +163,6 @@ export function clearToGray(gl, gray) {
 
 export function enableStandardAlphaBlend(gl) {
   gl.enable(gl.BLEND);
-  // Step20.2:
-  // fragment shader は非 premultiplied alpha を出力しているため、
-  // source RGB は SRC_ALPHA を掛ける通常 alpha 合成にする。
   gl.blendFuncSeparate(
     gl.SRC_ALPHA,
     gl.ONE_MINUS_SRC_ALPHA,

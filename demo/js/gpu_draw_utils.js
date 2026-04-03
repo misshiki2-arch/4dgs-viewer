@@ -2,10 +2,15 @@ import {
   computeVisiblePackFieldFloatOffset,
   GPU_VISIBLE_PACK_FLOATS_PER_ITEM
 } from './gpu_buffer_layout_utils.js';
+import {
+  createPackedUploadState,
+  uploadPackedInterleaved,
+  summarizePackedUploadState
+} from './gpu_packed_upload_utils.js';
 
-// Step20.1:
-// visible の描画契約を colorAlpha 基準へ寄せる。
-// draw 側では src.color[3] ではなく、src.colorAlpha を正本として扱う。
+// Step22:
+// visible の描画契約は colorAlpha 基準。
+// packed draw path を実使用する前提で、packed upload state の統計も draw stats に反映する。
 // 旧構造との互換のため、colorAlpha が無い場合のみ color / opacity へ fallback する。
 
 function ensureFloat32Array(value, name) {
@@ -168,6 +173,22 @@ export function uploadAndDraw(gl, gpu, drawData, canvasWidth, canvasHeight) {
   gl.bindVertexArray(null);
 }
 
+export function ensurePackedUploadState(gl, gpu) {
+  if (!gpu.packedUploadState) {
+    gpu.packedUploadState = createPackedUploadState(gl);
+  }
+  return gpu.packedUploadState;
+}
+
+export function uploadPackedForStats(gl, gpu, packedScreenSpace) {
+  const state = ensurePackedUploadState(gl, gpu);
+  if (!packedScreenSpace?.packed) {
+    return summarizePackedUploadState(state);
+  }
+  uploadPackedInterleaved(gl, state, packedScreenSpace.packed, packedScreenSpace.packedCount ?? 0);
+  return summarizePackedUploadState(state);
+}
+
 export function renderPerTileBatches(
   gl,
   gpu,
@@ -217,7 +238,8 @@ export function buildDrawStats({
   focusTileIds,
   tileBatchSummary,
   executionSummary,
-  packedScreenSpace = null
+  packedScreenSpace = null,
+  packedUploadSummary = null
 }) {
   const drawCount = drawData?.nDraw || 0;
   const packedStats = buildPackedDrawStats(packedScreenSpace);
@@ -240,9 +262,17 @@ export function buildDrawStats({
     uploadCount: executionSummary?.uploadCount ?? 0,
     drawCallCount: executionSummary?.drawCallCount ?? 0,
     executionTileBatchCount: executionSummary?.tileBatchCount ?? 0,
+    requestedDrawPath: executionSummary?.requestedDrawPath ?? 'legacy',
+    actualDrawPath: executionSummary?.actualDrawPath ?? 'legacy',
+    drawPathFallbackReason: executionSummary?.drawPathFallbackReason ?? 'none',
     packedPath: packedStats.packedPath,
     packedCount: packedStats.packedCount,
     packedLength: packedStats.packedLength,
-    packedFloatsPerItem: packedStats.packedFloatsPerItem
+    packedFloatsPerItem: packedStats.packedFloatsPerItem,
+    packedUploadBytes: packedUploadSummary?.packedUploadBytes ?? 0,
+    packedUploadCount: packedUploadSummary?.packedUploadCount ?? 0,
+    packedUploadLength: packedUploadSummary?.packedUploadLength ?? 0,
+    packedUploadCapacityBytes: packedUploadSummary?.packedUploadCapacityBytes ?? 0,
+    packedUploadReusedCapacity: !!packedUploadSummary?.packedUploadReusedCapacity
   };
 }

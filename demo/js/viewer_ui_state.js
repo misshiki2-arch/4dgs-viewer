@@ -90,10 +90,36 @@ export function syncQualityOverrideUiState(ui) {
 }
 
 export function syncPackedPathUiState(ui) {
-  const enabled = !!ui.usePackedVisiblePathCheck.checked;
-  ui.usePackedVisiblePathNote.textContent = enabled
-    ? 'parallel packed visible buffer generation'
+  const packedEnabled = !!ui.usePackedVisiblePathCheck.checked;
+
+  ui.usePackedVisiblePathNote.textContent = packedEnabled
+    ? 'enable packed visible generation and packed upload tracking'
     : 'packed visible path is off';
+
+  if (ui.drawPathSelect) {
+    const requested = ui.drawPathSelect.value;
+    const packedSelectable = packedEnabled;
+    const gpuScreenSelectable = false;
+
+    for (const opt of ui.drawPathSelect.options) {
+      if (opt.value === 'packed') {
+        opt.disabled = !packedSelectable;
+      } else if (opt.value === 'gpu-screen') {
+        opt.disabled = !gpuScreenSelectable;
+      }
+    }
+
+    if (!packedEnabled && requested === 'packed') {
+      ui.drawPathSelect.value = 'legacy';
+    }
+    if (requested === 'gpu-screen') {
+      ui.drawPathSelect.value = packedEnabled ? 'packed' : 'legacy';
+    }
+
+    ui.drawPathSelectNote.textContent = packedEnabled
+      ? 'actual draw path request'
+      : 'packed disabled, legacy only';
+  }
 }
 
 export function syncDebugLogUiState(ui) {
@@ -132,6 +158,9 @@ export function initializeViewerUiDefaults(ui) {
   ui.interactionRenderScaleInput.value = '0.50';
 
   ui.usePackedVisiblePathCheck.checked = true;
+  if (ui.drawPathSelect) {
+    ui.drawPathSelect.value = 'packed';
+  }
 
   if (ui.debugLogArea) {
     ui.debugLogArea.value = '';

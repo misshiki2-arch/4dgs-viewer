@@ -98,15 +98,22 @@ function exportLatestDebugTextToArea() {
   }
 }
 
+function buildRenderOverrides() {
+  const quality = buildEffectiveGpuQualityConfig({
+    ui,
+    interactionState,
+    isPlaying: playback ? playback.isPlaying() : false
+  });
+
+  return {
+    ...quality.effectiveConfig,
+    enablePackedVisiblePath: !!ui.usePackedVisiblePathCheck?.checked
+  };
+}
+
 const scheduler = createRenderScheduler({
   renderFrame: async () => {
     ensureGpu();
-
-    const quality = buildEffectiveGpuQualityConfig({
-      ui,
-      interactionState,
-      isPlaying: playback ? playback.isPlaying() : false
-    });
 
     const renderResult = await renderGpuFrame({
       raw,
@@ -117,10 +124,7 @@ const scheduler = createRenderScheduler({
       ui,
       tokenRef,
       infoEl: ui.info,
-      interactionOverride: {
-        ...quality.effectiveConfig,
-        enablePackedVisiblePath: !!ui.usePackedVisiblePathCheck?.checked
-      }
+      interactionOverride: buildRenderOverrides()
     });
 
     if (renderResult && typeof renderResult.infoText === 'string') {
@@ -289,6 +293,13 @@ function bindUiEvents() {
 
   if (ui.usePackedVisiblePathCheck) {
     ui.usePackedVisiblePathCheck.addEventListener('change', () => {
+      syncPackedPathUiState(ui);
+      scheduler.scheduleRender();
+    });
+  }
+
+  if (ui.drawPathSelect) {
+    ui.drawPathSelect.addEventListener('change', () => {
       syncPackedPathUiState(ui);
       scheduler.scheduleRender();
     });

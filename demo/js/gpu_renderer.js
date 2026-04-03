@@ -33,14 +33,23 @@ import {
 import { buildVisibleSplats, getVisibleBuildConfig } from './gpu_visible_builder.js';
 import {
   buildDrawArraysFromIndices,
+  buildDrawArraysFromPacked,
   buildPerTileDrawBatches,
   summarizePerTileDrawBatches,
   uploadAndDraw,
+  uploadPackedForStats,
   renderPerTileBatches,
   buildDrawStats
 } from './gpu_draw_utils.js';
 import { formatGpuViewerInfo, setInfoText } from './gpu_info_utils.js';
 import { buildGpuDebugExtraLines } from './gpu_debug_info_builder.js';
+import {
+  getRequestedDrawPath,
+  resolveDrawPath,
+  summarizeDrawPathSelection,
+  GPU_DRAW_PATH_LEGACY,
+  GPU_DRAW_PATH_PACKED
+} from './gpu_draw_path_selector.js';
 
 function ensureDebugOverlayCanvas(mainCanvas) {
   let overlay = document.getElementById('gpuTileDebugOverlay');
@@ -106,6 +115,13 @@ function buildAllVisibleDrawData(visible) {
   const allDrawIndices = new Uint32Array(visible.length);
   for (let i = 0; i < visible.length; i++) allDrawIndices[i] = i;
   return buildDrawArraysFromIndices(visible, allDrawIndices);
+}
+
+function buildPackedVisibleDrawData(packedScreenSpace) {
+  if (!packedScreenSpace?.packed || !Number.isFinite(packedScreenSpace?.packedCount)) {
+    return null;
+  }
+  return buildDrawArraysFromPacked(packedScreenSpace.packed, packedScreenSpace.packedCount);
 }
 
 export function createGpuRenderer(canvas) {
@@ -189,7 +205,7 @@ export async function renderGpuFrame({
     debugOverlayCanvas.height = canvas.height;
     debugCtx.clearRect(0, 0, debugOverlayCanvas.width, debugOverlayCanvas.height);
     debugOverlayCanvas.style.display = 'none';
-    const emptyInfo = 'GPU Step20 viewer\nNo scene loaded.';
+    const emptyInfo = 'GPU Step22 viewer\nNo scene loaded.';
     setInfoText(infoEl, emptyInfo);
     return {
       infoText: emptyInfo,
@@ -218,7 +234,7 @@ export async function renderGpuFrame({
     frameToken,
     tileGrid,
     temporalSigmaThreshold: 3.0,
-    enablePackedVisiblePath: true,
+    enablePackedVisiblePath: !!buildConfig.enablePackedVisiblePath,
     ...buildConfig
   });
   if (visibleResult === null) return null;
@@ -266,7 +282,26 @@ export async function renderGpuFrame({
     ? buildFocusTileRects(focusTileIds, tileGrid, canvas.width, canvas.height)
     : [];
 
-  const fullDrawData = buildAllVisibleDrawData(visible);
+  const requestedPath = getRequestedDrawPath(ui);
+  const drawPathSelection = resolveDrawPath({
+    requestedPath,
+    hasPackedScreenSpace: !!packedScreenSpace?.packed,
+    hasGpuScreenPath: false
+  });
+  const drawPathSummary = summarizeDrawPathSelection(drawPathSelection);
+
+  const legacyDrawData = (!mode.drawSelectedOnly || drawPathSummary.actualPath === GPU_DRAW_PATH_LEGACY)
+    ? buildAllVisibleDrawData(visible)
+    : null;
+
+  const packedDrawData = (!mode.drawSelectedOnly && drawPathSummary.actualPath === GPU_DRAW_PATH_PACKED)
+    ? buildPackedVisibleDrawData(packedScreenSpace)
+    : null;
+
+  const finalDrawData =
+    drawPathSummary.actualPath === GPU_DRAW_PATH_PACKED
+      ? (packedDrawData || legacyDrawData)
+      : legacyDrawData;
 
   gpu.resize(canvas.width, canvas.height);
 
@@ -275,10 +310,22 @@ export async function renderGpuFrame({
   clearToGray(gl, bg);
 
   let executionSummary = null;
+  let packedUploadSummary = null;
 
   if (!mode.drawSelectedOnly) {
-    uploadAndDraw(gl, gpu, fullDrawData, canvas.width, canvas.height);
-    executionSummary = { tileBatchCount: 1, uploadCount: 1, drawCallCount: 1 };
+    if (drawPathSummary.actualPath === GPU_DRAW_PATH_PACKED) {
+      packedUploadSummary = uploadPackedForStats(gl, gpu, packedScreenSpace);
+    }
+
+    uploadAndDraw(gl, gpu, finalDrawData, canvas.width, canvas.height);
+    executionSummary = {
+      tileBatchCount: 1,
+      uploadCount: 1,
+      drawCallCount: 1,
+      requestedDrawPath: drawPathSummary.requestedPath,
+      actualDrawPath: drawPathSummary.actualPath,
+      drawPathFallbackReason: drawPathSummary.fallbackReason
+    };
   } else {
     const rectMap = new Map(focusTileRects.map(item => [item.tileId, item.rect]));
     executionSummary = renderPerTileBatches(
@@ -298,6 +345,12 @@ export async function renderGpuFrame({
         }
       }
     );
+    executionSummary.requestedDrawPath = drawPathSummary.requestedPath;
+    executionSummary.actualDrawPath = GPU_DRAW_PATH_LEGACY;
+    executionSummary.drawPathFallbackReason =
+      drawPathSummary.actualPath === GPU_DRAW_PATH_LEGACY
+        ? drawPathSummary.fallbackReason
+        : 'per-tile-legacy-only';
     disableTileScissor(gl);
   }
 
@@ -345,7 +398,7 @@ export async function renderGpuFrame({
 
   const effectiveDrawData = mode.drawSelectedOnly
     ? { nDraw: effectiveTileSummary ? effectiveTileSummary.totalTileDrawCount : 0 }
-    : fullDrawData;
+    : finalDrawData;
 
   const drawStats = buildDrawStats({
     visibleCount: visible.length,
@@ -354,12 +407,15 @@ export async function renderGpuFrame({
     focusTileId,
     focusTileIds,
     tileBatchSummary: effectiveTileSummary,
-    executionSummary
+    executionSummary,
+    packedScreenSpace,
+    packedUploadSummary
   });
 
   const extraLines = buildGpuDebugExtraLines({
     buildConfig,
     buildStats,
+    drawStats,
     mode,
     focusTileIds,
     focusTileRects,
@@ -372,13 +428,21 @@ export async function renderGpuFrame({
     `packedVisiblePath=${buildStats?.packedVisiblePath ?? 'none'}`,
     `packedVisibleCount=${buildStats?.packedVisibleCount ?? 0}`,
     `packedVisibleLength=${buildStats?.packedVisibleLength ?? 0}`,
-    `packedVisibleFloatsPerItem=${buildStats?.packedVisibleFloatsPerItem ?? 0}`
+    `packedVisibleFloatsPerItem=${buildStats?.packedVisibleFloatsPerItem ?? 0}`,
+    `requestedDrawPath=${drawPathSummary.requestedPath}`,
+    `actualDrawPath=${executionSummary?.actualDrawPath ?? drawPathSummary.actualPath}`,
+    `drawPathFallbackReason=${executionSummary?.drawPathFallbackReason ?? drawPathSummary.fallbackReason}`,
+    `packedUploadBytes=${drawStats.packedUploadBytes}`,
+    `packedUploadCount=${drawStats.packedUploadCount}`,
+    `packedUploadLength=${drawStats.packedUploadLength}`,
+    `packedUploadCapacityBytes=${drawStats.packedUploadCapacityBytes}`,
+    `packedUploadReusedCapacity=${drawStats.packedUploadReusedCapacity}`
   ];
 
   const infoText = formatGpuViewerInfo({
     raw,
     visibleCount: visible.length,
-    drawCount: effectiveDrawData.nDraw,
+    drawCount: effectiveDrawData?.nDraw ?? 0,
     stride: buildConfig.stride,
     useRot4d: buildConfig.useRot4d,
     useSH: buildConfig.useSH,
@@ -392,12 +456,12 @@ export async function renderGpuFrame({
     timestamp: buildConfig.timestamp,
     splatScale: buildConfig.scalingModifier,
     elapsedMs: elapsed,
-    stepLabel: 'GPU Step20',
+    stepLabel: 'GPU Step22',
     stepNotes: [
-      'Packed visible path is introduced in parallel with the legacy object-array path',
-      'Renderer still draws from the legacy CPU path, but receives packed-screen-space results for comparison',
-      'This step prepares GPU-side screen-space and upload migration without breaking the current renderer',
-      'Logs now include packed-visible path usage and buffer summary'
+      'Packed draw path now records packed-upload statistics for reuse tracking',
+      'Draw-path branching remains delegated to gpu_draw_path_selector.js',
+      'Per-tile draw still uses legacy batches while full-frame packed draw records upload reuse info',
+      'Logs now include packed upload bytes/capacity/reuse flags'
     ],
     tileSummary,
     avgRefsPerVisible,
@@ -416,6 +480,7 @@ export async function renderGpuFrame({
     packedSummary,
     buildStats,
     drawStats,
-    tileSummary
+    tileSummary,
+    drawPathSummary
   };
 }
