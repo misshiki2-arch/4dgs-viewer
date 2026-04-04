@@ -1,148 +1,94 @@
-// Step24:
-// debug 情報の組み立てをこのファイルに集約する。
-// ここでは packed 正式契約ベースの表示を行い、旧来の曖昧な opacity / aabb 表示は避ける。
-// renderer 側は文字列組み立てを持たず、この helper の結果を表示へ流すだけにする。
+// Step25:
+// debug 情報の重複を減らし、timing / metrics を見やすく整理する。
+// ここでは renderer 側ですでに表示している packed/draw/sample の重複行は出さない。
+// 主に以下だけを返す。
+// - build config の補助情報
+// - timing 系
+// - tile mode / UI 状態
+//
+// 注意:
+// packed 詳細や sample 比較は renderer 側の packedLines / sampleLines に任せる。
 
-function toBoolString(value) {
-  return value ? 'true' : 'false';
+function isFiniteNumber(v) {
+  return Number.isFinite(v);
 }
 
-function toNumString(value, digits = 4) {
-  return Number.isFinite(value) ? Number(value).toFixed(digits) : 'NaN';
+function fmtBool(v) {
+  return v ? 'true' : 'false';
 }
 
-function toIntString(value) {
-  return Number.isFinite(value) ? String(value | 0) : '0';
+function fmtNum(v, digits = 4) {
+  return isFiniteNumber(v) ? Number(v).toFixed(digits) : null;
 }
 
-function toArrayString(values, digits = 4) {
-  if (!Array.isArray(values)) return 'none';
-  return '[' + values.map(v => toNumString(v, digits)).join(', ') + ']';
+function fmtInt(v) {
+  return isFiniteNumber(v) ? String(v | 0) : null;
 }
 
-function pushIfDefined(lines, label, value) {
-  if (value === undefined || value === null || value === '') return;
-  lines.push(`${label}=${value}`);
+function fmtArray(arr, digits = 3) {
+  if (!Array.isArray(arr)) return null;
+  return '[' + arr.map((v) => (isFiniteNumber(v) ? Number(v).toFixed(digits) : 'NaN')).join(', ') + ']';
 }
 
-function buildBuildConfigLines(buildConfig) {
+function pushLine(lines, key, value) {
+  if (value === null || value === undefined || value === '') return;
+  lines.push(`${key}=${value}`);
+}
+
+function buildConfigLines(buildConfig) {
   if (!buildConfig) return [];
-  return [
-    `stride=${toIntString(buildConfig.stride)}`,
-    `useRot4d=${toBoolString(!!buildConfig.useRot4d)}`,
-    `useSH=${toBoolString(!!buildConfig.useSH)}`,
-    `useNativeRot4d=${toBoolString(!!buildConfig.useNativeRot4d)}`,
-    `useNativeMarginal=${toBoolString(!!buildConfig.useNativeMarginal)}`,
-    `prefilterVar=${toBoolString(!!buildConfig.prefilterVar)}`,
-    `sigmaScale=${toNumString(buildConfig.sigmaScale, 4)}`,
-    `renderScale=${toNumString(buildConfig.renderScale, 4)}`,
-    `scalingModifier=${toNumString(buildConfig.scalingModifier, 4)}`,
-    `timestamp=${toNumString(buildConfig.timestamp, 4)}`
-  ];
-}
 
-function buildBuildStatsLines(buildStats) {
-  if (!buildStats) return [];
-  return [
-    `packedVisiblePathEnabled=${toBoolString(!!buildStats.packedVisiblePathEnabled)}`,
-    `packedVisiblePathUsed=${toBoolString(!!buildStats.packedVisiblePathUsed)}`,
-    `packedVisiblePath=${buildStats.packedVisiblePath ?? 'none'}`,
-    `packedVisibleCount=${toIntString(buildStats.packedVisibleCount)}`,
-    `packedVisibleLength=${toIntString(buildStats.packedVisibleLength)}`,
-    `packedVisibleFloatsPerItem=${toIntString(buildStats.packedVisibleFloatsPerItem)}`,
-    `visibleBuildMs=${toNumString(buildStats.visibleBuildMs, 3)}`,
-    `candidateBuildMs=${toNumString(buildStats.candidateBuildMs, 3)}`,
-    `screenSpaceBuildMs=${toNumString(buildStats.screenSpaceBuildMs, 3)}`,
-    `packedAlphaSource=colorAlpha[3]`
-  ];
-}
-
-function buildDrawStatsLines(drawStats) {
-  if (!drawStats) return [];
-  return [
-    `visibleCount=${toIntString(drawStats.visibleCount)}`,
-    `drawCount=${toIntString(drawStats.drawCount)}`,
-    `drawSelectedOnly=${toBoolString(!!drawStats.drawSelectedOnly)}`,
-    `showOverlay=${toBoolString(!!drawStats.showOverlay)}`,
-    `requestedDrawPath=${drawStats.requestedDrawPath ?? 'legacy'}`,
-    `actualDrawPath=${drawStats.actualDrawPath ?? 'legacy'}`,
-    `drawPathFallbackReason=${drawStats.drawPathFallbackReason ?? 'none'}`,
-    `tileBatchCount=${toIntString(drawStats.tileBatchCount)}`,
-    `nonEmptyTileBatchCount=${toIntString(drawStats.nonEmptyTileBatchCount)}`,
-    `totalTileDrawCount=${toIntString(drawStats.totalTileDrawCount)}`,
-    `maxTileDrawCount=${toIntString(drawStats.maxTileDrawCount)}`,
-    `maxTileId=${toIntString(drawStats.maxTileId)}`,
-    `uploadCount=${toIntString(drawStats.uploadCount)}`,
-    `drawCallCount=${toIntString(drawStats.drawCallCount)}`,
-    `packedVisiblePath=${drawStats.packedVisiblePath ?? 'none'}`,
-    `packedVisibleCount=${toIntString(drawStats.packedVisibleCount)}`,
-    `packedVisibleLength=${toIntString(drawStats.packedVisibleLength)}`,
-    `packedVisibleFloatsPerItem=${toIntString(drawStats.packedVisibleFloatsPerItem)}`,
-    `packedUploadLayoutVersion=${toIntString(drawStats.packedUploadLayoutVersion)}`,
-    `packedUploadStrideBytes=${toIntString(drawStats.packedUploadStrideBytes)}`,
-    `packedUploadBytes=${toIntString(drawStats.packedUploadBytes)}`,
-    `packedUploadCount=${toIntString(drawStats.packedUploadCount)}`,
-    `packedUploadLength=${toIntString(drawStats.packedUploadLength)}`,
-    `packedUploadCapacityBytes=${toIntString(drawStats.packedUploadCapacityBytes)}`,
-    `packedUploadReusedCapacity=${toBoolString(!!drawStats.packedUploadReusedCapacity)}`,
-    `packedUploadManagedCapacityReused=${toBoolString(!!drawStats.packedUploadManagedCapacityReused)}`,
-    `packedUploadManagedCapacityGrown=${toBoolString(!!drawStats.packedUploadManagedCapacityGrown)}`,
-    `packedUploadManagedUploadCount=${toIntString(drawStats.packedUploadManagedUploadCount)}`,
-    `packedUploadAlphaSource=${drawStats.packedUploadAlphaSource ?? 'colorAlpha[3]'}`,
-    `packedDirectDraw=${toBoolString(!!drawStats.packedDirectDraw)}`,
-    `packedDirectConfigured=${toBoolString(!!drawStats.packedDirectConfigured)}`,
-    `packedDirectHasVao=${toBoolString(!!drawStats.packedDirectHasVao)}`,
-    `packedDirectLayoutVersion=${toIntString(drawStats.packedDirectLayoutVersion)}`,
-    `packedDirectStrideBytes=${toIntString(drawStats.packedDirectStrideBytes)}`,
-    `packedDirectAttributeCount=${toIntString(drawStats.packedDirectAttributeCount)}`,
-    `packedDirectOffsets=${drawStats.packedDirectOffsets ?? ''}`,
-    `packedDirectAlphaSource=${drawStats.packedDirectAlphaSource ?? 'aColorAlpha.a -> colorAlpha[3]'}`,
-    `packedInterleavedBound=${toBoolString(!!drawStats.packedInterleavedBound)}`,
-    `legacyExpandedArraysBuilt=${toBoolString(!!drawStats.legacyExpandedArraysBuilt)}`
-  ];
-}
-
-function buildModeLines(mode, focusTileIds, focusTileRects) {
   const lines = [];
-  if (!mode) return lines;
-
-  lines.push(`tileRadius=${toIntString(mode.tileRadius)}`);
-  lines.push(`useMaxTile=${toBoolString(!!mode.useMaxTile)}`);
-  lines.push(`selectedTileId=${toIntString(mode.selectedTileId)}`);
-  lines.push(`focusTileCount=${Array.isArray(focusTileIds) ? focusTileIds.length : 0}`);
-
-  if (Array.isArray(focusTileIds) && focusTileIds.length > 0) {
-    lines.push(`focusTileIds=${focusTileIds.join(',')}`);
-  }
-
-  if (Array.isArray(focusTileRects) && focusTileRects.length > 0) {
-    const rectText = focusTileRects.map(item => {
-      const rect = Array.isArray(item?.rect) ? item.rect.join(',') : 'none';
-      return `${item?.tileId ?? -1}:[${rect}]`;
-    }).join(' ');
-    lines.push(`focusTileRects=${rectText}`);
-  }
-
+  pushLine(lines, 'stride', fmtInt(buildConfig.stride));
+  pushLine(lines, 'useRot4d', fmtBool(!!buildConfig.useRot4d));
+  pushLine(lines, 'useSH', fmtBool(!!buildConfig.useSH));
+  pushLine(lines, 'useNativeRot4d', fmtBool(!!buildConfig.useNativeRot4d));
+  pushLine(lines, 'useNativeMarginal', fmtBool(!!buildConfig.useNativeMarginal));
+  pushLine(lines, 'prefilterVarEnabled', fmtBool(!!buildConfig.prefilterVar));
+  pushLine(lines, 'sigmaScale', fmtNum(buildConfig.sigmaScale, 4));
+  pushLine(lines, 'renderScale', fmtNum(buildConfig.renderScale, 4));
+  pushLine(lines, 'scalingModifier', fmtNum(buildConfig.scalingModifier, 4));
+  pushLine(lines, 'timestamp', fmtNum(buildConfig.timestamp, 4));
   return lines;
 }
 
-function buildSampleLines(samples) {
-  if (!samples) return [];
-  const legacy = samples.legacySample ?? null;
-  const packed = samples.packedSample ?? null;
+function buildTimingLines(buildStats, drawStats) {
+  const lines = [];
+  pushLine(lines, 'visibleBuildMs', fmtNum(buildStats?.visibleBuildMs, 3));
+  pushLine(lines, 'candidateBuildMs', fmtNum(buildStats?.candidateBuildMs, 3));
+  pushLine(lines, 'screenSpaceBuildMs', fmtNum(buildStats?.screenSpaceBuildMs, 3));
+  pushLine(lines, 'drawFraction', fmtNum(drawStats?.drawFraction, 6));
+  return lines;
+}
 
-  return [
-    `legacySampleCenterPx=${legacy ? toArrayString(legacy.centerPx, 3) : 'none'}`,
-    `packedSampleCenterPx=${packed ? toArrayString(packed.centerPx, 3) : 'none'}`,
-    `legacySampleRadiusPx=${legacy ? toNumString(legacy.radiusPx, 3) : 'none'}`,
-    `packedSampleRadiusPx=${packed ? toNumString(packed.radiusPx, 3) : 'none'}`,
-    `legacySampleColorAlpha=${legacy ? toArrayString(legacy.colorAlpha, 4) : 'none'}`,
-    `packedSampleColorAlpha=${packed ? toArrayString(packed.colorAlpha, 4) : 'none'}`,
-    `legacySampleConic=${legacy ? toArrayString(legacy.conic, 4) : 'none'}`,
-    `packedSampleConic=${packed ? toArrayString(packed.conic, 4) : 'none'}`,
-    `packedSampleReserved=${packed ? toNumString(packed.reserved, 4) : 'none'}`,
-    `packedSampleMisc=${packed ? toArrayString(packed.misc, 4) : 'none'}`
-  ];
+function buildModeLines(mode, focusTileIds, focusTileRects) {
+  if (!mode) return [];
+  const lines = [];
+  pushLine(lines, 'tileRadius', fmtInt(mode.tileRadius));
+  pushLine(lines, 'useMaxTile', fmtBool(!!mode.useMaxTile));
+  pushLine(lines, 'selectedTileId', fmtInt(mode.selectedTileId));
+  pushLine(lines, 'focusTileCount', Array.isArray(focusTileIds) ? String(focusTileIds.length) : '0');
+  if (Array.isArray(focusTileIds) && focusTileIds.length > 0) {
+    pushLine(lines, 'focusTileIds', focusTileIds.join(','));
+  }
+  if (Array.isArray(focusTileRects) && focusTileRects.length > 0) {
+    const rectText = focusTileRects.map((item) => {
+      const tileId = isFiniteNumber(item?.tileId) ? String(item.tileId | 0) : '-1';
+      const rect = fmtArray(item?.rect, 0) ?? 'none';
+      return `${tileId}:${rect}`;
+    }).join(' ');
+    pushLine(lines, 'focusTileRects', rectText);
+  }
+  return lines;
+}
+
+function buildUiLines(ui) {
+  if (!ui) return [];
+  const lines = [];
+  pushLine(lines, 'bgGraySlider', ui.bgGraySlider ? String(ui.bgGraySlider.value) : null);
+  pushLine(lines, 'drawPathUiValue', ui.drawPathSelect ? String(ui.drawPathSelect.value) : null);
+  pushLine(lines, 'usePackedVisiblePathUi', ui.usePackedVisiblePathCheck ? fmtBool(!!ui.usePackedVisiblePathCheck.checked) : null);
+  return lines;
 }
 
 export function buildGpuDebugExtraLines({
@@ -152,26 +98,12 @@ export function buildGpuDebugExtraLines({
   mode = null,
   focusTileIds = [],
   focusTileRects = [],
-  ui = null,
-  samples = null
+  ui = null
 } = {}) {
   const lines = [];
-
-  lines.push(...buildBuildConfigLines(buildConfig));
-  lines.push(...buildBuildStatsLines(buildStats));
-  lines.push(...buildDrawStatsLines(drawStats));
+  lines.push(...buildConfigLines(buildConfig));
+  lines.push(...buildTimingLines(buildStats, drawStats));
   lines.push(...buildModeLines(mode, focusTileIds, focusTileRects));
-  lines.push(...buildSampleLines(samples));
-
-  if (ui) {
-    pushIfDefined(lines, 'bgGraySlider', ui.bgGraySlider ? ui.bgGraySlider.value : undefined);
-    pushIfDefined(lines, 'drawPathUiValue', ui.drawPathSelect ? ui.drawPathSelect.value : undefined);
-    pushIfDefined(
-      lines,
-      'usePackedVisiblePathUi',
-      ui.usePackedVisiblePathCheck ? toBoolString(!!ui.usePackedVisiblePathCheck.checked) : undefined
-    );
-  }
-
+  lines.push(...buildUiLines(ui));
   return lines;
 }
