@@ -1,151 +1,145 @@
 import {
-  computeVisiblePackFieldFloatOffset,
-  GPU_VISIBLE_PACK_FLOATS_PER_ITEM
-} from './gpu_buffer_layout_utils.js';
-import {
-  createPackedUploadState,
-  uploadPackedInterleaved,
-  summarizePackedUploadState
-} from './gpu_packed_upload_utils.js';
+  uploadArrayBuffer,
+  clearToGray,
+  enableStandardAlphaBlend,
+  disableDepth
+} from './gpu_gl_utils.js';
 
-// Step23 fix:
-// visible の描画契約は colorAlpha 基準。
-// packed draw path は direct packed draw へ進んだため、
-// draw stats に direct packed draw / interleaved bind 状態を正式反映する。
-// renderer から渡される packed interleaved debug 項目も保持する。
+// Step24:
+// このファイルは legacy draw / per-tile draw / draw 統計の補助に責務を限定する。
+// packed 正式契約の解釈はここでは持たない。
+// packed path は gpu_packed_* 側へ寄せ、ここは legacy fallback のみを担当する。
 
-function ensureFloat32Array(value, name) {
-  if (!(value instanceof Float32Array)) {
-    throw new Error(`${name} must be a Float32Array`);
-  }
+function ensureFloat32Array(value) {
+  if (value instanceof Float32Array) return value;
+  if (Array.isArray(value)) return new Float32Array(value);
+  return new Float32Array(0);
 }
 
-function resolveColorAlpha(src) {
-  if (Array.isArray(src?.colorAlpha) && src.colorAlpha.length >= 4) {
-    return src.colorAlpha;
+function ensureUint32Array(value) {
+  if (value instanceof Uint32Array) return value;
+  if (Array.isArray(value)) return new Uint32Array(value);
+  return new Uint32Array(0);
+}
+
+function pushCenter(out, item) {
+  out.push(
+    Number.isFinite(item?.px) ? item.px : 0,
+    Number.isFinite(item?.py) ? item.py : 0
+  );
+}
+
+function pushRadius(out, item) {
+  out.push(Number.isFinite(item?.radius) ? item.radius : 0);
+}
+
+function resolveColorAlpha(item) {
+  if (Array.isArray(item?.colorAlpha) && item.colorAlpha.length >= 4) {
+    return [
+      Number.isFinite(item.colorAlpha[0]) ? item.colorAlpha[0] : 0,
+      Number.isFinite(item.colorAlpha[1]) ? item.colorAlpha[1] : 0,
+      Number.isFinite(item.colorAlpha[2]) ? item.colorAlpha[2] : 0,
+      Number.isFinite(item.colorAlpha[3]) ? item.colorAlpha[3] : 0
+    ];
   }
 
-  const color = Array.isArray(src?.color) ? src.color : [0, 0, 0, 0];
-  const opacity = Number.isFinite(src?.opacity)
-    ? src.opacity
+  const color = Array.isArray(item?.color) ? item.color : [0, 0, 0, 0];
+  const alpha = Number.isFinite(item?.opacity)
+    ? item.opacity
     : (Number.isFinite(color[3]) ? color[3] : 0);
 
   return [
     Number.isFinite(color[0]) ? color[0] : 0,
     Number.isFinite(color[1]) ? color[1] : 0,
     Number.isFinite(color[2]) ? color[2] : 0,
-    opacity
+    Number.isFinite(alpha) ? alpha : 0
   ];
 }
 
-export function buildDrawArraysFromIndices(visible, drawIndices) {
-  const drawCount = drawIndices ? drawIndices.length : 0;
-
-  const centers = new Float32Array(drawCount * 2);
-  const radii = new Float32Array(drawCount);
-  const colors = new Float32Array(drawCount * 4);
-  const conics = new Float32Array(drawCount * 3);
-
-  for (let j = 0; j < drawCount; j++) {
-    const src = visible[drawIndices[j]];
-
-    const c2 = j * 2;
-    centers[c2 + 0] = src.px;
-    centers[c2 + 1] = src.py;
-
-    radii[j] = src.radius;
-
-    const colorAlpha = resolveColorAlpha(src);
-    const c4 = j * 4;
-    colors[c4 + 0] = colorAlpha[0];
-    colors[c4 + 1] = colorAlpha[1];
-    colors[c4 + 2] = colorAlpha[2];
-    colors[c4 + 3] = colorAlpha[3];
-
-    const c3 = j * 3;
-    conics[c3 + 0] = src.conic[0];
-    conics[c3 + 1] = src.conic[1];
-    conics[c3 + 2] = src.conic[2];
-  }
-
-  return {
-    nDraw: drawCount,
-    centers,
-    radii,
-    colors,
-    conics
-  };
+function pushColorAlpha(out, item) {
+  const rgba = resolveColorAlpha(item);
+  out.push(rgba[0], rgba[1], rgba[2], rgba[3]);
 }
 
-export function buildDrawArraysFromPacked(packed, count) {
-  ensureFloat32Array(packed, 'packed');
-  const n = Math.max(0, count | 0);
+function pushConic(out, item) {
+  if (Array.isArray(item?.conic) && item.conic.length >= 3) {
+    out.push(
+      Number.isFinite(item.conic[0]) ? item.conic[0] : 0,
+      Number.isFinite(item.conic[1]) ? item.conic[1] : 0,
+      Number.isFinite(item.conic[2]) ? item.conic[2] : 0
+    );
+    return;
+  }
+  out.push(0, 0, 0);
+}
 
-  const centers = new Float32Array(n * 2);
-  const radii = new Float32Array(n);
-  const colors = new Float32Array(n * 4);
-  const conics = new Float32Array(n * 3);
+export function buildDrawArraysFromIndices(visible, drawIndices) {
+  const src = Array.isArray(visible) ? visible : [];
+  const indices = ensureUint32Array(drawIndices);
 
-  for (let i = 0; i < n; i++) {
-    const centerOffset = computeVisiblePackFieldFloatOffset(i, 'centerPx');
-    const radiusOffset = computeVisiblePackFieldFloatOffset(i, 'radiusPx');
-    const colorOffset = computeVisiblePackFieldFloatOffset(i, 'color');
-    const conicOffset = computeVisiblePackFieldFloatOffset(i, 'conic');
+  const centers = [];
+  const radii = [];
+  const colors = [];
+  const conics = [];
 
-    const c2 = i * 2;
-    centers[c2 + 0] = packed[centerOffset + 0];
-    centers[c2 + 1] = packed[centerOffset + 1];
-
-    radii[i] = packed[radiusOffset];
-
-    const c4 = i * 4;
-    colors[c4 + 0] = packed[colorOffset + 0];
-    colors[c4 + 1] = packed[colorOffset + 1];
-    colors[c4 + 2] = packed[colorOffset + 2];
-    colors[c4 + 3] = packed[colorOffset + 3];
-
-    const c3 = i * 3;
-    conics[c3 + 0] = packed[conicOffset + 0];
-    conics[c3 + 1] = packed[conicOffset + 1];
-    conics[c3 + 2] = packed[conicOffset + 2];
+  for (let i = 0; i < indices.length; i++) {
+    const idx = indices[i] | 0;
+    if (idx < 0 || idx >= src.length) continue;
+    const item = src[idx];
+    pushCenter(centers, item);
+    pushRadius(radii, item);
+    pushColorAlpha(colors, item);
+    pushConic(conics, item);
   }
 
   return {
-    nDraw: n,
-    centers,
-    radii,
-    colors,
-    conics
+    centers: new Float32Array(centers),
+    radii: new Float32Array(radii),
+    colors: new Float32Array(colors),
+    conics: new Float32Array(conics),
+    nDraw: radii.length
   };
 }
 
 export function buildPerTileDrawBatches(visible, tileBatches) {
-  if (!tileBatches || tileBatches.length === 0) return [];
+  const src = Array.isArray(tileBatches) ? tileBatches : [];
+  const out = new Array(src.length);
 
-  return tileBatches.map((batch) => ({
-    tileId: batch.tileId,
-    tileCount: batch.indices.length,
-    drawData: buildDrawArraysFromIndices(visible, batch.indices)
-  }));
+  for (let i = 0; i < src.length; i++) {
+    const batch = src[i] || {};
+    const drawData = buildDrawArraysFromIndices(visible, batch.indices);
+    out[i] = {
+      tileId: Number.isInteger(batch.tileId) ? batch.tileId : -1,
+      indices: ensureUint32Array(batch.indices),
+      drawData
+    };
+  }
+
+  return out;
 }
 
 export function summarizePerTileDrawBatches(perTileDrawBatches) {
-  const batches = perTileDrawBatches || [];
+  const batches = Array.isArray(perTileDrawBatches) ? perTileDrawBatches : [];
   let totalTileDrawCount = 0;
+  let nonEmptyTileBatchCount = 0;
   let maxTileDrawCount = 0;
   let maxTileId = -1;
 
   for (const batch of batches) {
-    const n = batch?.drawData?.nDraw || 0;
+    const n = batch?.drawData?.nDraw ?? 0;
     totalTileDrawCount += n;
-    if (n > maxTileDrawCount) {
-      maxTileDrawCount = n;
-      maxTileId = batch.tileId;
+    if (n > 0) {
+      nonEmptyTileBatchCount++;
+      if (n > maxTileDrawCount) {
+        maxTileDrawCount = n;
+        maxTileId = Number.isInteger(batch?.tileId) ? batch.tileId : -1;
+      }
     }
   }
 
   return {
     tileBatchCount: batches.length,
+    nonEmptyTileBatchCount,
     totalTileDrawCount,
     maxTileDrawCount,
     maxTileId
@@ -153,41 +147,28 @@ export function summarizePerTileDrawBatches(perTileDrawBatches) {
 }
 
 export function uploadAndDraw(gl, gpu, drawData, canvasWidth, canvasHeight) {
+  const centers = ensureFloat32Array(drawData?.centers);
+  const radii = ensureFloat32Array(drawData?.radii);
+  const colors = ensureFloat32Array(drawData?.colors);
+  const conics = ensureFloat32Array(drawData?.conics);
+  const nDraw = Math.max(0, drawData?.nDraw | 0);
+
+  uploadArrayBuffer(gl, gpu.centerBuffer, centers, gl.DYNAMIC_DRAW);
+  uploadArrayBuffer(gl, gpu.radiusBuffer, radii, gl.DYNAMIC_DRAW);
+  uploadArrayBuffer(gl, gpu.colorBuffer, colors, gl.DYNAMIC_DRAW);
+  uploadArrayBuffer(gl, gpu.conicBuffer, conics, gl.DYNAMIC_DRAW);
+
   gl.useProgram(gpu.program);
   gl.bindVertexArray(gpu.vao);
-
-  gl.bindBuffer(gl.ARRAY_BUFFER, gpu.centerBuffer);
-  gl.bufferData(gl.ARRAY_BUFFER, drawData.centers, gl.DYNAMIC_DRAW);
-
-  gl.bindBuffer(gl.ARRAY_BUFFER, gpu.radiusBuffer);
-  gl.bufferData(gl.ARRAY_BUFFER, drawData.radii, gl.DYNAMIC_DRAW);
-
-  gl.bindBuffer(gl.ARRAY_BUFFER, gpu.colorBuffer);
-  gl.bufferData(gl.ARRAY_BUFFER, drawData.colors, gl.DYNAMIC_DRAW);
-
-  gl.bindBuffer(gl.ARRAY_BUFFER, gpu.conicBuffer);
-  gl.bufferData(gl.ARRAY_BUFFER, drawData.conics, gl.DYNAMIC_DRAW);
-
   gl.uniform2f(gpu.uViewportPx, canvasWidth, canvasHeight);
-  gl.drawArrays(gl.POINTS, 0, drawData.nDraw);
-
+  gl.drawArrays(gl.POINTS, 0, nDraw);
   gl.bindVertexArray(null);
-}
 
-export function ensurePackedUploadState(gl, gpu) {
-  if (!gpu.packedUploadState) {
-    gpu.packedUploadState = createPackedUploadState(gl);
-  }
-  return gpu.packedUploadState;
-}
-
-export function uploadPackedForStats(gl, gpu, packedScreenSpace) {
-  const state = ensurePackedUploadState(gl, gpu);
-  if (!packedScreenSpace?.packed) {
-    return summarizePackedUploadState(state);
-  }
-  uploadPackedInterleaved(gl, state, packedScreenSpace.packed, packedScreenSpace.packedCount ?? 0);
-  return summarizePackedUploadState(state);
+  return {
+    uploadCount: 4,
+    drawCallCount: 1,
+    nDraw
+  };
 }
 
 export function renderPerTileBatches(
@@ -198,91 +179,123 @@ export function renderPerTileBatches(
   canvasHeight,
   hooks = {}
 ) {
-  let uploadCount = 0;
+  const batches = Array.isArray(perTileDrawBatches) ? perTileDrawBatches : [];
   let drawCallCount = 0;
+  let uploadCount = 0;
+  let totalTileDrawCount = 0;
+  let nonEmptyTileBatchCount = 0;
 
-  for (const item of perTileDrawBatches) {
-    if (hooks.beforeTile) hooks.beforeTile(item);
+  for (const batch of batches) {
+    const nDraw = batch?.drawData?.nDraw ?? 0;
+    if (nDraw <= 0) continue;
 
-    uploadAndDraw(gl, gpu, item.drawData, canvasWidth, canvasHeight);
-    uploadCount += 1;
-    drawCallCount += 1;
+    if (typeof hooks.beforeTile === 'function') {
+      hooks.beforeTile(batch);
+    }
 
-    if (hooks.afterTile) hooks.afterTile(item);
+    const drawSummary = uploadAndDraw(gl, gpu, batch.drawData, canvasWidth, canvasHeight);
+
+    if (typeof hooks.afterTile === 'function') {
+      hooks.afterTile(batch, drawSummary);
+    }
+
+    drawCallCount += drawSummary.drawCallCount ?? 0;
+    uploadCount += drawSummary.uploadCount ?? 0;
+    totalTileDrawCount += nDraw;
+    nonEmptyTileBatchCount++;
   }
 
   return {
-    tileBatchCount: perTileDrawBatches.length,
+    tileBatchCount: batches.length,
+    nonEmptyTileBatchCount,
+    totalTileDrawCount,
     uploadCount,
     drawCallCount
   };
 }
 
-export function buildPackedDrawStats(packedScreenSpace) {
-  const packed = packedScreenSpace?.packed;
-  const packedCount = packedScreenSpace?.packedCount ?? 0;
-  const packedLength = packed instanceof Float32Array ? packed.length : 0;
-
-  return {
-    packedPath: packedScreenSpace?.path ?? 'none',
-    packedCount,
-    packedLength,
-    packedFloatsPerItem: packedScreenSpace?.floatsPerItem ?? GPU_VISIBLE_PACK_FLOATS_PER_ITEM
-  };
-}
-
 export function buildDrawStats({
-  visibleCount,
-  drawData,
-  mode,
-  focusTileId,
-  focusTileIds,
-  tileBatchSummary,
-  executionSummary,
+  visibleCount = 0,
+  drawData = null,
+  mode = null,
+  focusTileId = -1,
+  focusTileIds = [],
+  tileBatchSummary = null,
+  executionSummary = null,
   packedScreenSpace = null,
   packedUploadSummary = null
-}) {
-  const drawCount = drawData?.nDraw || 0;
-  const packedStats = buildPackedDrawStats(packedScreenSpace);
+} = {}) {
+  const nDraw = drawData?.nDraw ?? 0;
+  const packed = packedScreenSpace?.packed;
 
   return {
-    drawCount,
-    visibleCount,
-    drawFraction: visibleCount > 0 ? drawCount / visibleCount : 0,
+    visibleCount: Number.isFinite(visibleCount) ? visibleCount : 0,
+    drawCount: Number.isFinite(nDraw) ? nDraw : 0,
+
     drawSelectedOnly: !!mode?.drawSelectedOnly,
     showOverlay: !!mode?.showOverlay,
-    useMaxTile: !!mode?.useMaxTile,
-    selectedTileId: mode?.selectedTileId ?? -1,
-    tileRadius: mode?.tileRadius ?? 0,
-    focusTileId,
-    focusTileIds,
+    focusTileId: Number.isInteger(focusTileId) ? focusTileId : -1,
+    focusTileIds: Array.isArray(focusTileIds) ? focusTileIds.slice() : [],
+    focusTileCount: Array.isArray(focusTileIds) ? focusTileIds.length : 0,
+
     tileBatchCount: tileBatchSummary?.tileBatchCount ?? executionSummary?.tileBatchCount ?? 0,
-    totalTileDrawCount: tileBatchSummary?.totalTileDrawCount ?? drawCount,
-    maxTileDrawCount: tileBatchSummary?.maxTileDrawCount ?? drawCount,
-    maxTileDrawTileId: tileBatchSummary?.maxTileId ?? focusTileId ?? -1,
+    nonEmptyTileBatchCount:
+      tileBatchSummary?.nonEmptyTileBatchCount ??
+      executionSummary?.nonEmptyTileBatchCount ??
+      0,
+    totalTileDrawCount:
+      tileBatchSummary?.totalTileDrawCount ??
+      executionSummary?.totalTileDrawCount ??
+      nDraw,
+    maxTileDrawCount: tileBatchSummary?.maxTileDrawCount ?? 0,
+    maxTileId: tileBatchSummary?.maxTileId ?? -1,
+
     uploadCount: executionSummary?.uploadCount ?? 0,
     drawCallCount: executionSummary?.drawCallCount ?? 0,
-    executionTileBatchCount: executionSummary?.tileBatchCount ?? 0,
     requestedDrawPath: executionSummary?.requestedDrawPath ?? 'legacy',
     actualDrawPath: executionSummary?.actualDrawPath ?? 'legacy',
     drawPathFallbackReason: executionSummary?.drawPathFallbackReason ?? 'none',
-    packedPath: packedStats.packedPath,
-    packedCount: packedStats.packedCount,
-    packedLength: packedStats.packedLength,
-    packedFloatsPerItem: packedStats.packedFloatsPerItem,
+
+    packedVisiblePath: packedScreenSpace?.path ?? 'none',
+    packedVisibleCount: Number.isFinite(packedScreenSpace?.packedCount)
+      ? packedScreenSpace.packedCount
+      : 0,
+    packedVisibleLength: packed instanceof Float32Array ? packed.length : 0,
+    packedVisibleFloatsPerItem: Number.isFinite(packedScreenSpace?.floatsPerItem)
+      ? packedScreenSpace.floatsPerItem
+      : 0,
+
+    packedUploadLayoutVersion: packedUploadSummary?.packedUploadLayoutVersion ?? 0,
+    packedUploadStrideBytes: packedUploadSummary?.packedUploadStrideBytes ?? 0,
     packedUploadBytes: packedUploadSummary?.packedUploadBytes ?? 0,
     packedUploadCount: packedUploadSummary?.packedUploadCount ?? 0,
     packedUploadLength: packedUploadSummary?.packedUploadLength ?? 0,
     packedUploadCapacityBytes: packedUploadSummary?.packedUploadCapacityBytes ?? 0,
     packedUploadReusedCapacity: !!packedUploadSummary?.packedUploadReusedCapacity,
-    packedUploadManagedCapacityReused: !!packedUploadSummary?.packedUploadManagedCapacityReused,
-    packedUploadManagedCapacityGrown: !!packedUploadSummary?.packedUploadManagedCapacityGrown,
-    packedUploadManagedUploadCount: packedUploadSummary?.packedUploadManagedUploadCount ?? 0,
+    packedUploadManagedCapacityReused:
+      !!packedUploadSummary?.packedUploadManagedCapacityReused,
+    packedUploadManagedCapacityGrown:
+      !!packedUploadSummary?.packedUploadManagedCapacityGrown,
+    packedUploadManagedUploadCount:
+      packedUploadSummary?.packedUploadManagedUploadCount ?? 0,
+    packedUploadAlphaSource: packedUploadSummary?.packedUploadAlphaSource ?? '',
+
     packedDirectDraw: !!packedUploadSummary?.packedDirectDraw,
-    packedInterleavedStrideBytes: packedUploadSummary?.packedInterleavedStrideBytes ?? 0,
+    packedDirectConfigured: !!packedUploadSummary?.packedDirectConfigured,
+    packedDirectHasVao: !!packedUploadSummary?.packedDirectHasVao,
+    packedDirectLayoutVersion: packedUploadSummary?.packedDirectLayoutVersion ?? 0,
+    packedDirectStrideBytes: packedUploadSummary?.packedDirectStrideBytes ?? 0,
+    packedDirectAttributeCount: packedUploadSummary?.packedDirectAttributeCount ?? 0,
+    packedDirectOffsets: packedUploadSummary?.packedDirectOffsets ?? '',
+    packedDirectAlphaSource: packedUploadSummary?.packedDirectAlphaSource ?? '',
     packedInterleavedBound: !!packedUploadSummary?.packedInterleavedBound,
-    packedInterleavedAttributeCount: packedUploadSummary?.packedInterleavedAttributeCount ?? 0,
-    packedInterleavedOffsets: packedUploadSummary?.packedInterleavedOffsets ?? '',
+
     legacyExpandedArraysBuilt: !!packedUploadSummary?.legacyExpandedArraysBuilt
   };
+}
+
+export function prepareLegacyDrawFrame(gl, bgGray01) {
+  disableDepth(gl);
+  enableStandardAlphaBlend(gl);
+  clearToGray(gl, bgGray01);
 }

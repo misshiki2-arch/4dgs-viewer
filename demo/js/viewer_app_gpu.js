@@ -19,13 +19,9 @@ import {
   copyDebugLogText
 } from './viewer_ui_controls.js';
 import {
-  syncTileDebugGlobalsFromUI,
-  syncTemporalIndexUiState,
-  syncTemporalBucketUiState,
-  syncQualityOverrideUiState,
-  syncPackedPathUiState,
-  initializeViewerUiDefaults,
-  syncAllViewerUiState
+  loadAndApplyUiState,
+  readAndSaveUiState,
+  bindUiStatePersistence
 } from './viewer_ui_state.js';
 import { createRenderScheduler } from './viewer_render_scheduler.js';
 import { createViewerPlayback } from './viewer_playback.js';
@@ -72,6 +68,7 @@ ensureTemporalBucketControls(ui);
 ensureQualityOverrideControls(ui);
 ensurePackedPathControls(ui);
 ensureDebugLogControls(ui);
+
 applyInfoWrapStyle(ui.info);
 applyPanelResizeStyle(ui.info);
 
@@ -92,9 +89,6 @@ function refreshLatestDebugText(explicitText = null) {
 
 function exportLatestDebugTextToArea() {
   setDebugLogText(ui, refreshLatestDebugText());
-  if (ui.debugLogNote) {
-    ui.debugLogNote.textContent = lastDebugText ? 'latest debug text exported' : 'no debug text';
-  }
 }
 
 function buildRenderOverrides() {
@@ -110,10 +104,52 @@ function buildRenderOverrides() {
   };
 }
 
+function initializeStaticUiText() {
+  ui.timeVal.textContent = Number(ui.timeSlider.value).toFixed(2);
+  ui.splatScaleVal.textContent = Number(ui.splatScaleSlider.value).toFixed(2);
+  ui.sigmaScaleVal.textContent = Number(ui.sigmaScaleSlider.value).toFixed(2);
+  ui.prefilterVarVal.textContent = Number(ui.prefilterVarSlider.value).toFixed(2);
+  ui.renderScaleVal.textContent = Number(ui.renderScaleSlider.value).toFixed(2);
+  ui.strideVal.textContent = ui.strideSlider.value;
+  ui.maxVisibleVal.textContent = ui.maxVisibleSlider.value;
+  ui.bgGrayVal.textContent = ui.bgGraySlider.value;
+  ui.timeDurationVal.textContent = Number(ui.timeDurationSlider.value).toFixed(1);
+}
+
+function bindSliderTextUpdates(scheduleRender) {
+  [
+    ['timeSlider', 'timeVal', 2],
+    ['splatScaleSlider', 'splatScaleVal', 2],
+    ['sigmaScaleSlider', 'sigmaScaleVal', 2],
+    ['prefilterVarSlider', 'prefilterVarVal', 2],
+    ['renderScaleSlider', 'renderScaleVal', 2],
+    ['timeDurationSlider', 'timeDurationVal', 1]
+  ].forEach(([sliderKey, valueKey, digits]) => {
+    ui[sliderKey].addEventListener('input', () => {
+      ui[valueKey].textContent = Number(ui[sliderKey].value).toFixed(digits);
+      scheduleRender();
+    });
+  });
+
+  ui.strideSlider.addEventListener('input', () => {
+    ui.strideVal.textContent = ui.strideSlider.value;
+    scheduleRender();
+  });
+
+  ui.maxVisibleSlider.addEventListener('input', () => {
+    ui.maxVisibleVal.textContent = ui.maxVisibleSlider.value;
+    scheduleRender();
+  });
+
+  ui.bgGraySlider.addEventListener('input', () => {
+    ui.bgGrayVal.textContent = ui.bgGraySlider.value;
+    scheduleRender();
+  });
+}
+
 const scheduler = createRenderScheduler({
   renderFrame: async () => {
     ensureGpu();
-
     const renderResult = await renderGpuFrame({
       raw,
       gpu: getGpu(),
@@ -163,37 +199,6 @@ const fileIO = createViewerFileIO({
   defaultSceneUrl: './scene_v2.splat4d'
 });
 
-function bindSliderTextUpdates() {
-  [
-    ['timeSlider', 'timeVal', 2],
-    ['splatScaleSlider', 'splatScaleVal', 2],
-    ['sigmaScaleSlider', 'sigmaScaleVal', 2],
-    ['prefilterVarSlider', 'prefilterVarVal', 2],
-    ['renderScaleSlider', 'renderScaleVal', 2],
-    ['timeDurationSlider', 'timeDurationVal', 1]
-  ].forEach(([sliderKey, valueKey, digits]) => {
-    ui[sliderKey].addEventListener('input', () => {
-      ui[valueKey].textContent = Number(ui[sliderKey].value).toFixed(digits);
-      scheduler.scheduleRender();
-    });
-  });
-
-  ui.strideSlider.addEventListener('input', () => {
-    ui.strideVal.textContent = ui.strideSlider.value;
-    scheduler.scheduleRender();
-  });
-
-  ui.maxVisibleSlider.addEventListener('input', () => {
-    ui.maxVisibleVal.textContent = ui.maxVisibleSlider.value;
-    scheduler.scheduleRender();
-  });
-
-  ui.bgGraySlider.addEventListener('input', () => {
-    ui.bgGrayVal.textContent = ui.bgGraySlider.value;
-    scheduler.scheduleRender();
-  });
-}
-
 function bindUiEvents() {
   [
     'useSHCheck',
@@ -205,108 +210,10 @@ function bindUiEvents() {
     ui[key].addEventListener('change', scheduler.scheduleRender);
   });
 
-  [
-    'showTileDebugCheck',
-    'drawSelectedTileOnlyCheck',
-    'useMaxTileCheck'
-  ].forEach((key) => {
-    ui[key].addEventListener('change', () => {
-      syncTileDebugGlobalsFromUI(ui, window);
-      scheduler.scheduleRender();
-    });
-  });
-
-  [
-    'selectedTileIdInput',
-    'tileRadiusInput'
-  ].forEach((key) => {
-    ui[key].addEventListener('input', () => {
-      syncTileDebugGlobalsFromUI(ui, window);
-      scheduler.scheduleRender();
-    });
-  });
-
-  [
-    'useTemporalIndexCheck',
-    'useTemporalIndexCacheCheck'
-  ].forEach((key) => {
-    ui[key].addEventListener('change', () => {
-      syncTemporalIndexUiState(ui);
-      scheduler.scheduleRender();
-    });
-  });
-
-  [
-    'temporalWindowModeSelect',
-    'fixedWindowRadiusInput'
-  ].forEach((key) => {
-    ui[key].addEventListener('input', () => {
-      syncTemporalIndexUiState(ui);
-      scheduler.scheduleRender();
-    });
-  });
-
-  [
-    'useTemporalBucketCheck',
-    'useTemporalBucketCacheCheck'
-  ].forEach((key) => {
-    ui[key].addEventListener('change', () => {
-      syncTemporalBucketUiState(ui);
-      scheduler.scheduleRender();
-    });
-  });
-
-  [
-    'temporalBucketWidthInput',
-    'temporalBucketRadiusInput'
-  ].forEach((key) => {
-    ui[key].addEventListener('input', () => {
-      syncTemporalBucketUiState(ui);
-      scheduler.scheduleRender();
-    });
-  });
-
-  [
-    'usePlaybackOverrideCheck',
-    'useInteractionOverrideCheck'
-  ].forEach((key) => {
-    ui[key].addEventListener('change', () => {
-      syncQualityOverrideUiState(ui);
-      scheduler.scheduleRender();
-    });
-  });
-
-  [
-    'playbackStrideInput',
-    'playbackMaxVisibleInput',
-    'playbackRenderScaleInput',
-    'interactionStrideInput',
-    'interactionMaxVisibleInput',
-    'interactionRenderScaleInput'
-  ].forEach((key) => {
-    ui[key].addEventListener('input', () => {
-      syncQualityOverrideUiState(ui);
-      scheduler.scheduleRender();
-    });
-  });
-
-  if (ui.usePackedVisiblePathCheck) {
-    ui.usePackedVisiblePathCheck.addEventListener('change', () => {
-      syncPackedPathUiState(ui);
-      scheduler.scheduleRender();
-    });
-  }
-
-  if (ui.drawPathSelect) {
-    ui.drawPathSelect.addEventListener('change', () => {
-      syncPackedPathUiState(ui);
-      scheduler.scheduleRender();
-    });
-  }
-
   if (ui.debugLogBtn) {
     ui.debugLogBtn.addEventListener('click', () => {
       exportLatestDebugTextToArea();
+      readAndSaveUiState(ui);
     });
   }
 
@@ -316,6 +223,7 @@ function bindUiEvents() {
         exportLatestDebugTextToArea();
       }
       await copyDebugLogText(ui);
+      readAndSaveUiState(ui);
     });
   }
 
@@ -326,7 +234,9 @@ function bindUiEvents() {
   ui.renderBtn.addEventListener('click', scheduler.scheduleRender);
 
   ui.resetCamBtn.addEventListener('click', () => {
-    if (raw) fitCameraToRaw(raw, controls, camera);
+    if (raw) {
+      fitCameraToRaw(raw, controls, camera);
+    }
     scheduler.scheduleRender();
   });
 
@@ -342,23 +252,21 @@ function bindUiEvents() {
   });
 }
 
-function initializeStaticUiText() {
-  ui.timeVal.textContent = Number(ui.timeSlider.value).toFixed(2);
-  ui.splatScaleVal.textContent = Number(ui.splatScaleSlider.value).toFixed(2);
-  ui.sigmaScaleVal.textContent = Number(ui.sigmaScaleSlider.value).toFixed(2);
-  ui.prefilterVarVal.textContent = Number(ui.prefilterVarSlider.value).toFixed(2);
-  ui.renderScaleVal.textContent = Number(ui.renderScaleSlider.value).toFixed(2);
-  ui.strideVal.textContent = ui.strideSlider.value;
-  ui.maxVisibleVal.textContent = ui.maxVisibleSlider.value;
-  ui.bgGrayVal.textContent = ui.bgGraySlider.value;
-  ui.timeDurationVal.textContent = Number(ui.timeDurationSlider.value).toFixed(1);
+function initializeUiState() {
+  loadAndApplyUiState(ui);
+  initializeStaticUiText();
+
+  bindUiStatePersistence(ui, {
+    onChange: () => {
+      scheduler.scheduleRender();
+    }
+  });
 }
 
-initializeViewerUiDefaults(ui);
-syncAllViewerUiState(ui, window);
-initializeStaticUiText();
-bindSliderTextUpdates();
+initializeUiState();
+bindSliderTextUpdates(scheduler.scheduleRender);
 bindUiEvents();
+
 setCanvasSize();
 playback.startLoop();
 fileIO.bindFileInput();

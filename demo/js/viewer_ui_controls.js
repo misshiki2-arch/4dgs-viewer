@@ -17,41 +17,110 @@ export function applyPanelResizeStyle(infoEl) {
   panel.style.boxSizing = 'border-box';
 }
 
-export function ensureTileDebugControls(ui) {
-  const parent = ui.info.parentElement;
-  const rows = [
-    {
-      id: 'tileDebugRow1',
-      html: '<label>show tile debug</label><input id="showTileDebug" type="checkbox"><span>heatmap overlay</span>'
-    },
-    {
-      id: 'tileDebugRow2',
-      html: '<label>draw selected tile only</label><input id="drawSelectedTileOnly" type="checkbox"><span>single/multi-tile draw</span>'
-    },
-    {
-      id: 'tileDebugRow3',
-      html: '<label>use max tile</label><input id="useMaxTile" type="checkbox"><span>densest focus tile</span>'
-    },
-    {
-      id: 'tileDebugRow4',
-      html: '<label>tile id</label><input id="selectedTileId" type="number" min="-1" step="1" value="-1" style="width:120px;"><span id="selectedTileIdNote">manual tile id</span>'
-    },
-    {
-      id: 'tileDebugRow5',
-      html: '<label>tile radius</label><input id="tileRadius" type="number" min="0" step="1" value="0" style="width:120px;"><span id="tileRadiusNote">0=single, 1=3x3, 2=5x5</span>'
-    }
-  ];
+function ensureRow(ui, rowId) {
+  let row = document.getElementById(rowId);
+  if (row) return row;
 
-  for (const rowDef of rows) {
-    let row = document.getElementById(rowDef.id);
-    if (!row) {
-      row = document.createElement('div');
-      row.className = 'row';
-      row.id = rowDef.id;
-      row.innerHTML = rowDef.html;
-      parent.insertBefore(row, ui.info);
-    }
+  row = document.createElement('div');
+  row.className = 'row';
+  row.id = rowId;
+  ui.info.parentElement.insertBefore(row, ui.info);
+  return row;
+}
+
+function setRowContents(row, nodes) {
+  row.replaceChildren(...nodes);
+}
+
+function createLabel(text) {
+  const span = document.createElement('span');
+  span.textContent = text;
+  return span;
+}
+
+function createCheckbox(id, checked = false) {
+  const input = document.createElement('input');
+  input.type = 'checkbox';
+  input.id = id;
+  input.checked = checked;
+  return input;
+}
+
+function createNumberInput(id, value, min = null, max = null, step = null) {
+  const input = document.createElement('input');
+  input.type = 'number';
+  input.id = id;
+  input.value = String(value);
+  if (min !== null) input.min = String(min);
+  if (max !== null) input.max = String(max);
+  if (step !== null) input.step = String(step);
+  input.style.width = '90px';
+  return input;
+}
+
+function createSelect(id, options, value) {
+  const select = document.createElement('select');
+  select.id = id;
+  for (const opt of options) {
+    const option = document.createElement('option');
+    option.value = opt.value;
+    option.textContent = opt.label;
+    if (opt.value === value) option.selected = true;
+    select.appendChild(option);
   }
+  return select;
+}
+
+function createNote(id, text = '') {
+  const span = document.createElement('span');
+  span.id = id;
+  span.style.fontSize = '0.9em';
+  span.style.opacity = '0.85';
+  span.textContent = text;
+  return span;
+}
+
+function appendWithSpaces(...nodes) {
+  const out = [];
+  nodes.forEach((node, i) => {
+    if (i > 0) out.push(document.createTextNode(' '));
+    out.push(node);
+  });
+  return out;
+}
+
+export function ensureTileDebugControls(ui) {
+  const row1 = ensureRow(ui, 'tileDebugRow1');
+  setRowContents(row1, appendWithSpaces(
+    createCheckbox('showTileDebug', false),
+    createLabel('show tile debug heatmap overlay')
+  ));
+
+  const row2 = ensureRow(ui, 'tileDebugRow2');
+  setRowContents(row2, appendWithSpaces(
+    createCheckbox('drawSelectedTileOnly', false),
+    createLabel('draw selected tile only')
+  ));
+
+  const row3 = ensureRow(ui, 'tileDebugRow3');
+  setRowContents(row3, appendWithSpaces(
+    createCheckbox('useMaxTile', true),
+    createLabel('use max tile (densest focus tile)')
+  ));
+
+  const row4 = ensureRow(ui, 'tileDebugRow4');
+  setRowContents(row4, appendWithSpaces(
+    createLabel('tile id'),
+    createNumberInput('selectedTileId', -1, -1, null, 1),
+    createNote('selectedTileIdNote', 'manual tile id')
+  ));
+
+  const row5 = ensureRow(ui, 'tileDebugRow5');
+  setRowContents(row5, appendWithSpaces(
+    createLabel('tile radius'),
+    createNumberInput('tileRadius', 0, 0, 8, 1),
+    createNote('tileRadiusNote', '0=single, 1=3x3, 2=5x5')
+  ));
 
   ui.showTileDebugCheck = document.getElementById('showTileDebug');
   ui.drawSelectedTileOnlyCheck = document.getElementById('drawSelectedTileOnly');
@@ -63,36 +132,41 @@ export function ensureTileDebugControls(ui) {
 }
 
 export function ensureTemporalIndexControls(ui) {
-  const parent = ui.info.parentElement;
-  const rows = [
-    {
-      id: 'temporalIndexRow1',
-      html: '<label>use temporal index</label><input id="useTemporalIndex" type="checkbox"><span>candidate narrowing</span>'
-    },
-    {
-      id: 'temporalIndexRow2',
-      html: '<label>use index cache</label><input id="useTemporalIndexCache" type="checkbox"><span>sorted/window cache</span>'
-    },
-    {
-      id: 'temporalIndexRow3',
-      html: '<label>window mode</label><select id="temporalWindowMode" style="width:120px;"><option value="max">max</option><option value="median">median</option><option value="mean">mean</option><option value="p90">p90</option><option value="fixed">fixed</option></select><span id="temporalWindowModeNote">temporal window policy</span>'
-    },
-    {
-      id: 'temporalIndexRow4',
-      html: '<label>fixed window</label><input id="fixedWindowRadius" type="number" min="0" step="0.01" value="0.50" style="width:120px;"><span id="fixedWindowRadiusNote">used when window mode=fixed</span>'
-    }
-  ];
+  const row1 = ensureRow(ui, 'temporalIndexRow1');
+  setRowContents(row1, appendWithSpaces(
+    createCheckbox('useTemporalIndex', false),
+    createLabel('use temporal index candidate narrowing')
+  ));
 
-  for (const rowDef of rows) {
-    let row = document.getElementById(rowDef.id);
-    if (!row) {
-      row = document.createElement('div');
-      row.className = 'row';
-      row.id = rowDef.id;
-      row.innerHTML = rowDef.html;
-      parent.insertBefore(row, ui.info);
-    }
-  }
+  const row2 = ensureRow(ui, 'temporalIndexRow2');
+  setRowContents(row2, appendWithSpaces(
+    createCheckbox('useTemporalIndexCache', true),
+    createLabel('use index cache')
+  ));
+
+  const row3 = ensureRow(ui, 'temporalIndexRow3');
+  setRowContents(row3, appendWithSpaces(
+    createLabel('window mode'),
+    createSelect(
+      'temporalWindowMode',
+      [
+        { value: 'max', label: 'max' },
+        { value: 'median', label: 'median' },
+        { value: 'mean', label: 'mean' },
+        { value: 'p90', label: 'p90' },
+        { value: 'fixed', label: 'fixed' }
+      ],
+      'max'
+    ),
+    createNote('temporalWindowModeNote', 'temporal window policy')
+  ));
+
+  const row4 = ensureRow(ui, 'temporalIndexRow4');
+  setRowContents(row4, appendWithSpaces(
+    createLabel('fixed window'),
+    createNumberInput('fixedWindowRadius', 0, 0, 9999, 1),
+    createNote('fixedWindowRadiusNote', 'used when window mode=fixed')
+  ));
 
   ui.useTemporalIndexCheck = document.getElementById('useTemporalIndex');
   ui.useTemporalIndexCacheCheck = document.getElementById('useTemporalIndexCache');
@@ -103,36 +177,31 @@ export function ensureTemporalIndexControls(ui) {
 }
 
 export function ensureTemporalBucketControls(ui) {
-  const parent = ui.info.parentElement;
-  const rows = [
-    {
-      id: 'temporalBucketRow1',
-      html: '<label>use temporal bucket</label><input id="useTemporalBucket" type="checkbox"><span>bucket candidate narrowing</span>'
-    },
-    {
-      id: 'temporalBucketRow2',
-      html: '<label>use bucket cache</label><input id="useTemporalBucketCache" type="checkbox"><span>bucket cache</span>'
-    },
-    {
-      id: 'temporalBucketRow3',
-      html: '<label>bucket width</label><input id="temporalBucketWidth" type="number" min="0.001" step="0.01" value="0.10" style="width:120px;"><span id="temporalBucketWidthNote">time width per bucket</span>'
-    },
-    {
-      id: 'temporalBucketRow4',
-      html: '<label>bucket radius</label><input id="temporalBucketRadius" type="number" min="0" step="1" value="0" style="width:120px;"><span id="temporalBucketRadiusNote">neighbor bucket count</span>'
-    }
-  ];
+  const row1 = ensureRow(ui, 'temporalBucketRow1');
+  setRowContents(row1, appendWithSpaces(
+    createCheckbox('useTemporalBucket', false),
+    createLabel('use temporal bucket candidate narrowing')
+  ));
 
-  for (const rowDef of rows) {
-    let row = document.getElementById(rowDef.id);
-    if (!row) {
-      row = document.createElement('div');
-      row.className = 'row';
-      row.id = rowDef.id;
-      row.innerHTML = rowDef.html;
-      parent.insertBefore(row, ui.info);
-    }
-  }
+  const row2 = ensureRow(ui, 'temporalBucketRow2');
+  setRowContents(row2, appendWithSpaces(
+    createCheckbox('useTemporalBucketCache', true),
+    createLabel('use bucket cache')
+  ));
+
+  const row3 = ensureRow(ui, 'temporalBucketRow3');
+  setRowContents(row3, appendWithSpaces(
+    createLabel('bucket width'),
+    createNumberInput('temporalBucketWidth', 0.05, 0, null, 0.01),
+    createNote('temporalBucketWidthNote', 'time width per bucket')
+  ));
+
+  const row4 = ensureRow(ui, 'temporalBucketRow4');
+  setRowContents(row4, appendWithSpaces(
+    createLabel('bucket radius'),
+    createNumberInput('temporalBucketRadius', 1, 0, 9999, 1),
+    createNote('temporalBucketRadiusNote', 'neighbor bucket count')
+  ));
 
   ui.useTemporalBucketCheck = document.getElementById('useTemporalBucket');
   ui.useTemporalBucketCacheCheck = document.getElementById('useTemporalBucketCache');
@@ -143,52 +212,59 @@ export function ensureTemporalBucketControls(ui) {
 }
 
 export function ensureQualityOverrideControls(ui) {
-  const parent = ui.info.parentElement;
-  const rows = [
-    {
-      id: 'qualityOverrideRow1',
-      html: '<label>use playback override</label><input id="usePlaybackOverride" type="checkbox"><span id="usePlaybackOverrideNote">GUI-tunable playback degradation</span>'
-    },
-    {
-      id: 'qualityOverrideRow2',
-      html: '<label>playback stride</label><input id="playbackStride" type="number" min="1" step="1" value="32" style="width:120px;"><span id="playbackStrideNote">coarser draw sampling while playing</span>'
-    },
-    {
-      id: 'qualityOverrideRow3',
-      html: '<label>playback max visible</label><input id="playbackMaxVisible" type="number" min="1" step="1000" value="30000" style="width:120px;"><span id="playbackMaxVisibleNote">limit visible splats while playing</span>'
-    },
-    {
-      id: 'qualityOverrideRow4',
-      html: '<label>playback render scale</label><input id="playbackRenderScale" type="number" min="0.05" max="1.00" step="0.05" value="0.50" style="width:120px;"><span id="playbackRenderScaleNote">lower internal resolution while playing</span>'
-    },
-    {
-      id: 'qualityOverrideRow5',
-      html: '<label>use interaction override</label><input id="useInteractionOverride" type="checkbox"><span id="useInteractionOverrideNote">GUI-tunable drag degradation</span>'
-    },
-    {
-      id: 'qualityOverrideRow6',
-      html: '<label>interaction stride</label><input id="interactionStride" type="number" min="1" step="1" value="64" style="width:120px;"><span id="interactionStrideNote">coarser draw sampling while dragging</span>'
-    },
-    {
-      id: 'qualityOverrideRow7',
-      html: '<label>interaction max visible</label><input id="interactionMaxVisible" type="number" min="1" step="1000" value="10000" style="width:120px;"><span id="interactionMaxVisibleNote">limit visible splats while dragging</span>'
-    },
-    {
-      id: 'qualityOverrideRow8',
-      html: '<label>interaction render scale</label><input id="interactionRenderScale" type="number" min="0.05" max="1.00" step="0.05" value="0.50" style="width:120px;"><span id="interactionRenderScaleNote">lower internal resolution while dragging</span>'
-    }
-  ];
+  const row1 = ensureRow(ui, 'qualityOverrideRow1');
+  setRowContents(row1, appendWithSpaces(
+    createCheckbox('usePlaybackOverride', false),
+    createLabel('use playback override')
+  ));
 
-  for (const rowDef of rows) {
-    let row = document.getElementById(rowDef.id);
-    if (!row) {
-      row = document.createElement('div');
-      row.className = 'row';
-      row.id = rowDef.id;
-      row.innerHTML = rowDef.html;
-      parent.insertBefore(row, ui.info);
-    }
-  }
+  const row2 = ensureRow(ui, 'qualityOverrideRow2');
+  setRowContents(row2, appendWithSpaces(
+    createLabel('playback stride'),
+    createNumberInput('playbackStride', 1, 1, 9999, 1),
+    createNote('playbackStrideNote', 'coarser draw sampling while playing')
+  ));
+
+  const row3 = ensureRow(ui, 'qualityOverrideRow3');
+  setRowContents(row3, appendWithSpaces(
+    createLabel('playback max visible'),
+    createNumberInput('playbackMaxVisible', 0, 0, null, 1),
+    createNote('playbackMaxVisibleNote', 'limit visible splats while playing')
+  ));
+
+  const row4 = ensureRow(ui, 'qualityOverrideRow4');
+  setRowContents(row4, appendWithSpaces(
+    createLabel('playback render scale'),
+    createNumberInput('playbackRenderScale', 1.0, 0.05, 1.0, 0.05),
+    createNote('playbackRenderScaleNote', 'lower internal resolution while playing')
+  ));
+
+  const row5 = ensureRow(ui, 'qualityOverrideRow5');
+  setRowContents(row5, appendWithSpaces(
+    createCheckbox('useInteractionOverride', false),
+    createLabel('use interaction override')
+  ));
+
+  const row6 = ensureRow(ui, 'qualityOverrideRow6');
+  setRowContents(row6, appendWithSpaces(
+    createLabel('interaction stride'),
+    createNumberInput('interactionStride', 1, 1, 9999, 1),
+    createNote('interactionStrideNote', 'coarser draw sampling while dragging')
+  ));
+
+  const row7 = ensureRow(ui, 'qualityOverrideRow7');
+  setRowContents(row7, appendWithSpaces(
+    createLabel('interaction max visible'),
+    createNumberInput('interactionMaxVisible', 0, 0, null, 1),
+    createNote('interactionMaxVisibleNote', 'limit visible splats while dragging')
+  ));
+
+  const row8 = ensureRow(ui, 'qualityOverrideRow8');
+  setRowContents(row8, appendWithSpaces(
+    createLabel('interaction render scale'),
+    createNumberInput('interactionRenderScale', 1.0, 0.05, 1.0, 0.05),
+    createNote('interactionRenderScaleNote', 'lower internal resolution while dragging')
+  ));
 
   ui.usePlaybackOverrideCheck = document.getElementById('usePlaybackOverride');
   ui.usePlaybackOverrideNote = document.getElementById('usePlaybackOverrideNote');
@@ -198,7 +274,6 @@ export function ensureQualityOverrideControls(ui) {
   ui.playbackMaxVisibleNote = document.getElementById('playbackMaxVisibleNote');
   ui.playbackRenderScaleInput = document.getElementById('playbackRenderScale');
   ui.playbackRenderScaleNote = document.getElementById('playbackRenderScaleNote');
-
   ui.useInteractionOverrideCheck = document.getElementById('useInteractionOverride');
   ui.useInteractionOverrideNote = document.getElementById('useInteractionOverrideNote');
   ui.interactionStrideInput = document.getElementById('interactionStride');
@@ -210,28 +285,33 @@ export function ensureQualityOverrideControls(ui) {
 }
 
 export function ensurePackedPathControls(ui) {
-  const parent = ui.info.parentElement;
-  const rows = [
-    {
-      id: 'packedPathRow1',
-      html: '<label>use packed visible path</label><input id="usePackedVisiblePath" type="checkbox"><span id="usePackedVisiblePathNote">enable packed visible generation and packed direct draw tracking</span>'
-    },
-    {
-      id: 'packedPathRow2',
-      html: '<label>draw path</label><select id="drawPathSelect" style="width:140px;"><option value="legacy">legacy</option><option value="packed">packed</option><option value="gpu-screen">gpu-screen</option></select><span id="drawPathSelectNote">actual draw path request</span>'
-    }
-  ];
+  const row1 = ensureRow(ui, 'packedPathRow1');
+  setRowContents(row1, appendWithSpaces(
+    createCheckbox('usePackedVisiblePath', true),
+    createLabel('use packed visible path'),
+    createNote(
+      'usePackedVisiblePathNote',
+      'Step24 formal path: build packed screen-space data'
+    )
+  ));
 
-  for (const rowDef of rows) {
-    let row = document.getElementById(rowDef.id);
-    if (!row) {
-      row = document.createElement('div');
-      row.className = 'row';
-      row.id = rowDef.id;
-      row.innerHTML = rowDef.html;
-      parent.insertBefore(row, ui.info);
-    }
-  }
+  const row2 = ensureRow(ui, 'packedPathRow2');
+  setRowContents(row2, appendWithSpaces(
+    createLabel('draw path'),
+    createSelect(
+      'drawPathSelect',
+      [
+        { value: 'packed', label: 'packed (Step24 formal)' },
+        { value: 'legacy', label: 'legacy (fallback)' },
+        { value: 'gpu-screen', label: 'gpu-screen (future)' }
+      ],
+      'packed'
+    ),
+    createNote(
+      'drawPathSelectNote',
+      'full-frame only; per-tile remains legacy-only'
+    )
+  ));
 
   ui.usePackedVisiblePathCheck = document.getElementById('usePackedVisiblePath');
   ui.usePackedVisiblePathNote = document.getElementById('usePackedVisiblePathNote');
@@ -240,28 +320,31 @@ export function ensurePackedPathControls(ui) {
 }
 
 export function ensureDebugLogControls(ui) {
-  const parent = ui.info.parentElement;
-  const rows = [
-    {
-      id: 'debugLogRow1',
-      html: '<label>debug log</label><button id="debugLogBtn" type="button">ログ出力</button><button id="debugLogCopyBtn" type="button">コピー</button><span id="debugLogNote">latest debug text</span>'
-    },
-    {
-      id: 'debugLogRow2',
-      html: '<label>debug text</label><textarea id="debugLogArea" rows="10" style="width:100%; box-sizing:border-box; resize:vertical;" spellcheck="false" placeholder="ここに最新のデバッグ情報を出力します。"></textarea>'
-    }
-  ];
+  const row1 = ensureRow(ui, 'debugLogRow1');
+  const logBtn = document.createElement('button');
+  logBtn.id = 'debugLogBtn';
+  logBtn.type = 'button';
+  logBtn.textContent = 'debug log';
 
-  for (const rowDef of rows) {
-    let row = document.getElementById(rowDef.id);
-    if (!row) {
-      row = document.createElement('div');
-      row.className = 'row';
-      row.id = rowDef.id;
-      row.innerHTML = rowDef.html;
-      parent.insertBefore(row, ui.info);
-    }
-  }
+  const copyBtn = document.createElement('button');
+  copyBtn.id = 'debugLogCopyBtn';
+  copyBtn.type = 'button';
+  copyBtn.textContent = 'copy';
+
+  setRowContents(row1, appendWithSpaces(
+    logBtn,
+    copyBtn,
+    createNote('debugLogNote', 'latest debug text')
+  ));
+
+  const row2 = ensureRow(ui, 'debugLogRow2');
+  const area = document.createElement('textarea');
+  area.id = 'debugLogArea';
+  area.rows = 10;
+  area.style.width = '100%';
+  area.style.boxSizing = 'border-box';
+  area.readOnly = true;
+  setRowContents(row2, [area]);
 
   ui.debugLogBtn = document.getElementById('debugLogBtn');
   ui.debugLogCopyBtn = document.getElementById('debugLogCopyBtn');

@@ -6,10 +6,17 @@ import {
   summarizePackedUploadState
 } from './gpu_packed_upload_utils.js';
 
-// Step23 fix:
+// Step24:
 // packed interleaved buffer を直接使う draw 実行部。
-// packed で何も表示されない症状に対して、attribute bind を descriptor ベースへ統一し、
-// VAO 構築時と draw 前の buffer/VAO 状態を明確化する。
+// Step23 では「表示されない」問題に対して VAO/buffer/attribute の結び直しを明確化した。
+// Step24 ではさらに、次を正式化する。
+//
+// 1. attribute 定義は gpu_packed_upload_utils.js から来る descriptor のみを見る
+// 2. renderer 側は packed layout を再解釈しない
+// 3. draw executor は upload -> VAO 再設定 -> draw の順を固定
+// 4. debug/summarize は正式契約ベースで返す
+//
+// ここでは packed direct draw だけを担当し、legacy / fallback の判断は持たない。
 
 function ensurePackedDirectVao(gl, gpu) {
   if (gpu.packedDirectVao) return gpu.packedDirectVao;
@@ -26,7 +33,6 @@ function ensurePackedUploadStateLocal(gl, gpu) {
 function configurePackedDirectVao(gl, gpu, vao, uploadState) {
   const desc = getPackedInterleavedAttribDescriptors();
 
-  // VAO に interleaved buffer の attribute 割当を一括設定する。
   bindInterleavedFloatAttribs(gl, {
     vao,
     program: gpu.program,
@@ -36,7 +42,32 @@ function configurePackedDirectVao(gl, gpu, vao, uploadState) {
 
   gpu.packedDirectLayout = desc;
   gpu.packedDirectConfigured = true;
-  return desc
+
+  return desc;
+}
+
+function summarizePackedDirectLayout(layout) {
+  return {
+    packedDirectLayoutVersion: layout?.layoutVersion ?? 0,
+    packedDirectStrideBytes: layout?.strideBytes ?? 0,
+    packedDirectAttributeCount: Array.isArray(layout?.attributes)
+      ? layout.attributes.length
+      : 0,
+    packedDirectAttributes: Array.isArray(layout?.attributes)
+      ? layout.attributes.map(attr => ({
+          name: attr.name,
+          fieldName: attr.fieldName ?? '',
+          canonicalFieldName: attr.canonicalFieldName ?? '',
+          size: attr.size ?? 0,
+          stride: attr.stride ?? 0,
+          offset: attr.offset ?? 0
+        }))
+      : [],
+    packedDirectOffsets: Array.isArray(layout?.attributes)
+      ? layout.attributes.map(attr => `${attr.name}:${attr.offset}`).join(', ')
+      : '',
+    packedDirectAlphaSource: 'aColorAlpha.a -> colorAlpha[3]'
+  };
 }
 
 export function ensurePackedDirectDrawResources(gl, gpu) {
@@ -52,42 +83,55 @@ export function ensurePackedDirectDrawResources(gl, gpu) {
 }
 
 export function uploadAndDrawPackedDirect(gl, gpu, packedScreenSpace, canvasWidth, canvasHeight) {
-  if (!packedScreenSpace?.packed || !Number.isFinite(packedScreenSpace?.packedCount)) {
-    throw new Error('uploadAndDrawPackedDirect requires packedScreenSpace with packed/packedCount');
+  if (!(packedScreenSpace?.packed instanceof Float32Array)) {
+    throw new Error('uploadAndDrawPackedDirect requires packedScreenSpace.packed as Float32Array');
+  }
+  if (!Number.isFinite(packedScreenSpace?.packedCount)) {
+    throw new Error('uploadAndDrawPackedDirect requires packedScreenSpace.packedCount');
   }
 
-  const { vao, uploadState, layout } = ensurePackedDirectDrawResources(gl, gpu);
+  const drawCount = Math.max(0, packedScreenSpace.packedCount | 0);
+  const { vao, uploadState } = ensurePackedDirectDrawResources(gl, gpu);
 
-  // 先に interleaved buffer を upload
-  uploadPackedInterleaved(
-    gl,
-    uploadState,
-    packedScreenSpace.packed,
-    packedScreenSpace.packedCount
-  );
+  // Step24:
+  // 先に interleaved buffer を upload し、その後に同じ buffer で VAO を再設定する。
+  // これにより、buffer 再確保や容量拡張が起きても VAO が古い buffer を参照しない。
+  uploadPackedInterleaved(gl, uploadState, packedScreenSpace.packed, drawCount);
 
-  // upload 後に同じ buffer を改めて VAO に結び直して、状態の食い違いを避ける。
-  configurePackedDirectVao(gl, gpu, vao, uploadState);
+  const layout = configurePackedDirectVao(gl, gpu, vao, uploadState);
 
   gl.useProgram(gpu.program);
   gl.bindVertexArray(vao);
   gl.bindBuffer(gl.ARRAY_BUFFER, uploadState.interleaved.buffer);
+
   gl.uniform2f(gpu.uViewportPx, canvasWidth, canvasHeight);
-  gl.drawArrays(gl.POINTS, 0, packedScreenSpace.packedCount);
+  gl.drawArrays(gl.POINTS, 0, drawCount);
+
   gl.bindBuffer(gl.ARRAY_BUFFER, null);
   gl.bindVertexArray(null);
 
   const uploadSummary = summarizePackedUploadState(uploadState);
+  const layoutSummary = summarizePackedDirectLayout(layout);
 
   return {
-    drawCount: packedScreenSpace.packedCount,
+    drawCount,
     packedDirectDraw: true,
-    packedInterleavedStrideBytes: layout.strideBytes,
     packedInterleavedBound: true,
-    packedInterleavedAttributeCount: Array.isArray(layout.attributes) ? layout.attributes.length : 0,
-    packedInterleavedOffsets: Array.isArray(layout.attributes)
-      ? layout.attributes.map(a => `${a.name}:${a.offset}`).join(', ')
-      : '',
+    ...layoutSummary,
+    uploadSummary,
+    packedScreenSpacePath: packedScreenSpace?.path ?? 'packed-cpu',
+    packedScreenSpaceSummary: packedScreenSpace?.summary ?? null
+  };
+}
+
+export function summarizePackedDirectResources(gpu) {
+  const layoutSummary = summarizePackedDirectLayout(gpu?.packedDirectLayout);
+  const uploadSummary = summarizePackedUploadState(gpu?.packedUploadState);
+
+  return {
+    packedDirectConfigured: !!gpu?.packedDirectConfigured,
+    packedDirectHasVao: !!gpu?.packedDirectVao,
+    ...layoutSummary,
     uploadSummary
   };
 }

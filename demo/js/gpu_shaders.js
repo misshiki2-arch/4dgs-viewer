@@ -1,3 +1,17 @@
+// Step24:
+// packed direct draw の正式 shader 契約をここに固定する。
+//
+// 正式属性契約:
+// - aCenterPx      : packed.centerPx.xy
+// - aRadiusPx      : packed.radiusPx
+// - aColorAlpha    : packed.colorAlpha.rgba
+// - aConic         : packed.conic.xyz
+//
+// 重要:
+// - 正式 alpha は aColorAlpha.a のみ
+// - separate opacity attribute / uniform は持たない
+// - CPU pack / upload descriptor / shader の契約を一本化する
+
 export const GPU_STEP_VERTEX_SHADER = `#version 300 es
 precision highp float;
 
@@ -17,8 +31,13 @@ void main() {
     (aCenterPx.x / uViewportPx.x) * 2.0 - 1.0,
     1.0 - (aCenterPx.y / uViewportPx.y) * 2.0
   );
+
   gl_Position = vec4(ndc, 0.0, 1.0);
   gl_PointSize = max(1.0, aRadiusPx * 2.0);
+
+  // Step24:
+  // packed.colorAlpha.rgba をそのまま後段へ渡す。
+  // 正式 alpha は vColorAlpha.a。
   vColorAlpha = aColorAlpha;
   vRadiusPx = aRadiusPx;
   vConic = aConic;
@@ -40,12 +59,26 @@ void main() {
   float dx = d.x;
   float dy = d.y;
 
-  float power = -0.5 * (vConic.x * dx * dx + vConic.z * dy * dy) - vConic.y * dx * dy;
-  if (power > 0.0) discard;
+  // conic = [xx, xy, yy]
+  float power =
+    -0.5 * (vConic.x * dx * dx + vConic.z * dy * dy)
+    - vConic.y * dx * dy;
 
-  float alpha = min(0.99, vColorAlpha.a * exp(power));
-  if (alpha < (1.0 / 255.0)) discard;
+  if (power > 0.0) {
+    discard;
+  }
 
-  outColor = vec4(vColorAlpha.rgb, alpha);
+  // Step24:
+  // 正式 alpha は vColorAlpha.a のみ。
+  // 旧 opacity のような別概念は shader 側に持ち込まない。
+  float packedAlpha = vColorAlpha.a;
+  float gaussianAlpha = packedAlpha * exp(power);
+  float finalAlpha = min(0.99, gaussianAlpha);
+
+  if (finalAlpha < (1.0 / 255.0)) {
+    discard;
+  }
+
+  outColor = vec4(vColorAlpha.rgb, finalAlpha);
 }
 `;
