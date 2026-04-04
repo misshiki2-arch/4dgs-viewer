@@ -1,21 +1,309 @@
-const UI_STATE_STORAGE_KEY = 'gpuViewerUiStateStep25';
-function toBool(value, fallback = false) { if (typeof value === 'boolean') return value; if (value === 'true') return true; if (value === 'false') return false; return fallback; }
-function toInt(value, fallback = 0) { const n = Number(value); return Number.isFinite(n) ? (n | 0) : fallback; }
-function toFloat(value, fallback = 0) { const n = Number(value); return Number.isFinite(n) ? n : fallback; }
-function toStringValue(value, fallback = '') { return typeof value === 'string' ? value : fallback; }
-function isAllowedDrawPath(value) { return value === 'packed' || value === 'legacy' || value === 'gpu-screen'; }
-function normalizeDrawPath(value, fallback = 'packed') { return isAllowedDrawPath(value) ? value : fallback; }
-function readChecked(el, fallback = false) { return el ? !!el.checked : fallback; }
-function readValue(el, fallback = '') { return el ? String(el.value) : fallback; }
-function writeChecked(el, value) { if (el) el.checked = !!value; }
-function writeValue(el, value) { if (el) el.value = String(value); }
-export function createDefaultUiState() { return { showTileDebug:false, drawSelectedTileOnly:false, useMaxTile:true, selectedTileId:-1, tileRadius:0, useTemporalIndex:false, useTemporalIndexCache:true, temporalWindowMode:'max', fixedWindowRadius:0, useTemporalBucket:false, useTemporalBucketCache:true, temporalBucketWidth:0.05, temporalBucketRadius:1, usePlaybackOverride:false, playbackStride:1, playbackMaxVisible:0, playbackRenderScale:1.0, useInteractionOverride:false, interactionStride:1, interactionMaxVisible:0, interactionRenderScale:1.0, usePackedVisiblePath:true, drawPath:'packed', bgGray:32 }; }
-export function normalizeUiState(input = {}) { const d=createDefaultUiState(); return { showTileDebug:toBool(input.showTileDebug,d.showTileDebug), drawSelectedTileOnly:toBool(input.drawSelectedTileOnly,d.drawSelectedTileOnly), useMaxTile:toBool(input.useMaxTile,d.useMaxTile), selectedTileId:toInt(input.selectedTileId,d.selectedTileId), tileRadius:Math.max(0,toInt(input.tileRadius,d.tileRadius)), useTemporalIndex:toBool(input.useTemporalIndex,d.useTemporalIndex), useTemporalIndexCache:toBool(input.useTemporalIndexCache,d.useTemporalIndexCache), temporalWindowMode:toStringValue(input.temporalWindowMode,d.temporalWindowMode), fixedWindowRadius:Math.max(0,toInt(input.fixedWindowRadius,d.fixedWindowRadius)), useTemporalBucket:toBool(input.useTemporalBucket,d.useTemporalBucket), useTemporalBucketCache:toBool(input.useTemporalBucketCache,d.useTemporalBucketCache), temporalBucketWidth:Math.max(0,toFloat(input.temporalBucketWidth,d.temporalBucketWidth)), temporalBucketRadius:Math.max(0,toInt(input.temporalBucketRadius,d.temporalBucketRadius)), usePlaybackOverride:toBool(input.usePlaybackOverride,d.usePlaybackOverride), playbackStride:Math.max(1,toInt(input.playbackStride,d.playbackStride)), playbackMaxVisible:Math.max(0,toInt(input.playbackMaxVisible,d.playbackMaxVisible)), playbackRenderScale:Math.max(0.05,toFloat(input.playbackRenderScale,d.playbackRenderScale)), useInteractionOverride:toBool(input.useInteractionOverride,d.useInteractionOverride), interactionStride:Math.max(1,toInt(input.interactionStride,d.interactionStride)), interactionMaxVisible:Math.max(0,toInt(input.interactionMaxVisible,d.interactionMaxVisible)), interactionRenderScale:Math.max(0.05,toFloat(input.interactionRenderScale,d.interactionRenderScale)), usePackedVisiblePath:toBool(input.usePackedVisiblePath,d.usePackedVisiblePath), drawPath:normalizeDrawPath(input.drawPath,d.drawPath), bgGray:Math.min(255,Math.max(0,toInt(input.bgGray,d.bgGray))) }; }
-export function summarizeUiState(state) { const s=normalizeUiState(state); return { usePackedVisiblePath:s.usePackedVisiblePath, drawPath:s.drawPath, drawPathRole:s.drawPath==='packed'?'formal':s.drawPath==='legacy'?'fallback':'future', drawSelectedOnly:s.drawSelectedTileOnly, bgGray:s.bgGray }; }
-export function loadUiState() { try { const raw=localStorage.getItem(UI_STATE_STORAGE_KEY); if(!raw) return createDefaultUiState(); return normalizeUiState(JSON.parse(raw)); } catch(err){ console.warn('Failed to load UI state:', err); return createDefaultUiState(); } }
-export function saveUiState(state) { const normalized=normalizeUiState(state); try { localStorage.setItem(UI_STATE_STORAGE_KEY, JSON.stringify(normalized)); } catch(err){ console.warn('Failed to save UI state:', err); } return normalized; }
-export function readUiStateFromControls(ui) { return normalizeUiState({ showTileDebug:readChecked(ui.showTileDebugCheck), drawSelectedTileOnly:readChecked(ui.drawSelectedTileOnlyCheck), useMaxTile:readChecked(ui.useMaxTileCheck), selectedTileId:readValue(ui.selectedTileIdInput,'-1'), tileRadius:readValue(ui.tileRadiusInput,'0'), useTemporalIndex:readChecked(ui.useTemporalIndexCheck), useTemporalIndexCache:readChecked(ui.useTemporalIndexCacheCheck), temporalWindowMode:readValue(ui.temporalWindowModeSelect,'max'), fixedWindowRadius:readValue(ui.fixedWindowRadiusInput,'0'), useTemporalBucket:readChecked(ui.useTemporalBucketCheck), useTemporalBucketCache:readChecked(ui.useTemporalBucketCacheCheck), temporalBucketWidth:readValue(ui.temporalBucketWidthInput,'0.05'), temporalBucketRadius:readValue(ui.temporalBucketRadiusInput,'1'), usePlaybackOverride:readChecked(ui.usePlaybackOverrideCheck), playbackStride:readValue(ui.playbackStrideInput,'1'), playbackMaxVisible:readValue(ui.playbackMaxVisibleInput,'0'), playbackRenderScale:readValue(ui.playbackRenderScaleInput,'1.0'), useInteractionOverride:readChecked(ui.useInteractionOverrideCheck), interactionStride:readValue(ui.interactionStrideInput,'1'), interactionMaxVisible:readValue(ui.interactionMaxVisibleInput,'0'), interactionRenderScale:readValue(ui.interactionRenderScaleInput,'1.0'), usePackedVisiblePath:readChecked(ui.usePackedVisiblePathCheck,true), drawPath:readValue(ui.drawPathSelect,'packed'), bgGray:readValue(ui.bgGraySlider,'32') }); }
-export function applyUiStateToControls(ui, state) { const s=normalizeUiState(state); writeChecked(ui.showTileDebugCheck,s.showTileDebug); writeChecked(ui.drawSelectedTileOnlyCheck,s.drawSelectedTileOnly); writeChecked(ui.useMaxTileCheck,s.useMaxTile); writeValue(ui.selectedTileIdInput,s.selectedTileId); writeValue(ui.tileRadiusInput,s.tileRadius); writeChecked(ui.useTemporalIndexCheck,s.useTemporalIndex); writeChecked(ui.useTemporalIndexCacheCheck,s.useTemporalIndexCache); writeValue(ui.temporalWindowModeSelect,s.temporalWindowMode); writeValue(ui.fixedWindowRadiusInput,s.fixedWindowRadius); writeChecked(ui.useTemporalBucketCheck,s.useTemporalBucket); writeChecked(ui.useTemporalBucketCacheCheck,s.useTemporalBucketCache); writeValue(ui.temporalBucketWidthInput,s.temporalBucketWidth); writeValue(ui.temporalBucketRadiusInput,s.temporalBucketRadius); writeChecked(ui.usePlaybackOverrideCheck,s.usePlaybackOverride); writeValue(ui.playbackStrideInput,s.playbackStride); writeValue(ui.playbackMaxVisibleInput,s.playbackMaxVisible); writeValue(ui.playbackRenderScaleInput,s.playbackRenderScale); writeChecked(ui.useInteractionOverrideCheck,s.useInteractionOverride); writeValue(ui.interactionStrideInput,s.interactionStride); writeValue(ui.interactionMaxVisibleInput,s.interactionMaxVisible); writeValue(ui.interactionRenderScaleInput,s.interactionRenderScale); writeChecked(ui.usePackedVisiblePathCheck,s.usePackedVisiblePath); writeValue(ui.drawPathSelect,s.drawPath); writeValue(ui.bgGraySlider,s.bgGray); if(ui.usePackedVisiblePathNote) ui.usePackedVisiblePathNote.textContent='formal full-frame packed screen-space path'; if(ui.drawPathSelectNote) ui.drawPathSelectNote.textContent='full-frame only; per-tile remains legacy-only'; return s; }
-export function loadAndApplyUiState(ui) { return applyUiStateToControls(ui, loadUiState()); }
-export function readAndSaveUiState(ui) { return saveUiState(readUiStateFromControls(ui)); }
-export function bindUiStatePersistence(ui, options = {}) { const onChange=typeof options.onChange==='function'?options.onChange:null; const controls=[ui.showTileDebugCheck,ui.drawSelectedTileOnlyCheck,ui.useMaxTileCheck,ui.selectedTileIdInput,ui.tileRadiusInput,ui.useTemporalIndexCheck,ui.useTemporalIndexCacheCheck,ui.temporalWindowModeSelect,ui.fixedWindowRadiusInput,ui.useTemporalBucketCheck,ui.useTemporalBucketCacheCheck,ui.temporalBucketWidthInput,ui.temporalBucketRadiusInput,ui.usePlaybackOverrideCheck,ui.playbackStrideInput,ui.playbackMaxVisibleInput,ui.playbackRenderScaleInput,ui.useInteractionOverrideCheck,ui.interactionStrideInput,ui.interactionMaxVisibleInput,ui.interactionRenderScaleInput,ui.usePackedVisiblePathCheck,ui.drawPathSelect,ui.bgGraySlider].filter(Boolean); const handler=()=>{ const state=readAndSaveUiState(ui); if(onChange) onChange(state); }; for(const control of controls){ control.addEventListener('change', handler); control.addEventListener('input', handler); } return ()=>{ for(const control of controls){ control.removeEventListener('change', handler); control.removeEventListener('input', handler); } }; }
+// Step26:
+// UI state の保存・復元・正規化をここに集約する。
+// Step25 までは packed を formal、legacy を fallback、gpu-screen を future としていた。
+// Step26 では gpu-screen を experimental path として扱う。
+// ただし default は引き続き packed とし、packed を比較基準の formal reference にする。
+
+const UI_STATE_STORAGE_KEY = 'gpuViewerUiStateStep26';
+
+function toBool(value, fallback = false) {
+  if (typeof value === 'boolean') return value;
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  return fallback;
+}
+
+function toInt(value, fallback = 0) {
+  const n = Number(value);
+  return Number.isFinite(n) ? (n | 0) : fallback;
+}
+
+function toFloat(value, fallback = 0) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function toStringValue(value, fallback = '') {
+  return typeof value === 'string' ? value : fallback;
+}
+
+function isAllowedDrawPath(value) {
+  return value === 'packed' || value === 'legacy' || value === 'gpu-screen';
+}
+
+function normalizeDrawPath(value, fallback = 'packed') {
+  return isAllowedDrawPath(value) ? value : fallback;
+}
+
+function readChecked(el, fallback = false) {
+  return el ? !!el.checked : fallback;
+}
+
+function readValue(el, fallback = '') {
+  return el ? String(el.value) : fallback;
+}
+
+function writeChecked(el, value) {
+  if (el) el.checked = !!value;
+}
+
+function writeValue(el, value) {
+  if (el) el.value = String(value);
+}
+
+export function createDefaultUiState() {
+  return {
+    // tile debug
+    showTileDebug: false,
+    drawSelectedTileOnly: false,
+    useMaxTile: true,
+    selectedTileId: -1,
+    tileRadius: 0,
+
+    // temporal index
+    useTemporalIndex: false,
+    useTemporalIndexCache: true,
+    temporalWindowMode: 'max',
+    fixedWindowRadius: 0,
+
+    // temporal bucket
+    useTemporalBucket: false,
+    useTemporalBucketCache: true,
+    temporalBucketWidth: 0.05,
+    temporalBucketRadius: 1,
+
+    // quality override
+    usePlaybackOverride: false,
+    playbackStride: 1,
+    playbackMaxVisible: 0,
+    playbackRenderScale: 1.0,
+    useInteractionOverride: false,
+    interactionStride: 1,
+    interactionMaxVisible: 0,
+    interactionRenderScale: 1.0,
+
+    // draw path
+    usePackedVisiblePath: true,
+    drawPath: 'packed',
+
+    // misc
+    bgGray: 32
+  };
+}
+
+export function normalizeUiState(input = {}) {
+  const defaults = createDefaultUiState();
+
+  return {
+    showTileDebug: toBool(input.showTileDebug, defaults.showTileDebug),
+    drawSelectedTileOnly: toBool(input.drawSelectedTileOnly, defaults.drawSelectedTileOnly),
+    useMaxTile: toBool(input.useMaxTile, defaults.useMaxTile),
+    selectedTileId: toInt(input.selectedTileId, defaults.selectedTileId),
+    tileRadius: Math.max(0, toInt(input.tileRadius, defaults.tileRadius)),
+
+    useTemporalIndex: toBool(input.useTemporalIndex, defaults.useTemporalIndex),
+    useTemporalIndexCache: toBool(input.useTemporalIndexCache, defaults.useTemporalIndexCache),
+    temporalWindowMode: toStringValue(input.temporalWindowMode, defaults.temporalWindowMode),
+    fixedWindowRadius: Math.max(0, toInt(input.fixedWindowRadius, defaults.fixedWindowRadius)),
+
+    useTemporalBucket: toBool(input.useTemporalBucket, defaults.useTemporalBucket),
+    useTemporalBucketCache: toBool(input.useTemporalBucketCache, defaults.useTemporalBucketCache),
+    temporalBucketWidth: Math.max(0, toFloat(input.temporalBucketWidth, defaults.temporalBucketWidth)),
+    temporalBucketRadius: Math.max(0, toInt(input.temporalBucketRadius, defaults.temporalBucketRadius)),
+
+    usePlaybackOverride: toBool(input.usePlaybackOverride, defaults.usePlaybackOverride),
+    playbackStride: Math.max(1, toInt(input.playbackStride, defaults.playbackStride)),
+    playbackMaxVisible: Math.max(0, toInt(input.playbackMaxVisible, defaults.playbackMaxVisible)),
+    playbackRenderScale: Math.max(0.05, toFloat(input.playbackRenderScale, defaults.playbackRenderScale)),
+    useInteractionOverride: toBool(input.useInteractionOverride, defaults.useInteractionOverride),
+    interactionStride: Math.max(1, toInt(input.interactionStride, defaults.interactionStride)),
+    interactionMaxVisible: Math.max(0, toInt(input.interactionMaxVisible, defaults.interactionMaxVisible)),
+    interactionRenderScale: Math.max(0.05, toFloat(input.interactionRenderScale, defaults.interactionRenderScale)),
+
+    usePackedVisiblePath: toBool(input.usePackedVisiblePath, defaults.usePackedVisiblePath),
+    drawPath: normalizeDrawPath(input.drawPath, defaults.drawPath),
+
+    bgGray: Math.min(255, Math.max(0, toInt(input.bgGray, defaults.bgGray)))
+  };
+}
+
+export function summarizeUiState(state) {
+  const s = normalizeUiState(state);
+  return {
+    usePackedVisiblePath: s.usePackedVisiblePath,
+    drawPath: s.drawPath,
+    drawPathRole:
+      s.drawPath === 'packed'
+        ? 'formal-reference'
+        : s.drawPath === 'legacy'
+          ? 'fallback'
+          : 'experimental',
+    drawSelectedOnly: s.drawSelectedTileOnly,
+    bgGray: s.bgGray
+  };
+}
+
+export function loadUiState() {
+  try {
+    const raw = localStorage.getItem(UI_STATE_STORAGE_KEY);
+    if (!raw) return createDefaultUiState();
+    const parsed = JSON.parse(raw);
+    return normalizeUiState(parsed);
+  } catch (err) {
+    console.warn('Failed to load UI state:', err);
+    return createDefaultUiState();
+  }
+}
+
+export function saveUiState(state) {
+  const normalized = normalizeUiState(state);
+  try {
+    localStorage.setItem(UI_STATE_STORAGE_KEY, JSON.stringify(normalized));
+  } catch (err) {
+    console.warn('Failed to save UI state:', err);
+  }
+  return normalized;
+}
+
+export function readUiStateFromControls(ui) {
+  return normalizeUiState({
+    showTileDebug: readChecked(ui.showTileDebugCheck),
+    drawSelectedTileOnly: readChecked(ui.drawSelectedTileOnlyCheck),
+    useMaxTile: readChecked(ui.useMaxTileCheck),
+    selectedTileId: readValue(ui.selectedTileIdInput, '-1'),
+    tileRadius: readValue(ui.tileRadiusInput, '0'),
+
+    useTemporalIndex: readChecked(ui.useTemporalIndexCheck),
+    useTemporalIndexCache: readChecked(ui.useTemporalIndexCacheCheck),
+    temporalWindowMode: readValue(ui.temporalWindowModeSelect, 'max'),
+    fixedWindowRadius: readValue(ui.fixedWindowRadiusInput, '0'),
+
+    useTemporalBucket: readChecked(ui.useTemporalBucketCheck),
+    useTemporalBucketCache: readChecked(ui.useTemporalBucketCacheCheck),
+    temporalBucketWidth: readValue(ui.temporalBucketWidthInput, '0.05'),
+    temporalBucketRadius: readValue(ui.temporalBucketRadiusInput, '1'),
+
+    usePlaybackOverride: readChecked(ui.usePlaybackOverrideCheck),
+    playbackStride: readValue(ui.playbackStrideInput, '1'),
+    playbackMaxVisible: readValue(ui.playbackMaxVisibleInput, '0'),
+    playbackRenderScale: readValue(ui.playbackRenderScaleInput, '1.0'),
+    useInteractionOverride: readChecked(ui.useInteractionOverrideCheck),
+    interactionStride: readValue(ui.interactionStrideInput, '1'),
+    interactionMaxVisible: readValue(ui.interactionMaxVisibleInput, '0'),
+    interactionRenderScale: readValue(ui.interactionRenderScaleInput, '1.0'),
+
+    usePackedVisiblePath: readChecked(ui.usePackedVisiblePathCheck, true),
+    drawPath: readValue(ui.drawPathSelect, 'packed'),
+
+    bgGray: readValue(ui.bgGraySlider, '32')
+  });
+}
+
+export function applyUiStateToControls(ui, state) {
+  const s = normalizeUiState(state);
+
+  writeChecked(ui.showTileDebugCheck, s.showTileDebug);
+  writeChecked(ui.drawSelectedTileOnlyCheck, s.drawSelectedTileOnly);
+  writeChecked(ui.useMaxTileCheck, s.useMaxTile);
+  writeValue(ui.selectedTileIdInput, s.selectedTileId);
+  writeValue(ui.tileRadiusInput, s.tileRadius);
+
+  writeChecked(ui.useTemporalIndexCheck, s.useTemporalIndex);
+  writeChecked(ui.useTemporalIndexCacheCheck, s.useTemporalIndexCache);
+  writeValue(ui.temporalWindowModeSelect, s.temporalWindowMode);
+  writeValue(ui.fixedWindowRadiusInput, s.fixedWindowRadius);
+
+  writeChecked(ui.useTemporalBucketCheck, s.useTemporalBucket);
+  writeChecked(ui.useTemporalBucketCacheCheck, s.useTemporalBucketCache);
+  writeValue(ui.temporalBucketWidthInput, s.temporalBucketWidth);
+  writeValue(ui.temporalBucketRadiusInput, s.temporalBucketRadius);
+
+  writeChecked(ui.usePlaybackOverrideCheck, s.usePlaybackOverride);
+  writeValue(ui.playbackStrideInput, s.playbackStride);
+  writeValue(ui.playbackMaxVisibleInput, s.playbackMaxVisible);
+  writeValue(ui.playbackRenderScaleInput, s.playbackRenderScale);
+  writeChecked(ui.useInteractionOverrideCheck, s.useInteractionOverride);
+  writeValue(ui.interactionStrideInput, s.interactionStride);
+  writeValue(ui.interactionMaxVisibleInput, s.interactionMaxVisible);
+  writeValue(ui.interactionRenderScaleInput, s.interactionRenderScale);
+
+  writeChecked(ui.usePackedVisiblePathCheck, s.usePackedVisiblePath);
+  writeValue(ui.drawPathSelect, s.drawPath);
+
+  writeValue(ui.bgGraySlider, s.bgGray);
+
+  if (ui.usePackedVisiblePathNote) {
+    ui.usePackedVisiblePathNote.textContent =
+      'formal full-frame packed screen-space reference path';
+  }
+
+  if (ui.drawPathSelectNote) {
+    ui.drawPathSelectNote.textContent =
+      'full-frame only; packed=formal, gpu-screen=experimental, legacy=fallback';
+  }
+
+  return s;
+}
+
+export function loadAndApplyUiState(ui) {
+  const state = loadUiState();
+  return applyUiStateToControls(ui, state);
+}
+
+export function readAndSaveUiState(ui) {
+  const state = readUiStateFromControls(ui);
+  return saveUiState(state);
+}
+
+export function bindUiStatePersistence(ui, options = {}) {
+  const onChange = typeof options.onChange === 'function' ? options.onChange : null;
+
+  const controls = [
+    ui.showTileDebugCheck,
+    ui.drawSelectedTileOnlyCheck,
+    ui.useMaxTileCheck,
+    ui.selectedTileIdInput,
+    ui.tileRadiusInput,
+
+    ui.useTemporalIndexCheck,
+    ui.useTemporalIndexCacheCheck,
+    ui.temporalWindowModeSelect,
+    ui.fixedWindowRadiusInput,
+
+    ui.useTemporalBucketCheck,
+    ui.useTemporalBucketCacheCheck,
+    ui.temporalBucketWidthInput,
+    ui.temporalBucketRadiusInput,
+
+    ui.usePlaybackOverrideCheck,
+    ui.playbackStrideInput,
+    ui.playbackMaxVisibleInput,
+    ui.playbackRenderScaleInput,
+    ui.useInteractionOverrideCheck,
+    ui.interactionStrideInput,
+    ui.interactionMaxVisibleInput,
+    ui.interactionRenderScaleInput,
+
+    ui.usePackedVisiblePathCheck,
+    ui.drawPathSelect,
+
+    ui.bgGraySlider
+  ].filter(Boolean);
+
+  const handler = () => {
+    const state = readAndSaveUiState(ui);
+    if (onChange) onChange(state);
+  };
+
+  for (const control of controls) {
+    control.addEventListener('change', handler);
+    control.addEventListener('input', handler);
+  }
+
+  return () => {
+    for (const control of controls) {
+      control.removeEventListener('change', handler);
+      control.removeEventListener('input', handler);
+    }
+  };
+}

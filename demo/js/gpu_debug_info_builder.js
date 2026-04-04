@@ -1,13 +1,11 @@
-// Step25:
-// debug 情報の重複を減らし、timing / metrics を見やすく整理する。
-// ここでは renderer 側ですでに表示している packed/draw/sample の重複行は出さない。
-// 主に以下だけを返す。
+// Step26:
+// debug 情報の重複を抑えつつ、gpu-screen 実験経路の状態を見えるようにする。
+// renderer 側ですでに表示している packed/sample 詳細はここでは出さない。
+// ここでは主に以下だけを返す。
 // - build config の補助情報
 // - timing 系
 // - tile mode / UI 状態
-//
-// 注意:
-// packed 詳細や sample 比較は renderer 側の packedLines / sampleLines に任せる。
+// - gpu-screen readiness / summary
 
 function isFiniteNumber(v) {
   return Number.isFinite(v);
@@ -52,42 +50,90 @@ function buildConfigLines(buildConfig) {
   return lines;
 }
 
-function buildTimingLines(buildStats, drawStats) {
+function buildTimingLines(buildStats, drawStats, gpuScreenSummary) {
   const lines = [];
+
   pushLine(lines, 'visibleBuildMs', fmtNum(buildStats?.visibleBuildMs, 3));
   pushLine(lines, 'candidateBuildMs', fmtNum(buildStats?.candidateBuildMs, 3));
   pushLine(lines, 'screenSpaceBuildMs', fmtNum(buildStats?.screenSpaceBuildMs, 3));
+  pushLine(lines, 'totalBuildMs', fmtNum(buildStats?.totalBuildMs, 3));
+
   pushLine(lines, 'drawFraction', fmtNum(drawStats?.drawFraction, 6));
+  pushLine(lines, 'gpuScreenLastBuildMs', fmtNum(gpuScreenSummary?.gpuScreenLastBuildMs, 3));
+
   return lines;
 }
 
 function buildModeLines(mode, focusTileIds, focusTileRects) {
   if (!mode) return [];
+
   const lines = [];
   pushLine(lines, 'tileRadius', fmtInt(mode.tileRadius));
   pushLine(lines, 'useMaxTile', fmtBool(!!mode.useMaxTile));
   pushLine(lines, 'selectedTileId', fmtInt(mode.selectedTileId));
   pushLine(lines, 'focusTileCount', Array.isArray(focusTileIds) ? String(focusTileIds.length) : '0');
+
   if (Array.isArray(focusTileIds) && focusTileIds.length > 0) {
     pushLine(lines, 'focusTileIds', focusTileIds.join(','));
   }
+
   if (Array.isArray(focusTileRects) && focusTileRects.length > 0) {
-    const rectText = focusTileRects.map((item) => {
-      const tileId = isFiniteNumber(item?.tileId) ? String(item.tileId | 0) : '-1';
-      const rect = fmtArray(item?.rect, 0) ?? 'none';
-      return `${tileId}:${rect}`;
-    }).join(' ');
+    const rectText = focusTileRects
+      .map((item) => {
+        const tileId = isFiniteNumber(item?.tileId) ? String(item.tileId | 0) : '-1';
+        const rect = fmtArray(item?.rect, 0) ?? 'none';
+        return `${tileId}:${rect}`;
+      })
+      .join(' ');
     pushLine(lines, 'focusTileRects', rectText);
   }
+
   return lines;
 }
 
 function buildUiLines(ui) {
   if (!ui) return [];
+
   const lines = [];
   pushLine(lines, 'bgGraySlider', ui.bgGraySlider ? String(ui.bgGraySlider.value) : null);
   pushLine(lines, 'drawPathUiValue', ui.drawPathSelect ? String(ui.drawPathSelect.value) : null);
-  pushLine(lines, 'usePackedVisiblePathUi', ui.usePackedVisiblePathCheck ? fmtBool(!!ui.usePackedVisiblePathCheck.checked) : null);
+  pushLine(
+    lines,
+    'usePackedVisiblePathUi',
+    ui.usePackedVisiblePathCheck ? fmtBool(!!ui.usePackedVisiblePathCheck.checked) : null
+  );
+  return lines;
+}
+
+function buildGpuScreenLines(gpuScreenSummary) {
+  if (!gpuScreenSummary) return [];
+
+  const lines = [];
+  pushLine(lines, 'gpuScreenDrawReady', fmtBool(!!gpuScreenSummary.gpuScreenDrawReady));
+  pushLine(lines, 'gpuScreenConfigured', fmtBool(!!gpuScreenSummary.gpuScreenConfigured));
+  pushLine(lines, 'gpuScreenHasProgram', fmtBool(!!gpuScreenSummary.gpuScreenHasProgram));
+  pushLine(lines, 'gpuScreenHasVao', fmtBool(!!gpuScreenSummary.gpuScreenHasVao));
+  pushLine(lines, 'gpuScreenHasBuffers', fmtBool(!!gpuScreenSummary.gpuScreenHasBuffers));
+  pushLine(lines, 'gpuScreenReason', gpuScreenSummary.gpuScreenReason ?? 'unknown');
+  pushLine(lines, 'gpuScreenLayoutVersion', fmtInt(gpuScreenSummary.gpuScreenLayoutVersion));
+  pushLine(lines, 'gpuScreenStrideBytes', fmtInt(gpuScreenSummary.gpuScreenStrideBytes));
+  pushLine(lines, 'gpuScreenAttributeCount', fmtInt(gpuScreenSummary.gpuScreenAttributeCount));
+  pushLine(lines, 'gpuScreenOffsets', gpuScreenSummary.gpuScreenOffsets ?? '');
+  pushLine(lines, 'gpuScreenLastPath', gpuScreenSummary.gpuScreenLastPath ?? 'gpu-screen');
+  pushLine(lines, 'gpuScreenLastDrawCount', fmtInt(gpuScreenSummary.gpuScreenLastDrawCount));
+
+  const uploadSummary = gpuScreenSummary.gpuScreenUploadSummary;
+  if (uploadSummary) {
+    pushLine(lines, 'gpuScreenUploadBytes', fmtInt(uploadSummary.packedUploadBytes));
+    pushLine(lines, 'gpuScreenUploadCount', fmtInt(uploadSummary.packedUploadCount));
+    pushLine(lines, 'gpuScreenUploadLength', fmtInt(uploadSummary.packedUploadLength));
+    pushLine(lines, 'gpuScreenUploadCapacityBytes', fmtInt(uploadSummary.packedUploadCapacityBytes));
+    pushLine(lines, 'gpuScreenUploadReusedCapacity', fmtBool(!!uploadSummary.packedUploadReusedCapacity));
+    pushLine(lines, 'gpuScreenUploadManagedCapacityReused', fmtBool(!!uploadSummary.packedUploadManagedCapacityReused));
+    pushLine(lines, 'gpuScreenUploadManagedCapacityGrown', fmtBool(!!uploadSummary.packedUploadManagedCapacityGrown));
+    pushLine(lines, 'gpuScreenUploadManagedUploadCount', fmtInt(uploadSummary.packedUploadManagedUploadCount));
+  }
+
   return lines;
 }
 
@@ -98,12 +144,16 @@ export function buildGpuDebugExtraLines({
   mode = null,
   focusTileIds = [],
   focusTileRects = [],
-  ui = null
+  ui = null,
+  gpuScreenSummary = null
 } = {}) {
   const lines = [];
+
   lines.push(...buildConfigLines(buildConfig));
-  lines.push(...buildTimingLines(buildStats, drawStats));
+  lines.push(...buildTimingLines(buildStats, drawStats, gpuScreenSummary));
   lines.push(...buildModeLines(mode, focusTileIds, focusTileRects));
   lines.push(...buildUiLines(ui));
+  lines.push(...buildGpuScreenLines(gpuScreenSummary));
+
   return lines;
 }

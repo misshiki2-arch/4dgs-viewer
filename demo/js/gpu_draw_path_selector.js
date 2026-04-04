@@ -1,7 +1,8 @@
-// Step25:
+// Step26:
 // draw path 選択の責務をこのファイルに集約する。
-// packed を正式 full-frame 経路、legacy を fallback、gpu-screen を future とする。
-// renderer 側はこの結果を受け取って実行するだけにする。
+// packed は正式 full-frame 経路、legacy は fallback、gpu-screen は実験経路。
+// Step26 では gpu-screen を「future 名義」から「実行可能な experimental path」へ引き上げる。
+// renderer 側は readiness を渡し、この selector は requested/actual/fallback を決める。
 
 export const GPU_DRAW_PATH_LEGACY = 'legacy';
 export const GPU_DRAW_PATH_PACKED = 'packed';
@@ -19,45 +20,86 @@ function normalizeRequestedPath(path) {
 }
 
 export function getRequestedDrawPath(ui) {
-  const uiValue = ui?.drawPathSelect?.value;
-  return normalizeRequestedPath(uiValue);
+  return normalizeRequestedPath(ui?.drawPathSelect?.value);
 }
 
-export function resolveDrawPath({ requestedPath, hasPackedScreenSpace = false, hasGpuScreenPath = false } = {}) {
+export function resolveDrawPath({
+  requestedPath,
+  hasPackedScreenSpace = false,
+  hasGpuScreenPath = false
+} = {}) {
   const normalizedRequestedPath = normalizeRequestedPath(requestedPath);
-
-  if (normalizedRequestedPath === GPU_DRAW_PATH_PACKED) {
-    if (hasPackedScreenSpace) {
-      return { requestedPath: GPU_DRAW_PATH_PACKED, actualPath: GPU_DRAW_PATH_PACKED, fallbackReason: 'none' };
-    }
-    return { requestedPath: GPU_DRAW_PATH_PACKED, actualPath: GPU_DRAW_PATH_LEGACY, fallbackReason: 'missing-packed-screen-space' };
-  }
 
   if (normalizedRequestedPath === GPU_DRAW_PATH_GPU_SCREEN) {
     if (hasGpuScreenPath) {
-      return { requestedPath: GPU_DRAW_PATH_GPU_SCREEN, actualPath: GPU_DRAW_PATH_GPU_SCREEN, fallbackReason: 'none' };
+      return {
+        requestedPath: GPU_DRAW_PATH_GPU_SCREEN,
+        actualPath: GPU_DRAW_PATH_GPU_SCREEN,
+        fallbackReason: 'none'
+      };
     }
+
     if (hasPackedScreenSpace) {
-      return { requestedPath: GPU_DRAW_PATH_GPU_SCREEN, actualPath: GPU_DRAW_PATH_PACKED, fallbackReason: 'gpu-screen-not-ready' };
+      return {
+        requestedPath: GPU_DRAW_PATH_GPU_SCREEN,
+        actualPath: GPU_DRAW_PATH_PACKED,
+        fallbackReason: 'gpu-screen-not-ready'
+      };
     }
-    return { requestedPath: GPU_DRAW_PATH_GPU_SCREEN, actualPath: GPU_DRAW_PATH_LEGACY, fallbackReason: 'gpu-screen-not-ready-and-missing-packed-screen-space' };
+
+    return {
+      requestedPath: GPU_DRAW_PATH_GPU_SCREEN,
+      actualPath: GPU_DRAW_PATH_LEGACY,
+      fallbackReason: 'gpu-screen-not-ready-and-missing-packed-screen-space'
+    };
   }
 
-  return { requestedPath: GPU_DRAW_PATH_LEGACY, actualPath: GPU_DRAW_PATH_LEGACY, fallbackReason: 'none' };
+  if (normalizedRequestedPath === GPU_DRAW_PATH_PACKED) {
+    if (hasPackedScreenSpace) {
+      return {
+        requestedPath: GPU_DRAW_PATH_PACKED,
+        actualPath: GPU_DRAW_PATH_PACKED,
+        fallbackReason: 'none'
+      };
+    }
+
+    return {
+      requestedPath: GPU_DRAW_PATH_PACKED,
+      actualPath: GPU_DRAW_PATH_LEGACY,
+      fallbackReason: 'missing-packed-screen-space'
+    };
+  }
+
+  return {
+    requestedPath: GPU_DRAW_PATH_LEGACY,
+    actualPath: GPU_DRAW_PATH_LEGACY,
+    fallbackReason: 'none'
+  };
 }
 
 export function summarizeDrawPathSelection(selection) {
   const requestedPath = normalizeRequestedPath(selection?.requestedPath);
   const actualPath = normalizeRequestedPath(selection?.actualPath);
-  const fallbackReason = typeof selection?.fallbackReason === 'string' && selection.fallbackReason.length > 0 ? selection.fallbackReason : 'none';
+  const fallbackReason =
+    typeof selection?.fallbackReason === 'string' && selection.fallbackReason.length > 0
+      ? selection.fallbackReason
+      : 'none';
+
+  const usedFallback = requestedPath !== actualPath || fallbackReason !== 'none';
+
   return {
     requestedPath,
     actualPath,
     fallbackReason,
-    usedFallback: requestedPath !== actualPath || fallbackReason !== 'none',
+    usedFallback,
+
     packedFormalPath: actualPath === GPU_DRAW_PATH_PACKED,
     legacyFallbackPath: actualPath === GPU_DRAW_PATH_LEGACY,
-    gpuScreenPath: actualPath === GPU_DRAW_PATH_GPU_SCREEN
+    gpuScreenExperimentalPath: actualPath === GPU_DRAW_PATH_GPU_SCREEN,
+
+    requestedPacked: requestedPath === GPU_DRAW_PATH_PACKED,
+    requestedLegacy: requestedPath === GPU_DRAW_PATH_LEGACY,
+    requestedGpuScreen: requestedPath === GPU_DRAW_PATH_GPU_SCREEN
   };
 }
 
