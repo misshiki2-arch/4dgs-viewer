@@ -322,7 +322,7 @@ export function ensurePackedPathControls(ui) {
     ),
     createNote(
       'drawPathSelectNote',
-      'full-frame only; gpu-screen compares against packed reference'
+      'full-frame only; gpu-screen comparison is shown separately from state'
     )
   ));
 

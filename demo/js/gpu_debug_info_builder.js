@@ -1,14 +1,15 @@
-// Step27:
-// debug 情報の重複を抑えつつ、gpu-screen 実験経路が
-// - packed formal reference を参照していること
-// - どこまで独立 state / summary を持てているか
-// を見えるようにする。
+// Step28:
+// debug 情報の重複を減らし、gpu-screen experimental path の比較表示を整理する。
 // renderer 側ですでに表示している packed/sample 詳細はここでは出さない。
 // ここでは主に以下だけを返す。
 // - build config の補助情報
 // - timing 系
 // - tile mode / UI 状態
-// - gpu-screen readiness / comparison summary
+// - gpu-screen state
+// - gpu-screen comparison
+//
+// Step27 で出していた gpu-screen の一部重複項目を削減し、
+// 「state」と「comparison」を分けて扱う。
 
 function isFiniteNumber(v) {
   return Number.isFinite(v);
@@ -108,7 +109,7 @@ function buildUiLines(ui) {
   return lines;
 }
 
-function buildGpuScreenLines(gpuScreenSummary) {
+function buildGpuScreenStateLines(gpuScreenSummary) {
   if (!gpuScreenSummary) return [];
 
   const lines = [];
@@ -119,21 +120,13 @@ function buildGpuScreenLines(gpuScreenSummary) {
   pushLine(lines, 'gpuScreenHasBuffers', fmtBool(!!gpuScreenSummary.gpuScreenHasBuffers));
 
   pushLine(lines, 'gpuScreenReason', gpuScreenSummary.gpuScreenReason ?? 'unknown');
+  pushLine(lines, 'gpuScreenLastPath', gpuScreenSummary.gpuScreenLastPath ?? 'gpu-screen');
+  pushLine(lines, 'gpuScreenLastDrawCount', fmtInt(gpuScreenSummary.gpuScreenLastDrawCount));
+
   pushLine(lines, 'gpuScreenLayoutVersion', fmtInt(gpuScreenSummary.gpuScreenLayoutVersion));
   pushLine(lines, 'gpuScreenStrideBytes', fmtInt(gpuScreenSummary.gpuScreenStrideBytes));
   pushLine(lines, 'gpuScreenAttributeCount', fmtInt(gpuScreenSummary.gpuScreenAttributeCount));
   pushLine(lines, 'gpuScreenOffsets', gpuScreenSummary.gpuScreenOffsets ?? '');
-  pushLine(lines, 'gpuScreenLastPath', gpuScreenSummary.gpuScreenLastPath ?? 'gpu-screen');
-  pushLine(lines, 'gpuScreenLastDrawCount', fmtInt(gpuScreenSummary.gpuScreenLastDrawCount));
-
-  pushLine(lines, 'gpuScreenUsesPackedReferenceLayout', fmtBool(!!gpuScreenSummary.gpuScreenUsesPackedReferenceLayout));
-  pushLine(lines, 'gpuScreenUsesPackedReferenceShader', fmtBool(!!gpuScreenSummary.gpuScreenUsesPackedReferenceShader));
-  pushLine(lines, 'gpuScreenUsesPackedReferenceUpload', fmtBool(!!gpuScreenSummary.gpuScreenUsesPackedReferenceUpload));
-
-  pushLine(lines, 'gpuScreenReferencePath', gpuScreenSummary.gpuScreenReferencePath ?? 'packed-cpu');
-  pushLine(lines, 'gpuScreenReferenceLayoutVersion', fmtInt(gpuScreenSummary.gpuScreenReferenceLayoutVersion));
-  pushLine(lines, 'gpuScreenReferenceStrideBytes', fmtInt(gpuScreenSummary.gpuScreenReferenceStrideBytes));
-  pushLine(lines, 'gpuScreenReferenceAttributeCount', fmtInt(gpuScreenSummary.gpuScreenReferenceAttributeCount));
 
   pushLine(lines, 'gpuScreenUploadBytes', fmtInt(gpuScreenSummary.gpuScreenUploadBytes));
   pushLine(lines, 'gpuScreenUploadCount', fmtInt(gpuScreenSummary.gpuScreenUploadCount));
@@ -147,24 +140,31 @@ function buildGpuScreenLines(gpuScreenSummary) {
   return lines;
 }
 
-function buildGpuScreenComparisonLines(gpuScreenComparisonSummary) {
-  if (!gpuScreenComparisonSummary) return [];
+function buildGpuScreenComparisonLines(gpuScreenSummary, gpuScreenComparisonSummary) {
+  if (!gpuScreenSummary && !gpuScreenComparisonSummary) return [];
 
   const lines = [];
-  pushLine(lines, 'gpuScreenCurrentPath', gpuScreenComparisonSummary.currentPath ?? 'none');
-  pushLine(lines, 'gpuScreenCurrentExperimental', fmtBool(!!gpuScreenComparisonSummary.currentExperimental));
-  pushLine(lines, 'gpuScreenCurrentBuildMs', fmtNum(gpuScreenComparisonSummary.currentBuildMs, 3));
-  pushLine(lines, 'gpuScreenCurrentPackedCount', fmtInt(gpuScreenComparisonSummary.currentPackedCount));
-  pushLine(lines, 'gpuScreenCurrentPackedLength', fmtInt(gpuScreenComparisonSummary.currentPackedLength));
+  const referencePath =
+    gpuScreenComparisonSummary?.referencePath ??
+    gpuScreenSummary?.gpuScreenReferencePath ??
+    'packed-cpu';
 
-  pushLine(lines, 'gpuScreenComparisonReferencePath', gpuScreenComparisonSummary.referencePath ?? 'packed-cpu');
-  pushLine(lines, 'gpuScreenComparisonReferenceRole', gpuScreenComparisonSummary.referenceRole ?? 'formal-reference');
-  pushLine(lines, 'gpuScreenComparisonCurrentRole', gpuScreenComparisonSummary.currentRole ?? 'experimental');
+  pushLine(lines, 'gpuScreenReferencePath', referencePath);
+  pushLine(lines, 'gpuScreenReferenceRole', gpuScreenComparisonSummary?.referenceRole ?? 'formal-reference');
+  pushLine(lines, 'gpuScreenCurrentPath', gpuScreenComparisonSummary?.currentPath ?? 'none');
+  pushLine(lines, 'gpuScreenCurrentRole', gpuScreenComparisonSummary?.currentRole ?? 'experimental');
+  pushLine(lines, 'gpuScreenCurrentExperimental', fmtBool(!!gpuScreenComparisonSummary?.currentExperimental));
 
-  pushLine(lines, 'gpuScreenUsesPackedReferenceLayout', fmtBool(!!gpuScreenComparisonSummary.usesPackedReferenceLayout));
-  pushLine(lines, 'gpuScreenUsesPackedReferencePack', fmtBool(!!gpuScreenComparisonSummary.usesPackedReferencePack));
-  pushLine(lines, 'gpuScreenSameLayoutAsReference', fmtBool(!!gpuScreenComparisonSummary.sameLayoutAsReference));
-  pushLine(lines, 'gpuScreenSamePackCountAsReference', fmtBool(!!gpuScreenComparisonSummary.samePackCountAsReference));
+  pushLine(lines, 'gpuScreenUsesPackedReferenceLayout', fmtBool(!!gpuScreenSummary?.gpuScreenUsesPackedReferenceLayout));
+  pushLine(lines, 'gpuScreenUsesPackedReferenceShader', fmtBool(!!gpuScreenSummary?.gpuScreenUsesPackedReferenceShader));
+  pushLine(lines, 'gpuScreenUsesPackedReferenceUpload', fmtBool(!!gpuScreenSummary?.gpuScreenUsesPackedReferenceUpload));
+
+  pushLine(lines, 'gpuScreenCurrentBuildMs', fmtNum(gpuScreenComparisonSummary?.currentBuildMs, 3));
+  pushLine(lines, 'gpuScreenCurrentPackedCount', fmtInt(gpuScreenComparisonSummary?.currentPackedCount));
+  pushLine(lines, 'gpuScreenCurrentPackedLength', fmtInt(gpuScreenComparisonSummary?.currentPackedLength));
+
+  pushLine(lines, 'gpuScreenSameLayoutAsReference', fmtBool(!!gpuScreenComparisonSummary?.sameLayoutAsReference));
+  pushLine(lines, 'gpuScreenSamePackCountAsReference', fmtBool(!!gpuScreenComparisonSummary?.samePackCountAsReference));
 
   return lines;
 }
@@ -186,8 +186,8 @@ export function buildGpuDebugExtraLines({
   lines.push(...buildTimingLines(buildStats, drawStats, gpuScreenSummary));
   lines.push(...buildModeLines(mode, focusTileIds, focusTileRects));
   lines.push(...buildUiLines(ui));
-  lines.push(...buildGpuScreenLines(gpuScreenSummary));
-  lines.push(...buildGpuScreenComparisonLines(gpuScreenComparisonSummary));
+  lines.push(...buildGpuScreenStateLines(gpuScreenSummary));
+  lines.push(...buildGpuScreenComparisonLines(gpuScreenSummary, gpuScreenComparisonSummary));
 
   return lines;
 }

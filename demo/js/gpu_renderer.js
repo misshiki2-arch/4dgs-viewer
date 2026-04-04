@@ -341,7 +341,7 @@ function executePerTileLegacyDraw({
   };
 }
 
-function buildPackedLines(buildStats, drawPathSelection, drawStats, gpuScreenSummary, gpuScreenComparisonSummary) {
+function buildPackedLines(buildStats, drawPathSelection, drawStats) {
   return [
     `packedVisiblePathEnabled=${!!buildStats?.packedVisiblePathEnabled}`,
     `packedVisiblePathUsed=${!!buildStats?.packedVisiblePathUsed}`,
@@ -364,26 +364,7 @@ function buildPackedLines(buildStats, drawPathSelection, drawStats, gpuScreenSum
     `packedDirectAttributeCount=${drawStats?.packedDirectAttributeCount ?? 0}`,
     `packedDirectOffsets=${drawStats?.packedDirectOffsets ?? ''}`,
     `packedInterleavedBound=${!!drawStats?.packedInterleavedBound}`,
-    `legacyExpandedArraysBuilt=${!!drawStats?.legacyExpandedArraysBuilt}`,
-    `gpuScreenDrawReady=${!!gpuScreenSummary?.gpuScreenDrawReady}`,
-    `gpuScreenConfigured=${!!gpuScreenSummary?.gpuScreenConfigured}`,
-    `gpuScreenReason=${gpuScreenSummary?.gpuScreenReason ?? 'unknown'}`,
-    `gpuScreenLastBuildMs=${gpuScreenSummary?.gpuScreenLastBuildMs ?? 0}`,
-    `gpuScreenLastDrawCount=${gpuScreenSummary?.gpuScreenLastDrawCount ?? 0}`,
-    `gpuScreenLayoutVersion=${gpuScreenSummary?.gpuScreenLayoutVersion ?? 0}`,
-    `gpuScreenStrideBytes=${gpuScreenSummary?.gpuScreenStrideBytes ?? 0}`,
-    `gpuScreenAttributeCount=${gpuScreenSummary?.gpuScreenAttributeCount ?? 0}`,
-    `gpuScreenOffsets=${gpuScreenSummary?.gpuScreenOffsets ?? ''}`,
-    `gpuScreenUsesPackedReferenceLayout=${!!gpuScreenSummary?.gpuScreenUsesPackedReferenceLayout}`,
-    `gpuScreenUsesPackedReferenceShader=${!!gpuScreenSummary?.gpuScreenUsesPackedReferenceShader}`,
-    `gpuScreenUsesPackedReferenceUpload=${!!gpuScreenSummary?.gpuScreenUsesPackedReferenceUpload}`,
-    `gpuScreenReferencePath=${gpuScreenSummary?.gpuScreenReferencePath ?? 'packed-cpu'}`,
-    `gpuScreenReferenceLayoutVersion=${gpuScreenSummary?.gpuScreenReferenceLayoutVersion ?? 0}`,
-    `gpuScreenReferenceStrideBytes=${gpuScreenSummary?.gpuScreenReferenceStrideBytes ?? 0}`,
-    `gpuScreenReferenceAttributeCount=${gpuScreenSummary?.gpuScreenReferenceAttributeCount ?? 0}`,
-    `gpuScreenSourcePath=${gpuScreenComparisonSummary?.gpuScreenSourcePath ?? 'none'}`,
-    `gpuScreenSourceExperimental=${!!gpuScreenComparisonSummary?.gpuScreenSourceExperimental}`,
-    `gpuScreenSourceBuildMs=${gpuScreenComparisonSummary?.gpuScreenSourceBuildMs ?? 0}`
+    `legacyExpandedArraysBuilt=${!!drawStats?.legacyExpandedArraysBuilt}`
   ];
 }
 
@@ -400,15 +381,14 @@ function buildSampleLines(legacySample, packedSample) {
   ];
 }
 
-function buildGpuScreenSampleLines(gpuScreenDrawInfo) {
+function buildGpuScreenExecutionLines(gpuScreenDrawInfo) {
   if (!gpuScreenDrawInfo) return [];
+  const exec = gpuScreenDrawInfo.gpuScreenExecutionSummary ?? {};
   return [
-    `gpuScreenDraw=${!!gpuScreenDrawInfo.gpuScreenDraw}`,
-    `gpuScreenReady=${!!gpuScreenDrawInfo.gpuScreenReady}`,
-    `gpuScreenReason=${gpuScreenDrawInfo.gpuScreenReason ?? 'unknown'}`,
-    `gpuScreenDrawCount=${gpuScreenDrawInfo.drawCount ?? 0}`,
-    `gpuScreenReferencePath=${gpuScreenDrawInfo.gpuScreenComparisonSummary?.gpuScreenReferencePath ?? 'packed-cpu'}`,
-    `gpuScreenSourcePath=${gpuScreenDrawInfo.gpuScreenComparisonSummary?.gpuScreenSourcePath ?? 'none'}`
+    `gpuScreenDraw=${!!exec.gpuScreenDraw}`,
+    `gpuScreenReady=${!!exec.gpuScreenReady}`,
+    `gpuScreenReason=${exec.gpuScreenReason ?? 'unknown'}`,
+    `gpuScreenDrawCount=${exec.gpuScreenDrawCount ?? 0}`
   ];
 }
 
@@ -444,16 +424,6 @@ function buildSafeBuildStats(rawBuildStats, visible, packedScreenSpace, elapsedM
     screenSpaceBuildMs: Number.isFinite(rawBuildStats?.screenSpaceBuildMs) ? rawBuildStats.screenSpaceBuildMs : 0,
     totalBuildMs: Number.isFinite(rawBuildStats?.totalBuildMs) ? rawBuildStats.totalBuildMs : elapsedMs
   };
-}
-
-function buildGpuScreenComparisonLines(buildStats, gpuScreenComparisonSummary) {
-  return [
-    `packedReferencePath=${buildStats?.packedVisiblePath ?? 'packed-cpu'}`,
-    `gpuScreenReferencePath=${gpuScreenComparisonSummary?.gpuScreenReferencePath ?? 'packed-cpu'}`,
-    `gpuScreenSourcePath=${gpuScreenComparisonSummary?.gpuScreenSourcePath ?? 'none'}`,
-    `gpuScreenSourceExperimental=${!!gpuScreenComparisonSummary?.gpuScreenSourceExperimental}`,
-    `gpuScreenSourceBuildMs=${gpuScreenComparisonSummary?.gpuScreenSourceBuildMs ?? 0}`
-  ];
 }
 
 export function createGpuRenderer(canvas) {
@@ -537,7 +507,7 @@ export async function renderGpuFrame({
     debugOverlayCanvas.height = canvas.height;
     debugCtx.clearRect(0, 0, debugOverlayCanvas.width, debugOverlayCanvas.height);
     debugOverlayCanvas.style.display = 'none';
-    const emptyInfo = 'GPU Step27 viewer\nNo scene loaded.';
+    const emptyInfo = 'GPU Step28 viewer\nNo scene loaded.';
     setInfoText(infoEl, emptyInfo);
     return {
       infoText: emptyInfo,
@@ -748,19 +718,13 @@ export async function renderGpuFrame({
     focusTileIds,
     focusTileRects,
     ui,
-    gpuScreenSummary
-  });
-
-  const packedLines = buildPackedLines(
-    buildStats,
-    drawPathSelection,
-    drawStats,
     gpuScreenSummary,
     gpuScreenComparisonSummary
-  );
+  });
+
+  const packedLines = buildPackedLines(buildStats, drawPathSelection, drawStats);
   const sampleLines = buildSampleLines(legacySample, packedSample);
-  const gpuScreenLines = buildGpuScreenSampleLines(gpuScreenDrawInfo);
-  const gpuScreenComparisonLines = buildGpuScreenComparisonLines(buildStats, gpuScreenComparisonSummary);
+  const gpuScreenExecutionLines = buildGpuScreenExecutionLines(gpuScreenDrawInfo);
 
   const infoText = formatGpuViewerInfo({
     raw,
@@ -779,12 +743,12 @@ export async function renderGpuFrame({
     timestamp: buildConfig.timestamp,
     splatScale: buildConfig.scalingModifier,
     elapsedMs: elapsed,
-    stepLabel: 'GPU Step27',
+    stepLabel: 'GPU Step28',
     stepNotes: [
-      'gpu-screen now carries an independent experimental executor summary',
+      'gpu-screen comparison output is now separated from gpu-screen state output',
       'Packed remains the formal reference path for comparison',
-      'Renderer exposes packed-vs-gpu-screen comparison fields in debug output',
-      'gpu-screen still reuses packed formal resources, but that dependency is now explicit'
+      'Renderer keeps only execution-specific gpu-screen lines locally',
+      'Redundant gpu-screen debug lines are reduced for readability'
     ],
     tileSummary,
     avgRefsPerVisible,
@@ -795,8 +759,7 @@ export async function renderGpuFrame({
       ...extraLines,
       ...packedLines,
       ...sampleLines,
-      ...gpuScreenLines,
-      ...gpuScreenComparisonLines
+      ...gpuScreenExecutionLines
     ]
   });
 

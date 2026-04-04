@@ -123,6 +123,27 @@ function scheduleRenderAndPersist() {
   scheduler.scheduleRender();
 }
 
+function updateDrawPathNoteFromState(stateLike) {
+  const summary = summarizeUiState(stateLike);
+
+  if (!ui.drawPathSelectNote) return;
+
+  if (summary.drawPath === 'gpu-screen') {
+    ui.drawPathSelectNote.textContent =
+      'full-frame only; gpu-screen comparison is shown separately from state';
+    return;
+  }
+
+  if (summary.drawPath === 'packed') {
+    ui.drawPathSelectNote.textContent =
+      'full-frame only; packed is the formal reference path';
+    return;
+  }
+
+  ui.drawPathSelectNote.textContent =
+    'full-frame only; legacy is the fallback path';
+}
+
 function bindSliderTextUpdates() {
   [
     ['timeSlider', 'timeVal', 2],
@@ -214,7 +235,8 @@ function bindPersistentUiState() {
   }
 
   uiUnbindPersistence = bindUiStatePersistence(ui, {
-    onChange: () => {
+    onChange: (state) => {
+      updateDrawPathNoteFromState(state);
       scheduler.scheduleRender();
     }
   });
@@ -246,6 +268,14 @@ function bindUiEvents() {
     });
   }
 
+  if (ui.drawPathSelect) {
+    ui.drawPathSelect.addEventListener('change', () => {
+      const state = readAndSaveUiState(ui);
+      updateDrawPathNoteFromState(state);
+      scheduler.scheduleRender();
+    });
+  }
+
   ui.playBtn.addEventListener('click', () => {
     playback.togglePlaying();
   });
@@ -274,21 +304,8 @@ function bindUiEvents() {
 function initializeUiState() {
   const appliedState = loadAndApplyUiState(ui);
   updateStaticUiText();
+  updateDrawPathNoteFromState(appliedState);
   bindPersistentUiState();
-
-  const stateSummary = summarizeUiState(appliedState);
-  if (ui.drawPathSelectNote) {
-    if (stateSummary.drawPath === 'gpu-screen') {
-      ui.drawPathSelectNote.textContent =
-        'full-frame only; gpu-screen compares against packed formal reference';
-    } else if (stateSummary.drawPath === 'packed') {
-      ui.drawPathSelectNote.textContent =
-        'full-frame only; packed is the formal reference path';
-    } else {
-      ui.drawPathSelectNote.textContent =
-        'full-frame only; legacy is the fallback path';
-    }
-  }
 }
 
 function initializeDebugLogArea() {

@@ -1,10 +1,14 @@
-// Step27:
+// Step28:
 // UI state の保存・復元・正規化をここに集約する。
-// Step26 では packed=formal-reference, gpu-screen=experimental, legacy=fallback とした。
-// Step27 では gpu-screen を「packed formal reference と比較する experimental path」
-// として扱うことを state / summary 文言にも反映する。
+// Step27 では gpu-screen を packed formal reference と比較する
+// experimental path として扱った。
+// Step28 では debug 側の整理に合わせて、state summary でも
+// - current role
+// - reference path
+// - comparison visibility
+// を分かりやすくする。
 
-const UI_STATE_STORAGE_KEY = 'gpuViewerUiStateStep27';
+const UI_STATE_STORAGE_KEY = 'gpuViewerUiStateStep28';
 
 function toBool(value, fallback = false) {
   if (typeof value === 'boolean') return value;
@@ -49,6 +53,17 @@ function writeChecked(el, value) {
 
 function writeValue(el, value) {
   if (el) el.value = String(value);
+}
+
+function getDrawPathRole(drawPath) {
+  if (drawPath === 'packed') return 'formal-reference';
+  if (drawPath === 'gpu-screen') return 'experimental-compare';
+  return 'fallback';
+}
+
+function getDrawPathReference(drawPath) {
+  if (drawPath === 'gpu-screen') return 'packed';
+  return drawPath;
 }
 
 export function createDefaultUiState() {
@@ -129,19 +144,15 @@ export function normalizeUiState(input = {}) {
 
 export function summarizeUiState(state) {
   const s = normalizeUiState(state);
+  const drawPathRole = getDrawPathRole(s.drawPath);
+  const drawPathReference = getDrawPathReference(s.drawPath);
+
   return {
     usePackedVisiblePath: s.usePackedVisiblePath,
     drawPath: s.drawPath,
-    drawPathRole:
-      s.drawPath === 'packed'
-        ? 'formal-reference'
-        : s.drawPath === 'gpu-screen'
-          ? 'experimental-compare'
-          : 'fallback',
-    drawPathReference:
-      s.drawPath === 'gpu-screen'
-        ? 'packed'
-        : s.drawPath,
+    drawPathRole,
+    drawPathReference,
+    drawPathShowsComparison: s.drawPath === 'gpu-screen',
     drawSelectedOnly: s.drawSelectedTileOnly,
     bgGray: s.bgGray
   };
@@ -243,7 +254,7 @@ export function applyUiStateToControls(ui, state) {
 
   if (ui.drawPathSelectNote) {
     ui.drawPathSelectNote.textContent =
-      'full-frame only; gpu-screen compares against packed formal reference';
+      'full-frame only; gpu-screen comparison is shown separately from state';
   }
 
   return s;

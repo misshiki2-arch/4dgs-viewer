@@ -1,9 +1,9 @@
-// Step27:
+// Step28:
 // draw path 選択の責務をこのファイルに集約する。
-// packed は formal reference path、legacy は fallback、gpu-screen は experimental path。
-// Step26 では gpu-screen を実行可能経路にした。
-// Step27 ではさらに、packed 参照の experimental path であることを
-// summary 上でも見えるようにする。
+// packed は formal reference path、legacy は fallback、gpu-screen は experimental compare path。
+// Step27 では path role と actualReferencePath を持たせた。
+// Step28 ではさらに、state / comparison debug が重複しにくいように
+// summary の意味を整理する。
 
 export const GPU_DRAW_PATH_LEGACY = 'legacy';
 export const GPU_DRAW_PATH_PACKED = 'packed';
@@ -18,6 +18,22 @@ const ALLOWED_DRAW_PATHS = new Set([
 function normalizeRequestedPath(path) {
   if (typeof path !== 'string') return GPU_DRAW_PATH_PACKED;
   return ALLOWED_DRAW_PATHS.has(path) ? path : GPU_DRAW_PATH_PACKED;
+}
+
+function getPathRole(path) {
+  if (path === GPU_DRAW_PATH_PACKED) return 'formal-reference';
+  if (path === GPU_DRAW_PATH_GPU_SCREEN) return 'experimental-compare';
+  return 'fallback';
+}
+
+function getReferencePathForActual(actualPath) {
+  if (actualPath === GPU_DRAW_PATH_GPU_SCREEN) return GPU_DRAW_PATH_PACKED;
+  return actualPath;
+}
+
+function getReferenceRoleForActual(actualPath) {
+  if (actualPath === GPU_DRAW_PATH_GPU_SCREEN) return 'formal-reference';
+  return getPathRole(actualPath);
 }
 
 export function getRequestedDrawPath(ui) {
@@ -78,12 +94,6 @@ export function resolveDrawPath({
   };
 }
 
-function getPathRole(path) {
-  if (path === GPU_DRAW_PATH_PACKED) return 'formal-reference';
-  if (path === GPU_DRAW_PATH_GPU_SCREEN) return 'experimental';
-  return 'fallback';
-}
-
 export function summarizeDrawPathSelection(selection) {
   const requestedPath = normalizeRequestedPath(selection?.requestedPath);
   const actualPath = normalizeRequestedPath(selection?.actualPath);
@@ -93,6 +103,8 @@ export function summarizeDrawPathSelection(selection) {
       : 'none';
 
   const usedFallback = requestedPath !== actualPath || fallbackReason !== 'none';
+  const actualReferencePath = getReferencePathForActual(actualPath);
+  const actualReferenceRole = getReferenceRoleForActual(actualPath);
 
   return {
     requestedPath,
@@ -111,16 +123,19 @@ export function summarizeDrawPathSelection(selection) {
     requestedLegacy: requestedPath === GPU_DRAW_PATH_LEGACY,
     requestedGpuScreen: requestedPath === GPU_DRAW_PATH_GPU_SCREEN,
 
-    // Step27:
-    // gpu-screen は packed formal reference を参照する experimental path とみなす。
-    actualReferencePath:
-      actualPath === GPU_DRAW_PATH_GPU_SCREEN
-        ? GPU_DRAW_PATH_PACKED
-        : actualPath,
-    actualReferenceRole:
-      actualPath === GPU_DRAW_PATH_GPU_SCREEN
-        ? 'formal-reference'
-        : getPathRole(actualPath)
+    actualReferencePath,
+    actualReferenceRole,
+
+    comparisonSummary: {
+      requestedPath,
+      requestedRole: getPathRole(requestedPath),
+      actualPath,
+      actualRole: getPathRole(actualPath),
+      actualReferencePath,
+      actualReferenceRole,
+      usedFallback,
+      fallbackReason
+    }
   };
 }
 
@@ -133,6 +148,7 @@ export function formatDrawPathSelection(selection) {
     `usedFallback=${summary.usedFallback}`,
     `requestedRole=${summary.requestedRole}`,
     `actualRole=${summary.actualRole}`,
-    `actualReferencePath=${summary.actualReferencePath}`
+    `actualReferencePath=${summary.actualReferencePath}`,
+    `actualReferenceRole=${summary.actualReferenceRole}`
   ].join('  ');
 }
