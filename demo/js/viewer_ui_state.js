@@ -1,10 +1,10 @@
-// Step26:
+// Step27:
 // UI state の保存・復元・正規化をここに集約する。
-// Step25 までは packed を formal、legacy を fallback、gpu-screen を future としていた。
-// Step26 では gpu-screen を experimental path として扱う。
-// ただし default は引き続き packed とし、packed を比較基準の formal reference にする。
+// Step26 では packed=formal-reference, gpu-screen=experimental, legacy=fallback とした。
+// Step27 では gpu-screen を「packed formal reference と比較する experimental path」
+// として扱うことを state / summary 文言にも反映する。
 
-const UI_STATE_STORAGE_KEY = 'gpuViewerUiStateStep26';
+const UI_STATE_STORAGE_KEY = 'gpuViewerUiStateStep27';
 
 function toBool(value, fallback = false) {
   if (typeof value === 'boolean') return value;
@@ -135,9 +135,13 @@ export function summarizeUiState(state) {
     drawPathRole:
       s.drawPath === 'packed'
         ? 'formal-reference'
-        : s.drawPath === 'legacy'
-          ? 'fallback'
-          : 'experimental',
+        : s.drawPath === 'gpu-screen'
+          ? 'experimental-compare'
+          : 'fallback',
+    drawPathReference:
+      s.drawPath === 'gpu-screen'
+        ? 'packed'
+        : s.drawPath,
     drawSelectedOnly: s.drawSelectedTileOnly,
     bgGray: s.bgGray
   };
@@ -234,12 +238,12 @@ export function applyUiStateToControls(ui, state) {
 
   if (ui.usePackedVisiblePathNote) {
     ui.usePackedVisiblePathNote.textContent =
-      'formal full-frame packed screen-space reference path';
+      'formal full-frame packed reference path';
   }
 
   if (ui.drawPathSelectNote) {
     ui.drawPathSelectNote.textContent =
-      'full-frame only; packed=formal, gpu-screen=experimental, legacy=fallback';
+      'full-frame only; gpu-screen compares against packed formal reference';
   }
 
   return s;

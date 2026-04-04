@@ -21,7 +21,8 @@ import {
 import {
   loadAndApplyUiState,
   readAndSaveUiState,
-  bindUiStatePersistence
+  bindUiStatePersistence,
+  summarizeUiState
 } from './viewer_ui_state.js';
 import { createRenderScheduler } from './viewer_render_scheduler.js';
 import { createViewerPlayback } from './viewer_playback.js';
@@ -271,9 +272,23 @@ function bindUiEvents() {
 }
 
 function initializeUiState() {
-  loadAndApplyUiState(ui);
+  const appliedState = loadAndApplyUiState(ui);
   updateStaticUiText();
   bindPersistentUiState();
+
+  const stateSummary = summarizeUiState(appliedState);
+  if (ui.drawPathSelectNote) {
+    if (stateSummary.drawPath === 'gpu-screen') {
+      ui.drawPathSelectNote.textContent =
+        'full-frame only; gpu-screen compares against packed formal reference';
+    } else if (stateSummary.drawPath === 'packed') {
+      ui.drawPathSelectNote.textContent =
+        'full-frame only; packed is the formal reference path';
+    } else {
+      ui.drawPathSelectNote.textContent =
+        'full-frame only; legacy is the fallback path';
+    }
+  }
 }
 
 function initializeDebugLogArea() {

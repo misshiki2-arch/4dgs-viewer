@@ -1,8 +1,9 @@
-// Step26:
+// Step27:
 // draw path 選択の責務をこのファイルに集約する。
-// packed は正式 full-frame 経路、legacy は fallback、gpu-screen は実験経路。
-// Step26 では gpu-screen を「future 名義」から「実行可能な experimental path」へ引き上げる。
-// renderer 側は readiness を渡し、この selector は requested/actual/fallback を決める。
+// packed は formal reference path、legacy は fallback、gpu-screen は experimental path。
+// Step26 では gpu-screen を実行可能経路にした。
+// Step27 ではさらに、packed 参照の experimental path であることを
+// summary 上でも見えるようにする。
 
 export const GPU_DRAW_PATH_LEGACY = 'legacy';
 export const GPU_DRAW_PATH_PACKED = 'packed';
@@ -77,6 +78,12 @@ export function resolveDrawPath({
   };
 }
 
+function getPathRole(path) {
+  if (path === GPU_DRAW_PATH_PACKED) return 'formal-reference';
+  if (path === GPU_DRAW_PATH_GPU_SCREEN) return 'experimental';
+  return 'fallback';
+}
+
 export function summarizeDrawPathSelection(selection) {
   const requestedPath = normalizeRequestedPath(selection?.requestedPath);
   const actualPath = normalizeRequestedPath(selection?.actualPath);
@@ -93,13 +100,27 @@ export function summarizeDrawPathSelection(selection) {
     fallbackReason,
     usedFallback,
 
+    requestedRole: getPathRole(requestedPath),
+    actualRole: getPathRole(actualPath),
+
     packedFormalPath: actualPath === GPU_DRAW_PATH_PACKED,
     legacyFallbackPath: actualPath === GPU_DRAW_PATH_LEGACY,
     gpuScreenExperimentalPath: actualPath === GPU_DRAW_PATH_GPU_SCREEN,
 
     requestedPacked: requestedPath === GPU_DRAW_PATH_PACKED,
     requestedLegacy: requestedPath === GPU_DRAW_PATH_LEGACY,
-    requestedGpuScreen: requestedPath === GPU_DRAW_PATH_GPU_SCREEN
+    requestedGpuScreen: requestedPath === GPU_DRAW_PATH_GPU_SCREEN,
+
+    // Step27:
+    // gpu-screen は packed formal reference を参照する experimental path とみなす。
+    actualReferencePath:
+      actualPath === GPU_DRAW_PATH_GPU_SCREEN
+        ? GPU_DRAW_PATH_PACKED
+        : actualPath,
+    actualReferenceRole:
+      actualPath === GPU_DRAW_PATH_GPU_SCREEN
+        ? 'formal-reference'
+        : getPathRole(actualPath)
   };
 }
 
@@ -109,6 +130,9 @@ export function formatDrawPathSelection(selection) {
     `requestedDrawPath=${summary.requestedPath}`,
     `actualDrawPath=${summary.actualPath}`,
     `drawPathFallbackReason=${summary.fallbackReason}`,
-    `usedFallback=${summary.usedFallback}`
+    `usedFallback=${summary.usedFallback}`,
+    `requestedRole=${summary.requestedRole}`,
+    `actualRole=${summary.actualRole}`,
+    `actualReferencePath=${summary.actualReferencePath}`
   ].join('  ');
 }

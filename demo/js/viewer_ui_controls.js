@@ -303,7 +303,7 @@ export function ensurePackedPathControls(ui) {
     createLabel('use packed visible path'),
     createNote(
       'usePackedVisiblePathNote',
-      'formal full-frame packed screen-space reference path'
+      'formal full-frame packed reference path'
     )
   ));
 
@@ -314,15 +314,15 @@ export function ensurePackedPathControls(ui) {
       'drawPathSelect',
       [
         { value: 'packed', label: 'packed (formal reference)' },
-        { value: 'legacy', label: 'legacy (fallback)' },
-        { value: 'gpu-screen', label: 'gpu-screen (experimental)' }
+        { value: 'gpu-screen', label: 'gpu-screen (experimental compare)' },
+        { value: 'legacy', label: 'legacy (fallback)' }
       ],
       'packed',
-      '220px'
+      '230px'
     ),
     createNote(
       'drawPathSelectNote',
-      'full-frame only; per-tile remains legacy-only'
+      'full-frame only; gpu-screen compares against packed reference'
     )
   ));
 

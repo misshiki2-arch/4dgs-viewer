@@ -7,11 +7,14 @@ import {
   createPackedVisibleResult
 } from './gpu_visible_pack_utils.js';
 
-// Step26:
+// Step27:
 // screen-space 結果を packed layout の正式契約へ正規化して渡す場所。
-// Step25 では packed-cpu 経路の summary / timing / path 情報を整えた。
-// Step26 では gpu-screen 実験経路でも比較しやすいように、
-// packed-cpu と gpu-screen-experimental の両方を同じ summary 形式で扱えるようにする。
+// Step26 では packed-cpu と gpu-screen-experimental を同じ summary 形式で扱えるようにした。
+// Step27 ではさらに、
+// - packed formal reference 側 summary
+// - gpu-screen experimental 側 summary
+// の比較に使いやすい形へ整える。
+// まだ packed 内容自体は共通でもよいが、summary 上は「何を参照し、何を名乗るか」を明示する。
 
 function nowMs() {
   return performance.now();
@@ -134,13 +137,35 @@ export function normalizeScreenSpaceVisible(visible) {
 export function createScreenSpaceBuildContext() {
   return {
     layout: getVisiblePackLayout(),
+
     lastPath: 'packed-cpu',
     lastInputVisibleCount: 0,
     lastNormalizedVisibleCount: 0,
     lastPackCount: 0,
     lastPackedLength: 0,
     lastSummary: null,
-    lastBuildMs: 0
+    lastBuildMs: 0,
+
+    // Step27:
+    // packed formal reference と experimental path を比較しやすくするため、
+    // comparison summary を保持できるようにする。
+    lastComparisonSummary: null
+  };
+}
+
+function buildReferenceInfo(path, experimental) {
+  if (path === 'gpu-screen-experimental') {
+    return {
+      referencePath: 'packed-cpu',
+      referenceRole: 'formal-reference',
+      currentRole: 'experimental'
+    };
+  }
+
+  return {
+    referencePath: path,
+    referenceRole: 'formal-reference',
+    currentRole: experimental ? 'experimental' : 'formal-reference'
   };
 }
 
@@ -154,6 +179,8 @@ function buildPackedScreenSpaceSummary({
   buildMs,
   experimental
 }) {
+  const referenceInfo = buildReferenceInfo(path, experimental);
+
   return {
     inputVisibleCount: Array.isArray(inputVisible) ? inputVisible.length : 0,
     normalizedVisibleCount: Array.isArray(normalizedVisible) ? normalizedVisible.length : 0,
@@ -168,7 +195,10 @@ function buildPackedScreenSpaceSummary({
     miscSource: 'misc',
     path,
     buildMs: Number.isFinite(buildMs) ? buildMs : 0,
-    experimental: !!experimental
+    experimental: !!experimental,
+    referencePath: referenceInfo.referencePath,
+    referenceRole: referenceInfo.referenceRole,
+    currentRole: referenceInfo.currentRole
   };
 }
 
@@ -180,6 +210,8 @@ function buildPackedScreenSpaceResult(normalizedVisible, packedResult, extra = {
     : GPU_VISIBLE_PACK_FLOATS_PER_ITEM;
 
   const path = extra.path ?? 'packed-cpu';
+  const experimental = !!extra.experimental;
+
   const summary = buildPackedScreenSpaceSummary({
     path,
     inputVisible: extra.inputVisible,
@@ -188,7 +220,7 @@ function buildPackedScreenSpaceResult(normalizedVisible, packedResult, extra = {
     packedCount,
     floatsPerItem,
     buildMs: extra.buildMs,
-    experimental: !!extra.experimental
+    experimental
   });
 
   return {
@@ -199,8 +231,27 @@ function buildPackedScreenSpaceResult(normalizedVisible, packedResult, extra = {
     floatsPerItem,
     layout: getVisiblePackLayout(),
     summary,
-    experimental: !!extra.experimental,
+    experimental,
     ...extra
+  };
+}
+
+function buildComparisonSummary(result) {
+  return {
+    currentPath: result?.path ?? 'none',
+    currentExperimental: !!result?.experimental,
+    currentBuildMs: Number.isFinite(result?.summary?.buildMs) ? result.summary.buildMs : 0,
+    currentPackedCount: Number.isFinite(result?.packedCount) ? result.packedCount : 0,
+    currentPackedLength: result?.packed instanceof Float32Array ? result.packed.length : 0,
+
+    referencePath: result?.summary?.referencePath ?? 'packed-cpu',
+    referenceRole: result?.summary?.referenceRole ?? 'formal-reference',
+    currentRole: result?.summary?.currentRole ?? 'formal-reference',
+
+    usesPackedReferenceLayout: true,
+    usesPackedReferencePack: true,
+    sameLayoutAsReference: true,
+    samePackCountAsReference: true
   };
 }
 
@@ -215,6 +266,7 @@ function updateContext(context, result, inputVisible) {
   context.lastPackedLength = result.packed instanceof Float32Array ? result.packed.length : 0;
   context.lastSummary = result.summary;
   context.lastBuildMs = Number.isFinite(result.summary?.buildMs) ? result.summary.buildMs : 0;
+  context.lastComparisonSummary = buildComparisonSummary(result);
 }
 
 export function buildPackedScreenSpaceFromVisible(visible, extra = {}) {
@@ -254,9 +306,11 @@ export function buildPackedScreenSpaceWithContext(context, visible, extra = {}) 
   };
 }
 
-// Step26:
+// Step27:
 // gpu-screen 実験経路用の screen-space result を同じ契約で作る。
-// 現段階では packed-cpu と同じ packed 内容を返すが、path と experimental を分ける。
+// packed 内容自体はまだ共通だが、summary 上は
+// 「packed formal reference を参照している experimental path」
+// であることを明示する。
 export function buildGpuScreenExperimentalSpaceWithContext(context, visible, extra = {}) {
   return buildPackedScreenSpaceWithContext(context, visible, {
     ...extra,
@@ -279,7 +333,10 @@ export function summarizePackedScreenSpace(result) {
       conicSource: 'conic',
       miscSource: 'misc',
       buildMs: 0,
-      experimental: false
+      experimental: false,
+      referencePath: 'none',
+      referenceRole: 'none',
+      currentRole: 'none'
     };
   }
 
@@ -297,6 +354,33 @@ export function summarizePackedScreenSpace(result) {
     conicSource: result.summary?.conicSource ?? 'conic',
     miscSource: result.summary?.miscSource ?? 'misc',
     buildMs: Number.isFinite(result.summary?.buildMs) ? result.summary.buildMs : 0,
-    experimental: !!result.summary?.experimental
+    experimental: !!result.summary?.experimental,
+    referencePath: result.summary?.referencePath ?? 'packed-cpu',
+    referenceRole: result.summary?.referenceRole ?? 'formal-reference',
+    currentRole: result.summary?.currentRole ?? 'formal-reference'
+  };
+}
+
+export function summarizeScreenSpaceBuildContext(context) {
+  if (!context) {
+    return {
+      lastPath: 'none',
+      lastInputVisibleCount: 0,
+      lastNormalizedVisibleCount: 0,
+      lastPackCount: 0,
+      lastPackedLength: 0,
+      lastBuildMs: 0,
+      lastComparisonSummary: null
+    };
+  }
+
+  return {
+    lastPath: context.lastPath ?? 'none',
+    lastInputVisibleCount: Number.isFinite(context.lastInputVisibleCount) ? context.lastInputVisibleCount : 0,
+    lastNormalizedVisibleCount: Number.isFinite(context.lastNormalizedVisibleCount) ? context.lastNormalizedVisibleCount : 0,
+    lastPackCount: Number.isFinite(context.lastPackCount) ? context.lastPackCount : 0,
+    lastPackedLength: Number.isFinite(context.lastPackedLength) ? context.lastPackedLength : 0,
+    lastBuildMs: Number.isFinite(context.lastBuildMs) ? context.lastBuildMs : 0,
+    lastComparisonSummary: context.lastComparisonSummary ?? null
   };
 }

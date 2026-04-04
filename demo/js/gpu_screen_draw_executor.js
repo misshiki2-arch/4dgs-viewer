@@ -6,33 +6,56 @@ import {
   summarizePackedUploadState
 } from './gpu_packed_upload_utils.js';
 
-// Step26:
-// gpu-screen path を「future の名前」から「比較可能な実験 draw path」へ引き上げる。
-// まだ本物の GPU screen-space 計算ではないが、少なくとも
-// requestedDrawPath=gpu-screen -> actualDrawPath=gpu-screen
-// で通せる executor を用意する。
+// Step27:
+// gpu-screen path を packed の単なる別名から一段分離する。
+// まだ本格的な専用 shader / 専用 layout には進まないが、少なくとも
+// - gpu-screen 独自 state
+// - gpu-screen 独自 summary
+// - packed 参照であることの明示
+// を持たせ、比較実験経路として育てられる形にする。
 //
 // 現段階の方針:
-// - 入力は packedScreenSpace をそのまま使う
-// - packed direct draw と同じ interleaved buffer / descriptor を使う
-// - ただし state / summary / debug 上は gpu-screen として独立扱いにする
-// - 将来ここに専用 shader / buffer / build path を差し込めるよう、API を固定する
+// 1. draw は引き続き interleaved packed buffer を流用する
+// 2. ただし state / summary / reason は gpu-screen 名義で独立させる
+// 3. 将来 shader/layout/program を差し替えられるよう API を固定する
 
 function createDefaultGpuScreenState() {
   return {
     isReady: true,
+    configured: false,
+
     hasProgram: false,
     hasVao: false,
     hasBuffers: false,
+
+    // 現段階では packed formal path を参照していることを明示する
+    usesPackedReferenceLayout: true,
+    usesPackedReferenceShader: true,
+    usesPackedReferenceUpload: true,
+
     layoutVersion: 0,
     strideBytes: 0,
     attributeCount: 0,
+    lastOffsets: '',
+
     lastPath: 'gpu-screen',
     lastBuildMs: 0,
     lastDrawCount: 0,
     lastReason: 'ready',
-    lastOffsets: '',
-    configured: false
+
+    lastReferencePath: 'packed-cpu',
+    lastReferenceLayoutVersion: 0,
+    lastReferenceStrideBytes: 0,
+    lastReferenceAttributeCount: 0,
+
+    lastUploadBytes: 0,
+    lastUploadCount: 0,
+    lastUploadLength: 0,
+    lastUploadCapacityBytes: 0,
+    lastUploadReusedCapacity: false,
+    lastUploadManagedCapacityReused: false,
+    lastUploadManagedCapacityGrown: false,
+    lastUploadManagedUploadCount: 0
   };
 }
 
@@ -60,6 +83,18 @@ function buildOffsetsText(attributes) {
   return attributes.map((attr) => `${attr.name}:${attr.offset}`).join(', ');
 }
 
+function buildGpuScreenLayoutSummary(desc) {
+  return {
+    gpuScreenLayoutVersion: desc?.layoutVersion ?? 0,
+    gpuScreenStrideBytes: desc?.strideBytes ?? 0,
+    gpuScreenAttributeCount: Array.isArray(desc?.attributes) ? desc.attributes.length : 0,
+    gpuScreenOffsets: buildOffsetsText(desc?.attributes),
+    gpuScreenUsesPackedReferenceLayout: true,
+    gpuScreenUsesPackedReferenceShader: true,
+    gpuScreenUsesPackedReferenceUpload: true
+  };
+}
+
 function configureGpuScreenVao(gl, gpu, vao, uploadState, state) {
   const desc = getPackedInterleavedAttribDescriptors();
 
@@ -73,15 +108,49 @@ function configureGpuScreenVao(gl, gpu, vao, uploadState, state) {
   state.hasProgram = !!gpu.program;
   state.hasVao = !!vao;
   state.hasBuffers = !!uploadState?.interleaved?.buffer;
+
   state.layoutVersion = desc.layoutVersion ?? 0;
   state.strideBytes = desc.strideBytes ?? 0;
   state.attributeCount = Array.isArray(desc.attributes) ? desc.attributes.length : 0;
   state.lastOffsets = buildOffsetsText(desc.attributes);
+
+  state.lastReferenceLayoutVersion = desc.layoutVersion ?? 0;
+  state.lastReferenceStrideBytes = desc.strideBytes ?? 0;
+  state.lastReferenceAttributeCount = Array.isArray(desc.attributes) ? desc.attributes.length : 0;
+  state.lastReferencePath = 'packed-cpu';
+
   state.configured = true;
   state.lastReason = 'ready';
 
   gpu.gpuScreenLayout = desc;
   return desc;
+}
+
+function updateGpuScreenUploadStateFromSummary(state, uploadSummary) {
+  if (!state || !uploadSummary) return;
+
+  state.lastUploadBytes = uploadSummary.packedUploadBytes ?? 0;
+  state.lastUploadCount = uploadSummary.packedUploadCount ?? 0;
+  state.lastUploadLength = uploadSummary.packedUploadLength ?? 0;
+  state.lastUploadCapacityBytes = uploadSummary.packedUploadCapacityBytes ?? 0;
+  state.lastUploadReusedCapacity = !!uploadSummary.packedUploadReusedCapacity;
+  state.lastUploadManagedCapacityReused = !!uploadSummary.packedUploadManagedCapacityReused;
+  state.lastUploadManagedCapacityGrown = !!uploadSummary.packedUploadManagedCapacityGrown;
+  state.lastUploadManagedUploadCount = uploadSummary.packedUploadManagedUploadCount ?? 0;
+}
+
+function buildGpuScreenComparisonSummary(state, gpuScreenSpace) {
+  return {
+    gpuScreenReferencePath: state.lastReferencePath ?? 'packed-cpu',
+    gpuScreenReferenceLayoutVersion: state.lastReferenceLayoutVersion ?? 0,
+    gpuScreenReferenceStrideBytes: state.lastReferenceStrideBytes ?? 0,
+    gpuScreenReferenceAttributeCount: state.lastReferenceAttributeCount ?? 0,
+    gpuScreenSourcePath: gpuScreenSpace?.path ?? 'none',
+    gpuScreenSourceExperimental: !!gpuScreenSpace?.experimental,
+    gpuScreenSourceBuildMs: Number.isFinite(gpuScreenSpace?.summary?.buildMs)
+      ? gpuScreenSpace.summary.buildMs
+      : 0
+  };
 }
 
 export function createGpuScreenDrawState() {
@@ -118,33 +187,56 @@ export function summarizeGpuScreenDrawState(gpu) {
     gpuScreenHasProgram: !!state.hasProgram,
     gpuScreenHasVao: !!state.hasVao,
     gpuScreenHasBuffers: !!state.hasBuffers,
+
+    gpuScreenUsesPackedReferenceLayout: !!state.usesPackedReferenceLayout,
+    gpuScreenUsesPackedReferenceShader: !!state.usesPackedReferenceShader,
+    gpuScreenUsesPackedReferenceUpload: !!state.usesPackedReferenceUpload,
+
     gpuScreenLayoutVersion: state.layoutVersion ?? 0,
     gpuScreenStrideBytes: state.strideBytes ?? 0,
     gpuScreenAttributeCount: state.attributeCount ?? 0,
     gpuScreenOffsets: state.lastOffsets ?? '',
+
     gpuScreenLastPath: state.lastPath ?? 'gpu-screen',
     gpuScreenLastBuildMs: state.lastBuildMs ?? 0,
     gpuScreenLastDrawCount: state.lastDrawCount ?? 0,
     gpuScreenReason: state.lastReason ?? 'unknown',
+
+    gpuScreenReferencePath: state.lastReferencePath ?? 'packed-cpu',
+    gpuScreenReferenceLayoutVersion: state.lastReferenceLayoutVersion ?? 0,
+    gpuScreenReferenceStrideBytes: state.lastReferenceStrideBytes ?? 0,
+    gpuScreenReferenceAttributeCount: state.lastReferenceAttributeCount ?? 0,
+
+    gpuScreenUploadBytes: state.lastUploadBytes ?? 0,
+    gpuScreenUploadCount: state.lastUploadCount ?? 0,
+    gpuScreenUploadLength: state.lastUploadLength ?? 0,
+    gpuScreenUploadCapacityBytes: state.lastUploadCapacityBytes ?? 0,
+    gpuScreenUploadReusedCapacity: !!state.lastUploadReusedCapacity,
+    gpuScreenUploadManagedCapacityReused: !!state.lastUploadManagedCapacityReused,
+    gpuScreenUploadManagedCapacityGrown: !!state.lastUploadManagedCapacityGrown,
+    gpuScreenUploadManagedUploadCount: state.lastUploadManagedUploadCount ?? 0,
+
     gpuScreenUploadSummary: uploadSummary
   };
 }
 
 export function uploadAndDrawGpuScreen(gl, gpu, gpuScreenSpace, canvasWidth, canvasHeight) {
+  const state = ensureGpuScreenState(gpu);
+
   if (!(gpuScreenSpace?.packed instanceof Float32Array)) {
-    const state = ensureGpuScreenState(gpu);
     state.lastPath = 'gpu-screen';
     state.lastBuildMs = 0;
     state.lastDrawCount = 0;
-    state.lastReason = 'missing-packed-screen-space';
+    state.lastReason = 'missing-gpu-screen-source';
 
     return {
       drawCount: 0,
       gpuScreenDraw: false,
       gpuScreenReady: false,
       gpuScreenFallbackSuggested: true,
-      gpuScreenReason: 'missing-packed-screen-space',
+      gpuScreenReason: 'missing-gpu-screen-source',
       gpuScreenSummary: summarizeGpuScreenDrawState(gpu),
+      gpuScreenComparisonSummary: buildGpuScreenComparisonSummary(state, gpuScreenSpace),
       packedScreenSpacePath: gpuScreenSpace?.path ?? 'none',
       packedScreenSpaceSummary: gpuScreenSpace?.summary ?? null
     };
@@ -154,11 +246,12 @@ export function uploadAndDrawGpuScreen(gl, gpu, gpuScreenSpace, canvasWidth, can
     ? Math.max(0, gpuScreenSpace.packedCount | 0)
     : 0;
 
-  const { state, uploadState, vao, layout } = ensureGpuScreenDrawResources(gl, gpu);
+  const { uploadState, vao, layout } = ensureGpuScreenDrawResources(gl, gpu);
 
-  // Step26:
-  // 現時点では packed interleaved をそのまま流用して gpu-screen 経路を成立させる。
-  // これにより selector / renderer / debug からは gpu-screen として扱える。
+  // Step27:
+  // draw 実体はまだ packed formal reference を流用する。
+  // ただし、gpu-screen 側の state / summary は独立名義で更新し、
+  // packed を参照していることを明示的に残す。
   uploadPackedInterleaved(gl, uploadState, gpuScreenSpace.packed, drawCount);
   configureGpuScreenVao(gl, gpu, vao, uploadState, state);
 
@@ -177,18 +270,21 @@ export function uploadAndDrawGpuScreen(gl, gpu, gpuScreenSpace, canvasWidth, can
   state.lastDrawCount = drawCount;
   state.lastReason = 'ready';
 
+  const uploadSummary = summarizePackedUploadState(uploadState);
+  updateGpuScreenUploadStateFromSummary(state, uploadSummary);
+
   return {
     drawCount,
     gpuScreenDraw: true,
     gpuScreenReady: true,
     gpuScreenFallbackSuggested: false,
     gpuScreenReason: 'ready',
-    gpuScreenLayoutVersion: layout?.layoutVersion ?? 0,
-    gpuScreenStrideBytes: layout?.strideBytes ?? 0,
-    gpuScreenAttributeCount: Array.isArray(layout?.attributes) ? layout.attributes.length : 0,
-    gpuScreenOffsets: buildOffsetsText(layout?.attributes),
-    gpuScreenUploadSummary: summarizePackedUploadState(uploadState),
+
+    ...buildGpuScreenLayoutSummary(layout),
+
     gpuScreenSummary: summarizeGpuScreenDrawState(gpu),
+    gpuScreenComparisonSummary: buildGpuScreenComparisonSummary(state, gpuScreenSpace),
+
     packedScreenSpacePath: gpuScreenSpace?.path ?? 'none',
     packedScreenSpaceSummary: gpuScreenSpace?.summary ?? null
   };
