@@ -93,7 +93,7 @@ export function syncPackedPathUiState(ui) {
   const packedEnabled = !!ui.usePackedVisiblePathCheck.checked;
 
   ui.usePackedVisiblePathNote.textContent = packedEnabled
-    ? 'enable packed visible generation and packed upload tracking'
+    ? 'enable packed visible generation and packed direct draw tracking'
     : 'packed visible path is off';
 
   if (ui.drawPathSelect) {

@@ -5,15 +5,15 @@ import {
 } from './gpu_buffer_layout_utils.js';
 import {
   createManagedArrayBuffer,
-  uploadManagedArrayBuffer
+  uploadManagedArrayBuffer,
+  summarizeManagedArrayBuffer
 } from './gpu_gl_utils.js';
 
-// Step22:
+// Step23:
 // packed visible path 用の upload 補助。
-// 目的は、packed Float32Array を毎回 4 本の draw array に再展開する以外の経路を
-// 段階的に導入できるようにすること。
-// 現段階では interleaved packed buffer を管理し、attribute ごとの offset/stride 情報を
-// renderer から参照できる形にする。
+// Step22 では interleaved buffer 管理と upload 統計の取得まで行った。
+// Step23 では packed direct draw executor からそのまま使えるように、
+// attribute descriptor 群を返す補助を追加する。
 
 export function createPackedUploadState(gl) {
   return {
@@ -52,6 +52,39 @@ export function getPackedInterleavedLayout() {
   };
 }
 
+export function getPackedInterleavedAttribDescriptors() {
+  const layout = getPackedInterleavedLayout();
+  return {
+    strideBytes: layout.strideBytes,
+    attributes: [
+      {
+        name: 'aCenterPx',
+        size: layout.centerPx.size,
+        stride: layout.strideBytes,
+        offset: layout.centerPx.offsetBytes
+      },
+      {
+        name: 'aRadiusPx',
+        size: layout.radiusPx.size,
+        stride: layout.strideBytes,
+        offset: layout.radiusPx.offsetBytes
+      },
+      {
+        name: 'aColorAlpha',
+        size: layout.color.size,
+        stride: layout.strideBytes,
+        offset: layout.color.offsetBytes
+      },
+      {
+        name: 'aConic',
+        size: layout.conic.size,
+        stride: layout.strideBytes,
+        offset: layout.conic.offsetBytes
+      }
+    ]
+  };
+}
+
 export function uploadPackedInterleaved(gl, state, packed, packedCount) {
   if (!(packed instanceof Float32Array)) {
     throw new Error('uploadPackedInterleaved expects packed to be a Float32Array');
@@ -72,12 +105,17 @@ export function uploadPackedInterleaved(gl, state, packed, packedCount) {
 }
 
 export function summarizePackedUploadState(state) {
+  const interleavedSummary = summarizeManagedArrayBuffer(state?.interleaved);
+
   return {
     packedUploadBytes: state?.lastUploadBytes ?? 0,
     packedUploadCount: state?.lastPackedCount ?? 0,
     packedUploadLength: state?.lastPackedLength ?? 0,
     packedUploadCapacityBytes: state?.interleaved?.capacityBytes ?? 0,
-    packedUploadReusedCapacity: !!state?.reusedCapacity
+    packedUploadReusedCapacity: !!state?.reusedCapacity,
+    packedUploadManagedCapacityReused: !!interleavedSummary.capacityReused,
+    packedUploadManagedCapacityGrown: !!interleavedSummary.capacityGrown,
+    packedUploadManagedUploadCount: interleavedSummary.uploadCount ?? 0
   };
 }
 

@@ -33,14 +33,13 @@ import {
 import { buildVisibleSplats, getVisibleBuildConfig } from './gpu_visible_builder.js';
 import {
   buildDrawArraysFromIndices,
-  buildDrawArraysFromPacked,
   buildPerTileDrawBatches,
   summarizePerTileDrawBatches,
   uploadAndDraw,
-  uploadPackedForStats,
   renderPerTileBatches,
   buildDrawStats
 } from './gpu_draw_utils.js';
+import { uploadAndDrawPackedDirect } from './gpu_packed_draw_executor.js';
 import { formatGpuViewerInfo, setInfoText } from './gpu_info_utils.js';
 import { buildGpuDebugExtraLines } from './gpu_debug_info_builder.js';
 import {
@@ -117,11 +116,38 @@ function buildAllVisibleDrawData(visible) {
   return buildDrawArraysFromIndices(visible, allDrawIndices);
 }
 
-function buildPackedVisibleDrawData(packedScreenSpace) {
-  if (!packedScreenSpace?.packed || !Number.isFinite(packedScreenSpace?.packedCount)) {
-    return null;
-  }
-  return buildDrawArraysFromPacked(packedScreenSpace.packed, packedScreenSpace.packedCount);
+function fmtNum(v, digits = 4) {
+  return Number.isFinite(v) ? Number(v).toFixed(digits) : 'NaN';
+}
+
+function fmtArr(arr, digits = 4) {
+  if (!Array.isArray(arr)) return 'none';
+  return '[' + arr.map(v => fmtNum(v, digits)).join(', ') + ']';
+}
+
+function buildLegacySample(visible) {
+  if (!Array.isArray(visible) || visible.length === 0) return null;
+  const v = visible[0];
+  return {
+    center: [v.px, v.py],
+    radius: v.radius,
+    colorAlpha: Array.isArray(v.colorAlpha) ? v.colorAlpha.slice(0, 4) : null,
+    conic: Array.isArray(v.conic) ? v.conic.slice(0, 3) : null
+  };
+}
+
+function buildPackedSample(packedScreenSpace) {
+  const packed = packedScreenSpace?.packed;
+  if (!(packed instanceof Float32Array) || packed.length < 16) return null;
+  return {
+    center: [packed[0], packed[1]],
+    radius: packed[2],
+    depth: packed[3],
+    colorAlpha: [packed[4], packed[5], packed[6], packed[7]],
+    conic: [packed[8], packed[9], packed[10]],
+    opacity: packed[11],
+    aabb: [packed[12], packed[13], packed[14], packed[15]]
+  };
 }
 
 export function createGpuRenderer(canvas) {
@@ -205,7 +231,7 @@ export async function renderGpuFrame({
     debugOverlayCanvas.height = canvas.height;
     debugCtx.clearRect(0, 0, debugOverlayCanvas.width, debugOverlayCanvas.height);
     debugOverlayCanvas.style.display = 'none';
-    const emptyInfo = 'GPU Step22 viewer\nNo scene loaded.';
+    const emptyInfo = 'GPU Step23 viewer\nNo scene loaded.';
     setInfoText(infoEl, emptyInfo);
     return {
       infoText: emptyInfo,
@@ -246,6 +272,9 @@ export async function renderGpuFrame({
     activeTileBox,
     buildStats
   } = visibleResult;
+
+  const legacySample = buildLegacySample(visible);
+  const packedSample = buildPackedSample(packedScreenSpace);
 
   const tileData = buildTileLists(visible, tileGrid.tileCols, tileGrid.tileRows);
   const tileSummary = summarizeTileLists(
@@ -294,15 +323,6 @@ export async function renderGpuFrame({
     ? buildAllVisibleDrawData(visible)
     : null;
 
-  const packedDrawData = (!mode.drawSelectedOnly && drawPathSummary.actualPath === GPU_DRAW_PATH_PACKED)
-    ? buildPackedVisibleDrawData(packedScreenSpace)
-    : null;
-
-  const finalDrawData =
-    drawPathSummary.actualPath === GPU_DRAW_PATH_PACKED
-      ? (packedDrawData || legacyDrawData)
-      : legacyDrawData;
-
   gpu.resize(canvas.width, canvas.height);
 
   disableDepth(gl);
@@ -311,21 +331,53 @@ export async function renderGpuFrame({
 
   let executionSummary = null;
   let packedUploadSummary = null;
+  let directPackedDrawInfo = null;
 
   if (!mode.drawSelectedOnly) {
     if (drawPathSummary.actualPath === GPU_DRAW_PATH_PACKED) {
-      packedUploadSummary = uploadPackedForStats(gl, gpu, packedScreenSpace);
+      directPackedDrawInfo = uploadAndDrawPackedDirect(
+        gl,
+        gpu,
+        packedScreenSpace,
+        canvas.width,
+        canvas.height
+      );
+      packedUploadSummary = {
+        ...directPackedDrawInfo.uploadSummary,
+        packedDirectDraw: !!directPackedDrawInfo.packedDirectDraw,
+        packedInterleavedStrideBytes: directPackedDrawInfo.packedInterleavedStrideBytes ?? 0,
+        packedInterleavedBound: !!directPackedDrawInfo.packedInterleavedBound,
+        packedInterleavedAttributeCount: directPackedDrawInfo.packedInterleavedAttributeCount ?? 0,
+        packedInterleavedOffsets: directPackedDrawInfo.packedInterleavedOffsets ?? '',
+        legacyExpandedArraysBuilt: false
+      };
+      executionSummary = {
+        tileBatchCount: 1,
+        uploadCount: 1,
+        drawCallCount: 1,
+        requestedDrawPath: drawPathSummary.requestedPath,
+        actualDrawPath: drawPathSummary.actualPath,
+        drawPathFallbackReason: drawPathSummary.fallbackReason
+      };
+    } else {
+      uploadAndDraw(gl, gpu, legacyDrawData, canvas.width, canvas.height);
+      packedUploadSummary = {
+        packedDirectDraw: false,
+        packedInterleavedStrideBytes: 0,
+        packedInterleavedBound: false,
+        packedInterleavedAttributeCount: 0,
+        packedInterleavedOffsets: '',
+        legacyExpandedArraysBuilt: true
+      };
+      executionSummary = {
+        tileBatchCount: 1,
+        uploadCount: 1,
+        drawCallCount: 1,
+        requestedDrawPath: drawPathSummary.requestedPath,
+        actualDrawPath: drawPathSummary.actualPath,
+        drawPathFallbackReason: drawPathSummary.fallbackReason
+      };
     }
-
-    uploadAndDraw(gl, gpu, finalDrawData, canvas.width, canvas.height);
-    executionSummary = {
-      tileBatchCount: 1,
-      uploadCount: 1,
-      drawCallCount: 1,
-      requestedDrawPath: drawPathSummary.requestedPath,
-      actualDrawPath: drawPathSummary.actualPath,
-      drawPathFallbackReason: drawPathSummary.fallbackReason
-    };
   } else {
     const rectMap = new Map(focusTileRects.map(item => [item.tileId, item.rect]));
     executionSummary = renderPerTileBatches(
@@ -345,6 +397,14 @@ export async function renderGpuFrame({
         }
       }
     );
+    packedUploadSummary = {
+      packedDirectDraw: false,
+      packedInterleavedStrideBytes: 0,
+      packedInterleavedBound: false,
+      packedInterleavedAttributeCount: 0,
+      packedInterleavedOffsets: '',
+      legacyExpandedArraysBuilt: true
+    };
     executionSummary.requestedDrawPath = drawPathSummary.requestedPath;
     executionSummary.actualDrawPath = GPU_DRAW_PATH_LEGACY;
     executionSummary.drawPathFallbackReason =
@@ -398,7 +458,12 @@ export async function renderGpuFrame({
 
   const effectiveDrawData = mode.drawSelectedOnly
     ? { nDraw: effectiveTileSummary ? effectiveTileSummary.totalTileDrawCount : 0 }
-    : finalDrawData;
+    : {
+        nDraw:
+          drawPathSummary.actualPath === GPU_DRAW_PATH_PACKED
+            ? (directPackedDrawInfo?.drawCount ?? packedScreenSpace?.packedCount ?? 0)
+            : (legacyDrawData?.nDraw ?? 0)
+      };
 
   const drawStats = buildDrawStats({
     visibleCount: visible.length,
@@ -422,6 +487,17 @@ export async function renderGpuFrame({
     ui
   });
 
+  const sampleLines = [
+    `legacySampleCenter=${legacySample ? fmtArr(legacySample.center, 3) : 'none'}  packedSampleCenter=${packedSample ? fmtArr(packedSample.center, 3) : 'none'}`,
+    `legacySampleRadius=${legacySample ? fmtNum(legacySample.radius, 3) : 'none'}  packedSampleRadius=${packedSample ? fmtNum(packedSample.radius, 3) : 'none'}`,
+    `legacySampleColorAlpha=${legacySample ? fmtArr(legacySample.colorAlpha, 4) : 'none'}`,
+    `packedSampleColorAlpha=${packedSample ? fmtArr(packedSample.colorAlpha, 4) : 'none'}`,
+    `legacySampleConic=${legacySample ? fmtArr(legacySample.conic, 4) : 'none'}`,
+    `packedSampleConic=${packedSample ? fmtArr(packedSample.conic, 4) : 'none'}`,
+    `packedSampleOpacity=${packedSample ? fmtNum(packedSample.opacity, 4) : 'none'}`,
+    `packedSampleAabb=${packedSample ? fmtArr(packedSample.aabb, 2) : 'none'}`
+  ];
+
   const packedLines = [
     `packedVisiblePathEnabled=${!!buildStats?.packedVisiblePathEnabled}`,
     `packedVisiblePathUsed=${!!buildStats?.packedVisiblePathUsed}`,
@@ -436,7 +512,13 @@ export async function renderGpuFrame({
     `packedUploadCount=${drawStats.packedUploadCount}`,
     `packedUploadLength=${drawStats.packedUploadLength}`,
     `packedUploadCapacityBytes=${drawStats.packedUploadCapacityBytes}`,
-    `packedUploadReusedCapacity=${drawStats.packedUploadReusedCapacity}`
+    `packedUploadReusedCapacity=${drawStats.packedUploadReusedCapacity}`,
+    `packedDirectDraw=${!!drawStats.packedDirectDraw}`,
+    `packedInterleavedStrideBytes=${drawStats.packedInterleavedStrideBytes}`,
+    `packedInterleavedBound=${!!drawStats.packedInterleavedBound}`,
+    `packedInterleavedAttributeCount=${drawStats.packedInterleavedAttributeCount ?? 0}`,
+    `packedInterleavedOffsets=${drawStats.packedInterleavedOffsets ?? ''}`,
+    `legacyExpandedArraysBuilt=${!!drawStats.legacyExpandedArraysBuilt}`
   ];
 
   const infoText = formatGpuViewerInfo({
@@ -456,19 +538,19 @@ export async function renderGpuFrame({
     timestamp: buildConfig.timestamp,
     splatScale: buildConfig.scalingModifier,
     elapsedMs: elapsed,
-    stepLabel: 'GPU Step22',
+    stepLabel: 'GPU Step23',
     stepNotes: [
-      'Packed draw path now records packed-upload statistics for reuse tracking',
-      'Draw-path branching remains delegated to gpu_draw_path_selector.js',
-      'Per-tile draw still uses legacy batches while full-frame packed draw records upload reuse info',
-      'Logs now include packed upload bytes/capacity/reuse flags'
+      'Packed draw path now uses a direct packed interleaved draw executor',
+      'Packed direct draw responsibility is split out to gpu_packed_draw_executor.js',
+      'Full-frame packed draw can skip legacy expanded draw-array construction',
+      'Logs now include direct packed draw / interleaved bind state'
     ],
     tileSummary,
     avgRefsPerVisible,
     drawStats,
     tileSelectionText,
     tileDebugText,
-    extraLines: [...extraLines, ...packedLines]
+    extraLines: [...extraLines, ...packedLines, ...sampleLines]
   });
 
   setInfoText(infoEl, infoText);

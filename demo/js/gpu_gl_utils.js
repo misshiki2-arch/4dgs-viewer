@@ -1,7 +1,8 @@
-// Step22:
+// Step23:
 // WebGL ユーティリティ。
-// Step20.2 の通常 alpha 合成は維持しつつ、
-// Step22 では managed buffer の再利用状況を追いやすくする。
+// Step22 の managed buffer 統計は維持しつつ、
+// Step23 では packed direct draw executor から使いやすいように
+// interleaved attribute bind 向けの薄い補助を追加する。
 
 export function createShader(gl, type, source) {
   const shader = gl.createShader(type);
@@ -154,6 +155,26 @@ export function bindFloatAttrib(gl, {
   gl.vertexAttribPointer(loc, size, gl.FLOAT, normalized, stride, offset);
   gl.bindVertexArray(null);
   gl.bindBuffer(gl.ARRAY_BUFFER, null);
+}
+
+export function bindInterleavedFloatAttribs(gl, {
+  vao,
+  program,
+  buffer,
+  attributes
+}) {
+  for (const attr of attributes || []) {
+    bindFloatAttrib(gl, {
+      vao,
+      program,
+      buffer,
+      name: attr.name,
+      size: attr.size,
+      stride: attr.stride ?? 0,
+      offset: attr.offset ?? 0,
+      normalized: !!attr.normalized
+    });
+  }
 }
 
 export function clearToGray(gl, gray) {

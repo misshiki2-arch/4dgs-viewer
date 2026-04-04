@@ -8,10 +8,11 @@ import {
   summarizePackedUploadState
 } from './gpu_packed_upload_utils.js';
 
-// Step22:
+// Step23 fix:
 // visible の描画契約は colorAlpha 基準。
-// packed draw path を実使用する前提で、packed upload state の統計も draw stats に反映する。
-// 旧構造との互換のため、colorAlpha が無い場合のみ color / opacity へ fallback する。
+// packed draw path は direct packed draw へ進んだため、
+// draw stats に direct packed draw / interleaved bind 状態を正式反映する。
+// renderer から渡される packed interleaved debug 項目も保持する。
 
 function ensureFloat32Array(value, name) {
   if (!(value instanceof Float32Array)) {
@@ -273,6 +274,15 @@ export function buildDrawStats({
     packedUploadCount: packedUploadSummary?.packedUploadCount ?? 0,
     packedUploadLength: packedUploadSummary?.packedUploadLength ?? 0,
     packedUploadCapacityBytes: packedUploadSummary?.packedUploadCapacityBytes ?? 0,
-    packedUploadReusedCapacity: !!packedUploadSummary?.packedUploadReusedCapacity
+    packedUploadReusedCapacity: !!packedUploadSummary?.packedUploadReusedCapacity,
+    packedUploadManagedCapacityReused: !!packedUploadSummary?.packedUploadManagedCapacityReused,
+    packedUploadManagedCapacityGrown: !!packedUploadSummary?.packedUploadManagedCapacityGrown,
+    packedUploadManagedUploadCount: packedUploadSummary?.packedUploadManagedUploadCount ?? 0,
+    packedDirectDraw: !!packedUploadSummary?.packedDirectDraw,
+    packedInterleavedStrideBytes: packedUploadSummary?.packedInterleavedStrideBytes ?? 0,
+    packedInterleavedBound: !!packedUploadSummary?.packedInterleavedBound,
+    packedInterleavedAttributeCount: packedUploadSummary?.packedInterleavedAttributeCount ?? 0,
+    packedInterleavedOffsets: packedUploadSummary?.packedInterleavedOffsets ?? '',
+    legacyExpandedArraysBuilt: !!packedUploadSummary?.legacyExpandedArraysBuilt
   };
 }

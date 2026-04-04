@@ -82,7 +82,6 @@ let raw = null;
 let lastDebugText = '';
 const tokenRef = { value: 0 };
 const interactionState = createGpuInteractionState();
-
 let playback = null;
 
 function refreshLatestDebugText(explicitText = null) {

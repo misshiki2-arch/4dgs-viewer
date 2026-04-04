@@ -30,18 +30,41 @@ export function buildInteractionExtraLines(buildConfig, buildStats, ui = null, d
     lines.push(
       `requestedDrawPath=${drawStats.requestedDrawPath ?? 'legacy'}  actualDrawPath=${drawStats.actualDrawPath ?? 'legacy'}`
     );
-    lines.push(
-      `drawPathFallbackReason=${drawStats.drawPathFallbackReason ?? 'none'}`
-    );
+    lines.push(`drawPathFallbackReason=${drawStats.drawPathFallbackReason ?? 'none'}`);
     lines.push(
       `packedUploadBytes=${drawStats.packedUploadBytes ?? 0}  packedUploadCount=${drawStats.packedUploadCount ?? 0}`
     );
     lines.push(
       `packedUploadLength=${drawStats.packedUploadLength ?? 0}  packedUploadCapacityBytes=${drawStats.packedUploadCapacityBytes ?? 0}`
     );
+    lines.push(`packedUploadReusedCapacity=${!!drawStats.packedUploadReusedCapacity}`);
     lines.push(
-      `packedUploadReusedCapacity=${!!drawStats.packedUploadReusedCapacity}`
+      `packedUploadManagedCapacityReused=${!!drawStats.packedUploadManagedCapacityReused}  packedUploadManagedCapacityGrown=${!!drawStats.packedUploadManagedCapacityGrown}`
     );
+    lines.push(`packedUploadManagedUploadCount=${drawStats.packedUploadManagedUploadCount ?? 0}`);
+    lines.push(
+      `packedDirectDraw=${!!drawStats.packedDirectDraw}  packedInterleavedStrideBytes=${drawStats.packedInterleavedStrideBytes ?? 0}`
+    );
+    lines.push(
+      `packedInterleavedBound=${!!drawStats.packedInterleavedBound}  packedInterleavedAttributeCount=${drawStats.packedInterleavedAttributeCount ?? 0}`
+    );
+    lines.push(`packedInterleavedOffsets=${drawStats.packedInterleavedOffsets ?? ''}`);
+    lines.push(`legacyExpandedArraysBuilt=${!!drawStats.legacyExpandedArraysBuilt}`);
+
+    if (drawStats.legacySampleCenter || drawStats.packedSampleCenter) {
+      lines.push(
+        `legacySampleCenter=${drawStats.legacySampleCenter ?? 'none'}  packedSampleCenter=${drawStats.packedSampleCenter ?? 'none'}`
+      );
+      lines.push(
+        `legacySampleRadius=${drawStats.legacySampleRadius ?? 'none'}  packedSampleRadius=${drawStats.packedSampleRadius ?? 'none'}`
+      );
+      lines.push(`legacySampleColorAlpha=${drawStats.legacySampleColorAlpha ?? 'none'}`);
+      lines.push(`packedSampleColorAlpha=${drawStats.packedSampleColorAlpha ?? 'none'}`);
+      lines.push(`legacySampleConic=${drawStats.legacySampleConic ?? 'none'}`);
+      lines.push(`packedSampleConic=${drawStats.packedSampleConic ?? 'none'}`);
+      lines.push(`packedSampleOpacity=${drawStats.packedSampleOpacity ?? 'none'}`);
+      lines.push(`packedSampleAabb=${drawStats.packedSampleAabb ?? 'none'}`);
+    }
   }
 
   if (buildStats) {
