@@ -1,9 +1,11 @@
-// Step28:
+// Step29:
 // draw path 選択の責務をこのファイルに集約する。
 // packed は formal reference path、legacy は fallback、gpu-screen は experimental compare path。
-// Step27 では path role と actualReferencePath を持たせた。
-// Step28 ではさらに、state / comparison debug が重複しにくいように
-// summary の意味を整理する。
+// Step28 では actualReferencePath を持たせた。
+// Step29 では、comparison debug が actual / source / reference を明示できるように、
+// selector 側でも actual path と reference path の意味を整理する。
+// ここで扱うのは draw path 自体なので、source path は持たない。
+// source path は gpu_screen_space_builder.js 側で決まる。
 
 export const GPU_DRAW_PATH_LEGACY = 'legacy';
 export const GPU_DRAW_PATH_PACKED = 'packed';
@@ -22,7 +24,7 @@ function normalizeRequestedPath(path) {
 
 function getPathRole(path) {
   if (path === GPU_DRAW_PATH_PACKED) return 'formal-reference';
-  if (path === GPU_DRAW_PATH_GPU_SCREEN) return 'experimental-compare';
+  if (path === GPU_DRAW_PATH_GPU_SCREEN) return 'experimental-draw';
   return 'fallback';
 }
 
@@ -98,7 +100,7 @@ export function summarizeDrawPathSelection(selection) {
   const requestedPath = normalizeRequestedPath(selection?.requestedPath);
   const actualPath = normalizeRequestedPath(selection?.actualPath);
   const fallbackReason =
-    typeof selection?.fallbackReason === 'string' && selection.fallbackReason.length > 0
+    typeof selection?.fallbackReason === 'string' && selection?.fallbackReason.length > 0
       ? selection.fallbackReason
       : 'none';
 
@@ -111,28 +113,23 @@ export function summarizeDrawPathSelection(selection) {
     actualPath,
     fallbackReason,
     usedFallback,
-
     requestedRole: getPathRole(requestedPath),
     actualRole: getPathRole(actualPath),
-
     packedFormalPath: actualPath === GPU_DRAW_PATH_PACKED,
     legacyFallbackPath: actualPath === GPU_DRAW_PATH_LEGACY,
     gpuScreenExperimentalPath: actualPath === GPU_DRAW_PATH_GPU_SCREEN,
-
     requestedPacked: requestedPath === GPU_DRAW_PATH_PACKED,
     requestedLegacy: requestedPath === GPU_DRAW_PATH_LEGACY,
     requestedGpuScreen: requestedPath === GPU_DRAW_PATH_GPU_SCREEN,
-
     actualReferencePath,
     actualReferenceRole,
-
     comparisonSummary: {
       requestedPath,
       requestedRole: getPathRole(requestedPath),
       actualPath,
       actualRole: getPathRole(actualPath),
-      actualReferencePath,
-      actualReferenceRole,
+      referencePath: actualReferencePath,
+      referenceRole: actualReferenceRole,
       usedFallback,
       fallbackReason
     }
@@ -148,7 +145,7 @@ export function formatDrawPathSelection(selection) {
     `usedFallback=${summary.usedFallback}`,
     `requestedRole=${summary.requestedRole}`,
     `actualRole=${summary.actualRole}`,
-    `actualReferencePath=${summary.actualReferencePath}`,
-    `actualReferenceRole=${summary.actualReferenceRole}`
+    `referencePath=${summary.actualReferencePath}`,
+    `referenceRole=${summary.actualReferenceRole}`
   ].join('  ');
 }

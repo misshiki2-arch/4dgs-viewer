@@ -301,10 +301,7 @@ export function ensurePackedPathControls(ui) {
   setRowContents(row1, appendWithSpaces(
     createCheckbox('usePackedVisiblePath', true),
     createLabel('use packed visible path'),
-    createNote(
-      'usePackedVisiblePathNote',
-      'formal full-frame packed reference path'
-    )
+    createNote('usePackedVisiblePathNote', 'formal full-frame packed reference path')
   ));
 
   const row2 = ensureRow(ui, 'packedPathRow2');
@@ -322,7 +319,7 @@ export function ensurePackedPathControls(ui) {
     ),
     createNote(
       'drawPathSelectNote',
-      'full-frame only; gpu-screen comparison is shown separately from state'
+      'full-frame only; gpu-screen debug distinguishes actual, source, and reference'
     )
   ));
 
@@ -345,11 +342,7 @@ export function ensureDebugLogControls(ui) {
   copyBtn.type = 'button';
   copyBtn.textContent = 'copy';
 
-  setRowContents(row1, appendWithSpaces(
-    logBtn,
-    copyBtn,
-    createNote('debugLogNote', 'latest debug text')
-  ));
+  setRowContents(row1, appendWithSpaces(logBtn, copyBtn, createNote('debugLogNote', 'latest debug text')));
 
   const row2 = ensureRow(ui, 'debugLogRow2');
   const area = document.createElement('textarea');
@@ -382,15 +375,11 @@ export async function copyDebugLogText(ui) {
 
   try {
     await navigator.clipboard.writeText(text);
-    if (ui?.debugLogNote) {
-      ui.debugLogNote.textContent = 'copied';
-    }
+    if (ui?.debugLogNote) ui.debugLogNote.textContent = 'copied';
     return true;
   } catch (err) {
     console.warn(err);
-    if (ui?.debugLogNote) {
-      ui.debugLogNote.textContent = 'copy failed';
-    }
+    if (ui?.debugLogNote) ui.debugLogNote.textContent = 'copy failed';
     return false;
   }
 }

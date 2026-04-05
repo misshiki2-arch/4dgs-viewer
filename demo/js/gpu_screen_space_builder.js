@@ -7,15 +7,6 @@ import {
   createPackedVisibleResult
 } from './gpu_visible_pack_utils.js';
 
-// Step28:
-// screen-space 結果を packed layout の正式契約へ正規化して渡す場所。
-// Step27 では packed formal reference / gpu-screen experimental の比較用 summary を持たせた。
-// Step28 ではさらに、summary を
-// - state 的な基本情報
-// - comparison 的な参照関係
-// に分けて扱いやすくする。
-// packed 内容自体はまだ共通でもよいが、debug 側が重複を減らせる形へ整える。
-
 function nowMs() {
   return performance.now();
 }
@@ -26,16 +17,9 @@ function toFiniteOr(value, fallback = 0) {
 
 function normalizeCenterPx(item) {
   if (Array.isArray(item?.centerPx) && item.centerPx.length >= 2) {
-    return [
-      toFiniteOr(item.centerPx[0], 0),
-      toFiniteOr(item.centerPx[1], 0)
-    ];
+    return [toFiniteOr(item.centerPx[0], 0), toFiniteOr(item.centerPx[1], 0)];
   }
-
-  return [
-    toFiniteOr(item?.px, 0),
-    toFiniteOr(item?.py, 0)
-  ];
+  return [toFiniteOr(item?.px, 0), toFiniteOr(item?.py, 0)];
 }
 
 function normalizeRadiusPx(item) {
@@ -59,10 +43,7 @@ function normalizeColorAlpha(item) {
   }
 
   const color = Array.isArray(item?.color) ? item.color : [0, 0, 0, 0];
-  const alpha = Number.isFinite(item?.opacity)
-    ? item.opacity
-    : toFiniteOr(color[3], 0);
-
+  const alpha = Number.isFinite(item?.opacity) ? item.opacity : toFiniteOr(color[3], 0);
   return [
     toFiniteOr(color[0], 0),
     toFiniteOr(color[1], 0),
@@ -79,7 +60,6 @@ function normalizeConic(item) {
       toFiniteOr(item.conic[2], 0)
     ];
   }
-
   return [0, 0, 0];
 }
 
@@ -105,7 +85,6 @@ function normalizeMisc(item) {
       toFiniteOr(item.aabb[3], 0)
     ];
   }
-
   return [0, 0, 0, 0];
 }
 
@@ -123,28 +102,21 @@ export function normalizeScreenSpaceItem(item) {
 }
 
 export function normalizeScreenSpaceVisible(visible) {
-  if (!Array.isArray(visible) || visible.length === 0) {
-    return [];
-  }
-
+  if (!Array.isArray(visible) || visible.length === 0) return [];
   const normalized = new Array(visible.length);
-  for (let i = 0; i < visible.length; i++) {
-    normalized[i] = normalizeScreenSpaceItem(visible[i]);
-  }
+  for (let i = 0; i < visible.length; i++) normalized[i] = normalizeScreenSpaceItem(visible[i]);
   return normalized;
 }
 
 export function createScreenSpaceBuildContext() {
   return {
     layout: getVisiblePackLayout(),
-
-    lastPath: 'packed-cpu',
+    lastSourcePath: 'packed-cpu',
     lastInputVisibleCount: 0,
     lastNormalizedVisibleCount: 0,
     lastPackCount: 0,
     lastPackedLength: 0,
     lastBuildMs: 0,
-
     lastSummary: null,
     lastComparisonSummary: null
   };
@@ -153,28 +125,22 @@ export function createScreenSpaceBuildContext() {
 function buildReferenceInfo(path, experimental) {
   if (path === 'gpu-screen-experimental') {
     return {
+      sourcePath: 'gpu-screen-experimental',
+      sourceRole: experimental ? 'experimental-source' : 'formal-source',
       referencePath: 'packed-cpu',
-      referenceRole: 'formal-reference',
-      currentRole: experimental ? 'experimental' : 'formal-reference'
+      referenceRole: 'formal-reference'
     };
   }
-
   return {
+    sourcePath: path,
+    sourceRole: experimental ? 'experimental-source' : 'formal-source',
     referencePath: path,
-    referenceRole: 'formal-reference',
-    currentRole: experimental ? 'experimental' : 'formal-reference'
+    referenceRole: 'formal-reference'
   };
 }
 
 function buildPackedScreenSpaceStateSummary({
-  path,
-  inputVisible,
-  normalizedVisible,
-  packed,
-  packedCount,
-  floatsPerItem,
-  buildMs,
-  experimental
+  path, inputVisible, normalizedVisible, packed, packedCount, floatsPerItem, buildMs, experimental
 }) {
   return {
     path,
@@ -194,26 +160,19 @@ function buildPackedScreenSpaceStateSummary({
   };
 }
 
-function buildPackedScreenSpaceComparisonSummary({
-  path,
-  packedCount,
-  packed,
-  buildMs,
-  experimental
-}) {
-  const referenceInfo = buildReferenceInfo(path, experimental);
-
+function buildPackedScreenSpaceComparisonSummary({ path, packedCount, packed, buildMs, experimental }) {
+  const ref = buildReferenceInfo(path, experimental);
   return {
-    referencePath: referenceInfo.referencePath,
-    referenceRole: referenceInfo.referenceRole,
-    currentPath: path,
-    currentRole: referenceInfo.currentRole,
-    currentExperimental: !!experimental,
-    currentBuildMs: Number.isFinite(buildMs) ? buildMs : 0,
-    currentPackedCount: Number.isFinite(packedCount) ? packedCount : 0,
-    currentPackedLength: packed instanceof Float32Array ? packed.length : 0,
-    usesPackedReferenceLayout: true,
-    usesPackedReferencePack: true,
+    sourcePath: ref.sourcePath,
+    sourceRole: ref.sourceRole,
+    sourceExperimental: !!experimental,
+    sourceBuildMs: Number.isFinite(buildMs) ? buildMs : 0,
+    sourcePackedCount: Number.isFinite(packedCount) ? packedCount : 0,
+    sourcePackedLength: packed instanceof Float32Array ? packed.length : 0,
+    referencePath: ref.referencePath,
+    referenceRole: ref.referenceRole,
+    usesPackedReferenceLayout: ref.referencePath === 'packed-cpu',
+    usesPackedReferencePack: ref.referencePath === 'packed-cpu',
     sameLayoutAsReference: true,
     samePackCountAsReference: true
   };
@@ -231,22 +190,11 @@ function buildPackedScreenSpaceResult(normalizedVisible, packedResult, extra = {
   const buildMs = extra.buildMs;
 
   const stateSummary = buildPackedScreenSpaceStateSummary({
-    path,
-    inputVisible: extra.inputVisible,
-    normalizedVisible,
-    packed,
-    packedCount,
-    floatsPerItem,
-    buildMs,
-    experimental
+    path, inputVisible: extra.inputVisible, normalizedVisible, packed, packedCount, floatsPerItem, buildMs, experimental
   });
 
   const comparisonSummary = buildPackedScreenSpaceComparisonSummary({
-    path,
-    packedCount,
-    packed,
-    buildMs,
-    experimental
+    path, packedCount, packed, buildMs, experimental
   });
 
   return {
@@ -265,9 +213,8 @@ function buildPackedScreenSpaceResult(normalizedVisible, packedResult, extra = {
 
 function updateContext(context, result, inputVisible) {
   if (!context) return;
-
   context.layout = context.layout ?? getVisiblePackLayout();
-  context.lastPath = result.path;
+  context.lastSourcePath = result.comparisonSummary?.sourcePath ?? result.path;
   context.lastInputVisibleCount = Array.isArray(inputVisible) ? inputVisible.length : 0;
   context.lastNormalizedVisibleCount = Array.isArray(result.visible) ? result.visible.length : 0;
   context.lastPackCount = Number.isFinite(result.packedCount) ? result.packedCount : 0;
@@ -282,7 +229,6 @@ export function buildPackedScreenSpaceFromVisible(visible, extra = {}) {
   const normalizedVisible = normalizeScreenSpaceVisible(visible);
   const packedResult = createPackedVisibleResult(normalizedVisible, extra);
   const buildMs = nowMs() - t0;
-
   return buildPackedScreenSpaceResult(normalizedVisible, packedResult, {
     ...extra,
     inputVisible: visible,
@@ -307,11 +253,7 @@ export function buildPackedScreenSpaceWithContext(context, visible, extra = {}) 
   });
 
   updateContext(context, result, visible);
-
-  return {
-    ...result,
-    layout: context?.layout ?? getVisiblePackLayout()
-  };
+  return { ...result, layout: context?.layout ?? getVisiblePackLayout() };
 }
 
 export function buildGpuScreenExperimentalSpaceWithContext(context, visible, extra = {}) {
@@ -344,9 +286,7 @@ export function summarizePackedScreenSpace(result) {
     path: result.summary?.path ?? result.path ?? 'unknown',
     packedCount: Number.isFinite(result.packedCount) ? result.packedCount : 0,
     packedLength: result.packed instanceof Float32Array ? result.packed.length : 0,
-    floatsPerItem: Number.isFinite(result.floatsPerItem)
-      ? result.floatsPerItem
-      : GPU_VISIBLE_PACK_FLOATS_PER_ITEM,
+    floatsPerItem: Number.isFinite(result.floatsPerItem) ? result.floatsPerItem : GPU_VISIBLE_PACK_FLOATS_PER_ITEM,
     alphaSource: result.summary?.alphaSource ?? 'colorAlpha[3]',
     centerSource: result.summary?.centerSource ?? 'centerPx',
     radiusSource: result.summary?.radiusSource ?? 'radiusPx',
@@ -361,14 +301,14 @@ export function summarizePackedScreenSpace(result) {
 export function summarizePackedScreenSpaceComparison(result) {
   if (!result?.comparisonSummary) {
     return {
+      sourcePath: 'none',
+      sourceRole: 'none',
+      sourceExperimental: false,
+      sourceBuildMs: 0,
+      sourcePackedCount: 0,
+      sourcePackedLength: 0,
       referencePath: 'none',
       referenceRole: 'none',
-      currentPath: 'none',
-      currentRole: 'none',
-      currentExperimental: false,
-      currentBuildMs: 0,
-      currentPackedCount: 0,
-      currentPackedLength: 0,
       usesPackedReferenceLayout: false,
       usesPackedReferencePack: false,
       sameLayoutAsReference: false,
@@ -377,20 +317,14 @@ export function summarizePackedScreenSpaceComparison(result) {
   }
 
   return {
+    sourcePath: result.comparisonSummary.sourcePath ?? 'none',
+    sourceRole: result.comparisonSummary.sourceRole ?? 'none',
+    sourceExperimental: !!result.comparisonSummary.sourceExperimental,
+    sourceBuildMs: Number.isFinite(result.comparisonSummary.sourceBuildMs) ? result.comparisonSummary.sourceBuildMs : 0,
+    sourcePackedCount: Number.isFinite(result.comparisonSummary.sourcePackedCount) ? result.comparisonSummary.sourcePackedCount : 0,
+    sourcePackedLength: Number.isFinite(result.comparisonSummary.sourcePackedLength) ? result.comparisonSummary.sourcePackedLength : 0,
     referencePath: result.comparisonSummary.referencePath ?? 'none',
     referenceRole: result.comparisonSummary.referenceRole ?? 'none',
-    currentPath: result.comparisonSummary.currentPath ?? 'none',
-    currentRole: result.comparisonSummary.currentRole ?? 'none',
-    currentExperimental: !!result.comparisonSummary.currentExperimental,
-    currentBuildMs: Number.isFinite(result.comparisonSummary.currentBuildMs)
-      ? result.comparisonSummary.currentBuildMs
-      : 0,
-    currentPackedCount: Number.isFinite(result.comparisonSummary.currentPackedCount)
-      ? result.comparisonSummary.currentPackedCount
-      : 0,
-    currentPackedLength: Number.isFinite(result.comparisonSummary.currentPackedLength)
-      ? result.comparisonSummary.currentPackedLength
-      : 0,
     usesPackedReferenceLayout: !!result.comparisonSummary.usesPackedReferenceLayout,
     usesPackedReferencePack: !!result.comparisonSummary.usesPackedReferencePack,
     sameLayoutAsReference: !!result.comparisonSummary.sameLayoutAsReference,
@@ -401,7 +335,7 @@ export function summarizePackedScreenSpaceComparison(result) {
 export function summarizeScreenSpaceBuildContext(context) {
   if (!context) {
     return {
-      lastPath: 'none',
+      lastSourcePath: 'none',
       lastInputVisibleCount: 0,
       lastNormalizedVisibleCount: 0,
       lastPackCount: 0,
@@ -413,7 +347,7 @@ export function summarizeScreenSpaceBuildContext(context) {
   }
 
   return {
-    lastPath: context.lastPath ?? 'none',
+    lastSourcePath: context.lastSourcePath ?? 'none',
     lastInputVisibleCount: Number.isFinite(context.lastInputVisibleCount) ? context.lastInputVisibleCount : 0,
     lastNormalizedVisibleCount: Number.isFinite(context.lastNormalizedVisibleCount) ? context.lastNormalizedVisibleCount : 0,
     lastPackCount: Number.isFinite(context.lastPackCount) ? context.lastPackCount : 0,

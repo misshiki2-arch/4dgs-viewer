@@ -168,40 +168,20 @@ function buildEffectiveDrawPathSelection({ mode, requestedPath, packedScreenSpac
   const summary = summarizeDrawPathSelection(base);
 
   if (!mode.drawSelectedOnly) {
-    return {
-      ...summary,
-      forceLegacyPerTile: false
-    };
+    return { ...summary, forceLegacyPerTile: false };
   }
 
   return {
     ...summary,
     actualPath: GPU_DRAW_PATH_LEGACY,
-    fallbackReason:
-      summary.actualPath === GPU_DRAW_PATH_LEGACY
-        ? summary.fallbackReason
-        : 'per-tile-legacy-only',
+    fallbackReason: summary.actualPath === GPU_DRAW_PATH_LEGACY ? summary.fallbackReason : 'per-tile-legacy-only',
     forceLegacyPerTile: true
   };
 }
 
-function executeFullFrameDraw({
-  gl,
-  gpu,
-  canvas,
-  drawPathSelection,
-  packedScreenSpace,
-  legacyDrawData
-}) {
+function executeFullFrameDraw({ gl, gpu, canvas, drawPathSelection, packedScreenSpace, legacyDrawData }) {
   if (drawPathSelection.actualPath === GPU_DRAW_PATH_GPU_SCREEN) {
-    const gpuScreenDrawInfo = uploadAndDrawGpuScreen(
-      gl,
-      gpu,
-      packedScreenSpace,
-      canvas.width,
-      canvas.height
-    );
-
+    const gpuScreenDrawInfo = uploadAndDrawGpuScreen(gl, gpu, packedScreenSpace, canvas.width, canvas.height);
     return {
       executionSummary: {
         tileBatchCount: 1,
@@ -228,14 +208,7 @@ function executeFullFrameDraw({
   }
 
   if (drawPathSelection.actualPath === GPU_DRAW_PATH_PACKED) {
-    const directPackedDrawInfo = uploadAndDrawPackedDirect(
-      gl,
-      gpu,
-      packedScreenSpace,
-      canvas.width,
-      canvas.height
-    );
-
+    const directPackedDrawInfo = uploadAndDrawPackedDirect(gl, gpu, packedScreenSpace, canvas.width, canvas.height);
     const packedUploadSummary = {
       ...(directPackedDrawInfo.uploadSummary || {}),
       packedDirectDraw: !!directPackedDrawInfo.packedDirectDraw,
@@ -246,7 +219,6 @@ function executeFullFrameDraw({
       packedInterleavedBound: !!directPackedDrawInfo.packedInterleavedBound,
       legacyExpandedArraysBuilt: false
     };
-
     return {
       executionSummary: {
         tileBatchCount: 1,
@@ -265,7 +237,6 @@ function executeFullFrameDraw({
   }
 
   uploadAndDraw(gl, gpu, legacyDrawData, canvas.width, canvas.height);
-
   return {
     executionSummary: {
       tileBatchCount: 1,
@@ -291,36 +262,20 @@ function executeFullFrameDraw({
   };
 }
 
-function executePerTileLegacyDraw({
-  gl,
-  gpu,
-  canvas,
-  focusTileRects,
-  perTileDrawBatches,
-  drawPathSelection
-}) {
+function executePerTileLegacyDraw({ gl, gpu, canvas, focusTileRects, perTileDrawBatches, drawPathSelection }) {
   const rectMap = new Map(focusTileRects.map((item) => [item.tileId, item.rect]));
-
-  const executionSummary = renderPerTileBatches(
-    gl,
-    gpu,
-    perTileDrawBatches,
-    canvas.width,
-    canvas.height,
-    {
-      beforeTile: (item) => {
-        const rect = rectMap.get(item.tileId);
-        if (rect) enableTileScissor(gl, canvas, rect);
-        else disableTileScissor(gl);
-      },
-      afterTile: () => {
-        disableTileScissor(gl);
-      }
+  const executionSummary = renderPerTileBatches(gl, gpu, perTileDrawBatches, canvas.width, canvas.height, {
+    beforeTile: (item) => {
+      const rect = rectMap.get(item.tileId);
+      if (rect) enableTileScissor(gl, canvas, rect);
+      else disableTileScissor(gl);
+    },
+    afterTile: () => {
+      disableTileScissor(gl);
     }
-  );
+  });
 
   disableTileScissor(gl);
-
   executionSummary.requestedDrawPath = drawPathSelection.requestedPath;
   executionSummary.actualDrawPath = GPU_DRAW_PATH_LEGACY;
   executionSummary.drawPathFallbackReason = drawPathSelection.fallbackReason;
@@ -381,14 +336,16 @@ function buildSampleLines(legacySample, packedSample) {
   ];
 }
 
-function buildGpuScreenExecutionLines(gpuScreenDrawInfo) {
-  if (!gpuScreenDrawInfo) return [];
-  const exec = gpuScreenDrawInfo.gpuScreenExecutionSummary ?? {};
+function buildGpuScreenExecutionLines(gpuScreenExecutionSummary) {
+  if (!gpuScreenExecutionSummary) return [];
   return [
-    `gpuScreenDraw=${!!exec.gpuScreenDraw}`,
-    `gpuScreenReady=${!!exec.gpuScreenReady}`,
-    `gpuScreenReason=${exec.gpuScreenReason ?? 'unknown'}`,
-    `gpuScreenDrawCount=${exec.gpuScreenDrawCount ?? 0}`
+    `gpuScreenDraw=${!!gpuScreenExecutionSummary.gpuScreenDraw}`,
+    `gpuScreenReady=${!!gpuScreenExecutionSummary.gpuScreenReady}`,
+    `gpuScreenReason=${gpuScreenExecutionSummary.gpuScreenReason ?? 'unknown'}`,
+    `gpuScreenDrawCount=${gpuScreenExecutionSummary.gpuScreenDrawCount ?? 0}`,
+    `gpuScreenActualPath=${gpuScreenExecutionSummary.gpuScreenActualPath ?? 'gpu-screen'}`,
+    `gpuScreenSourcePath=${gpuScreenExecutionSummary.gpuScreenSourcePath ?? 'none'}`,
+    `gpuScreenReferencePath=${gpuScreenExecutionSummary.gpuScreenReferencePath ?? 'packed-cpu'}`
   ];
 }
 
@@ -407,18 +364,15 @@ function buildSafeBuildStats(rawBuildStats, visible, packedScreenSpace, elapsedM
     packedVisiblePathEnabled: !!rawBuildStats?.packedVisiblePathEnabled,
     packedVisiblePathUsed: !!rawBuildStats?.packedVisiblePathUsed,
     packedVisiblePath: rawBuildStats?.packedVisiblePath ?? packedScreenSpace?.path ?? 'none',
-    packedVisibleCount:
-      Number.isFinite(rawBuildStats?.packedVisibleCount)
-        ? rawBuildStats.packedVisibleCount
-        : (Number.isFinite(packedScreenSpace?.packedCount) ? packedScreenSpace.packedCount : visibleCount),
-    packedVisibleLength:
-      Number.isFinite(rawBuildStats?.packedVisibleLength)
-        ? rawBuildStats.packedVisibleLength
-        : (packed instanceof Float32Array ? packed.length : 0),
-    packedVisibleFloatsPerItem:
-      Number.isFinite(rawBuildStats?.packedVisibleFloatsPerItem)
-        ? rawBuildStats.packedVisibleFloatsPerItem
-        : (Number.isFinite(packedScreenSpace?.floatsPerItem) ? packedScreenSpace.floatsPerItem : 0),
+    packedVisibleCount: Number.isFinite(rawBuildStats?.packedVisibleCount)
+      ? rawBuildStats.packedVisibleCount
+      : (Number.isFinite(packedScreenSpace?.packedCount) ? packedScreenSpace.packedCount : visibleCount),
+    packedVisibleLength: Number.isFinite(rawBuildStats?.packedVisibleLength)
+      ? rawBuildStats.packedVisibleLength
+      : (packed instanceof Float32Array ? packed.length : 0),
+    packedVisibleFloatsPerItem: Number.isFinite(rawBuildStats?.packedVisibleFloatsPerItem)
+      ? rawBuildStats.packedVisibleFloatsPerItem
+      : (Number.isFinite(packedScreenSpace?.floatsPerItem) ? packedScreenSpace.floatsPerItem : 0),
     visibleBuildMs: Number.isFinite(rawBuildStats?.visibleBuildMs) ? rawBuildStats.visibleBuildMs : elapsedMs,
     candidateBuildMs: Number.isFinite(rawBuildStats?.candidateBuildMs) ? rawBuildStats.candidateBuildMs : 0,
     screenSpaceBuildMs: Number.isFinite(rawBuildStats?.screenSpaceBuildMs) ? rawBuildStats.screenSpaceBuildMs : 0,
@@ -436,13 +390,11 @@ export function createGpuRenderer(canvas) {
   if (!gl) throw new Error('WebGL2 is not available in this browser.');
 
   const program = createProgram(gl, GPU_STEP_VERTEX_SHADER, GPU_STEP_FRAGMENT_SHADER);
-
   const emptyF32 = new Float32Array(0);
   const centerBuffer = createArrayBuffer(gl, emptyF32);
   const radiusBuffer = createArrayBuffer(gl, emptyF32);
   const colorBuffer = createArrayBuffer(gl, emptyF32);
   const conicBuffer = createArrayBuffer(gl, emptyF32);
-
   const vao = gl.createVertexArray();
 
   bindFloatAttrib(gl, { vao, program, buffer: centerBuffer, name: 'aCenterPx', size: 2 });
@@ -475,15 +427,7 @@ export function createGpuRenderer(canvas) {
 }
 
 export async function renderGpuFrame({
-  raw,
-  gpu,
-  canvas,
-  camera,
-  controls,
-  ui,
-  tokenRef,
-  infoEl,
-  interactionOverride = null
+  raw, gpu, canvas, camera, controls, ui, tokenRef, infoEl, interactionOverride = null
 }) {
   const gl = gpu.gl;
   const bg255 = parseInt(ui.bgGraySlider.value, 10);
@@ -507,21 +451,13 @@ export async function renderGpuFrame({
     debugOverlayCanvas.height = canvas.height;
     debugCtx.clearRect(0, 0, debugOverlayCanvas.width, debugOverlayCanvas.height);
     debugOverlayCanvas.style.display = 'none';
-    const emptyInfo = 'GPU Step28 viewer\nNo scene loaded.';
+    const emptyInfo = 'GPU Step29 viewer\nNo scene loaded.';
     setInfoText(infoEl, emptyInfo);
-    return {
-      infoText: emptyInfo,
-      visible: [],
-      packedScreenSpace: null,
-      packedSummary: null,
-      buildStats: null,
-      drawStats: null
-    };
+    return { infoText: emptyInfo, visible: [], packedScreenSpace: null, packedSummary: null, buildStats: null, drawStats: null };
   }
 
   const frameToken = ++tokenRef.value;
   const t0 = performance.now();
-
   const buildConfig = getVisibleBuildConfig(ui, interactionOverride);
   const tileGrid = computeTileGrid(canvas.width, canvas.height, 32);
   const camPos = camera.position.clone();
@@ -542,20 +478,11 @@ export async function renderGpuFrame({
   if (visibleResult === null) return null;
 
   const {
-    visible,
-    packedScreenSpace,
-    packedSummary,
-    activeTileBox,
-    buildStats: rawBuildStats
+    visible, packedScreenSpace, packedSummary, activeTileBox, buildStats: rawBuildStats
   } = visibleResult;
 
   const tileData = buildTileLists(visible, tileGrid.tileCols, tileGrid.tileRows);
-  const tileSummary = summarizeTileLists(
-    tileData,
-    tileGrid.tileCols,
-    tileGrid.tileRows,
-    activeTileBox
-  );
+  const tileSummary = summarizeTileLists(tileData, tileGrid.tileCols, tileGrid.tileRows, activeTileBox);
 
   const legacySample = buildLegacySample(visible);
   const packedSample = buildPackedSample(packedScreenSpace);
@@ -565,44 +492,20 @@ export async function renderGpuFrame({
     ? buildNeighborTileIds(focusTileId, tileGrid.tileCols, tileGrid.tileRows, mode.tileRadius)
     : [];
 
-  const tileBatches = mode.drawSelectedOnly
-    ? buildPerTileDrawIndexLists(visible, tileData, focusTileIds, true)
-    : [];
-
-  const perTileDrawBatches = mode.drawSelectedOnly
-    ? buildPerTileDrawBatches(visible, tileBatches)
-    : [];
-
-  const tileBatchSummary = mode.drawSelectedOnly
-    ? summarizeTileDrawBatches(tileBatches)
-    : null;
-
-  const perTileDrawSummary = mode.drawSelectedOnly
-    ? summarizePerTileDrawBatches(perTileDrawBatches)
-    : null;
-
+  const tileBatches = mode.drawSelectedOnly ? buildPerTileDrawIndexLists(visible, tileData, focusTileIds, true) : [];
+  const perTileDrawBatches = mode.drawSelectedOnly ? buildPerTileDrawBatches(visible, tileBatches) : [];
+  const tileBatchSummary = mode.drawSelectedOnly ? summarizeTileDrawBatches(tileBatches) : null;
+  const perTileDrawSummary = mode.drawSelectedOnly ? summarizePerTileDrawBatches(perTileDrawBatches) : null;
   const effectiveTileSummary = perTileDrawSummary || tileBatchSummary;
-  const focusTileRects = mode.drawSelectedOnly
-    ? buildFocusTileRects(focusTileIds, tileGrid, canvas.width, canvas.height)
-    : [];
+  const focusTileRects = mode.drawSelectedOnly ? buildFocusTileRects(focusTileIds, tileGrid, canvas.width, canvas.height) : [];
 
   const requestedPath = getRequestedDrawPath(ui);
-  const drawPathSelection = buildEffectiveDrawPathSelection({
-    mode,
-    requestedPath,
-    packedScreenSpace,
-    gpu
-  });
+  const drawPathSelection = buildEffectiveDrawPathSelection({ mode, requestedPath, packedScreenSpace, gpu });
 
-  const needsLegacyExpandedArrays =
-    drawPathSelection.actualPath === GPU_DRAW_PATH_LEGACY || mode.drawSelectedOnly;
-
-  const legacyDrawData = needsLegacyExpandedArrays
-    ? buildAllVisibleDrawData(visible)
-    : null;
+  const needsLegacyExpandedArrays = drawPathSelection.actualPath === GPU_DRAW_PATH_LEGACY || mode.drawSelectedOnly;
+  const legacyDrawData = needsLegacyExpandedArrays ? buildAllVisibleDrawData(visible) : null;
 
   gpu.resize(canvas.width, canvas.height);
-
   disableDepth(gl);
   enableStandardAlphaBlend(gl);
   clearToGray(gl, bg);
@@ -610,30 +513,15 @@ export async function renderGpuFrame({
   let executionResult;
   if (mode.drawSelectedOnly) {
     executionResult = executePerTileLegacyDraw({
-      gl,
-      gpu,
-      canvas,
-      focusTileRects,
-      perTileDrawBatches,
-      drawPathSelection
+      gl, gpu, canvas, focusTileRects, perTileDrawBatches, drawPathSelection
     });
   } else {
     executionResult = executeFullFrameDraw({
-      gl,
-      gpu,
-      canvas,
-      drawPathSelection,
-      packedScreenSpace,
-      legacyDrawData
+      gl, gpu, canvas, drawPathSelection, packedScreenSpace, legacyDrawData
     });
   }
 
-  const {
-    executionSummary,
-    packedUploadSummary,
-    directPackedDrawInfo,
-    gpuScreenDrawInfo
-  } = executionResult;
+  const { executionSummary, packedUploadSummary, directPackedDrawInfo, gpuScreenDrawInfo } = executionResult;
 
   debugOverlayCanvas.width = canvas.width;
   debugOverlayCanvas.height = canvas.height;
@@ -671,12 +559,7 @@ export async function renderGpuFrame({
     canvasHeight: canvas.height
   });
 
-  const tileSelectionText = formatTileSelectionState(
-    mode,
-    focusTileId,
-    focusTileIds,
-    effectiveTileSummary
-  );
+  const tileSelectionText = formatTileSelectionState(mode, focusTileId, focusTileIds, effectiveTileSummary);
 
   const effectiveDrawData = mode.drawSelectedOnly
     ? { nDraw: effectiveTileSummary ? effectiveTileSummary.totalTileDrawCount : 0 }
@@ -692,6 +575,7 @@ export async function renderGpuFrame({
   const packedDirectResourceSummary = summarizePackedDirectResources(gpu);
   const gpuScreenSummary = summarizeGpuScreenDrawState(gpu);
   const gpuScreenComparisonSummary = gpuScreenDrawInfo?.gpuScreenComparisonSummary ?? null;
+  const gpuScreenExecutionSummary = gpuScreenDrawInfo?.gpuScreenExecutionSummary ?? null;
 
   const drawStats = buildDrawStats({
     visibleCount: visible.length,
@@ -724,7 +608,7 @@ export async function renderGpuFrame({
 
   const packedLines = buildPackedLines(buildStats, drawPathSelection, drawStats);
   const sampleLines = buildSampleLines(legacySample, packedSample);
-  const gpuScreenExecutionLines = buildGpuScreenExecutionLines(gpuScreenDrawInfo);
+  const gpuScreenExecutionLines = buildGpuScreenExecutionLines(gpuScreenExecutionSummary);
 
   const infoText = formatGpuViewerInfo({
     raw,
@@ -743,12 +627,12 @@ export async function renderGpuFrame({
     timestamp: buildConfig.timestamp,
     splatScale: buildConfig.scalingModifier,
     elapsedMs: elapsed,
-    stepLabel: 'GPU Step28',
+    stepLabel: 'GPU Step29',
     stepNotes: [
-      'gpu-screen comparison output is now separated from gpu-screen state output',
+      'gpu-screen comparison now distinguishes actual draw path from source and reference paths',
       'Packed remains the formal reference path for comparison',
-      'Renderer keeps only execution-specific gpu-screen lines locally',
-      'Redundant gpu-screen debug lines are reduced for readability'
+      'gpu-screen execution lines now report actual/source/reference explicitly',
+      'Debug semantics are aligned for future independent gpu-screen sources'
     ],
     tileSummary,
     avgRefsPerVisible,
@@ -775,6 +659,7 @@ export async function renderGpuFrame({
     tileSummary,
     drawPathSummary: drawPathSelection,
     gpuScreenSummary,
-    gpuScreenComparisonSummary
+    gpuScreenComparisonSummary,
+    gpuScreenExecutionSummary
   };
 }

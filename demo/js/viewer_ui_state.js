@@ -1,14 +1,14 @@
-// Step28:
+// Step29:
 // UI state の保存・復元・正規化をここに集約する。
-// Step27 では gpu-screen を packed formal reference と比較する
-// experimental path として扱った。
-// Step28 では debug 側の整理に合わせて、state summary でも
-// - current role
+// Step28 では gpu-screen comparison 表示を state からも意識できるようにした。
+// Step29 では debug の意味づけ修正に合わせて、state summary でも
+// - actual draw role
 // - reference path
 // - comparison visibility
-// を分かりやすくする。
+// を明確にする。
+// source path 自体は実行時の screen-space builder 側で決まるので、UI state では持たない。
 
-const UI_STATE_STORAGE_KEY = 'gpuViewerUiStateStep28';
+const UI_STATE_STORAGE_KEY = 'gpuViewerUiStateStep29';
 
 function toBool(value, fallback = false) {
   if (typeof value === 'boolean') return value;
@@ -57,7 +57,7 @@ function writeValue(el, value) {
 
 function getDrawPathRole(drawPath) {
   if (drawPath === 'packed') return 'formal-reference';
-  if (drawPath === 'gpu-screen') return 'experimental-compare';
+  if (drawPath === 'gpu-screen') return 'experimental-draw';
   return 'fallback';
 }
 
@@ -68,26 +68,19 @@ function getDrawPathReference(drawPath) {
 
 export function createDefaultUiState() {
   return {
-    // tile debug
     showTileDebug: false,
     drawSelectedTileOnly: false,
     useMaxTile: true,
     selectedTileId: -1,
     tileRadius: 0,
-
-    // temporal index
     useTemporalIndex: false,
     useTemporalIndexCache: true,
     temporalWindowMode: 'max',
     fixedWindowRadius: 0,
-
-    // temporal bucket
     useTemporalBucket: false,
     useTemporalBucketCache: true,
     temporalBucketWidth: 0.05,
     temporalBucketRadius: 1,
-
-    // quality override
     usePlaybackOverride: false,
     playbackStride: 1,
     playbackMaxVisible: 0,
@@ -96,36 +89,28 @@ export function createDefaultUiState() {
     interactionStride: 1,
     interactionMaxVisible: 0,
     interactionRenderScale: 1.0,
-
-    // draw path
     usePackedVisiblePath: true,
     drawPath: 'packed',
-
-    // misc
     bgGray: 32
   };
 }
 
 export function normalizeUiState(input = {}) {
   const defaults = createDefaultUiState();
-
   return {
     showTileDebug: toBool(input.showTileDebug, defaults.showTileDebug),
     drawSelectedTileOnly: toBool(input.drawSelectedTileOnly, defaults.drawSelectedTileOnly),
     useMaxTile: toBool(input.useMaxTile, defaults.useMaxTile),
     selectedTileId: toInt(input.selectedTileId, defaults.selectedTileId),
     tileRadius: Math.max(0, toInt(input.tileRadius, defaults.tileRadius)),
-
     useTemporalIndex: toBool(input.useTemporalIndex, defaults.useTemporalIndex),
     useTemporalIndexCache: toBool(input.useTemporalIndexCache, defaults.useTemporalIndexCache),
     temporalWindowMode: toStringValue(input.temporalWindowMode, defaults.temporalWindowMode),
     fixedWindowRadius: Math.max(0, toInt(input.fixedWindowRadius, defaults.fixedWindowRadius)),
-
     useTemporalBucket: toBool(input.useTemporalBucket, defaults.useTemporalBucket),
     useTemporalBucketCache: toBool(input.useTemporalBucketCache, defaults.useTemporalBucketCache),
     temporalBucketWidth: Math.max(0, toFloat(input.temporalBucketWidth, defaults.temporalBucketWidth)),
     temporalBucketRadius: Math.max(0, toInt(input.temporalBucketRadius, defaults.temporalBucketRadius)),
-
     usePlaybackOverride: toBool(input.usePlaybackOverride, defaults.usePlaybackOverride),
     playbackStride: Math.max(1, toInt(input.playbackStride, defaults.playbackStride)),
     playbackMaxVisible: Math.max(0, toInt(input.playbackMaxVisible, defaults.playbackMaxVisible)),
@@ -134,10 +119,8 @@ export function normalizeUiState(input = {}) {
     interactionStride: Math.max(1, toInt(input.interactionStride, defaults.interactionStride)),
     interactionMaxVisible: Math.max(0, toInt(input.interactionMaxVisible, defaults.interactionMaxVisible)),
     interactionRenderScale: Math.max(0.05, toFloat(input.interactionRenderScale, defaults.interactionRenderScale)),
-
     usePackedVisiblePath: toBool(input.usePackedVisiblePath, defaults.usePackedVisiblePath),
     drawPath: normalizeDrawPath(input.drawPath, defaults.drawPath),
-
     bgGray: Math.min(255, Math.max(0, toInt(input.bgGray, defaults.bgGray)))
   };
 }
@@ -153,6 +136,7 @@ export function summarizeUiState(state) {
     drawPathRole,
     drawPathReference,
     drawPathShowsComparison: s.drawPath === 'gpu-screen',
+    drawPathActualRole: drawPathRole,
     drawSelectedOnly: s.drawSelectedTileOnly,
     bgGray: s.bgGray
   };
@@ -187,17 +171,14 @@ export function readUiStateFromControls(ui) {
     useMaxTile: readChecked(ui.useMaxTileCheck),
     selectedTileId: readValue(ui.selectedTileIdInput, '-1'),
     tileRadius: readValue(ui.tileRadiusInput, '0'),
-
     useTemporalIndex: readChecked(ui.useTemporalIndexCheck),
     useTemporalIndexCache: readChecked(ui.useTemporalIndexCacheCheck),
     temporalWindowMode: readValue(ui.temporalWindowModeSelect, 'max'),
     fixedWindowRadius: readValue(ui.fixedWindowRadiusInput, '0'),
-
     useTemporalBucket: readChecked(ui.useTemporalBucketCheck),
     useTemporalBucketCache: readChecked(ui.useTemporalBucketCacheCheck),
     temporalBucketWidth: readValue(ui.temporalBucketWidthInput, '0.05'),
     temporalBucketRadius: readValue(ui.temporalBucketRadiusInput, '1'),
-
     usePlaybackOverride: readChecked(ui.usePlaybackOverrideCheck),
     playbackStride: readValue(ui.playbackStrideInput, '1'),
     playbackMaxVisible: readValue(ui.playbackMaxVisibleInput, '0'),
@@ -206,10 +187,8 @@ export function readUiStateFromControls(ui) {
     interactionStride: readValue(ui.interactionStrideInput, '1'),
     interactionMaxVisible: readValue(ui.interactionMaxVisibleInput, '0'),
     interactionRenderScale: readValue(ui.interactionRenderScaleInput, '1.0'),
-
     usePackedVisiblePath: readChecked(ui.usePackedVisiblePathCheck, true),
     drawPath: readValue(ui.drawPathSelect, 'packed'),
-
     bgGray: readValue(ui.bgGraySlider, '32')
   });
 }
@@ -222,17 +201,14 @@ export function applyUiStateToControls(ui, state) {
   writeChecked(ui.useMaxTileCheck, s.useMaxTile);
   writeValue(ui.selectedTileIdInput, s.selectedTileId);
   writeValue(ui.tileRadiusInput, s.tileRadius);
-
   writeChecked(ui.useTemporalIndexCheck, s.useTemporalIndex);
   writeChecked(ui.useTemporalIndexCacheCheck, s.useTemporalIndexCache);
   writeValue(ui.temporalWindowModeSelect, s.temporalWindowMode);
   writeValue(ui.fixedWindowRadiusInput, s.fixedWindowRadius);
-
   writeChecked(ui.useTemporalBucketCheck, s.useTemporalBucket);
   writeChecked(ui.useTemporalBucketCacheCheck, s.useTemporalBucketCache);
   writeValue(ui.temporalBucketWidthInput, s.temporalBucketWidth);
   writeValue(ui.temporalBucketRadiusInput, s.temporalBucketRadius);
-
   writeChecked(ui.usePlaybackOverrideCheck, s.usePlaybackOverride);
   writeValue(ui.playbackStrideInput, s.playbackStride);
   writeValue(ui.playbackMaxVisibleInput, s.playbackMaxVisible);
@@ -241,20 +217,15 @@ export function applyUiStateToControls(ui, state) {
   writeValue(ui.interactionStrideInput, s.interactionStride);
   writeValue(ui.interactionMaxVisibleInput, s.interactionMaxVisible);
   writeValue(ui.interactionRenderScaleInput, s.interactionRenderScale);
-
   writeChecked(ui.usePackedVisiblePathCheck, s.usePackedVisiblePath);
   writeValue(ui.drawPathSelect, s.drawPath);
-
   writeValue(ui.bgGraySlider, s.bgGray);
 
   if (ui.usePackedVisiblePathNote) {
-    ui.usePackedVisiblePathNote.textContent =
-      'formal full-frame packed reference path';
+    ui.usePackedVisiblePathNote.textContent = 'formal full-frame packed reference path';
   }
-
   if (ui.drawPathSelectNote) {
-    ui.drawPathSelectNote.textContent =
-      'full-frame only; gpu-screen comparison is shown separately from state';
+    ui.drawPathSelectNote.textContent = 'full-frame only; gpu-screen debug distinguishes actual, source, and reference';
   }
 
   return s;
@@ -272,24 +243,20 @@ export function readAndSaveUiState(ui) {
 
 export function bindUiStatePersistence(ui, options = {}) {
   const onChange = typeof options.onChange === 'function' ? options.onChange : null;
-
   const controls = [
     ui.showTileDebugCheck,
     ui.drawSelectedTileOnlyCheck,
     ui.useMaxTileCheck,
     ui.selectedTileIdInput,
     ui.tileRadiusInput,
-
     ui.useTemporalIndexCheck,
     ui.useTemporalIndexCacheCheck,
     ui.temporalWindowModeSelect,
     ui.fixedWindowRadiusInput,
-
     ui.useTemporalBucketCheck,
     ui.useTemporalBucketCacheCheck,
     ui.temporalBucketWidthInput,
     ui.temporalBucketRadiusInput,
-
     ui.usePlaybackOverrideCheck,
     ui.playbackStrideInput,
     ui.playbackMaxVisibleInput,
@@ -298,10 +265,8 @@ export function bindUiStatePersistence(ui, options = {}) {
     ui.interactionStrideInput,
     ui.interactionMaxVisibleInput,
     ui.interactionRenderScaleInput,
-
     ui.usePackedVisiblePathCheck,
     ui.drawPathSelect,
-
     ui.bgGraySlider
   ].filter(Boolean);
 

@@ -119,29 +119,27 @@ function buildRenderOverrides() {
 }
 
 function scheduleRenderAndPersist() {
-  readAndSaveUiState(ui);
+  const state = readAndSaveUiState(ui);
+  updateDrawPathNoteFromState(state);
   scheduler.scheduleRender();
 }
 
 function updateDrawPathNoteFromState(stateLike) {
   const summary = summarizeUiState(stateLike);
-
   if (!ui.drawPathSelectNote) return;
 
   if (summary.drawPath === 'gpu-screen') {
     ui.drawPathSelectNote.textContent =
-      'full-frame only; gpu-screen comparison is shown separately from state';
+      'full-frame only; gpu-screen debug distinguishes actual, source, and reference';
     return;
   }
 
   if (summary.drawPath === 'packed') {
-    ui.drawPathSelectNote.textContent =
-      'full-frame only; packed is the formal reference path';
+    ui.drawPathSelectNote.textContent = 'full-frame only; packed is the formal reference path';
     return;
   }
 
-  ui.drawPathSelectNote.textContent =
-    'full-frame only; legacy is the fallback path';
+  ui.drawPathSelectNote.textContent = 'full-frame only; legacy is the fallback path';
 }
 
 function bindSliderTextUpdates() {
@@ -205,10 +203,7 @@ playback = createViewerPlayback({
   ui,
   controls,
   scheduleRender: scheduler.scheduleRender,
-  getTimeRange: () => ({
-    min: parseFloat(ui.timeSlider.min),
-    max: parseFloat(ui.timeSlider.max)
-  }),
+  getTimeRange: () => ({ min: parseFloat(ui.timeSlider.min), max: parseFloat(ui.timeSlider.max) }),
   requestNextFrame: (cb) => requestAnimationFrame(cb),
   onPlaybackStateChange: () => {
     scheduler.scheduleRender();
@@ -261,9 +256,7 @@ function bindUiEvents() {
 
   if (ui.debugLogCopyBtn) {
     ui.debugLogCopyBtn.addEventListener('click', async () => {
-      if (!ui.debugLogArea?.value) {
-        exportLatestDebugTextToArea();
-      }
+      if (!ui.debugLogArea?.value) exportLatestDebugTextToArea();
       await copyDebugLogText(ui);
     });
   }
@@ -283,9 +276,7 @@ function bindUiEvents() {
   ui.renderBtn.addEventListener('click', scheduler.scheduleRender);
 
   ui.resetCamBtn.addEventListener('click', () => {
-    if (raw) {
-      fitCameraToRaw(raw, controls, camera);
-    }
+    if (raw) fitCameraToRaw(raw, controls, camera);
     scheduler.scheduleRender();
   });
 
