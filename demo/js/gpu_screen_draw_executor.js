@@ -8,20 +8,21 @@ import {
 import {
   GPU_SCREEN_SPACE_SOURCE_PACKED_CPU,
   GPU_SCREEN_SPACE_SOURCE_PACKED_GPU_PREP,
-  GPU_SCREEN_SPACE_SOURCE_GPU_SCREEN_EXPERIMENTAL
+  GPU_SCREEN_SPACE_SOURCE_GPU_SCREEN_EXPERIMENTAL,
+  GPU_SCREEN_SPACE_SOURCE_SCHEMA_VERSION
 } from './gpu_screen_space_builder.js';
 
-// Step31
+// Step32
 // 目的:
-// - Step30 の draw ownership separation を維持する
-// - Step31 で追加した source provider (`packed-gpu-prep`) を gpu-screen executor がそのまま受け取れるようにする
-// - packed formal draw contract は変えず、comparison summary だけ source provider 対応に拡張する
+// - Step30/31 の draw ownership separation を維持する
+// - Step32 で追加した source internal stages を gpu-screen executor の summary に反映する
+// - packed formal draw contract は変えず、comparison / execution summary だけを source-stage aware にする
 //
 // 設計:
-// 1. upload state / VAO / draw ownership は Step30 と同じ
+// 1. upload state / VAO / draw ownership は Step31 と同じ
 // 2. attribute descriptor は packed formal contract をそのまま使う
-// 3. source path / source role / reference path は input gpuScreenSpace から決める
-// 4. readiness の公開挙動は Step30 / Step29 互換を維持する
+// 3. source path / role / internal stage metrics は input gpuScreenSpace.summary から読む
+// 4. readiness の公開挙動は Step30/31 互換を維持する
 
 function createDefaultGpuScreenState() {
   return {
@@ -136,10 +137,26 @@ function getSourceRole(path, experimental) {
   return 'formal-source';
 }
 
+function getSourceStageMetrics(gpuScreenSpace) {
+  const summary = gpuScreenSpace?.summary ?? null;
+  return {
+    sourceItemCount: Number.isFinite(summary?.sourceItemCount) ? summary.sourceItemCount : 0,
+    sourceSchemaVersion: Number.isFinite(summary?.sourceSchemaVersion)
+      ? summary.sourceSchemaVersion
+      : GPU_SCREEN_SPACE_SOURCE_SCHEMA_VERSION,
+    sourcePrepStageMs: Number.isFinite(summary?.prepStageMs) ? summary.prepStageMs : 0,
+    sourcePackStageMs: Number.isFinite(summary?.packStageMs) ? summary.packStageMs : 0
+  };
+}
+
 function buildGpuScreenComparisonSummary(state, gpuScreenSpace) {
   const sourcePath = normalizeSourcePath(gpuScreenSpace);
-  const sourceExperimental = !!gpuScreenSpace?.experimental || sourcePath === GPU_SCREEN_SPACE_SOURCE_PACKED_GPU_PREP || sourcePath === GPU_SCREEN_SPACE_SOURCE_GPU_SCREEN_EXPERIMENTAL;
+  const sourceExperimental =
+    !!gpuScreenSpace?.experimental ||
+    sourcePath === GPU_SCREEN_SPACE_SOURCE_PACKED_GPU_PREP ||
+    sourcePath === GPU_SCREEN_SPACE_SOURCE_GPU_SCREEN_EXPERIMENTAL;
   const sourceRole = getSourceRole(sourcePath, sourceExperimental);
+  const stageMetrics = getSourceStageMetrics(gpuScreenSpace);
 
   return {
     actualPath: 'gpu-screen',
@@ -157,6 +174,11 @@ function buildGpuScreenComparisonSummary(state, gpuScreenSpace) {
     sourcePackedLength: gpuScreenSpace?.packed instanceof Float32Array
       ? gpuScreenSpace.packed.length
       : 0,
+
+    sourceItemCount: stageMetrics.sourceItemCount,
+    sourceSchemaVersion: stageMetrics.sourceSchemaVersion,
+    sourcePrepStageMs: stageMetrics.sourcePrepStageMs,
+    sourcePackStageMs: stageMetrics.sourcePackStageMs,
 
     referencePath: GPU_SCREEN_SPACE_SOURCE_PACKED_CPU,
     referenceRole: 'formal-reference',
@@ -178,7 +200,11 @@ function buildGpuScreenExecutionSummary({ drawCount, reason, ready, comparisonSu
     gpuScreenDrawCount: drawCount ?? 0,
     gpuScreenActualPath: comparisonSummary?.actualPath ?? 'gpu-screen',
     gpuScreenSourcePath: comparisonSummary?.sourcePath ?? 'none',
-    gpuScreenReferencePath: comparisonSummary?.referencePath ?? GPU_SCREEN_SPACE_SOURCE_PACKED_CPU
+    gpuScreenReferencePath: comparisonSummary?.referencePath ?? GPU_SCREEN_SPACE_SOURCE_PACKED_CPU,
+    gpuScreenSourceItemCount: comparisonSummary?.sourceItemCount ?? 0,
+    gpuScreenSourceSchemaVersion: comparisonSummary?.sourceSchemaVersion ?? GPU_SCREEN_SPACE_SOURCE_SCHEMA_VERSION,
+    gpuScreenSourcePrepStageMs: comparisonSummary?.sourcePrepStageMs ?? 0,
+    gpuScreenSourcePackStageMs: comparisonSummary?.sourcePackStageMs ?? 0
   };
 }
 

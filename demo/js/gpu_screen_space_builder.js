@@ -7,26 +7,33 @@ import {
   createPackedVisibleResult
 } from './gpu_visible_pack_utils.js';
 
-// Step31
+// Step32
 // 目的:
-// - Step30 で分離した gpu-screen draw ownership の次として、source ownership separation を始める
-// - packed formal draw contract は一切変えず、source provider だけを明示化する
-// - packed-cpu を formal source、packed-gpu-prep を experimental source として扱う
+// - gpu-screen source provider の内部責務を分離する
+// - packed formal draw contract は維持したまま、
+//   gpu-screen source を
+//   (1) source item build
+//   (2) packed transform
+//   の2段へ分ける
 //
 // 非目標:
 // - draw contract の変更
 // - UI/state/tile 層の変更
-// - renderer 側での意味変更
+// - packed formal path の変更
 //
 // 設計:
-// 1. source provider 名を定数化する
-// 2. packed-cpu は formal source のまま維持する
-// 3. packed-gpu-prep は experimental source の入口として追加する
-// 4. 旧 export buildGpuScreenExperimentalSpaceWithContext は互換 alias として残す
+// 1. packed-cpu は formal source のまま維持
+// 2. packed-gpu-prep は experimental source として維持
+// 3. packed-gpu-prep の内部では
+//    - gpu-screen source items の生成
+//    - source items -> packed formal contract 変換
+//    を分離する
+// 4. 既存 export 互換は維持する
 
 export const GPU_SCREEN_SPACE_SOURCE_PACKED_CPU = 'packed-cpu';
 export const GPU_SCREEN_SPACE_SOURCE_PACKED_GPU_PREP = 'packed-gpu-prep';
 export const GPU_SCREEN_SPACE_SOURCE_GPU_SCREEN_EXPERIMENTAL = 'gpu-screen-experimental';
+export const GPU_SCREEN_SPACE_SOURCE_SCHEMA_VERSION = 1;
 
 function nowMs() {
   return performance.now();
@@ -138,8 +145,11 @@ export function createScreenSpaceBuildContext() {
     lastSourcePath: GPU_SCREEN_SPACE_SOURCE_PACKED_CPU,
     lastInputVisibleCount: 0,
     lastNormalizedVisibleCount: 0,
+    lastSourceItemCount: 0,
     lastPackCount: 0,
     lastPackedLength: 0,
+    lastPrepStageMs: 0,
+    lastPackStageMs: 0,
     lastBuildMs: 0,
     lastSummary: null,
     lastComparisonSummary: null
@@ -185,21 +195,61 @@ function buildReferenceInfo(path, experimental) {
   };
 }
 
+export function buildGpuScreenSourceItems(normalizedVisible, extra = {}) {
+  const sourceItems = Array.isArray(normalizedVisible) ? normalizedVisible.slice() : [];
+  return {
+    path: normalizeSourcePath(extra.path, !!extra.experimental),
+    experimental: !!extra.experimental,
+    schemaVersion: GPU_SCREEN_SPACE_SOURCE_SCHEMA_VERSION,
+    items: sourceItems,
+    itemCount: sourceItems.length
+  };
+}
+
+export function packGpuScreenSourceItems(sourceItemsResult, extra = {}) {
+  const items = Array.isArray(sourceItemsResult?.items) ? sourceItemsResult.items : [];
+  const packedResult = packVisibleItems(items);
+  return {
+    packed: packedResult?.packed instanceof Float32Array ? packedResult.packed : null,
+    count: Number.isFinite(packedResult?.count) ? packedResult.count : items.length,
+    floatsPerItem: Number.isFinite(packedResult?.floatsPerItem)
+      ? packedResult.floatsPerItem
+      : GPU_VISIBLE_PACK_FLOATS_PER_ITEM,
+    path: normalizeSourcePath(extra.path ?? sourceItemsResult?.path, !!extra.experimental || !!sourceItemsResult?.experimental),
+    experimental: !!extra.experimental || !!sourceItemsResult?.experimental,
+    sourceItems: items,
+    sourceItemCount: Number.isFinite(sourceItemsResult?.itemCount) ? sourceItemsResult.itemCount : items.length,
+    sourceSchemaVersion: Number.isFinite(sourceItemsResult?.schemaVersion)
+      ? sourceItemsResult.schemaVersion
+      : GPU_SCREEN_SPACE_SOURCE_SCHEMA_VERSION
+  };
+}
+
 function buildPackedScreenSpaceStateSummary({
   path,
   inputVisible,
   normalizedVisible,
+  sourceItems,
   packed,
   packedCount,
   floatsPerItem,
+  prepStageMs,
+  packStageMs,
   buildMs,
-  experimental
+  experimental,
+  sourceSchemaVersion
 }) {
   const normalizedPath = normalizeSourcePath(path, experimental);
   return {
     path: normalizedPath,
     inputVisibleCount: Array.isArray(inputVisible) ? inputVisible.length : 0,
     normalizedVisibleCount: Array.isArray(normalizedVisible) ? normalizedVisible.length : 0,
+    sourceItemCount: Array.isArray(sourceItems) ? sourceItems.length : 0,
+    sourceSchemaVersion: Number.isFinite(sourceSchemaVersion)
+      ? sourceSchemaVersion
+      : GPU_SCREEN_SPACE_SOURCE_SCHEMA_VERSION,
+    prepStageMs: Number.isFinite(prepStageMs) ? prepStageMs : 0,
+    packStageMs: Number.isFinite(packStageMs) ? packStageMs : 0,
     packedCount,
     packedLength: packed instanceof Float32Array ? packed.length : 0,
     floatsPerItem,
@@ -238,25 +288,35 @@ function buildPackedScreenSpaceComparisonSummary({
   };
 }
 
-function buildPackedScreenSpaceResult(normalizedVisible, packedResult, extra = {}) {
-  const packed = packedResult?.packed instanceof Float32Array ? packedResult.packed : null;
-  const packedCount = Number.isFinite(packedResult?.count) ? packedResult.count : 0;
-  const floatsPerItem = Number.isFinite(packedResult?.floatsPerItem)
-    ? packedResult.floatsPerItem
+function buildPackedScreenSpaceResult(normalizedVisible, sourceItemsResult, packedStageResult, extra = {}) {
+  const packed = packedStageResult?.packed instanceof Float32Array ? packedStageResult.packed : null;
+  const packedCount = Number.isFinite(packedStageResult?.count) ? packedStageResult.count : 0;
+  const floatsPerItem = Number.isFinite(packedStageResult?.floatsPerItem)
+    ? packedStageResult.floatsPerItem
     : GPU_VISIBLE_PACK_FLOATS_PER_ITEM;
   const path = normalizeSourcePath(extra.path, !!extra.experimental);
   const experimental = !!extra.experimental;
   const buildMs = extra.buildMs;
+  const prepStageMs = extra.prepStageMs;
+  const packStageMs = extra.packStageMs;
+  const sourceItems = Array.isArray(sourceItemsResult?.items) ? sourceItemsResult.items : [];
+  const sourceSchemaVersion = Number.isFinite(sourceItemsResult?.schemaVersion)
+    ? sourceItemsResult.schemaVersion
+    : GPU_SCREEN_SPACE_SOURCE_SCHEMA_VERSION;
 
   const stateSummary = buildPackedScreenSpaceStateSummary({
     path,
     inputVisible: extra.inputVisible,
     normalizedVisible,
+    sourceItems,
     packed,
     packedCount,
     floatsPerItem,
+    prepStageMs,
+    packStageMs,
     buildMs,
-    experimental
+    experimental,
+    sourceSchemaVersion
   });
 
   const comparisonSummary = buildPackedScreenSpaceComparisonSummary({
@@ -270,6 +330,7 @@ function buildPackedScreenSpaceResult(normalizedVisible, packedResult, extra = {
   return {
     path,
     visible: normalizedVisible,
+    sourceItems,
     packed,
     packedCount,
     floatsPerItem,
@@ -288,8 +349,11 @@ function updateContext(context, result, inputVisible) {
   context.lastSourcePath = result.comparisonSummary?.sourcePath ?? result.path;
   context.lastInputVisibleCount = Array.isArray(inputVisible) ? inputVisible.length : 0;
   context.lastNormalizedVisibleCount = Array.isArray(result.visible) ? result.visible.length : 0;
+  context.lastSourceItemCount = Array.isArray(result.sourceItems) ? result.sourceItems.length : 0;
   context.lastPackCount = Number.isFinite(result.packedCount) ? result.packedCount : 0;
   context.lastPackedLength = result.packed instanceof Float32Array ? result.packed.length : 0;
+  context.lastPrepStageMs = Number.isFinite(result.summary?.prepStageMs) ? result.summary.prepStageMs : 0;
+  context.lastPackStageMs = Number.isFinite(result.summary?.packStageMs) ? result.summary.packStageMs : 0;
   context.lastBuildMs = Number.isFinite(result.summary?.buildMs) ? result.summary.buildMs : 0;
   context.lastSummary = result.summary;
   context.lastComparisonSummary = result.comparisonSummary ?? null;
@@ -298,12 +362,22 @@ function updateContext(context, result, inputVisible) {
 export function buildPackedScreenSpaceFromVisible(visible, extra = {}) {
   const t0 = nowMs();
   const normalizedVisible = normalizeScreenSpaceVisible(visible);
-  const packedResult = createPackedVisibleResult(normalizedVisible, extra);
+
+  const prepT0 = nowMs();
+  const sourceItemsResult = buildGpuScreenSourceItems(normalizedVisible, extra);
+  const prepStageMs = nowMs() - prepT0;
+
+  const packT0 = nowMs();
+  const packedStageResult = packGpuScreenSourceItems(sourceItemsResult, extra);
+  const packStageMs = nowMs() - packT0;
+
   const buildMs = nowMs() - t0;
 
-  return buildPackedScreenSpaceResult(normalizedVisible, packedResult, {
+  return buildPackedScreenSpaceResult(normalizedVisible, sourceItemsResult, packedStageResult, {
     ...extra,
     inputVisible: visible,
+    prepStageMs,
+    packStageMs,
     buildMs,
     path: normalizeSourcePath(extra.path, !!extra.experimental),
     experimental: !!extra.experimental
@@ -313,12 +387,22 @@ export function buildPackedScreenSpaceFromVisible(visible, extra = {}) {
 export function buildPackedScreenSpaceWithContext(context, visible, extra = {}) {
   const t0 = nowMs();
   const normalizedVisible = normalizeScreenSpaceVisible(visible);
-  const packedResult = packVisibleItems(normalizedVisible);
+
+  const prepT0 = nowMs();
+  const sourceItemsResult = buildGpuScreenSourceItems(normalizedVisible, extra);
+  const prepStageMs = nowMs() - prepT0;
+
+  const packT0 = nowMs();
+  const packedStageResult = packGpuScreenSourceItems(sourceItemsResult, extra);
+  const packStageMs = nowMs() - packT0;
+
   const buildMs = nowMs() - t0;
 
-  const result = buildPackedScreenSpaceResult(normalizedVisible, packedResult, {
+  const result = buildPackedScreenSpaceResult(normalizedVisible, sourceItemsResult, packedStageResult, {
     ...extra,
     inputVisible: visible,
+    prepStageMs,
+    packStageMs,
     buildMs,
     path: normalizeSourcePath(extra.path, !!extra.experimental),
     experimental: !!extra.experimental
@@ -362,6 +446,10 @@ export function summarizePackedScreenSpace(result) {
   if (!result) {
     return {
       path: 'none',
+      sourceItemCount: 0,
+      sourceSchemaVersion: GPU_SCREEN_SPACE_SOURCE_SCHEMA_VERSION,
+      prepStageMs: 0,
+      packStageMs: 0,
       packedCount: 0,
       packedLength: 0,
       floatsPerItem: GPU_VISIBLE_PACK_FLOATS_PER_ITEM,
@@ -378,6 +466,12 @@ export function summarizePackedScreenSpace(result) {
 
   return {
     path: result.summary?.path ?? result.path ?? 'unknown',
+    sourceItemCount: Number.isFinite(result.summary?.sourceItemCount) ? result.summary.sourceItemCount : 0,
+    sourceSchemaVersion: Number.isFinite(result.summary?.sourceSchemaVersion)
+      ? result.summary.sourceSchemaVersion
+      : GPU_SCREEN_SPACE_SOURCE_SCHEMA_VERSION,
+    prepStageMs: Number.isFinite(result.summary?.prepStageMs) ? result.summary.prepStageMs : 0,
+    packStageMs: Number.isFinite(result.summary?.packStageMs) ? result.summary.packStageMs : 0,
     packedCount: Number.isFinite(result.packedCount) ? result.packedCount : 0,
     packedLength: result.packed instanceof Float32Array ? result.packed.length : 0,
     floatsPerItem: Number.isFinite(result.floatsPerItem)
@@ -440,8 +534,11 @@ export function summarizeScreenSpaceBuildContext(context) {
       lastSourcePath: 'none',
       lastInputVisibleCount: 0,
       lastNormalizedVisibleCount: 0,
+      lastSourceItemCount: 0,
       lastPackCount: 0,
       lastPackedLength: 0,
+      lastPrepStageMs: 0,
+      lastPackStageMs: 0,
       lastBuildMs: 0,
       lastSummary: null,
       lastComparisonSummary: null
@@ -456,8 +553,13 @@ export function summarizeScreenSpaceBuildContext(context) {
     lastNormalizedVisibleCount: Number.isFinite(context.lastNormalizedVisibleCount)
       ? context.lastNormalizedVisibleCount
       : 0,
+    lastSourceItemCount: Number.isFinite(context.lastSourceItemCount)
+      ? context.lastSourceItemCount
+      : 0,
     lastPackCount: Number.isFinite(context.lastPackCount) ? context.lastPackCount : 0,
     lastPackedLength: Number.isFinite(context.lastPackedLength) ? context.lastPackedLength : 0,
+    lastPrepStageMs: Number.isFinite(context.lastPrepStageMs) ? context.lastPrepStageMs : 0,
+    lastPackStageMs: Number.isFinite(context.lastPackStageMs) ? context.lastPackStageMs : 0,
     lastBuildMs: Number.isFinite(context.lastBuildMs) ? context.lastBuildMs : 0,
     lastSummary: context.lastSummary ?? null,
     lastComparisonSummary: context.lastComparisonSummary ?? null

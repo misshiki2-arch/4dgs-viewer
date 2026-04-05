@@ -63,16 +63,16 @@ import {
   summarizePackedScreenSpaceComparison
 } from './gpu_screen_space_builder.js';
 
-// Step31
+// Step32
 // 目的:
-// - Step30 の draw ownership separation を維持したまま、gpu-screen の source ownership separation を始める
-// - packed formal draw contract は変えず、gpu-screen の source provider だけを packed-gpu-prep へ分離する
-// - renderer は薄い司令塔として、source provider の選択と executor への受け渡しだけを担当する
+// - Step31 の source provider separation を維持する
+// - Step32 で追加した source item build / packed transform の内訳を debug に渡す
+// - renderer 自身の責務は増やさず、source summary の受け渡しだけを最小差分で追加する
 //
 // 設計:
 // 1. packed path は visible builder 由来の packed-cpu をそのまま使う
 // 2. gpu-screen path は packed-gpu-prep source を優先し、失敗時は packed-cpu に fallback する
-// 3. UI/state/tile 契約は Step30 と同じ
+// 3. sourceComparisonSummary に Step32 の source internal stage 情報をマージして debug builder に渡す
 // 4. per-tile drawSelectedOnly は引き続き legacy のみ
 
 function ensureDebugOverlayCanvas(mainCanvas) {
@@ -269,16 +269,28 @@ function buildGpuScreenExecutionLines(gpuScreenExecutionSummary) {
   ];
 }
 
+function mergeGpuScreenSourceInfo(sourceSummary, sourceComparisonSummary) {
+  return {
+    ...(sourceComparisonSummary || {}),
+    sourceItemCount: sourceSummary?.sourceItemCount ?? 0,
+    sourceSchemaVersion: sourceSummary?.sourceSchemaVersion ?? 0,
+    sourcePrepStageMs: sourceSummary?.prepStageMs ?? 0,
+    sourcePackStageMs: sourceSummary?.packStageMs ?? 0
+  };
+}
+
 function selectGpuScreenSourceSpace(gpu, visible, packedCpuScreenSpace) {
   const context = ensureGpuScreenSourceContext(gpu);
 
   try {
     const experimental = buildPackedGpuPrepScreenSpaceWithContext(context, visible, {});
     if (experimental?.packed instanceof Float32Array) {
+      const sourceSummary = summarizePackedScreenSpace(experimental);
+      const sourceComparisonSummary = summarizePackedScreenSpaceComparison(experimental);
       return {
         sourceSpace: experimental,
-        sourceSummary: summarizePackedScreenSpace(experimental),
-        sourceComparisonSummary: summarizePackedScreenSpaceComparison(experimental),
+        sourceSummary,
+        sourceComparisonSummary: mergeGpuScreenSourceInfo(sourceSummary, sourceComparisonSummary),
         sourceFallbackReason: 'none'
       };
     }
@@ -286,10 +298,13 @@ function selectGpuScreenSourceSpace(gpu, visible, packedCpuScreenSpace) {
     console.warn('gpu-screen source build failed, falling back to packed-cpu source', err);
   }
 
+  const sourceSummary = summarizePackedScreenSpace(packedCpuScreenSpace);
+  const sourceComparisonSummary = summarizePackedScreenSpaceComparison(packedCpuScreenSpace);
+
   return {
     sourceSpace: packedCpuScreenSpace,
-    sourceSummary: summarizePackedScreenSpace(packedCpuScreenSpace),
-    sourceComparisonSummary: summarizePackedScreenSpaceComparison(packedCpuScreenSpace),
+    sourceSummary,
+    sourceComparisonSummary: mergeGpuScreenSourceInfo(sourceSummary, sourceComparisonSummary),
     sourceFallbackReason: 'gpu-source-build-fallback-to-packed-cpu'
   };
 }
@@ -545,7 +560,7 @@ export async function renderGpuFrame({
     debugOverlayCanvas.height = canvas.height;
     debugCtx.clearRect(0, 0, debugOverlayCanvas.width, debugOverlayCanvas.height);
     debugOverlayCanvas.style.display = 'none';
-    const emptyInfo = 'GPU Step31 viewer\nNo scene loaded.';
+    const emptyInfo = 'GPU Step32 viewer\nNo scene loaded.';
     setInfoText(infoEl, emptyInfo);
     return {
       infoText: emptyInfo,
@@ -788,12 +803,12 @@ export async function renderGpuFrame({
     timestamp: buildConfig.timestamp,
     splatScale: buildConfig.scalingModifier,
     elapsedMs: elapsed,
-    stepLabel: 'GPU Step31',
+    stepLabel: 'GPU Step32',
     stepNotes: [
-      'gpu-screen now begins separating source ownership from packed-cpu via packed-gpu-prep',
+      'gpu-screen source now separates source-item build and packed-transform stages',
       'packed remains the formal reference path for draw contract and layout',
-      'renderer stays thin and only selects source provider plus draw executor',
-      'this step prepares CPU-to-GPU migration by isolating gpu-screen source generation'
+      'renderer stays thin and forwards source-stage summaries to debug output',
+      'this step prepares later GPU migration by isolating CPU source-prep sub-stages'
     ],
     tileSummary,
     avgRefsPerVisible,

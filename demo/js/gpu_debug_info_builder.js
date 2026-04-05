@@ -1,7 +1,7 @@
-// Step31
+// Step32
 // 目的:
 // - debug info builder の責務を「整形だけ」に保ったまま、
-//   Step31 で追加した gpu-screen source ownership separation の情報を表示する
+//   Step32 で追加した gpu-screen source internal stages の情報を表示する
 // - renderer / source builder / executor が確定した値を、そのまま deterministic に並べる
 //
 // 非目標:
@@ -13,7 +13,7 @@
 // 1. buildGpuDebugExtraLines() は入力を文字列化するだけ
 // 2. 値が無いものだけを省略する
 // 3. build config -> timing -> tile mode -> ui -> gpu-screen state -> gpu-screen comparison の順で安定化
-// 4. Step31 では source provider 分離に関する行だけを追加し、他の責務は変えない
+// 4. Step32 では source provider 分離に加えて、source internal stages の行だけを追加する
 
 function isFiniteNumber(v) {
   return Number.isFinite(v);
@@ -150,6 +150,12 @@ function buildGpuScreenComparisonLines(gpuScreenComparisonSummary) {
   pushLine(lines, 'gpuScreenSourceBuildMs', fmtNum(gpuScreenComparisonSummary.sourceBuildMs, 3));
   pushLine(lines, 'gpuScreenSourcePackedCount', fmtInt(gpuScreenComparisonSummary.sourcePackedCount));
   pushLine(lines, 'gpuScreenSourcePackedLength', fmtInt(gpuScreenComparisonSummary.sourcePackedLength));
+
+  // Step32 additions: internal source stages / schema
+  pushLine(lines, 'gpuScreenSourceItemCount', fmtInt(gpuScreenComparisonSummary.sourceItemCount));
+  pushLine(lines, 'gpuScreenSourceSchemaVersion', fmtInt(gpuScreenComparisonSummary.sourceSchemaVersion));
+  pushLine(lines, 'gpuScreenSourcePrepStageMs', fmtNum(gpuScreenComparisonSummary.sourcePrepStageMs, 3));
+  pushLine(lines, 'gpuScreenSourcePackStageMs', fmtNum(gpuScreenComparisonSummary.sourcePackStageMs, 3));
 
   pushLine(lines, 'gpuScreenReferencePath', gpuScreenComparisonSummary.referencePath ?? 'packed-cpu');
   pushLine(lines, 'gpuScreenReferenceRole', gpuScreenComparisonSummary.referenceRole ?? 'formal-reference');
