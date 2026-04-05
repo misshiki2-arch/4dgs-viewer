@@ -56,23 +56,24 @@ import {
   GPU_DRAW_PATH_PACKED,
   GPU_DRAW_PATH_GPU_SCREEN
 } from './gpu_draw_path_selector.js';
+import {
+  createScreenSpaceBuildContext,
+  buildPackedGpuPrepScreenSpaceWithContext,
+  summarizePackedScreenSpace,
+  summarizePackedScreenSpaceComparison
+} from './gpu_screen_space_builder.js';
 
-// Step30 (redesigned)
+// Step31
 // 目的:
-// - Step29 の renderer を「薄い司令塔」として維持する
-// - packed formal path を基準に、gpu-screen executor を最小差分で接続する
-// - UI/state/tile 契約は Step29 のまま使う
-//
-// 非目標:
-// - UI truth source の再設計
-// - tileData contract の再定義
-// - packed formal contract の変更
+// - Step30 の draw ownership separation を維持したまま、gpu-screen の source ownership separation を始める
+// - packed formal draw contract は変えず、gpu-screen の source provider だけを packed-gpu-prep へ分離する
+// - renderer は薄い司令塔として、source provider の選択と executor への受け渡しだけを担当する
 //
 // 設計:
-// 1. renderer は既存の visible/tile/debug 流れを維持する
-// 2. full-frame draw の分岐だけを packed / gpu-screen / legacy で整理する
-// 3. per-tile drawSelectedOnly は Step29 通り legacy のみ
-// 4. debug には gpu-screen executor が返す summary をそのまま載せる
+// 1. packed path は visible builder 由来の packed-cpu をそのまま使う
+// 2. gpu-screen path は packed-gpu-prep source を優先し、失敗時は packed-cpu に fallback する
+// 3. UI/state/tile 契約は Step30 と同じ
+// 4. per-tile drawSelectedOnly は引き続き legacy のみ
 
 function ensureDebugOverlayCanvas(mainCanvas) {
   let overlay = document.getElementById('gpuTileDebugOverlay');
@@ -104,6 +105,13 @@ function getDrawTileMode(ui) {
       ? Math.max(0, Number(ui.tileRadiusInput.value) | 0)
       : 0
   };
+}
+
+function ensureGpuScreenSourceContext(gpu) {
+  if (!gpu.gpuScreenSourceContext) {
+    gpu.gpuScreenSourceContext = createScreenSpaceBuildContext();
+  }
+  return gpu.gpuScreenSourceContext;
 }
 
 function buildFocusTileRects(tileIds, tileGrid, canvasWidth, canvasHeight) {
@@ -261,19 +269,45 @@ function buildGpuScreenExecutionLines(gpuScreenExecutionSummary) {
   ];
 }
 
+function selectGpuScreenSourceSpace(gpu, visible, packedCpuScreenSpace) {
+  const context = ensureGpuScreenSourceContext(gpu);
+
+  try {
+    const experimental = buildPackedGpuPrepScreenSpaceWithContext(context, visible, {});
+    if (experimental?.packed instanceof Float32Array) {
+      return {
+        sourceSpace: experimental,
+        sourceSummary: summarizePackedScreenSpace(experimental),
+        sourceComparisonSummary: summarizePackedScreenSpaceComparison(experimental),
+        sourceFallbackReason: 'none'
+      };
+    }
+  } catch (err) {
+    console.warn('gpu-screen source build failed, falling back to packed-cpu source', err);
+  }
+
+  return {
+    sourceSpace: packedCpuScreenSpace,
+    sourceSummary: summarizePackedScreenSpace(packedCpuScreenSpace),
+    sourceComparisonSummary: summarizePackedScreenSpaceComparison(packedCpuScreenSpace),
+    sourceFallbackReason: 'gpu-source-build-fallback-to-packed-cpu'
+  };
+}
+
 function executeFullFrameDraw({
   gl,
   gpu,
   canvas,
   drawPathSelection,
   packedScreenSpace,
+  gpuScreenSourceSpace,
   legacyDrawData
 }) {
   if (drawPathSelection.actualPath === GPU_DRAW_PATH_GPU_SCREEN) {
     const gpuScreenDrawInfo = uploadAndDrawGpuScreen(
       gl,
       gpu,
-      packedScreenSpace,
+      gpuScreenSourceSpace,
       canvas.width,
       canvas.height
     );
@@ -511,7 +545,7 @@ export async function renderGpuFrame({
     debugOverlayCanvas.height = canvas.height;
     debugCtx.clearRect(0, 0, debugOverlayCanvas.width, debugOverlayCanvas.height);
     debugOverlayCanvas.style.display = 'none';
-    const emptyInfo = 'GPU Step30 viewer\nNo scene loaded.';
+    const emptyInfo = 'GPU Step31 viewer\nNo scene loaded.';
     setInfoText(infoEl, emptyInfo);
     return {
       infoText: emptyInfo,
@@ -590,9 +624,12 @@ export async function renderGpuFrame({
     ? buildFocusTileRects(focusTileIds, tileGrid, canvas.width, canvas.height)
     : [];
 
+  const requestedPath = getRequestedDrawPath(ui);
+  const gpuScreenSourceInfo = selectGpuScreenSourceSpace(gpu, visible, packedScreenSpace);
+
   const drawPathSelection = summarizeDrawPathSelection(
     resolveDrawPath({
-      requestedPath: getRequestedDrawPath(ui),
+      requestedPath,
       hasPackedScreenSpace: !!packedScreenSpace?.packed,
       hasGpuScreenPath: isGpuScreenDrawReady(gpu)
     })
@@ -626,6 +663,7 @@ export async function renderGpuFrame({
         canvas,
         drawPathSelection,
         packedScreenSpace,
+        gpuScreenSourceSpace: gpuScreenSourceInfo.sourceSpace,
         legacyDrawData
       });
 
@@ -692,7 +730,8 @@ export async function renderGpuFrame({
 
   const packedDirectResourceSummary = summarizePackedDirectResources(gpu);
   const gpuScreenSummary = summarizeGpuScreenDrawState(gpu);
-  const gpuScreenComparisonSummary = gpuScreenDrawInfo?.gpuScreenComparisonSummary ?? null;
+  const gpuScreenComparisonSummary =
+    gpuScreenDrawInfo?.gpuScreenComparisonSummary ?? gpuScreenSourceInfo.sourceComparisonSummary ?? null;
   const gpuScreenExecutionSummary = gpuScreenDrawInfo?.gpuScreenExecutionSummary ?? null;
 
   const drawStats = buildDrawStats({
@@ -724,6 +763,10 @@ export async function renderGpuFrame({
     gpuScreenComparisonSummary
   });
 
+  if (gpuScreenSourceInfo?.sourceFallbackReason && gpuScreenSourceInfo.sourceFallbackReason !== 'none') {
+    extraLines.push(`gpuScreenSourceFallbackReason=${gpuScreenSourceInfo.sourceFallbackReason}`);
+  }
+
   const packedLines = buildPackedLines(buildStats, drawPathSelection, drawStats);
   const sampleLines = buildSampleLines(legacySample, packedSample);
   const gpuScreenExecutionLines = buildGpuScreenExecutionLines(gpuScreenExecutionSummary);
@@ -745,12 +788,12 @@ export async function renderGpuFrame({
     timestamp: buildConfig.timestamp,
     splatScale: buildConfig.scalingModifier,
     elapsedMs: elapsed,
-    stepLabel: 'GPU Step30',
+    stepLabel: 'GPU Step31',
     stepNotes: [
-      'gpu-screen now owns its upload state and vao while keeping packed formal contract',
-      'packed remains the formal reference path for layout and shader input',
-      'renderer stays thin and keeps Step29 UI/state/tile flow unchanged',
-      'this step prepares independent gpu-screen resource ownership without redesigning other layers'
+      'gpu-screen now begins separating source ownership from packed-cpu via packed-gpu-prep',
+      'packed remains the formal reference path for draw contract and layout',
+      'renderer stays thin and only selects source provider plus draw executor',
+      'this step prepares CPU-to-GPU migration by isolating gpu-screen source generation'
     ],
     tileSummary,
     avgRefsPerVisible,
@@ -778,6 +821,7 @@ export async function renderGpuFrame({
     drawPathSummary: drawPathSelection,
     gpuScreenSummary,
     gpuScreenComparisonSummary,
-    gpuScreenExecutionSummary
+    gpuScreenExecutionSummary,
+    gpuScreenSourceInfo
   };
 }

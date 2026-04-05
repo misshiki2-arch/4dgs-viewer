@@ -1,19 +1,19 @@
-// Step30 (redesigned)
+// Step31
 // 目的:
-// - debug info builder の責務を「整形だけ」に限定する
-// - renderer / gpu-screen executor が確定した値を、そのまま deterministic に並べる
-// - Step29 の UI/state/tile 流れに新しい意味づけを持ち込まない
+// - debug info builder の責務を「整形だけ」に保ったまま、
+//   Step31 で追加した gpu-screen source ownership separation の情報を表示する
+// - renderer / source builder / executor が確定した値を、そのまま deterministic に並べる
 //
 // 非目標:
-// - draw path の再解釈
+// - draw path / source path の意味づけ変更
 // - UI truth source の変更
-// - gpu-screen / packed の挙動変更
+// - packed / gpu-screen の挙動変更
 //
 // 設計:
 // 1. buildGpuDebugExtraLines() は入力を文字列化するだけ
 // 2. 値が無いものだけを省略する
-// 3. packed / gpu-screen / tile mode / ui の順に安定して並べる
-// 4. 真実の状態源は renderer / executor 側であり、このファイルは整形のみ担当する
+// 3. build config -> timing -> tile mode -> ui -> gpu-screen state -> gpu-screen comparison の順で安定化
+// 4. Step31 では source provider 分離に関する行だけを追加し、他の責務は変えない
 
 function isFiniteNumber(v) {
   return Number.isFinite(v);
