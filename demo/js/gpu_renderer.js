@@ -257,31 +257,16 @@ function buildGpuScreenExecutionLines(gpuScreenExecutionSummary) {
   ];
 }
 
-function mergeGpuScreenSourceInfo(sourceSummary, sourceComparisonSummary) {
-  return {
-    ...(sourceComparisonSummary || {}),
-    sourceItemCount: sourceSummary?.sourceItemCount ?? 0,
-    sourceSchemaVersion: sourceSummary?.sourceSchemaVersion ?? 0,
-    sourcePrepStageMs: sourceSummary?.prepStageMs ?? 0,
-    sourcePackStageMs: sourceSummary?.packStageMs ?? 0,
-    transformPath: sourceSummary?.transformPath ?? 'cpu-packed-transform',
-    transformRole: sourceSummary?.transformRole ?? 'formal-transform',
-    transformFallbackReason: sourceSummary?.transformFallbackReason ?? 'none',
-    transformStageMs: sourceSummary?.transformStageMs ?? 0
-  };
-}
-
 function selectGpuScreenSourceSpace(gpu, visible, packedCpuScreenSpace) {
   const context = ensureGpuScreenSourceContext(gpu);
+
   try {
     const experimental = buildPackedGpuPrepScreenSpaceWithContext(context, visible, {});
     if (experimental?.packed instanceof Float32Array) {
-      const sourceSummary = summarizePackedScreenSpace(experimental);
-      const sourceComparisonSummary = summarizePackedScreenSpaceComparison(experimental);
       return {
         sourceSpace: experimental,
-        sourceSummary,
-        sourceComparisonSummary: mergeGpuScreenSourceInfo(sourceSummary, sourceComparisonSummary),
+        sourceSummary: summarizePackedScreenSpace(experimental),
+        sourceComparisonSummary: summarizePackedScreenSpaceComparison(experimental),
         sourceFallbackReason: 'none'
       };
     }
@@ -289,14 +274,23 @@ function selectGpuScreenSourceSpace(gpu, visible, packedCpuScreenSpace) {
     console.warn('gpu-screen source build failed, falling back to packed-cpu source', err);
   }
 
-  const sourceSummary = summarizePackedScreenSpace(packedCpuScreenSpace);
-  const sourceComparisonSummary = summarizePackedScreenSpaceComparison(packedCpuScreenSpace);
-
   return {
     sourceSpace: packedCpuScreenSpace,
-    sourceSummary,
-    sourceComparisonSummary: mergeGpuScreenSourceInfo(sourceSummary, sourceComparisonSummary),
+    sourceSummary: summarizePackedScreenSpace(packedCpuScreenSpace),
+    sourceComparisonSummary: summarizePackedScreenSpaceComparison(packedCpuScreenSpace),
     sourceFallbackReason: 'gpu-source-build-fallback-to-packed-cpu'
+  };
+}
+
+function mergeGpuScreenComparisonSummary(builderSummary, drawSummary) {
+  if (!builderSummary && !drawSummary) return null;
+  if (!builderSummary) return drawSummary ?? null;
+  if (!drawSummary) return builderSummary;
+
+  return {
+    ...builderSummary,
+    actualPath: drawSummary.actualPath ?? builderSummary.actualPath,
+    actualRole: drawSummary.actualRole ?? builderSummary.actualRole
   };
 }
 
@@ -551,7 +545,7 @@ export async function renderGpuFrame({
     debugOverlayCanvas.height = canvas.height;
     debugCtx.clearRect(0, 0, debugOverlayCanvas.width, debugOverlayCanvas.height);
     debugOverlayCanvas.style.display = 'none';
-    const emptyInfo = 'GPU Step33 viewer\nNo scene loaded.';
+    const emptyInfo = 'GPU Step34 viewer\nNo scene loaded.';
     setInfoText(infoEl, emptyInfo);
     return {
       infoText: emptyInfo,
@@ -736,9 +730,14 @@ export async function renderGpuFrame({
 
   const packedDirectResourceSummary = summarizePackedDirectResources(gpu);
   const gpuScreenSummary = summarizeGpuScreenDrawState(gpu);
-  const gpuScreenComparisonSummary =
-    gpuScreenDrawInfo?.gpuScreenComparisonSummary ?? gpuScreenSourceInfo.sourceComparisonSummary ?? null;
-  const gpuScreenExecutionSummary = gpuScreenDrawInfo?.gpuScreenExecutionSummary ?? null;
+
+  const gpuScreenComparisonSummary = mergeGpuScreenComparisonSummary(
+    gpuScreenSourceInfo.sourceComparisonSummary ?? null,
+    gpuScreenDrawInfo?.gpuScreenComparisonSummary ?? null
+  );
+
+  const gpuScreenExecutionSummary =
+    gpuScreenDrawInfo?.gpuScreenExecutionSummary ?? null;
 
   const drawStats = buildDrawStats({
     visibleCount: visible.length,
@@ -794,12 +793,12 @@ export async function renderGpuFrame({
     timestamp: buildConfig.timestamp,
     splatScale: buildConfig.scalingModifier,
     elapsedMs: elapsed,
-    stepLabel: 'GPU Step33',
+    stepLabel: 'GPU Step34',
     stepNotes: [
-      'gpu-screen packed transform is now isolated behind a dedicated transform executor boundary',
-      'packed remains the formal reference path for draw contract and layout',
+      'transform executor is now the truth source for requested and actual transform paths',
+      'screen-space builder keeps transform state without reinterpretation',
       'renderer stays thin and only forwards source and transform summaries to debug output',
-      'this step prepares future GPU packed-transform replacement without changing the draw contract'
+      'this step prepares future GPU transform ownership without changing the draw contract'
     ],
     tileSummary,
     avgRefsPerVisible,

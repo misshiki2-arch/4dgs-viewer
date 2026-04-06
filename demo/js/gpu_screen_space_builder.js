@@ -3,15 +3,35 @@ import {
   GPU_VISIBLE_PACK_FLOATS_PER_ITEM
 } from './gpu_buffer_layout_utils.js';
 import {
-  createPackedVisibleResult
-} from './gpu_visible_pack_utils.js';
-import {
   createGpuScreenTransformContext,
   executeGpuScreenPackedTransform,
   summarizeGpuScreenTransformResult,
   GPU_SCREEN_TRANSFORM_PATH_CPU,
-  GPU_SCREEN_TRANSFORM_PATH_GPU_PREP
+  GPU_SCREEN_TRANSFORM_PATH_GPU_PREP,
+  GPU_SCREEN_TRANSFORM_SOURCE_PACKED_CPU,
+  GPU_SCREEN_TRANSFORM_SOURCE_PACKED_GPU_PREP,
+  GPU_SCREEN_TRANSFORM_SOURCE_GPU_SCREEN_EXPERIMENTAL
 } from './gpu_screen_transform_executor.js';
+
+// Step34 redesign
+// 目的:
+// - transform executor を唯一の truth source とし、builder はその結果を保持して渡すだけにする
+// - packed formal draw contract は維持したまま、source-item build と transform executor の責務分離を固定する
+//
+// builder の責務:
+// - visible -> normalized source items
+// - source path の決定
+// - transform executor 呼び出し
+// - executor が返した summary / comparison summary の保持
+//
+// builder の非責務:
+// - requested / actual transform path の再解釈
+// - fallback reason の補完
+// - transform state の推測
+//
+// 重要:
+// - requestedTransformPath / actualTransformPath / fallback / configured / upload stats の truth source は
+//   gpu_screen_transform_executor.js のみ
 
 export const GPU_SCREEN_SPACE_SOURCE_PACKED_CPU = 'packed-cpu';
 export const GPU_SCREEN_SPACE_SOURCE_PACKED_GPU_PREP = 'packed-gpu-prep';
@@ -122,14 +142,63 @@ export function normalizeScreenSpaceVisible(visible) {
   return normalized;
 }
 
+function normalizeSourcePath(path, experimental = false) {
+  if (path === GPU_SCREEN_SPACE_SOURCE_PACKED_CPU) return GPU_SCREEN_SPACE_SOURCE_PACKED_CPU;
+  if (path === GPU_SCREEN_SPACE_SOURCE_PACKED_GPU_PREP) return GPU_SCREEN_SPACE_SOURCE_PACKED_GPU_PREP;
+  if (path === GPU_SCREEN_SPACE_SOURCE_GPU_SCREEN_EXPERIMENTAL) return GPU_SCREEN_SPACE_SOURCE_GPU_SCREEN_EXPERIMENTAL;
+  return experimental ? GPU_SCREEN_SPACE_SOURCE_PACKED_GPU_PREP : GPU_SCREEN_SPACE_SOURCE_PACKED_CPU;
+}
+
+function isExperimentalSourcePath(path) {
+  return (
+    path === GPU_SCREEN_SPACE_SOURCE_PACKED_GPU_PREP ||
+    path === GPU_SCREEN_SPACE_SOURCE_GPU_SCREEN_EXPERIMENTAL
+  );
+}
+
+function mapBuilderSourceToTransformSource(path) {
+  if (path === GPU_SCREEN_SPACE_SOURCE_PACKED_CPU) return GPU_SCREEN_TRANSFORM_SOURCE_PACKED_CPU;
+  if (path === GPU_SCREEN_SPACE_SOURCE_PACKED_GPU_PREP) return GPU_SCREEN_TRANSFORM_SOURCE_PACKED_GPU_PREP;
+  if (path === GPU_SCREEN_SPACE_SOURCE_GPU_SCREEN_EXPERIMENTAL) return GPU_SCREEN_TRANSFORM_SOURCE_GPU_SCREEN_EXPERIMENTAL;
+  return GPU_SCREEN_TRANSFORM_SOURCE_PACKED_CPU;
+}
+
+function buildReferenceInfo(path, experimental) {
+  const normalizedPath = normalizeSourcePath(path, experimental);
+  if (normalizedPath === GPU_SCREEN_SPACE_SOURCE_PACKED_CPU) {
+    return {
+      sourcePath: GPU_SCREEN_SPACE_SOURCE_PACKED_CPU,
+      sourceRole: 'formal-source',
+      referencePath: GPU_SCREEN_SPACE_SOURCE_PACKED_CPU,
+      referenceRole: 'formal-reference'
+    };
+  }
+
+  return {
+    sourcePath: normalizedPath,
+    sourceRole: isExperimentalSourcePath(normalizedPath) ? 'experimental-source' : 'formal-source',
+    referencePath: GPU_SCREEN_SPACE_SOURCE_PACKED_CPU,
+    referenceRole: 'formal-reference'
+  };
+}
+
 export function createScreenSpaceBuildContext() {
   return {
     layout: getVisiblePackLayout(),
     transformContext: createGpuScreenTransformContext(),
     lastSourcePath: GPU_SCREEN_SPACE_SOURCE_PACKED_CPU,
+    lastRequestedTransformPath: GPU_SCREEN_TRANSFORM_PATH_CPU,
+    lastActualTransformPath: GPU_SCREEN_TRANSFORM_PATH_CPU,
     lastTransformPath: GPU_SCREEN_TRANSFORM_PATH_CPU,
     lastTransformRole: 'formal-transform',
+    lastTransformConfigured: false,
+    lastTransformHasBuffers: false,
     lastTransformFallbackReason: 'none',
+    lastTransformUploadBytes: 0,
+    lastTransformUploadCount: 0,
+    lastTransformUploadLength: 0,
+    lastTransformUploadCapacityBytes: 0,
+    lastTransformUploadReusedCapacity: false,
     lastInputVisibleCount: 0,
     lastNormalizedVisibleCount: 0,
     lastSourceItemCount: 0,
@@ -143,54 +212,14 @@ export function createScreenSpaceBuildContext() {
   };
 }
 
-function isExperimentalSourcePath(path) {
-  return (
-    path === GPU_SCREEN_SPACE_SOURCE_PACKED_GPU_PREP ||
-    path === GPU_SCREEN_SPACE_SOURCE_GPU_SCREEN_EXPERIMENTAL
-  );
-}
-
-function normalizeSourcePath(path, experimental = false) {
-  if (path === GPU_SCREEN_SPACE_SOURCE_PACKED_CPU) return GPU_SCREEN_SPACE_SOURCE_PACKED_CPU;
-  if (path === GPU_SCREEN_SPACE_SOURCE_PACKED_GPU_PREP) return GPU_SCREEN_SPACE_SOURCE_PACKED_GPU_PREP;
-  if (path === GPU_SCREEN_SPACE_SOURCE_GPU_SCREEN_EXPERIMENTAL) return GPU_SCREEN_SPACE_SOURCE_GPU_SCREEN_EXPERIMENTAL;
-  return experimental ? GPU_SCREEN_SPACE_SOURCE_PACKED_GPU_PREP : GPU_SCREEN_SPACE_SOURCE_PACKED_CPU;
-}
-
-function buildReferenceInfo(path, experimental) {
-  const normalizedPath = normalizeSourcePath(path, experimental);
-  if (normalizedPath === GPU_SCREEN_SPACE_SOURCE_PACKED_CPU) {
-    return {
-      sourcePath: GPU_SCREEN_SPACE_SOURCE_PACKED_CPU,
-      sourceRole: 'formal-source',
-      referencePath: GPU_SCREEN_SPACE_SOURCE_PACKED_CPU,
-      referenceRole: 'formal-reference'
-    };
-  }
-  return {
-    sourcePath: normalizedPath,
-    sourceRole: isExperimentalSourcePath(normalizedPath) ? 'experimental-source' : 'formal-source',
-    referencePath: GPU_SCREEN_SPACE_SOURCE_PACKED_CPU,
-    referenceRole: 'formal-reference'
-  };
-}
-
-function getRequestedTransformPathForSource(path, experimental = false) {
-  const normalizedPath = normalizeSourcePath(path, experimental);
-  if (
-    normalizedPath === GPU_SCREEN_SPACE_SOURCE_PACKED_GPU_PREP ||
-    normalizedPath === GPU_SCREEN_SPACE_SOURCE_GPU_SCREEN_EXPERIMENTAL
-  ) {
-    return GPU_SCREEN_TRANSFORM_PATH_GPU_PREP;
-  }
-  return GPU_SCREEN_TRANSFORM_PATH_CPU;
-}
-
 export function buildGpuScreenSourceItems(normalizedVisible, extra = {}) {
   const sourceItems = Array.isArray(normalizedVisible) ? normalizedVisible.slice() : [];
+  const normalizedPath = normalizeSourcePath(extra.path, !!extra.experimental);
+  const experimental = !!extra.experimental || isExperimentalSourcePath(normalizedPath);
+
   return {
-    path: normalizeSourcePath(extra.path, !!extra.experimental),
-    experimental: !!extra.experimental,
+    path: normalizedPath,
+    experimental,
     schemaVersion: GPU_SCREEN_SPACE_SOURCE_SCHEMA_VERSION,
     items: sourceItems,
     itemCount: sourceItems.length
@@ -198,17 +227,17 @@ export function buildGpuScreenSourceItems(normalizedVisible, extra = {}) {
 }
 
 export function packGpuScreenSourceItems(sourceItemsResult, extra = {}) {
-  const requestedPath = normalizeSourcePath(
+  const builderSourcePath = normalizeSourcePath(
     extra.path ?? sourceItemsResult?.path,
     !!extra.experimental || !!sourceItemsResult?.experimental
   );
+
+  const transformSourcePath = mapBuilderSourceToTransformSource(builderSourcePath);
   const transformContext = extra.transformContext ?? createGpuScreenTransformContext();
-  const transformPath = extra.transformPath ?? getRequestedTransformPathForSource(
-    requestedPath,
-    !!extra.experimental || !!sourceItemsResult?.experimental
-  );
+
   return executeGpuScreenPackedTransform(transformContext, sourceItemsResult, {
-    transformPath
+    sourcePath: transformSourcePath,
+    experimental: !!extra.experimental || !!sourceItemsResult?.experimental
   });
 }
 
@@ -228,6 +257,7 @@ function buildPackedScreenSpaceStateSummary({
   transformSummary
 }) {
   const normalizedPath = normalizeSourcePath(path, experimental);
+
   return {
     path: normalizedPath,
     inputVisibleCount: Array.isArray(inputVisible) ? inputVisible.length : 0,
@@ -238,10 +268,21 @@ function buildPackedScreenSpaceStateSummary({
       : GPU_SCREEN_SPACE_SOURCE_SCHEMA_VERSION,
     prepStageMs: Number.isFinite(prepStageMs) ? prepStageMs : 0,
     packStageMs: Number.isFinite(packStageMs) ? packStageMs : 0,
+
+    requestedTransformPath: transformSummary?.requestedTransformPath ?? GPU_SCREEN_TRANSFORM_PATH_CPU,
+    actualTransformPath: transformSummary?.actualTransformPath ?? GPU_SCREEN_TRANSFORM_PATH_CPU,
     transformPath: transformSummary?.transformPath ?? GPU_SCREEN_TRANSFORM_PATH_CPU,
     transformRole: transformSummary?.transformRole ?? 'formal-transform',
+    transformConfigured: !!transformSummary?.transformConfigured,
+    transformHasBuffers: !!transformSummary?.transformHasBuffers,
     transformFallbackReason: transformSummary?.transformFallbackReason ?? 'none',
     transformStageMs: Number.isFinite(transformSummary?.transformStageMs) ? transformSummary.transformStageMs : 0,
+    transformUploadBytes: Number.isFinite(transformSummary?.transformUploadBytes) ? transformSummary.transformUploadBytes : 0,
+    transformUploadCount: Number.isFinite(transformSummary?.transformUploadCount) ? transformSummary.transformUploadCount : 0,
+    transformUploadLength: Number.isFinite(transformSummary?.transformUploadLength) ? transformSummary.transformUploadLength : 0,
+    transformUploadCapacityBytes: Number.isFinite(transformSummary?.transformUploadCapacityBytes) ? transformSummary.transformUploadCapacityBytes : 0,
+    transformUploadReusedCapacity: !!transformSummary?.transformUploadReusedCapacity,
+
     packedCount,
     packedLength: packed instanceof Float32Array ? packed.length : 0,
     floatsPerItem,
@@ -273,14 +314,26 @@ function buildPackedScreenSpaceComparisonSummary({
     sourceBuildMs: Number.isFinite(buildMs) ? buildMs : 0,
     sourcePackedCount: Number.isFinite(packedCount) ? packedCount : 0,
     sourcePackedLength: packed instanceof Float32Array ? packed.length : 0,
+
     sourceItemCount: sourceSummary?.sourceItemCount ?? 0,
     sourceSchemaVersion: sourceSummary?.sourceSchemaVersion ?? GPU_SCREEN_SPACE_SOURCE_SCHEMA_VERSION,
     sourcePrepStageMs: Number.isFinite(sourceSummary?.prepStageMs) ? sourceSummary.prepStageMs : 0,
     sourcePackStageMs: Number.isFinite(sourceSummary?.packStageMs) ? sourceSummary.packStageMs : 0,
+
+    requestedTransformPath: transformSummary?.requestedTransformPath ?? GPU_SCREEN_TRANSFORM_PATH_CPU,
+    actualTransformPath: transformSummary?.actualTransformPath ?? GPU_SCREEN_TRANSFORM_PATH_CPU,
     transformPath: transformSummary?.transformPath ?? GPU_SCREEN_TRANSFORM_PATH_CPU,
     transformRole: transformSummary?.transformRole ?? 'formal-transform',
+    transformConfigured: !!transformSummary?.transformConfigured,
+    transformHasBuffers: !!transformSummary?.transformHasBuffers,
     transformFallbackReason: transformSummary?.transformFallbackReason ?? 'none',
     transformStageMs: Number.isFinite(transformSummary?.transformStageMs) ? transformSummary.transformStageMs : 0,
+    transformUploadBytes: Number.isFinite(transformSummary?.transformUploadBytes) ? transformSummary.transformUploadBytes : 0,
+    transformUploadCount: Number.isFinite(transformSummary?.transformUploadCount) ? transformSummary.transformUploadCount : 0,
+    transformUploadLength: Number.isFinite(transformSummary?.transformUploadLength) ? transformSummary.transformUploadLength : 0,
+    transformUploadCapacityBytes: Number.isFinite(transformSummary?.transformUploadCapacityBytes) ? transformSummary.transformUploadCapacityBytes : 0,
+    transformUploadReusedCapacity: !!transformSummary?.transformUploadReusedCapacity,
+
     referencePath: ref.referencePath,
     referenceRole: ref.referenceRole,
     usesPackedReferenceLayout: ref.referencePath === GPU_SCREEN_SPACE_SOURCE_PACKED_CPU,
@@ -297,7 +350,7 @@ function buildPackedScreenSpaceResult(normalizedVisible, sourceItemsResult, pack
     ? packedStageResult.floatsPerItem
     : GPU_VISIBLE_PACK_FLOATS_PER_ITEM;
   const path = normalizeSourcePath(extra.path, !!extra.experimental);
-  const experimental = !!extra.experimental;
+  const experimental = !!extra.experimental || isExperimentalSourcePath(path);
   const buildMs = extra.buildMs;
   const prepStageMs = extra.prepStageMs;
   const packStageMs = extra.packStageMs;
@@ -354,9 +407,18 @@ function updateContext(context, result, inputVisible) {
   if (!context) return;
   context.layout = context.layout ?? getVisiblePackLayout();
   context.lastSourcePath = result.comparisonSummary?.sourcePath ?? result.path;
+  context.lastRequestedTransformPath = result.transformSummary?.requestedTransformPath ?? GPU_SCREEN_TRANSFORM_PATH_CPU;
+  context.lastActualTransformPath = result.transformSummary?.actualTransformPath ?? GPU_SCREEN_TRANSFORM_PATH_CPU;
   context.lastTransformPath = result.transformSummary?.transformPath ?? GPU_SCREEN_TRANSFORM_PATH_CPU;
   context.lastTransformRole = result.transformSummary?.transformRole ?? 'formal-transform';
+  context.lastTransformConfigured = !!result.transformSummary?.transformConfigured;
+  context.lastTransformHasBuffers = !!result.transformSummary?.transformHasBuffers;
   context.lastTransformFallbackReason = result.transformSummary?.transformFallbackReason ?? 'none';
+  context.lastTransformUploadBytes = Number.isFinite(result.transformSummary?.transformUploadBytes) ? result.transformSummary.transformUploadBytes : 0;
+  context.lastTransformUploadCount = Number.isFinite(result.transformSummary?.transformUploadCount) ? result.transformSummary.transformUploadCount : 0;
+  context.lastTransformUploadLength = Number.isFinite(result.transformSummary?.transformUploadLength) ? result.transformSummary.transformUploadLength : 0;
+  context.lastTransformUploadCapacityBytes = Number.isFinite(result.transformSummary?.transformUploadCapacityBytes) ? result.transformSummary.transformUploadCapacityBytes : 0;
+  context.lastTransformUploadReusedCapacity = !!result.transformSummary?.transformUploadReusedCapacity;
   context.lastInputVisibleCount = Array.isArray(inputVisible) ? inputVisible.length : 0;
   context.lastNormalizedVisibleCount = Array.isArray(result.visible) ? result.visible.length : 0;
   context.lastSourceItemCount = Array.isArray(result.sourceItems) ? result.sourceItems.length : 0;
@@ -435,8 +497,7 @@ export function buildPackedCpuScreenSpaceWithContext(context, visible, extra = {
   return buildPackedScreenSpaceWithContext(context, visible, {
     ...extra,
     path: GPU_SCREEN_SPACE_SOURCE_PACKED_CPU,
-    experimental: false,
-    transformPath: GPU_SCREEN_TRANSFORM_PATH_CPU
+    experimental: false
   });
 }
 
@@ -444,8 +505,7 @@ export function buildPackedGpuPrepScreenSpaceWithContext(context, visible, extra
   return buildPackedScreenSpaceWithContext(context, visible, {
     ...extra,
     path: GPU_SCREEN_SPACE_SOURCE_PACKED_GPU_PREP,
-    experimental: true,
-    transformPath: GPU_SCREEN_TRANSFORM_PATH_GPU_PREP
+    experimental: true
   });
 }
 
@@ -453,8 +513,7 @@ export function buildGpuScreenExperimentalSpaceWithContext(context, visible, ext
   return buildPackedGpuPrepScreenSpaceWithContext(context, visible, {
     ...extra,
     path: GPU_SCREEN_SPACE_SOURCE_GPU_SCREEN_EXPERIMENTAL,
-    experimental: true,
-    transformPath: GPU_SCREEN_TRANSFORM_PATH_GPU_PREP
+    experimental: true
   });
 }
 
@@ -466,10 +525,21 @@ export function summarizePackedScreenSpace(result) {
       sourceSchemaVersion: GPU_SCREEN_SPACE_SOURCE_SCHEMA_VERSION,
       prepStageMs: 0,
       packStageMs: 0,
+
+      requestedTransformPath: GPU_SCREEN_TRANSFORM_PATH_CPU,
+      actualTransformPath: GPU_SCREEN_TRANSFORM_PATH_CPU,
       transformPath: GPU_SCREEN_TRANSFORM_PATH_CPU,
       transformRole: 'formal-transform',
+      transformConfigured: false,
+      transformHasBuffers: false,
       transformFallbackReason: 'none',
       transformStageMs: 0,
+      transformUploadBytes: 0,
+      transformUploadCount: 0,
+      transformUploadLength: 0,
+      transformUploadCapacityBytes: 0,
+      transformUploadReusedCapacity: false,
+
       packedCount: 0,
       packedLength: 0,
       floatsPerItem: GPU_VISIBLE_PACK_FLOATS_PER_ITEM,
@@ -492,10 +562,21 @@ export function summarizePackedScreenSpace(result) {
       : GPU_SCREEN_SPACE_SOURCE_SCHEMA_VERSION,
     prepStageMs: Number.isFinite(result.summary?.prepStageMs) ? result.summary.prepStageMs : 0,
     packStageMs: Number.isFinite(result.summary?.packStageMs) ? result.summary.packStageMs : 0,
+
+    requestedTransformPath: result.summary?.requestedTransformPath ?? GPU_SCREEN_TRANSFORM_PATH_CPU,
+    actualTransformPath: result.summary?.actualTransformPath ?? GPU_SCREEN_TRANSFORM_PATH_CPU,
     transformPath: result.summary?.transformPath ?? GPU_SCREEN_TRANSFORM_PATH_CPU,
     transformRole: result.summary?.transformRole ?? 'formal-transform',
+    transformConfigured: !!result.summary?.transformConfigured,
+    transformHasBuffers: !!result.summary?.transformHasBuffers,
     transformFallbackReason: result.summary?.transformFallbackReason ?? 'none',
     transformStageMs: Number.isFinite(result.summary?.transformStageMs) ? result.summary.transformStageMs : 0,
+    transformUploadBytes: Number.isFinite(result.summary?.transformUploadBytes) ? result.summary.transformUploadBytes : 0,
+    transformUploadCount: Number.isFinite(result.summary?.transformUploadCount) ? result.summary.transformUploadCount : 0,
+    transformUploadLength: Number.isFinite(result.summary?.transformUploadLength) ? result.summary.transformUploadLength : 0,
+    transformUploadCapacityBytes: Number.isFinite(result.summary?.transformUploadCapacityBytes) ? result.summary.transformUploadCapacityBytes : 0,
+    transformUploadReusedCapacity: !!result.summary?.transformUploadReusedCapacity,
+
     packedCount: Number.isFinite(result.packedCount) ? result.packedCount : 0,
     packedLength: result.packed instanceof Float32Array ? result.packed.length : 0,
     floatsPerItem: Number.isFinite(result.floatsPerItem)
@@ -525,10 +606,21 @@ export function summarizePackedScreenSpaceComparison(result) {
       sourceSchemaVersion: GPU_SCREEN_SPACE_SOURCE_SCHEMA_VERSION,
       sourcePrepStageMs: 0,
       sourcePackStageMs: 0,
+
+      requestedTransformPath: GPU_SCREEN_TRANSFORM_PATH_CPU,
+      actualTransformPath: GPU_SCREEN_TRANSFORM_PATH_CPU,
       transformPath: GPU_SCREEN_TRANSFORM_PATH_CPU,
       transformRole: 'formal-transform',
+      transformConfigured: false,
+      transformHasBuffers: false,
       transformFallbackReason: 'none',
       transformStageMs: 0,
+      transformUploadBytes: 0,
+      transformUploadCount: 0,
+      transformUploadLength: 0,
+      transformUploadCapacityBytes: 0,
+      transformUploadReusedCapacity: false,
+
       referencePath: 'none',
       referenceRole: 'none',
       usesPackedReferenceLayout: false,
@@ -563,12 +655,31 @@ export function summarizePackedScreenSpaceComparison(result) {
     sourcePackStageMs: Number.isFinite(result.comparisonSummary.sourcePackStageMs)
       ? result.comparisonSummary.sourcePackStageMs
       : 0,
+
+    requestedTransformPath: result.comparisonSummary.requestedTransformPath ?? GPU_SCREEN_TRANSFORM_PATH_CPU,
+    actualTransformPath: result.comparisonSummary.actualTransformPath ?? GPU_SCREEN_TRANSFORM_PATH_CPU,
     transformPath: result.comparisonSummary.transformPath ?? GPU_SCREEN_TRANSFORM_PATH_CPU,
     transformRole: result.comparisonSummary.transformRole ?? 'formal-transform',
+    transformConfigured: !!result.comparisonSummary.transformConfigured,
+    transformHasBuffers: !!result.comparisonSummary.transformHasBuffers,
     transformFallbackReason: result.comparisonSummary.transformFallbackReason ?? 'none',
     transformStageMs: Number.isFinite(result.comparisonSummary.transformStageMs)
       ? result.comparisonSummary.transformStageMs
       : 0,
+    transformUploadBytes: Number.isFinite(result.comparisonSummary.transformUploadBytes)
+      ? result.comparisonSummary.transformUploadBytes
+      : 0,
+    transformUploadCount: Number.isFinite(result.comparisonSummary.transformUploadCount)
+      ? result.comparisonSummary.transformUploadCount
+      : 0,
+    transformUploadLength: Number.isFinite(result.comparisonSummary.transformUploadLength)
+      ? result.comparisonSummary.transformUploadLength
+      : 0,
+    transformUploadCapacityBytes: Number.isFinite(result.comparisonSummary.transformUploadCapacityBytes)
+      ? result.comparisonSummary.transformUploadCapacityBytes
+      : 0,
+    transformUploadReusedCapacity: !!result.comparisonSummary.transformUploadReusedCapacity,
+
     referencePath: result.comparisonSummary.referencePath ?? 'none',
     referenceRole: result.comparisonSummary.referenceRole ?? 'none',
     usesPackedReferenceLayout: !!result.comparisonSummary.usesPackedReferenceLayout,
@@ -582,9 +693,18 @@ export function summarizeScreenSpaceBuildContext(context) {
   if (!context) {
     return {
       lastSourcePath: 'none',
+      lastRequestedTransformPath: GPU_SCREEN_TRANSFORM_PATH_CPU,
+      lastActualTransformPath: GPU_SCREEN_TRANSFORM_PATH_CPU,
       lastTransformPath: GPU_SCREEN_TRANSFORM_PATH_CPU,
       lastTransformRole: 'formal-transform',
+      lastTransformConfigured: false,
+      lastTransformHasBuffers: false,
       lastTransformFallbackReason: 'none',
+      lastTransformUploadBytes: 0,
+      lastTransformUploadCount: 0,
+      lastTransformUploadLength: 0,
+      lastTransformUploadCapacityBytes: 0,
+      lastTransformUploadReusedCapacity: false,
       lastInputVisibleCount: 0,
       lastNormalizedVisibleCount: 0,
       lastSourceItemCount: 0,
@@ -600,9 +720,18 @@ export function summarizeScreenSpaceBuildContext(context) {
 
   return {
     lastSourcePath: context.lastSourcePath ?? 'none',
+    lastRequestedTransformPath: context.lastRequestedTransformPath ?? GPU_SCREEN_TRANSFORM_PATH_CPU,
+    lastActualTransformPath: context.lastActualTransformPath ?? GPU_SCREEN_TRANSFORM_PATH_CPU,
     lastTransformPath: context.lastTransformPath ?? GPU_SCREEN_TRANSFORM_PATH_CPU,
     lastTransformRole: context.lastTransformRole ?? 'formal-transform',
+    lastTransformConfigured: !!context.lastTransformConfigured,
+    lastTransformHasBuffers: !!context.lastTransformHasBuffers,
     lastTransformFallbackReason: context.lastTransformFallbackReason ?? 'none',
+    lastTransformUploadBytes: Number.isFinite(context.lastTransformUploadBytes) ? context.lastTransformUploadBytes : 0,
+    lastTransformUploadCount: Number.isFinite(context.lastTransformUploadCount) ? context.lastTransformUploadCount : 0,
+    lastTransformUploadLength: Number.isFinite(context.lastTransformUploadLength) ? context.lastTransformUploadLength : 0,
+    lastTransformUploadCapacityBytes: Number.isFinite(context.lastTransformUploadCapacityBytes) ? context.lastTransformUploadCapacityBytes : 0,
+    lastTransformUploadReusedCapacity: !!context.lastTransformUploadReusedCapacity,
     lastInputVisibleCount: Number.isFinite(context.lastInputVisibleCount)
       ? context.lastInputVisibleCount
       : 0,
