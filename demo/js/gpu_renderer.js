@@ -63,18 +63,6 @@ import {
   summarizePackedScreenSpaceComparison
 } from './gpu_screen_space_builder.js';
 
-// Step32
-// 目的:
-// - Step31 の source provider separation を維持する
-// - Step32 で追加した source item build / packed transform の内訳を debug に渡す
-// - renderer 自身の責務は増やさず、source summary の受け渡しだけを最小差分で追加する
-//
-// 設計:
-// 1. packed path は visible builder 由来の packed-cpu をそのまま使う
-// 2. gpu-screen path は packed-gpu-prep source を優先し、失敗時は packed-cpu に fallback する
-// 3. sourceComparisonSummary に Step32 の source internal stage 情報をマージして debug builder に渡す
-// 4. per-tile drawSelectedOnly は引き続き legacy のみ
-
 function ensureDebugOverlayCanvas(mainCanvas) {
   let overlay = document.getElementById('gpuTileDebugOverlay');
   if (!overlay) {
@@ -275,13 +263,16 @@ function mergeGpuScreenSourceInfo(sourceSummary, sourceComparisonSummary) {
     sourceItemCount: sourceSummary?.sourceItemCount ?? 0,
     sourceSchemaVersion: sourceSummary?.sourceSchemaVersion ?? 0,
     sourcePrepStageMs: sourceSummary?.prepStageMs ?? 0,
-    sourcePackStageMs: sourceSummary?.packStageMs ?? 0
+    sourcePackStageMs: sourceSummary?.packStageMs ?? 0,
+    transformPath: sourceSummary?.transformPath ?? 'cpu-packed-transform',
+    transformRole: sourceSummary?.transformRole ?? 'formal-transform',
+    transformFallbackReason: sourceSummary?.transformFallbackReason ?? 'none',
+    transformStageMs: sourceSummary?.transformStageMs ?? 0
   };
 }
 
 function selectGpuScreenSourceSpace(gpu, visible, packedCpuScreenSpace) {
   const context = ensureGpuScreenSourceContext(gpu);
-
   try {
     const experimental = buildPackedGpuPrepScreenSpaceWithContext(context, visible, {});
     if (experimental?.packed instanceof Float32Array) {
@@ -560,7 +551,7 @@ export async function renderGpuFrame({
     debugOverlayCanvas.height = canvas.height;
     debugCtx.clearRect(0, 0, debugOverlayCanvas.width, debugOverlayCanvas.height);
     debugOverlayCanvas.style.display = 'none';
-    const emptyInfo = 'GPU Step32 viewer\nNo scene loaded.';
+    const emptyInfo = 'GPU Step33 viewer\nNo scene loaded.';
     setInfoText(infoEl, emptyInfo);
     return {
       infoText: emptyInfo,
@@ -803,12 +794,12 @@ export async function renderGpuFrame({
     timestamp: buildConfig.timestamp,
     splatScale: buildConfig.scalingModifier,
     elapsedMs: elapsed,
-    stepLabel: 'GPU Step32',
+    stepLabel: 'GPU Step33',
     stepNotes: [
-      'gpu-screen source now separates source-item build and packed-transform stages',
+      'gpu-screen packed transform is now isolated behind a dedicated transform executor boundary',
       'packed remains the formal reference path for draw contract and layout',
-      'renderer stays thin and forwards source-stage summaries to debug output',
-      'this step prepares later GPU migration by isolating CPU source-prep sub-stages'
+      'renderer stays thin and only forwards source and transform summaries to debug output',
+      'this step prepares future GPU packed-transform replacement without changing the draw contract'
     ],
     tileSummary,
     avgRefsPerVisible,

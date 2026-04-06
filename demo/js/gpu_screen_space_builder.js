@@ -3,32 +3,15 @@ import {
   GPU_VISIBLE_PACK_FLOATS_PER_ITEM
 } from './gpu_buffer_layout_utils.js';
 import {
-  packVisibleItems,
   createPackedVisibleResult
 } from './gpu_visible_pack_utils.js';
-
-// Step32
-// 目的:
-// - gpu-screen source provider の内部責務を分離する
-// - packed formal draw contract は維持したまま、
-//   gpu-screen source を
-//   (1) source item build
-//   (2) packed transform
-//   の2段へ分ける
-//
-// 非目標:
-// - draw contract の変更
-// - UI/state/tile 層の変更
-// - packed formal path の変更
-//
-// 設計:
-// 1. packed-cpu は formal source のまま維持
-// 2. packed-gpu-prep は experimental source として維持
-// 3. packed-gpu-prep の内部では
-//    - gpu-screen source items の生成
-//    - source items -> packed formal contract 変換
-//    を分離する
-// 4. 既存 export 互換は維持する
+import {
+  createGpuScreenTransformContext,
+  executeGpuScreenPackedTransform,
+  summarizeGpuScreenTransformResult,
+  GPU_SCREEN_TRANSFORM_PATH_CPU,
+  GPU_SCREEN_TRANSFORM_PATH_GPU_PREP
+} from './gpu_screen_transform_executor.js';
 
 export const GPU_SCREEN_SPACE_SOURCE_PACKED_CPU = 'packed-cpu';
 export const GPU_SCREEN_SPACE_SOURCE_PACKED_GPU_PREP = 'packed-gpu-prep';
@@ -142,7 +125,11 @@ export function normalizeScreenSpaceVisible(visible) {
 export function createScreenSpaceBuildContext() {
   return {
     layout: getVisiblePackLayout(),
+    transformContext: createGpuScreenTransformContext(),
     lastSourcePath: GPU_SCREEN_SPACE_SOURCE_PACKED_CPU,
+    lastTransformPath: GPU_SCREEN_TRANSFORM_PATH_CPU,
+    lastTransformRole: 'formal-transform',
+    lastTransformFallbackReason: 'none',
     lastInputVisibleCount: 0,
     lastNormalizedVisibleCount: 0,
     lastSourceItemCount: 0,
@@ -164,15 +151,9 @@ function isExperimentalSourcePath(path) {
 }
 
 function normalizeSourcePath(path, experimental = false) {
-  if (path === GPU_SCREEN_SPACE_SOURCE_PACKED_CPU) {
-    return GPU_SCREEN_SPACE_SOURCE_PACKED_CPU;
-  }
-  if (path === GPU_SCREEN_SPACE_SOURCE_PACKED_GPU_PREP) {
-    return GPU_SCREEN_SPACE_SOURCE_PACKED_GPU_PREP;
-  }
-  if (path === GPU_SCREEN_SPACE_SOURCE_GPU_SCREEN_EXPERIMENTAL) {
-    return GPU_SCREEN_SPACE_SOURCE_GPU_SCREEN_EXPERIMENTAL;
-  }
+  if (path === GPU_SCREEN_SPACE_SOURCE_PACKED_CPU) return GPU_SCREEN_SPACE_SOURCE_PACKED_CPU;
+  if (path === GPU_SCREEN_SPACE_SOURCE_PACKED_GPU_PREP) return GPU_SCREEN_SPACE_SOURCE_PACKED_GPU_PREP;
+  if (path === GPU_SCREEN_SPACE_SOURCE_GPU_SCREEN_EXPERIMENTAL) return GPU_SCREEN_SPACE_SOURCE_GPU_SCREEN_EXPERIMENTAL;
   return experimental ? GPU_SCREEN_SPACE_SOURCE_PACKED_GPU_PREP : GPU_SCREEN_SPACE_SOURCE_PACKED_CPU;
 }
 
@@ -186,13 +167,23 @@ function buildReferenceInfo(path, experimental) {
       referenceRole: 'formal-reference'
     };
   }
-
   return {
     sourcePath: normalizedPath,
     sourceRole: isExperimentalSourcePath(normalizedPath) ? 'experimental-source' : 'formal-source',
     referencePath: GPU_SCREEN_SPACE_SOURCE_PACKED_CPU,
     referenceRole: 'formal-reference'
   };
+}
+
+function getRequestedTransformPathForSource(path, experimental = false) {
+  const normalizedPath = normalizeSourcePath(path, experimental);
+  if (
+    normalizedPath === GPU_SCREEN_SPACE_SOURCE_PACKED_GPU_PREP ||
+    normalizedPath === GPU_SCREEN_SPACE_SOURCE_GPU_SCREEN_EXPERIMENTAL
+  ) {
+    return GPU_SCREEN_TRANSFORM_PATH_GPU_PREP;
+  }
+  return GPU_SCREEN_TRANSFORM_PATH_CPU;
 }
 
 export function buildGpuScreenSourceItems(normalizedVisible, extra = {}) {
@@ -207,22 +198,18 @@ export function buildGpuScreenSourceItems(normalizedVisible, extra = {}) {
 }
 
 export function packGpuScreenSourceItems(sourceItemsResult, extra = {}) {
-  const items = Array.isArray(sourceItemsResult?.items) ? sourceItemsResult.items : [];
-  const packedResult = packVisibleItems(items);
-  return {
-    packed: packedResult?.packed instanceof Float32Array ? packedResult.packed : null,
-    count: Number.isFinite(packedResult?.count) ? packedResult.count : items.length,
-    floatsPerItem: Number.isFinite(packedResult?.floatsPerItem)
-      ? packedResult.floatsPerItem
-      : GPU_VISIBLE_PACK_FLOATS_PER_ITEM,
-    path: normalizeSourcePath(extra.path ?? sourceItemsResult?.path, !!extra.experimental || !!sourceItemsResult?.experimental),
-    experimental: !!extra.experimental || !!sourceItemsResult?.experimental,
-    sourceItems: items,
-    sourceItemCount: Number.isFinite(sourceItemsResult?.itemCount) ? sourceItemsResult.itemCount : items.length,
-    sourceSchemaVersion: Number.isFinite(sourceItemsResult?.schemaVersion)
-      ? sourceItemsResult.schemaVersion
-      : GPU_SCREEN_SPACE_SOURCE_SCHEMA_VERSION
-  };
+  const requestedPath = normalizeSourcePath(
+    extra.path ?? sourceItemsResult?.path,
+    !!extra.experimental || !!sourceItemsResult?.experimental
+  );
+  const transformContext = extra.transformContext ?? createGpuScreenTransformContext();
+  const transformPath = extra.transformPath ?? getRequestedTransformPathForSource(
+    requestedPath,
+    !!extra.experimental || !!sourceItemsResult?.experimental
+  );
+  return executeGpuScreenPackedTransform(transformContext, sourceItemsResult, {
+    transformPath
+  });
 }
 
 function buildPackedScreenSpaceStateSummary({
@@ -237,7 +224,8 @@ function buildPackedScreenSpaceStateSummary({
   packStageMs,
   buildMs,
   experimental,
-  sourceSchemaVersion
+  sourceSchemaVersion,
+  transformSummary
 }) {
   const normalizedPath = normalizeSourcePath(path, experimental);
   return {
@@ -250,6 +238,10 @@ function buildPackedScreenSpaceStateSummary({
       : GPU_SCREEN_SPACE_SOURCE_SCHEMA_VERSION,
     prepStageMs: Number.isFinite(prepStageMs) ? prepStageMs : 0,
     packStageMs: Number.isFinite(packStageMs) ? packStageMs : 0,
+    transformPath: transformSummary?.transformPath ?? GPU_SCREEN_TRANSFORM_PATH_CPU,
+    transformRole: transformSummary?.transformRole ?? 'formal-transform',
+    transformFallbackReason: transformSummary?.transformFallbackReason ?? 'none',
+    transformStageMs: Number.isFinite(transformSummary?.transformStageMs) ? transformSummary.transformStageMs : 0,
     packedCount,
     packedLength: packed instanceof Float32Array ? packed.length : 0,
     floatsPerItem,
@@ -269,7 +261,9 @@ function buildPackedScreenSpaceComparisonSummary({
   packedCount,
   packed,
   buildMs,
-  experimental
+  experimental,
+  sourceSummary,
+  transformSummary
 }) {
   const ref = buildReferenceInfo(path, experimental);
   return {
@@ -279,6 +273,14 @@ function buildPackedScreenSpaceComparisonSummary({
     sourceBuildMs: Number.isFinite(buildMs) ? buildMs : 0,
     sourcePackedCount: Number.isFinite(packedCount) ? packedCount : 0,
     sourcePackedLength: packed instanceof Float32Array ? packed.length : 0,
+    sourceItemCount: sourceSummary?.sourceItemCount ?? 0,
+    sourceSchemaVersion: sourceSummary?.sourceSchemaVersion ?? GPU_SCREEN_SPACE_SOURCE_SCHEMA_VERSION,
+    sourcePrepStageMs: Number.isFinite(sourceSummary?.prepStageMs) ? sourceSummary.prepStageMs : 0,
+    sourcePackStageMs: Number.isFinite(sourceSummary?.packStageMs) ? sourceSummary.packStageMs : 0,
+    transformPath: transformSummary?.transformPath ?? GPU_SCREEN_TRANSFORM_PATH_CPU,
+    transformRole: transformSummary?.transformRole ?? 'formal-transform',
+    transformFallbackReason: transformSummary?.transformFallbackReason ?? 'none',
+    transformStageMs: Number.isFinite(transformSummary?.transformStageMs) ? transformSummary.transformStageMs : 0,
     referencePath: ref.referencePath,
     referenceRole: ref.referenceRole,
     usesPackedReferenceLayout: ref.referencePath === GPU_SCREEN_SPACE_SOURCE_PACKED_CPU,
@@ -303,6 +305,7 @@ function buildPackedScreenSpaceResult(normalizedVisible, sourceItemsResult, pack
   const sourceSchemaVersion = Number.isFinite(sourceItemsResult?.schemaVersion)
     ? sourceItemsResult.schemaVersion
     : GPU_SCREEN_SPACE_SOURCE_SCHEMA_VERSION;
+  const transformSummary = summarizeGpuScreenTransformResult(packedStageResult);
 
   const stateSummary = buildPackedScreenSpaceStateSummary({
     path,
@@ -316,7 +319,8 @@ function buildPackedScreenSpaceResult(normalizedVisible, sourceItemsResult, pack
     packStageMs,
     buildMs,
     experimental,
-    sourceSchemaVersion
+    sourceSchemaVersion,
+    transformSummary
   });
 
   const comparisonSummary = buildPackedScreenSpaceComparisonSummary({
@@ -324,7 +328,9 @@ function buildPackedScreenSpaceResult(normalizedVisible, sourceItemsResult, pack
     packedCount,
     packed,
     buildMs,
-    experimental
+    experimental,
+    sourceSummary: stateSummary,
+    transformSummary
   });
 
   return {
@@ -339,6 +345,7 @@ function buildPackedScreenSpaceResult(normalizedVisible, sourceItemsResult, pack
     comparisonSummary,
     experimental,
     ...extra,
+    transformSummary,
     pathNormalized: path
   };
 }
@@ -347,6 +354,9 @@ function updateContext(context, result, inputVisible) {
   if (!context) return;
   context.layout = context.layout ?? getVisiblePackLayout();
   context.lastSourcePath = result.comparisonSummary?.sourcePath ?? result.path;
+  context.lastTransformPath = result.transformSummary?.transformPath ?? GPU_SCREEN_TRANSFORM_PATH_CPU;
+  context.lastTransformRole = result.transformSummary?.transformRole ?? 'formal-transform';
+  context.lastTransformFallbackReason = result.transformSummary?.transformFallbackReason ?? 'none';
   context.lastInputVisibleCount = Array.isArray(inputVisible) ? inputVisible.length : 0;
   context.lastNormalizedVisibleCount = Array.isArray(result.visible) ? result.visible.length : 0;
   context.lastSourceItemCount = Array.isArray(result.sourceItems) ? result.sourceItems.length : 0;
@@ -368,7 +378,10 @@ export function buildPackedScreenSpaceFromVisible(visible, extra = {}) {
   const prepStageMs = nowMs() - prepT0;
 
   const packT0 = nowMs();
-  const packedStageResult = packGpuScreenSourceItems(sourceItemsResult, extra);
+  const packedStageResult = packGpuScreenSourceItems(sourceItemsResult, {
+    ...extra,
+    transformContext: createGpuScreenTransformContext()
+  });
   const packStageMs = nowMs() - packT0;
 
   const buildMs = nowMs() - t0;
@@ -393,7 +406,10 @@ export function buildPackedScreenSpaceWithContext(context, visible, extra = {}) 
   const prepStageMs = nowMs() - prepT0;
 
   const packT0 = nowMs();
-  const packedStageResult = packGpuScreenSourceItems(sourceItemsResult, extra);
+  const packedStageResult = packGpuScreenSourceItems(sourceItemsResult, {
+    ...extra,
+    transformContext: context?.transformContext ?? createGpuScreenTransformContext()
+  });
   const packStageMs = nowMs() - packT0;
 
   const buildMs = nowMs() - t0;
@@ -415,30 +431,30 @@ export function buildPackedScreenSpaceWithContext(context, visible, extra = {}) 
   };
 }
 
-// formal source
 export function buildPackedCpuScreenSpaceWithContext(context, visible, extra = {}) {
   return buildPackedScreenSpaceWithContext(context, visible, {
     ...extra,
     path: GPU_SCREEN_SPACE_SOURCE_PACKED_CPU,
-    experimental: false
+    experimental: false,
+    transformPath: GPU_SCREEN_TRANSFORM_PATH_CPU
   });
 }
 
-// experimental source prep for future GPU-side generation
 export function buildPackedGpuPrepScreenSpaceWithContext(context, visible, extra = {}) {
   return buildPackedScreenSpaceWithContext(context, visible, {
     ...extra,
     path: GPU_SCREEN_SPACE_SOURCE_PACKED_GPU_PREP,
-    experimental: true
+    experimental: true,
+    transformPath: GPU_SCREEN_TRANSFORM_PATH_GPU_PREP
   });
 }
 
-// backward-compatible alias kept for existing callers
 export function buildGpuScreenExperimentalSpaceWithContext(context, visible, extra = {}) {
   return buildPackedGpuPrepScreenSpaceWithContext(context, visible, {
     ...extra,
     path: GPU_SCREEN_SPACE_SOURCE_GPU_SCREEN_EXPERIMENTAL,
-    experimental: true
+    experimental: true,
+    transformPath: GPU_SCREEN_TRANSFORM_PATH_GPU_PREP
   });
 }
 
@@ -450,6 +466,10 @@ export function summarizePackedScreenSpace(result) {
       sourceSchemaVersion: GPU_SCREEN_SPACE_SOURCE_SCHEMA_VERSION,
       prepStageMs: 0,
       packStageMs: 0,
+      transformPath: GPU_SCREEN_TRANSFORM_PATH_CPU,
+      transformRole: 'formal-transform',
+      transformFallbackReason: 'none',
+      transformStageMs: 0,
       packedCount: 0,
       packedLength: 0,
       floatsPerItem: GPU_VISIBLE_PACK_FLOATS_PER_ITEM,
@@ -472,6 +492,10 @@ export function summarizePackedScreenSpace(result) {
       : GPU_SCREEN_SPACE_SOURCE_SCHEMA_VERSION,
     prepStageMs: Number.isFinite(result.summary?.prepStageMs) ? result.summary.prepStageMs : 0,
     packStageMs: Number.isFinite(result.summary?.packStageMs) ? result.summary.packStageMs : 0,
+    transformPath: result.summary?.transformPath ?? GPU_SCREEN_TRANSFORM_PATH_CPU,
+    transformRole: result.summary?.transformRole ?? 'formal-transform',
+    transformFallbackReason: result.summary?.transformFallbackReason ?? 'none',
+    transformStageMs: Number.isFinite(result.summary?.transformStageMs) ? result.summary.transformStageMs : 0,
     packedCount: Number.isFinite(result.packedCount) ? result.packedCount : 0,
     packedLength: result.packed instanceof Float32Array ? result.packed.length : 0,
     floatsPerItem: Number.isFinite(result.floatsPerItem)
@@ -497,6 +521,14 @@ export function summarizePackedScreenSpaceComparison(result) {
       sourceBuildMs: 0,
       sourcePackedCount: 0,
       sourcePackedLength: 0,
+      sourceItemCount: 0,
+      sourceSchemaVersion: GPU_SCREEN_SPACE_SOURCE_SCHEMA_VERSION,
+      sourcePrepStageMs: 0,
+      sourcePackStageMs: 0,
+      transformPath: GPU_SCREEN_TRANSFORM_PATH_CPU,
+      transformRole: 'formal-transform',
+      transformFallbackReason: 'none',
+      transformStageMs: 0,
       referencePath: 'none',
       referenceRole: 'none',
       usesPackedReferenceLayout: false,
@@ -519,6 +551,24 @@ export function summarizePackedScreenSpaceComparison(result) {
     sourcePackedLength: Number.isFinite(result.comparisonSummary.sourcePackedLength)
       ? result.comparisonSummary.sourcePackedLength
       : 0,
+    sourceItemCount: Number.isFinite(result.comparisonSummary.sourceItemCount)
+      ? result.comparisonSummary.sourceItemCount
+      : 0,
+    sourceSchemaVersion: Number.isFinite(result.comparisonSummary.sourceSchemaVersion)
+      ? result.comparisonSummary.sourceSchemaVersion
+      : GPU_SCREEN_SPACE_SOURCE_SCHEMA_VERSION,
+    sourcePrepStageMs: Number.isFinite(result.comparisonSummary.sourcePrepStageMs)
+      ? result.comparisonSummary.sourcePrepStageMs
+      : 0,
+    sourcePackStageMs: Number.isFinite(result.comparisonSummary.sourcePackStageMs)
+      ? result.comparisonSummary.sourcePackStageMs
+      : 0,
+    transformPath: result.comparisonSummary.transformPath ?? GPU_SCREEN_TRANSFORM_PATH_CPU,
+    transformRole: result.comparisonSummary.transformRole ?? 'formal-transform',
+    transformFallbackReason: result.comparisonSummary.transformFallbackReason ?? 'none',
+    transformStageMs: Number.isFinite(result.comparisonSummary.transformStageMs)
+      ? result.comparisonSummary.transformStageMs
+      : 0,
     referencePath: result.comparisonSummary.referencePath ?? 'none',
     referenceRole: result.comparisonSummary.referenceRole ?? 'none',
     usesPackedReferenceLayout: !!result.comparisonSummary.usesPackedReferenceLayout,
@@ -532,6 +582,9 @@ export function summarizeScreenSpaceBuildContext(context) {
   if (!context) {
     return {
       lastSourcePath: 'none',
+      lastTransformPath: GPU_SCREEN_TRANSFORM_PATH_CPU,
+      lastTransformRole: 'formal-transform',
+      lastTransformFallbackReason: 'none',
       lastInputVisibleCount: 0,
       lastNormalizedVisibleCount: 0,
       lastSourceItemCount: 0,
@@ -547,6 +600,9 @@ export function summarizeScreenSpaceBuildContext(context) {
 
   return {
     lastSourcePath: context.lastSourcePath ?? 'none',
+    lastTransformPath: context.lastTransformPath ?? GPU_SCREEN_TRANSFORM_PATH_CPU,
+    lastTransformRole: context.lastTransformRole ?? 'formal-transform',
+    lastTransformFallbackReason: context.lastTransformFallbackReason ?? 'none',
     lastInputVisibleCount: Number.isFinite(context.lastInputVisibleCount)
       ? context.lastInputVisibleCount
       : 0,

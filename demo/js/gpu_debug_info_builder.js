@@ -1,20 +1,3 @@
-// Step32
-// 目的:
-// - debug info builder の責務を「整形だけ」に保ったまま、
-//   Step32 で追加した gpu-screen source internal stages の情報を表示する
-// - renderer / source builder / executor が確定した値を、そのまま deterministic に並べる
-//
-// 非目標:
-// - draw path / source path の意味づけ変更
-// - UI truth source の変更
-// - packed / gpu-screen の挙動変更
-//
-// 設計:
-// 1. buildGpuDebugExtraLines() は入力を文字列化するだけ
-// 2. 値が無いものだけを省略する
-// 3. build config -> timing -> tile mode -> ui -> gpu-screen state -> gpu-screen comparison の順で安定化
-// 4. Step32 では source provider 分離に加えて、source internal stages の行だけを追加する
-
 function isFiniteNumber(v) {
   return Number.isFinite(v);
 }
@@ -38,7 +21,6 @@ function pushLine(lines, key, value) {
 
 function buildConfigLines(buildConfig) {
   if (!buildConfig) return [];
-
   const lines = [];
   pushLine(lines, 'stride', fmtInt(buildConfig.stride));
   pushLine(lines, 'useRot4d', fmtBool(!!buildConfig.useRot4d));
@@ -69,14 +51,9 @@ function buildModeLines(mode, focusTileIds, focusTileRects) {
   pushLine(lines, 'tileRadius', fmtInt(mode?.tileRadius));
   pushLine(lines, 'useMaxTile', fmtBool(!!mode?.useMaxTile));
   pushLine(lines, 'selectedTileId', fmtInt(mode?.selectedTileId));
-
   const focusCount = Array.isArray(focusTileIds) ? focusTileIds.length : 0;
   pushLine(lines, 'focusTileCount', String(focusCount));
-
-  if (focusCount > 0) {
-    pushLine(lines, 'focusTileIds', focusTileIds.join(','));
-  }
-
+  if (focusCount > 0) pushLine(lines, 'focusTileIds', focusTileIds.join(','));
   if (Array.isArray(focusTileRects) && focusTileRects.length > 0) {
     const rectText = focusTileRects
       .map((item) => {
@@ -87,7 +64,6 @@ function buildModeLines(mode, focusTileIds, focusTileRects) {
       .join(' ');
     pushLine(lines, 'focusTileRects', rectText);
   }
-
   return lines;
 }
 
@@ -95,17 +71,12 @@ function buildUiLines(ui) {
   const lines = [];
   pushLine(lines, 'bgGraySlider', ui?.bgGraySlider ? String(ui.bgGraySlider.value) : null);
   pushLine(lines, 'drawPathUiValue', ui?.drawPathSelect ? String(ui.drawPathSelect.value) : null);
-  pushLine(
-    lines,
-    'usePackedVisiblePathUi',
-    ui?.usePackedVisiblePathCheck ? fmtBool(!!ui.usePackedVisiblePathCheck.checked) : null
-  );
+  pushLine(lines, 'usePackedVisiblePathUi', ui?.usePackedVisiblePathCheck ? fmtBool(!!ui.usePackedVisiblePathCheck.checked) : null);
   return lines;
 }
 
 function buildGpuScreenStateLines(gpuScreenSummary) {
   if (!gpuScreenSummary) return [];
-
   const lines = [];
   pushLine(lines, 'gpuScreenDrawReady', fmtBool(!!gpuScreenSummary.gpuScreenDrawReady));
   pushLine(lines, 'gpuScreenConfigured', fmtBool(!!gpuScreenSummary.gpuScreenConfigured));
@@ -113,14 +84,12 @@ function buildGpuScreenStateLines(gpuScreenSummary) {
   pushLine(lines, 'gpuScreenHasVao', fmtBool(!!gpuScreenSummary.gpuScreenHasVao));
   pushLine(lines, 'gpuScreenHasBuffers', fmtBool(!!gpuScreenSummary.gpuScreenHasBuffers));
   pushLine(lines, 'gpuScreenReason', gpuScreenSummary.gpuScreenReason ?? 'unknown');
-
   pushLine(lines, 'gpuScreenLastActualPath', gpuScreenSummary.gpuScreenLastActualPath ?? 'none');
   pushLine(lines, 'gpuScreenLastDrawCount', fmtInt(gpuScreenSummary.gpuScreenLastDrawCount));
   pushLine(lines, 'gpuScreenLayoutVersion', fmtInt(gpuScreenSummary.gpuScreenLayoutVersion));
   pushLine(lines, 'gpuScreenStrideBytes', fmtInt(gpuScreenSummary.gpuScreenStrideBytes));
   pushLine(lines, 'gpuScreenAttributeCount', fmtInt(gpuScreenSummary.gpuScreenAttributeCount));
   pushLine(lines, 'gpuScreenOffsets', gpuScreenSummary.gpuScreenOffsets ?? '');
-
   pushLine(lines, 'gpuScreenUploadBytes', fmtInt(gpuScreenSummary.gpuScreenUploadBytes));
   pushLine(lines, 'gpuScreenUploadCount', fmtInt(gpuScreenSummary.gpuScreenUploadCount));
   pushLine(lines, 'gpuScreenUploadLength', fmtInt(gpuScreenSummary.gpuScreenUploadLength));
@@ -129,40 +98,35 @@ function buildGpuScreenStateLines(gpuScreenSummary) {
   pushLine(lines, 'gpuScreenUploadManagedCapacityReused', fmtBool(!!gpuScreenSummary.gpuScreenUploadManagedCapacityReused));
   pushLine(lines, 'gpuScreenUploadManagedCapacityGrown', fmtBool(!!gpuScreenSummary.gpuScreenUploadManagedCapacityGrown));
   pushLine(lines, 'gpuScreenUploadManagedUploadCount', fmtInt(gpuScreenSummary.gpuScreenUploadManagedUploadCount));
-
   pushLine(lines, 'gpuScreenUsesPackedReferenceLayout', fmtBool(!!gpuScreenSummary.gpuScreenUsesPackedReferenceLayout));
   pushLine(lines, 'gpuScreenUsesPackedReferenceShader', fmtBool(!!gpuScreenSummary.gpuScreenUsesPackedReferenceShader));
   pushLine(lines, 'gpuScreenUsesPackedReferenceUpload', fmtBool(!!gpuScreenSummary.gpuScreenUsesPackedReferenceUpload));
-
   return lines;
 }
 
 function buildGpuScreenComparisonLines(gpuScreenComparisonSummary) {
   if (!gpuScreenComparisonSummary) return [];
-
   const lines = [];
   pushLine(lines, 'gpuScreenActualPath', gpuScreenComparisonSummary.actualPath ?? 'gpu-screen');
   pushLine(lines, 'gpuScreenActualRole', gpuScreenComparisonSummary.actualRole ?? 'experimental-draw');
-
   pushLine(lines, 'gpuScreenSourcePath', gpuScreenComparisonSummary.sourcePath ?? 'none');
   pushLine(lines, 'gpuScreenSourceRole', gpuScreenComparisonSummary.sourceRole ?? 'none');
   pushLine(lines, 'gpuScreenSourceExperimental', fmtBool(!!gpuScreenComparisonSummary.sourceExperimental));
   pushLine(lines, 'gpuScreenSourceBuildMs', fmtNum(gpuScreenComparisonSummary.sourceBuildMs, 3));
   pushLine(lines, 'gpuScreenSourcePackedCount', fmtInt(gpuScreenComparisonSummary.sourcePackedCount));
   pushLine(lines, 'gpuScreenSourcePackedLength', fmtInt(gpuScreenComparisonSummary.sourcePackedLength));
-
-  // Step32 additions: internal source stages / schema
   pushLine(lines, 'gpuScreenSourceItemCount', fmtInt(gpuScreenComparisonSummary.sourceItemCount));
   pushLine(lines, 'gpuScreenSourceSchemaVersion', fmtInt(gpuScreenComparisonSummary.sourceSchemaVersion));
   pushLine(lines, 'gpuScreenSourcePrepStageMs', fmtNum(gpuScreenComparisonSummary.sourcePrepStageMs, 3));
   pushLine(lines, 'gpuScreenSourcePackStageMs', fmtNum(gpuScreenComparisonSummary.sourcePackStageMs, 3));
-
+  pushLine(lines, 'gpuScreenTransformPath', gpuScreenComparisonSummary.transformPath ?? 'cpu-packed-transform');
+  pushLine(lines, 'gpuScreenTransformRole', gpuScreenComparisonSummary.transformRole ?? 'formal-transform');
+  pushLine(lines, 'gpuScreenTransformFallbackReason', gpuScreenComparisonSummary.transformFallbackReason ?? 'none');
+  pushLine(lines, 'gpuScreenTransformStageMs', fmtNum(gpuScreenComparisonSummary.transformStageMs, 3));
   pushLine(lines, 'gpuScreenReferencePath', gpuScreenComparisonSummary.referencePath ?? 'packed-cpu');
   pushLine(lines, 'gpuScreenReferenceRole', gpuScreenComparisonSummary.referenceRole ?? 'formal-reference');
-
   pushLine(lines, 'gpuScreenSameLayoutAsReference', fmtBool(!!gpuScreenComparisonSummary.sameLayoutAsReference));
   pushLine(lines, 'gpuScreenSamePackCountAsReference', fmtBool(!!gpuScreenComparisonSummary.samePackCountAsReference));
-
   return lines;
 }
 
@@ -178,13 +142,11 @@ export function buildGpuDebugExtraLines({
   gpuScreenComparisonSummary = null
 } = {}) {
   const lines = [];
-
   lines.push(...buildConfigLines(buildConfig));
   lines.push(...buildTimingLines(buildStats, drawStats, gpuScreenSummary));
   lines.push(...buildModeLines(mode, focusTileIds, focusTileRects));
   lines.push(...buildUiLines(ui));
   lines.push(...buildGpuScreenStateLines(gpuScreenSummary));
   lines.push(...buildGpuScreenComparisonLines(gpuScreenComparisonSummary));
-
   return lines;
 }
