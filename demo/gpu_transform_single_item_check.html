@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>GPU Transform Small-Batch Check</title>
+  <title>GPU Transform Batch Check</title>
   <style>
     :root {
       --bg: #f3efe6;
@@ -161,7 +161,7 @@
 <body>
   <main>
     <section class="panel">
-      <h1>GPU Transform Small-Batch Check</h1>
+      <h1>GPU Transform Batch Check</h1>
       <p>
         This page builds a synthetic screen-space batch, requests
         <code>gpu-packed-transform-prep</code>, calls the transform executor directly,
@@ -172,12 +172,11 @@
           <select id="itemCountSelect">
             <option value="1">1</option>
             <option value="2">2</option>
-            <option value="3">3</option>
             <option value="4" selected>4</option>
-            <option value="5">5</option>
-            <option value="6">6</option>
-            <option value="7">7</option>
             <option value="8">8</option>
+            <option value="16">16</option>
+            <option value="32">32</option>
+            <option value="64">64</option>
           </select>
         </label>
         <button id="runBtn" type="button">Run Check</button>
@@ -185,7 +184,7 @@
       </div>
       <div class="note">
         Run steps: 1. Open this HTML in the browser. 2. Click <code>Run Check</code>.
-        3. Try <code>2..8</code> items and confirm whether <code>actualTransformPath</code> becomes
+        3. Try <code>1 / 2 / 4 / 8 / 16 / 32 / 64</code> items and confirm whether <code>actualTransformPath</code> becomes
         <code>gpu-packed-transform-prep</code>.
       </div>
     </section>
@@ -226,7 +225,7 @@
     const canvas = document.getElementById('checkCanvas');
 
     function buildSyntheticSource(itemCount) {
-      const count = Math.max(1, Math.min(8, Number(itemCount) || 1));
+      const count = Math.max(1, Math.min(64, Number(itemCount) || 1));
       const items = [];
 
       for (let i = 0; i < count; i++) {
@@ -303,6 +302,7 @@
         `count=${executorResult.count}`,
         `floatsPerItem=${executorResult.floatsPerItem}`,
         `expectedPackedLength=${executorResult.count * executorResult.floatsPerItem}`,
+        `maxBatchItems=${backendResult.backendContext?.maxBatchItems ?? 'unknown'}`,
         '',
         `backendStage=${backendResult.backendStage}`,
         `backendImplemented=${backendResult.backendImplemented}`,

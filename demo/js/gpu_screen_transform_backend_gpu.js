@@ -23,7 +23,7 @@ const GPU_BACKEND_REASON_MISSING_WEBGL2 = 'gpu-backend-missing-webgl2';
 const GPU_BACKEND_REASON_MISSING_FLOAT_COLOR = 'gpu-backend-missing-float-color';
 const GPU_BACKEND_REASON_TRIAL_FAILED = 'gpu-backend-trial-failed';
 const GPU_BACKEND_REASON_CPU_FALLBACK = 'gpu-backend-cpu-fallback';
-const GPU_BACKEND_SMALL_BATCH_MAX_ITEMS = 8;
+const GPU_BACKEND_SMALL_BATCH_MAX_ITEMS = 64;
 const GPU_BACKEND_IMPLEMENTATION_STATE_STUB = 'stub';
 const GPU_BACKEND_IMPLEMENTATION_STATE_MINIMAL_GPU_PACK = 'minimal-gpu-pack';
 const GPU_BACKEND_EXECUTION_MODE_CPU_FALLBACK = 'cpu-fallback-stub';
@@ -41,6 +41,18 @@ function probeWebGL2Support(gl) {
 function probeFloatColorSupport(gl) {
   if (!probeWebGL2Support(gl) || typeof gl.getExtension !== 'function') return false;
   return !!gl.getExtension('EXT_color_buffer_float');
+}
+
+function getMaxTextureSize(gl) {
+  if (!probeWebGL2Support(gl) || typeof gl.getParameter !== 'function') return 0;
+  const value = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function getMaxSupportedBatchItems(gl) {
+  const maxTextureSize = getMaxTextureSize(gl);
+  if (!Number.isFinite(maxTextureSize) || maxTextureSize <= 0) return 0;
+  return Math.max(1, Math.min(GPU_BACKEND_SMALL_BATCH_MAX_ITEMS, maxTextureSize));
 }
 
 function buildBackendError(error) {
@@ -182,8 +194,9 @@ function ensureGpuPackedWriteResources(context, gl) {
     };
   }
 
+  const maxSupportedBatchItems = getMaxSupportedBatchItems(gl);
   const targetHeight = Math.max(1, Math.min(
-    GPU_BACKEND_SMALL_BATCH_MAX_ITEMS,
+    maxSupportedBatchItems,
     Number.isFinite(context?.packedWriteHeight) ? context.packedWriteHeight : 1
   ));
 
@@ -331,7 +344,8 @@ void main() {
 
 function tryGenerateGpuPackedSmallBatch(context, sourceItemsResult, gl) {
   const items = normalizeSourceItems(sourceItemsResult);
-  if (items.length <= 0 || items.length > GPU_BACKEND_SMALL_BATCH_MAX_ITEMS) {
+  const maxSupportedBatchItems = getMaxSupportedBatchItems(gl);
+  if (items.length <= 0 || items.length > maxSupportedBatchItems) {
     return {
       producedPacked: false,
       packed: null,
@@ -463,6 +477,7 @@ export function createGpuScreenTransformBackendGpuContext(initialState = {}) {
     trialResources: null,
     packedWriteResources: null,
     packedWriteHeight: 1,
+    packedWriteMaxItems: GPU_BACKEND_SMALL_BATCH_MAX_ITEMS,
     ...initialState
   };
 }
@@ -470,6 +485,8 @@ export function createGpuScreenTransformBackendGpuContext(initialState = {}) {
 export function summarizeGpuScreenTransformBackendGpuCapability(context, gl = null) {
   const supportsWebGL2 = probeWebGL2Support(gl);
   const isReady = !!context?.isReady && supportsWebGL2;
+  const maxTextureSize = getMaxTextureSize(gl);
+  const maxBatchItems = supportsWebGL2 ? getMaxSupportedBatchItems(gl) : 0;
 
   return {
     backendId: context?.backendId ?? GPU_BACKEND_ID,
@@ -482,6 +499,8 @@ export function summarizeGpuScreenTransformBackendGpuCapability(context, gl = nu
     reason: context?.reason ?? GPU_BACKEND_REASON_NOT_IMPLEMENTED,
     supportsWebGL2,
     supportsTransformPath: !!context?.supportsTransformPath,
+    maxTextureSize,
+    maxBatchItems,
     lastProbeMs: Number.isFinite(context?.lastProbeMs) ? context.lastProbeMs : 0,
     lastExecutionMs: Number.isFinite(context?.lastExecutionMs) ? context.lastExecutionMs : 0,
     lastSourceItemCount: Number.isFinite(context?.lastSourceItemCount) ? context.lastSourceItemCount : 0,
