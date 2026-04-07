@@ -1,9 +1,9 @@
 import { GPU_VISIBLE_PACK_FLOATS_PER_ITEM } from './gpu_buffer_layout_utils.js';
 import { packVisibleItems } from './gpu_visible_pack_utils.js';
 
-// Step34 redesign
+// Step37 stage 1
 // 目的:
-// - transform executor を requested / actual / fallback / state の唯一の truth source にする
+// - transform executor を requested / actual / fallback / upload state の唯一の truth source にする
 // - packed formal draw contract は維持したまま、将来 GPU transform 実装を差し込める境界を固定する
 //
 // truth source:
@@ -21,7 +21,7 @@ import { packVisibleItems } from './gpu_visible_pack_utils.js';
 // - UI/state/tile 層の変更
 //
 // 設計:
-// 1. executor の入力は sourceItemsResult と sourcePath / experimental
+// 1. executor の入力は sourceItemsResult と sourcePath / experimental / requestedTransformPath
 // 2. sourcePath から requestedTransformPath をここで最終決定する
 // 3. 現段階では actualTransformPath は CPU 実装のみ
 // 4. GPU_PREP requested 時は fallbackReason を必ず明示する
@@ -39,6 +39,21 @@ export const GPU_SCREEN_TRANSFORM_SOURCE_GPU_SCREEN_EXPERIMENTAL = 'gpu-screen-e
 
 function nowMs() {
   return performance.now();
+}
+
+function resolveTransformExecutionInputs(sourceItemsResult, options = {}) {
+  const experimental = !!options.experimental || !!sourceItemsResult?.experimental;
+  const sourcePath = normalizeSourcePath(options.sourcePath ?? sourceItemsResult?.path, experimental);
+
+  return {
+    sourcePath,
+    experimental,
+    requestedTransformPath: resolveRequestedTransformPath({
+      sourcePath,
+      experimental,
+      requestedTransformPath: options.transformPath ?? null
+    })
+  };
 }
 
 function normalizeSourcePath(path, experimental = false) {
@@ -114,6 +129,7 @@ function safeSourceSchemaVersion(sourceItemsResult) {
 }
 
 function buildTransformUploadSummary(packed, packedCount) {
+  // upload ownership lives here; downstream callers only read the summary fields.
   const packedLength = packed instanceof Float32Array ? packed.length : 0;
   const uploadBytes = packedLength * 4;
   return {
@@ -162,6 +178,8 @@ export function createGpuScreenTransformContext() {
   };
 }
 
+// This summary is the truth source for transform state.
+// builder / renderer / debug should forward these fields without reinterpretation.
 function buildTransformSummary({
   sourcePath,
   sourceItemsResult,
@@ -223,27 +241,18 @@ function updateContext(context, summary) {
 }
 
 export function executeGpuScreenPackedTransform(context, sourceItemsResult, options = {}) {
-  const sourcePath = normalizeSourcePath(
-    options.sourcePath ?? sourceItemsResult?.path,
-    !!options.experimental || !!sourceItemsResult?.experimental
-  );
-
-  const requestedTransformPath = resolveRequestedTransformPath({
-    sourcePath,
-    experimental: !!options.experimental || !!sourceItemsResult?.experimental,
-    requestedTransformPath: options.transformPath ?? null
-  });
+  const executionInputs = resolveTransformExecutionInputs(sourceItemsResult, options);
 
   const t0 = nowMs();
 
   const cpuResult = runCpuPackedTransform(sourceItemsResult);
-  const actualTransformPath = resolveActualTransformPath(requestedTransformPath);
+  const actualTransformPath = resolveActualTransformPath(executionInputs.requestedTransformPath);
   const transformStageMs = nowMs() - t0;
 
   const summary = buildTransformSummary({
-    sourcePath,
+    sourcePath: executionInputs.sourcePath,
     sourceItemsResult,
-    requestedTransformPath,
+    requestedTransformPath: executionInputs.requestedTransformPath,
     actualTransformPath,
     packed: cpuResult.packed,
     packedCount: cpuResult.count,

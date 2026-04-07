@@ -161,19 +161,19 @@ function buildGpuScreenComparisonLines(gpuScreenComparisonSummary) {
   pushLine(lines, 'gpuScreenSourcePackStageMs', fmtNum(gpuScreenComparisonSummary.sourcePackStageMs, 3));
 
   // Step34 redesign: transform truth source fields
-  pushLine(lines, 'gpuScreenRequestedTransformPath', gpuScreenComparisonSummary.requestedTransformPath ?? null);
-  pushLine(lines, 'gpuScreenActualTransformPath', gpuScreenComparisonSummary.actualTransformPath ?? null);
-  pushLine(lines, 'gpuScreenTransformPath', gpuScreenComparisonSummary.transformPath ?? null);
-  pushLine(lines, 'gpuScreenTransformRole', gpuScreenComparisonSummary.transformRole ?? null);
-  pushLine(lines, 'gpuScreenTransformConfigured', fmtBool(!!gpuScreenComparisonSummary.transformConfigured));
-  pushLine(lines, 'gpuScreenTransformHasBuffers', fmtBool(!!gpuScreenComparisonSummary.transformHasBuffers));
-  pushLine(lines, 'gpuScreenTransformFallbackReason', gpuScreenComparisonSummary.transformFallbackReason ?? null);
-  pushLine(lines, 'gpuScreenTransformStageMs', fmtNum(gpuScreenComparisonSummary.transformStageMs, 3));
-  pushLine(lines, 'gpuScreenTransformUploadBytes', fmtInt(gpuScreenComparisonSummary.transformUploadBytes));
-  pushLine(lines, 'gpuScreenTransformUploadCount', fmtInt(gpuScreenComparisonSummary.transformUploadCount));
-  pushLine(lines, 'gpuScreenTransformUploadLength', fmtInt(gpuScreenComparisonSummary.transformUploadLength));
-  pushLine(lines, 'gpuScreenTransformUploadCapacityBytes', fmtInt(gpuScreenComparisonSummary.transformUploadCapacityBytes));
-  pushLine(lines, 'gpuScreenTransformUploadReusedCapacity', fmtBool(!!gpuScreenComparisonSummary.transformUploadReusedCapacity));
+  pushLine(lines, 'gpuScreenRequestedTransformPath', gpuScreenComparisonSummary.requestedTransformPath);
+  pushLine(lines, 'gpuScreenActualTransformPath', gpuScreenComparisonSummary.actualTransformPath);
+  pushLine(lines, 'gpuScreenTransformPath', gpuScreenComparisonSummary.transformPath);
+  pushLine(lines, 'gpuScreenTransformRole', gpuScreenComparisonSummary.transformRole);
+  pushLine(lines, 'gpuScreenTransformConfigured', gpuScreenComparisonSummary.transformConfigured);
+  pushLine(lines, 'gpuScreenTransformHasBuffers', gpuScreenComparisonSummary.transformHasBuffers);
+  pushLine(lines, 'gpuScreenTransformFallbackReason', gpuScreenComparisonSummary.transformFallbackReason);
+  pushLine(lines, 'gpuScreenTransformStageMs', gpuScreenComparisonSummary.transformStageMs);
+  pushLine(lines, 'gpuScreenTransformUploadBytes', gpuScreenComparisonSummary.transformUploadBytes);
+  pushLine(lines, 'gpuScreenTransformUploadCount', gpuScreenComparisonSummary.transformUploadCount);
+  pushLine(lines, 'gpuScreenTransformUploadLength', gpuScreenComparisonSummary.transformUploadLength);
+  pushLine(lines, 'gpuScreenTransformUploadCapacityBytes', gpuScreenComparisonSummary.transformUploadCapacityBytes);
+  pushLine(lines, 'gpuScreenTransformUploadReusedCapacity', gpuScreenComparisonSummary.transformUploadReusedCapacity);
 
   pushLine(lines, 'gpuScreenReferencePath', gpuScreenComparisonSummary.referencePath ?? 'packed-cpu');
   pushLine(lines, 'gpuScreenReferenceRole', gpuScreenComparisonSummary.referenceRole ?? 'formal-reference');
@@ -218,9 +218,9 @@ export function buildPackedLines(buildStats, drawPathSelection, drawStats) {
     `packedVisibleLength=${buildStats?.packedVisibleLength ?? 0}`,
     `packedVisibleFloatsPerItem=${buildStats?.packedVisibleFloatsPerItem ?? 0}`,
     `packedAlphaSource=colorAlpha[3]`,
-    `requestedDrawPath=${drawPathSelection?.requestedPath ?? 'legacy'}`,
-    `actualDrawPath=${drawPathSelection?.actualPath ?? 'legacy'}`,
-    `drawPathFallbackReason=${drawPathSelection?.fallbackReason ?? 'none'}`,
+    `requestedDrawPath=${drawPathSelection?.requestedPath}`,
+    `actualDrawPath=${drawPathSelection?.actualPath}`,
+    `drawPathFallbackReason=${drawPathSelection?.fallbackReason}`,
     `packedUploadBytes=${drawStats?.packedUploadBytes ?? 0}`,
     `packedUploadCount=${drawStats?.packedUploadCount ?? 0}`,
     `packedUploadLength=${drawStats?.packedUploadLength ?? 0}`,
