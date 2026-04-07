@@ -101,6 +101,24 @@ function resolveActualTransformPath(_requestedTransformPath) {
   return GPU_SCREEN_TRANSFORM_PATH_CPU;
 }
 
+function shouldPromoteActualTransformPathToGpuPrep(requestedTransformPath, backendResult) {
+  if (requestedTransformPath !== GPU_SCREEN_TRANSFORM_PATH_GPU_PREP) return false;
+  if (!backendResult?.backendImplemented) return false;
+  if (!backendResult?.backendProducedPacked) return false;
+  if (!!backendResult?.backendFallbackToCpu) return false;
+  if (backendResult?.backendError !== null && backendResult?.backendError !== undefined) return false;
+  if (!(backendResult?.packed instanceof Float32Array)) return false;
+
+  const count = backendResult.count;
+  const floatsPerItem = backendResult.floatsPerItem;
+  if (!Number.isInteger(count) || count < 0) return false;
+  if (!Number.isFinite(floatsPerItem) || floatsPerItem !== GPU_VISIBLE_PACK_FLOATS_PER_ITEM) return false;
+
+  const packedLength = backendResult.packed.length;
+  if (count === 0) return packedLength === 0;
+  return packedLength === count * floatsPerItem;
+}
+
 function resolveTransformRole(actualTransformPath) {
   return actualTransformPath === GPU_SCREEN_TRANSFORM_PATH_GPU_PREP
     ? GPU_SCREEN_TRANSFORM_ROLE_EXPERIMENTAL
@@ -279,7 +297,12 @@ export function executeGpuScreenPackedTransform(context, sourceItemsResult, opti
   const t0 = nowMs();
 
   const backendResult = backendDispatch.execute(sourceItemsResult);
-  const actualTransformPath = resolveActualTransformPath(executionInputs.requestedTransformPath);
+  const actualTransformPath = shouldPromoteActualTransformPathToGpuPrep(
+    executionInputs.requestedTransformPath,
+    backendResult
+  )
+    ? GPU_SCREEN_TRANSFORM_PATH_GPU_PREP
+    : resolveActualTransformPath(executionInputs.requestedTransformPath);
   const transformStageMs = nowMs() - t0;
 
   const summary = buildTransformSummary({
