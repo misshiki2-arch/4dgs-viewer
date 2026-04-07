@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GPU Transform Single Item Check</title>
+  <style>
+    :root {
+      --bg: #f3efe6;
+      --panel: #fffaf0;
+      --ink: #1f1a17;
+      --muted: #6c635c;
+      --line: #d7c8b7;
+      --accent: #a64b2a;
+      --accent-soft: #f4d8cc;
+      --ok: #1d6b3a;
+      --warn: #8a5a00;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: "IBM Plex Sans", "Helvetica Neue", sans-serif;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at top left, #fff7df 0%, transparent 28%),
+        linear-gradient(135deg, #efe4d3 0%, var(--bg) 55%, #efe7dc 100%);
+      min-height: 100vh;
+    }
+
+    main {
+      width: min(960px, calc(100vw - 32px));
+      margin: 24px auto;
+      display: grid;
+      gap: 16px;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 18px;
+      box-shadow: 0 10px 30px rgba(64, 41, 22, 0.08);
+    }
+
+    h1, h2 {
+      margin: 0 0 10px;
+      font-family: "IBM Plex Serif", Georgia, serif;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+    }
+
+    p {
+      margin: 0;
+      line-height: 1.5;
+      color: var(--muted);
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1.25fr 1fr;
+      gap: 16px;
+    }
+
+    canvas {
+      width: 100%;
+      height: auto;
+      display: block;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: #111;
+    }
+
+    button {
+      border: 0;
+      border-radius: 999px;
+      padding: 10px 16px;
+      font: inherit;
+      background: var(--accent);
+      color: white;
+      cursor: pointer;
+    }
+
+    button:hover {
+      filter: brightness(1.05);
+    }
+
+    .meta {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-top: 14px;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border-radius: 999px;
+      padding: 7px 11px;
+      font-size: 13px;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--ink);
+    }
+
+    .chip.ok {
+      color: var(--ok);
+      background: #eef8f1;
+      border-color: #bdd9c4;
+    }
+
+    .chip.warn {
+      color: var(--warn);
+      background: #fff5df;
+      border-color: #ead39a;
+    }
+
+    pre {
+      margin: 0;
+      padding: 14px;
+      border-radius: 14px;
+      overflow: auto;
+      background: #1d1b19;
+      color: #f3eee8;
+      border: 1px solid #2f2a25;
+      line-height: 1.45;
+      font-size: 13px;
+    }
+
+    .note {
+      margin-top: 12px;
+      padding: 12px 14px;
+      border-radius: 12px;
+      background: var(--accent-soft);
+      color: var(--ink);
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    @media (max-width: 780px) {
+      .row {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="panel">
+      <h1>GPU Transform Single-Item Check</h1>
+      <p>
+        This page builds one synthetic screen-space item, requests
+        <code>gpu-packed-transform-prep</code>, calls the transform executor directly,
+        and shows whether the backend actually produced packed data on the GPU.
+      </p>
+      <div class="meta">
+        <button id="runBtn" type="button">Run Check</button>
+        <span id="statusChip" class="chip">idle</span>
+      </div>
+      <div class="note">
+        Run steps: 1. Open this HTML in the browser. 2. Click <code>Run Check</code>.
+        3. Confirm whether <code>actualTransformPath</code> becomes
+        <code>gpu-packed-transform-prep</code>.
+      </div>
+    </section>
+
+    <section class="row">
+      <div class="panel">
+        <h2>Canvas</h2>
+        <canvas id="checkCanvas" width="256" height="128"></canvas>
+      </div>
+      <div class="panel">
+        <h2>Synthetic Source</h2>
+        <pre id="sourceText"></pre>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Results</h2>
+      <pre id="resultText">waiting for run...</pre>
+    </section>
+  </main>
+
+  <script type="module">
+    import {
+      createGpuScreenTransformContext,
+      executeGpuScreenPackedTransform,
+      GPU_SCREEN_TRANSFORM_PATH_GPU_PREP
+    } from './js/gpu_screen_transform_executor.js';
+    import {
+      createGpuScreenTransformBackendGpuContext,
+      executeGpuScreenTransformBackendGpu
+    } from './js/gpu_screen_transform_backend_gpu.js';
+
+    const runBtn = document.getElementById('runBtn');
+    const statusChip = document.getElementById('statusChip');
+    const sourceText = document.getElementById('sourceText');
+    const resultText = document.getElementById('resultText');
+    const canvas = document.getElementById('checkCanvas');
+
+    function buildSingleItemSource() {
+      return {
+        path: 'packed-gpu-prep',
+        experimental: true,
+        schemaVersion: 1,
+        itemCount: 1,
+        items: [
+          {
+            centerPx: [96, 52],
+            radiusPx: 18,
+            depth: 0.42,
+            colorAlpha: [0.9, 0.35, 0.1, 0.8],
+            conic: [1.2, 0.15, 1.5],
+            reserved: 0,
+            misc: [12, 24, 132, 84]
+          }
+        ]
+      };
+    }
+
+    function setStatus(text, kind = '') {
+      statusChip.textContent = text;
+      statusChip.className = `chip ${kind}`.trim();
+    }
+
+    function formatPackedPreview(packed, limit = 16) {
+      if (!(packed instanceof Float32Array)) return 'null';
+      return '[' + Array.from(packed.slice(0, limit)).map((v) => Number(v).toFixed(4)).join(', ') + ']';
+    }
+
+    async function runCheck() {
+      setStatus('running', 'warn');
+
+      const source = buildSingleItemSource();
+      sourceText.textContent = JSON.stringify(source, null, 2);
+
+      const gl = canvas.getContext('webgl2', {
+        alpha: false,
+        antialias: false,
+        premultipliedAlpha: false,
+        preserveDrawingBuffer: true
+      });
+
+      if (!gl) {
+        resultText.textContent = 'WebGL2 context creation failed.';
+        setStatus('no webgl2', 'warn');
+        return;
+      }
+
+      const executorContext = createGpuScreenTransformContext();
+      const backendContext = createGpuScreenTransformBackendGpuContext();
+
+      const backendResult = executeGpuScreenTransformBackendGpu(backendContext, source, { gl });
+      const executorResult = executeGpuScreenPackedTransform(executorContext, source, {
+        gl,
+        transformPath: GPU_SCREEN_TRANSFORM_PATH_GPU_PREP
+      });
+
+      const lines = [
+        `requestedTransformPath=${executorResult.requestedTransformPath}`,
+        `actualTransformPath=${executorResult.actualTransformPath}`,
+        `backendProducedPacked=${backendResult.backendProducedPacked}`,
+        `backendFallbackToCpu=${backendResult.backendFallbackToCpu}`,
+        `backendError=${backendResult.backendError ?? 'null'}`,
+        `packed.length=${executorResult.packed instanceof Float32Array ? executorResult.packed.length : 'null'}`,
+        `count=${executorResult.count}`,
+        `floatsPerItem=${executorResult.floatsPerItem}`,
+        '',
+        `backendStage=${backendResult.backendStage}`,
+        `backendImplemented=${backendResult.backendImplemented}`,
+        `backendReason=${backendResult.reason}`,
+        `backendReady=${backendResult.ready}`,
+        '',
+        `packedPreview=${formatPackedPreview(executorResult.packed)}`,
+        '',
+        `backendContext=${JSON.stringify(backendResult.backendContext, null, 2)}`
+      ];
+
+      resultText.textContent = lines.join('\n');
+
+      if (
+        executorResult.actualTransformPath === GPU_SCREEN_TRANSFORM_PATH_GPU_PREP &&
+        backendResult.backendProducedPacked
+      ) {
+        setStatus('gpu success', 'ok');
+      } else {
+        setStatus('cpu fallback', 'warn');
+      }
+    }
+
+    runBtn.addEventListener('click', () => {
+      runCheck().catch((error) => {
+        resultText.textContent = `Run failed: ${error?.message ?? String(error)}`;
+        setStatus('error', 'warn');
+      });
+    });
+
+    sourceText.textContent = JSON.stringify(buildSingleItemSource(), null, 2);
+  </script>
+</body>
+</html>
