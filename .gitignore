@@ -5,3 +5,4 @@ node_modules
 
 demo/*.splat4d
 *Zone.Identifier
+.codex/
