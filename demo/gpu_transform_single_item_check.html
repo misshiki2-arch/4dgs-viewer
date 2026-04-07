@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>GPU Transform Single Item Check</title>
+  <title>GPU Transform Small-Batch Check</title>
   <style>
     :root {
       --bg: #f3efe6;
@@ -88,6 +88,15 @@
       filter: brightness(1.05);
     }
 
+    select {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 10px 14px;
+      font: inherit;
+      background: #fff;
+      color: var(--ink);
+    }
+
     .meta {
       display: flex;
       gap: 10px;
@@ -152,19 +161,31 @@
 <body>
   <main>
     <section class="panel">
-      <h1>GPU Transform Single-Item Check</h1>
+      <h1>GPU Transform Small-Batch Check</h1>
       <p>
-        This page builds one synthetic screen-space item, requests
+        This page builds a synthetic screen-space batch, requests
         <code>gpu-packed-transform-prep</code>, calls the transform executor directly,
         and shows whether the backend actually produced packed data on the GPU.
       </p>
       <div class="meta">
+        <label class="chip" for="itemCountSelect">items
+          <select id="itemCountSelect">
+            <option value="1">1</option>
+            <option value="2">2</option>
+            <option value="3">3</option>
+            <option value="4" selected>4</option>
+            <option value="5">5</option>
+            <option value="6">6</option>
+            <option value="7">7</option>
+            <option value="8">8</option>
+          </select>
+        </label>
         <button id="runBtn" type="button">Run Check</button>
         <span id="statusChip" class="chip">idle</span>
       </div>
       <div class="note">
         Run steps: 1. Open this HTML in the browser. 2. Click <code>Run Check</code>.
-        3. Confirm whether <code>actualTransformPath</code> becomes
+        3. Try <code>2..8</code> items and confirm whether <code>actualTransformPath</code> becomes
         <code>gpu-packed-transform-prep</code>.
       </div>
     </section>
@@ -198,28 +219,39 @@
     } from './js/gpu_screen_transform_backend_gpu.js';
 
     const runBtn = document.getElementById('runBtn');
+    const itemCountSelect = document.getElementById('itemCountSelect');
     const statusChip = document.getElementById('statusChip');
     const sourceText = document.getElementById('sourceText');
     const resultText = document.getElementById('resultText');
     const canvas = document.getElementById('checkCanvas');
 
-    function buildSingleItemSource() {
+    function buildSyntheticSource(itemCount) {
+      const count = Math.max(1, Math.min(8, Number(itemCount) || 1));
+      const items = [];
+
+      for (let i = 0; i < count; i++) {
+        items.push({
+          centerPx: [48 + i * 18, 36 + i * 7],
+          radiusPx: 14 + (i % 3),
+          depth: 0.2 + i * 0.05,
+          colorAlpha: [
+            Math.max(0, 0.9 - i * 0.08),
+            Math.min(1, 0.25 + i * 0.08),
+            Math.min(1, 0.1 + i * 0.06),
+            0.8
+          ],
+          conic: [1.1 + i * 0.05, 0.1 + i * 0.02, 1.4 + i * 0.04],
+          reserved: i,
+          misc: [12 + i, 24 + i, 132 + i, 84 + i]
+        });
+      }
+
       return {
         path: 'packed-gpu-prep',
         experimental: true,
         schemaVersion: 1,
-        itemCount: 1,
-        items: [
-          {
-            centerPx: [96, 52],
-            radiusPx: 18,
-            depth: 0.42,
-            colorAlpha: [0.9, 0.35, 0.1, 0.8],
-            conic: [1.2, 0.15, 1.5],
-            reserved: 0,
-            misc: [12, 24, 132, 84]
-          }
-        ]
+        itemCount: count,
+        items
       };
     }
 
@@ -236,7 +268,7 @@
     async function runCheck() {
       setStatus('running', 'warn');
 
-      const source = buildSingleItemSource();
+      const source = buildSyntheticSource(itemCountSelect.value);
       sourceText.textContent = JSON.stringify(source, null, 2);
 
       const gl = canvas.getContext('webgl2', {
@@ -270,6 +302,7 @@
         `packed.length=${executorResult.packed instanceof Float32Array ? executorResult.packed.length : 'null'}`,
         `count=${executorResult.count}`,
         `floatsPerItem=${executorResult.floatsPerItem}`,
+        `expectedPackedLength=${executorResult.count * executorResult.floatsPerItem}`,
         '',
         `backendStage=${backendResult.backendStage}`,
         `backendImplemented=${backendResult.backendImplemented}`,
@@ -287,9 +320,9 @@
         executorResult.actualTransformPath === GPU_SCREEN_TRANSFORM_PATH_GPU_PREP &&
         backendResult.backendProducedPacked
       ) {
-        setStatus('gpu success', 'ok');
+        setStatus(`gpu success (${source.itemCount})`, 'ok');
       } else {
-        setStatus('cpu fallback', 'warn');
+        setStatus(`cpu fallback (${source.itemCount})`, 'warn');
       }
     }
 
@@ -300,7 +333,10 @@
       });
     });
 
-    sourceText.textContent = JSON.stringify(buildSingleItemSource(), null, 2);
+    sourceText.textContent = JSON.stringify(buildSyntheticSource(itemCountSelect.value), null, 2);
+    itemCountSelect.addEventListener('change', () => {
+      sourceText.textContent = JSON.stringify(buildSyntheticSource(itemCountSelect.value), null, 2);
+    });
   </script>
 </body>
 </html>

@@ -23,11 +23,12 @@ const GPU_BACKEND_REASON_MISSING_WEBGL2 = 'gpu-backend-missing-webgl2';
 const GPU_BACKEND_REASON_MISSING_FLOAT_COLOR = 'gpu-backend-missing-float-color';
 const GPU_BACKEND_REASON_TRIAL_FAILED = 'gpu-backend-trial-failed';
 const GPU_BACKEND_REASON_CPU_FALLBACK = 'gpu-backend-cpu-fallback';
+const GPU_BACKEND_SMALL_BATCH_MAX_ITEMS = 8;
 const GPU_BACKEND_IMPLEMENTATION_STATE_STUB = 'stub';
 const GPU_BACKEND_IMPLEMENTATION_STATE_MINIMAL_GPU_PACK = 'minimal-gpu-pack';
 const GPU_BACKEND_EXECUTION_MODE_CPU_FALLBACK = 'cpu-fallback-stub';
 const GPU_BACKEND_EXECUTION_MODE_GPU_TRIAL_CPU_FALLBACK = 'gpu-trial-cpu-fallback';
-const GPU_BACKEND_EXECUTION_MODE_GPU_SINGLE_ITEM_PACK = 'gpu-single-item-pack';
+const GPU_BACKEND_EXECUTION_MODE_GPU_SMALL_BATCH_PACK = 'gpu-small-batch-pack';
 
 function nowMs() {
   return performance.now();
@@ -181,11 +182,17 @@ function ensureGpuPackedWriteResources(context, gl) {
     };
   }
 
+  const targetHeight = Math.max(1, Math.min(
+    GPU_BACKEND_SMALL_BATCH_MAX_ITEMS,
+    Number.isFinite(context?.packedWriteHeight) ? context.packedWriteHeight : 1
+  ));
+
   if (
     context?.packedWriteResources?.program &&
     context?.packedWriteResources?.framebuffer &&
     context?.packedWriteResources?.texture &&
-    context?.packedWriteResources?.vao
+    context?.packedWriteResources?.vao &&
+    context?.packedWriteHeight === targetHeight
   ) {
     return {
       ok: true,
@@ -275,7 +282,7 @@ void main() {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, 4, 1, 0, gl.RGBA, gl.FLOAT, null);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, 4, targetHeight, 0, gl.RGBA, gl.FLOAT, null);
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
@@ -303,6 +310,7 @@ void main() {
         uniformRow2: gl.getUniformLocation(program, 'uPackedRow2'),
         uniformRow3: gl.getUniformLocation(program, 'uPackedRow3')
       };
+      context.packedWriteHeight = targetHeight;
     }
 
     return {
@@ -321,18 +329,22 @@ void main() {
   }
 }
 
-function tryGenerateGpuPackedSingleItem(context, sourceItemsResult, gl) {
+function tryGenerateGpuPackedSmallBatch(context, sourceItemsResult, gl) {
   const items = normalizeSourceItems(sourceItemsResult);
-  if (items.length !== 1) {
+  if (items.length <= 0 || items.length > GPU_BACKEND_SMALL_BATCH_MAX_ITEMS) {
     return {
       producedPacked: false,
       packed: null,
       count: 0,
       floatsPerItem: GPU_VISIBLE_PACK_FLOATS_PER_ITEM,
-      stage: 'gpu-pack-single-item-only',
+      stage: 'gpu-pack-small-batch-size-unsupported',
       reason: GPU_BACKEND_REASON_CPU_FALLBACK,
       error: null
     };
+  }
+
+  if (context) {
+    context.packedWriteHeight = items.length;
   }
 
   const resourceState = ensureGpuPackedWriteResources(context, gl);
@@ -348,30 +360,34 @@ function tryGenerateGpuPackedSingleItem(context, sourceItemsResult, gl) {
     };
   }
 
-  const rows = buildPackedRowsFromSourceItem(items[0]);
   const resources = context?.packedWriteResources;
-  const out = new Float32Array(GPU_VISIBLE_PACK_FLOATS_PER_ITEM);
+  const out = new Float32Array(items.length * GPU_VISIBLE_PACK_FLOATS_PER_ITEM);
 
   try {
     gl.bindFramebuffer(gl.FRAMEBUFFER, resources.framebuffer);
-    gl.viewport(0, 0, 4, 1);
     gl.useProgram(resources.program);
     gl.bindVertexArray(resources.vao);
-    gl.uniform4fv(resources.uniformRow0, rows[0]);
-    gl.uniform4fv(resources.uniformRow1, rows[1]);
-    gl.uniform4fv(resources.uniformRow2, rows[2]);
-    gl.uniform4fv(resources.uniformRow3, rows[3]);
-    gl.drawArrays(gl.TRIANGLES, 0, 3);
-    gl.readPixels(0, 0, 4, 1, gl.RGBA, gl.FLOAT, out);
+
+    for (let i = 0; i < items.length; i++) {
+      const rows = buildPackedRowsFromSourceItem(items[i]);
+      gl.viewport(0, i, 4, 1);
+      gl.uniform4fv(resources.uniformRow0, rows[0]);
+      gl.uniform4fv(resources.uniformRow1, rows[1]);
+      gl.uniform4fv(resources.uniformRow2, rows[2]);
+      gl.uniform4fv(resources.uniformRow3, rows[3]);
+      gl.drawArrays(gl.TRIANGLES, 0, 3);
+    }
+
+    gl.readPixels(0, 0, 4, items.length, gl.RGBA, gl.FLOAT, out);
     gl.bindVertexArray(null);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 
     return {
       producedPacked: true,
       packed: out,
-      count: 1,
+      count: items.length,
       floatsPerItem: GPU_VISIBLE_PACK_FLOATS_PER_ITEM,
-      stage: 'gpu-pack-single-item-generated',
+      stage: 'gpu-pack-small-batch-generated',
       reason: 'gpu-packed-generated',
       error: null
     };
@@ -383,7 +399,7 @@ function tryGenerateGpuPackedSingleItem(context, sourceItemsResult, gl) {
       packed: null,
       count: 0,
       floatsPerItem: GPU_VISIBLE_PACK_FLOATS_PER_ITEM,
-      stage: 'gpu-pack-single-item-failed',
+      stage: 'gpu-pack-small-batch-failed',
       reason: GPU_BACKEND_REASON_TRIAL_FAILED,
       error: buildBackendError(error)
     };
@@ -446,6 +462,7 @@ export function createGpuScreenTransformBackendGpuContext(initialState = {}) {
     lastError: null,
     trialResources: null,
     packedWriteResources: null,
+    packedWriteHeight: 1,
     ...initialState
   };
 }
@@ -482,7 +499,7 @@ export function executeGpuScreenTransformBackendGpu(context, sourceItemsResult, 
   const cpuFallback = runCpuFallbackPack(sourceItemsResult);
   const trialResult = executeGpuTransformTrial(context, sourceItemsResult, gl);
   const gpuPackedResult = trialResult.triedGpu
-    ? tryGenerateGpuPackedSingleItem(context, sourceItemsResult, gl)
+    ? tryGenerateGpuPackedSmallBatch(context, sourceItemsResult, gl)
     : {
         producedPacked: false,
         packed: null,
@@ -498,7 +515,7 @@ export function executeGpuScreenTransformBackendGpu(context, sourceItemsResult, 
     ? GPU_BACKEND_IMPLEMENTATION_STATE_MINIMAL_GPU_PACK
     : (trialResult.triedGpu ? 'trial-only' : GPU_BACKEND_IMPLEMENTATION_STATE_STUB);
   const executionMode = producedPacked
-    ? GPU_BACKEND_EXECUTION_MODE_GPU_SINGLE_ITEM_PACK
+    ? GPU_BACKEND_EXECUTION_MODE_GPU_SMALL_BATCH_PACK
     : trialResult.triedGpu
       ? GPU_BACKEND_EXECUTION_MODE_GPU_TRIAL_CPU_FALLBACK
       : GPU_BACKEND_EXECUTION_MODE_CPU_FALLBACK;
