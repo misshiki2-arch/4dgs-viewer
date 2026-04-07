@@ -173,6 +173,71 @@ function buildSafeBuildStats(rawBuildStats, visible, packedScreenSpace, elapsedM
   };
 }
 
+function buildEffectiveDrawData({
+  mode,
+  effectiveTileSummary,
+  drawPathSelection,
+  directPackedDrawInfo,
+  packedScreenSpace,
+  gpuScreenDrawInfo,
+  legacyDrawData
+}) {
+  if (mode.drawSelectedOnly) {
+    return { nDraw: effectiveTileSummary ? effectiveTileSummary.totalTileDrawCount : 0 };
+  }
+
+  return {
+    nDraw:
+      drawPathSelection.actualPath === GPU_DRAW_PATH_PACKED
+        ? (directPackedDrawInfo?.drawCount ?? packedScreenSpace?.packedCount ?? 0)
+        : drawPathSelection.actualPath === GPU_DRAW_PATH_GPU_SCREEN
+          ? (gpuScreenDrawInfo?.drawCount ?? 0)
+          : (legacyDrawData?.nDraw ?? 0)
+  };
+}
+
+function buildGpuScreenResultSummary(gpuScreenSourceInfo, gpuScreenDrawInfo) {
+  return {
+    gpuScreenComparisonSummary: mergeGpuScreenComparisonSummary(
+      gpuScreenSourceInfo?.sourceComparisonSummary ?? null,
+      gpuScreenDrawInfo?.gpuScreenComparisonSummary ?? null
+    ),
+    gpuScreenExecutionSummary: gpuScreenDrawInfo?.gpuScreenExecutionSummary ?? null
+  };
+}
+
+function buildRendererDrawStats({
+  gpu,
+  visible,
+  mode,
+  focusTileId,
+  focusTileIds,
+  effectiveTileSummary,
+  executionSummary,
+  packedScreenSpace,
+  packedUploadSummary,
+  effectiveDrawData
+}) {
+  const packedDirectResourceSummary = summarizePackedDirectResources(gpu);
+  const drawStats = buildDrawStats({
+    visibleCount: visible.length,
+    drawData: effectiveDrawData,
+    mode,
+    focusTileId,
+    focusTileIds,
+    tileBatchSummary: effectiveTileSummary,
+    executionSummary,
+    packedScreenSpace,
+    packedUploadSummary: {
+      ...packedUploadSummary,
+      ...packedDirectResourceSummary
+    }
+  });
+
+  drawStats.drawFraction = computeDrawFraction(drawStats.visibleCount, drawStats.drawCount);
+  return drawStats;
+}
+
 function selectGpuScreenSourceSpace(gpu, visible, packedCpuScreenSpace) {
   const context = ensureGpuScreenSourceContext(gpu);
 
@@ -516,44 +581,35 @@ export async function renderGpuFrame({
     effectiveTileSummary
   );
 
-  const effectiveDrawData = mode.drawSelectedOnly
-    ? { nDraw: effectiveTileSummary ? effectiveTileSummary.totalTileDrawCount : 0 }
-    : {
-        nDraw:
-          drawPathSelection.actualPath === GPU_DRAW_PATH_PACKED
-            ? (directPackedDrawInfo?.drawCount ?? packedScreenSpace?.packedCount ?? 0)
-            : drawPathSelection.actualPath === GPU_DRAW_PATH_GPU_SCREEN
-              ? (gpuScreenDrawInfo?.drawCount ?? 0)
-              : (legacyDrawData?.nDraw ?? 0)
-      };
+  const effectiveDrawData = buildEffectiveDrawData({
+    mode,
+    effectiveTileSummary,
+    drawPathSelection,
+    directPackedDrawInfo,
+    packedScreenSpace,
+    gpuScreenDrawInfo,
+    legacyDrawData
+  });
 
-  const packedDirectResourceSummary = summarizePackedDirectResources(gpu);
   const gpuScreenSummary = summarizeGpuScreenDrawState(gpu);
 
-  const gpuScreenComparisonSummary = mergeGpuScreenComparisonSummary(
-    gpuScreenSourceInfo.sourceComparisonSummary ?? null,
-    gpuScreenDrawInfo?.gpuScreenComparisonSummary ?? null
-  );
+  const {
+    gpuScreenComparisonSummary,
+    gpuScreenExecutionSummary
+  } = buildGpuScreenResultSummary(gpuScreenSourceInfo, gpuScreenDrawInfo);
 
-  const gpuScreenExecutionSummary =
-    gpuScreenDrawInfo?.gpuScreenExecutionSummary ?? null;
-
-  const drawStats = buildDrawStats({
-    visibleCount: visible.length,
-    drawData: effectiveDrawData,
+  const drawStats = buildRendererDrawStats({
+    gpu,
+    visible,
     mode,
     focusTileId,
     focusTileIds,
-    tileBatchSummary: effectiveTileSummary,
+    effectiveTileSummary,
     executionSummary,
     packedScreenSpace,
-    packedUploadSummary: {
-      ...packedUploadSummary,
-      ...packedDirectResourceSummary
-    }
+    packedUploadSummary,
+    effectiveDrawData
   });
-
-  drawStats.drawFraction = computeDrawFraction(drawStats.visibleCount, drawStats.drawCount);
 
   const extraLines = buildGpuDebugExtraLines({
     buildConfig,
