@@ -53,6 +53,12 @@ function createCheckbox(id, checked = false) {
   return input;
 }
 
+function getOrCreateCheckbox(id, checked = false) {
+  const existing = document.getElementById(id);
+  if (existing) return existing;
+  return createCheckbox(id, checked);
+}
+
 function createNumberInput(id, value, min = null, max = null, step = null, width = '92px') {
   const input = document.createElement('input');
   input.type = 'number';
@@ -64,6 +70,12 @@ function createNumberInput(id, value, min = null, max = null, step = null, width
   input.style.width = width;
   input.style.boxSizing = 'border-box';
   return input;
+}
+
+function getOrCreateNumberInput(id, value, min = null, max = null, step = null, width = '92px') {
+  const existing = document.getElementById(id);
+  if (existing) return existing;
+  return createNumberInput(id, value, min, max, step, width);
 }
 
 function createSelect(id, options, value, width = null) {
@@ -91,6 +103,12 @@ function createNote(id, text = '') {
   return span;
 }
 
+function getOrCreateNote(id, text = '') {
+  const existing = document.getElementById(id);
+  if (existing) return existing;
+  return createNote(id, text);
+}
+
 function appendWithSpaces(...nodes) {
   const out = [];
   nodes.forEach((node, i) => {
@@ -103,35 +121,35 @@ function appendWithSpaces(...nodes) {
 export function ensureTileDebugControls(ui) {
   const row1 = ensureRow(ui, 'tileDebugRow1');
   setRowContents(row1, appendWithSpaces(
-    createCheckbox('showTileDebug', false),
+    getOrCreateCheckbox('showTileDebug', false),
     createLabel('show tile debug heatmap overlay')
   ));
 
   const row2 = ensureRow(ui, 'tileDebugRow2');
   setRowContents(row2, appendWithSpaces(
-    createCheckbox('drawSelectedTileOnly', false),
+    getOrCreateCheckbox('drawSelectedTileOnly', false),
     createLabel('draw selected tile only')
   ));
 
   const row3 = ensureRow(ui, 'tileDebugRow3');
   setRowContents(row3, appendWithSpaces(
-    createCheckbox('useMaxTile', true),
+    getOrCreateCheckbox('useMaxTile', true),
     createLabel('use max tile'),
-    createNote('useMaxTileNote', 'densest focus tile')
+    getOrCreateNote('useMaxTileNote', 'densest focus tile')
   ));
 
   const row4 = ensureRow(ui, 'tileDebugRow4');
   setRowContents(row4, appendWithSpaces(
     createLabel('tile id', '56px'),
-    createNumberInput('selectedTileId', -1, -1, null, 1),
-    createNote('selectedTileIdNote', 'manual tile id')
+    getOrCreateNumberInput('selectedTileId', -1, -1, null, 1),
+    getOrCreateNote('selectedTileIdNote', 'manual tile id')
   ));
 
   const row5 = ensureRow(ui, 'tileDebugRow5');
   setRowContents(row5, appendWithSpaces(
     createLabel('tile radius', '56px'),
-    createNumberInput('tileRadius', 0, 0, 8, 1),
-    createNote('tileRadiusNote', '0=single, 1=3x3, 2=5x5')
+    getOrCreateNumberInput('tileRadius', 0, 0, 8, 1),
+    getOrCreateNote('tileRadiusNote', '0=single, 1=3x3, 2=5x5')
   ));
 
   ui.showTileDebugCheck = document.getElementById('showTileDebug');

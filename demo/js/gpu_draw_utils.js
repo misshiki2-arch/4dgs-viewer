@@ -96,10 +96,11 @@ export function buildPerTileDrawBatches(visible, tileBatches) {
   const out = new Array(src.length);
   for (let i = 0; i < src.length; i++) {
     const batch = src[i] || {};
-    const drawData = buildDrawArraysFromIndices(visible, batch.indices);
+    const batchIndices = batch.drawIndices ?? batch.indices;
+    const drawData = buildDrawArraysFromIndices(visible, batchIndices);
     out[i] = {
       tileId: Number.isInteger(batch.tileId) ? batch.tileId : -1,
-      indices: ensureUint32Array(batch.indices),
+      indices: ensureUint32Array(batchIndices),
       drawData
     };
   }
@@ -123,7 +124,14 @@ export function summarizePerTileDrawBatches(perTileDrawBatches) {
       }
     }
   }
-  return { tileBatchCount: batches.length, nonEmptyTileBatchCount, totalTileDrawCount, maxTileDrawCount, maxTileId };
+  return {
+    tileBatchCount: batches.length,
+    nonEmptyTileBatchCount,
+    totalTileDrawCount,
+    maxTileDrawCount,
+    maxTileId,
+    avgTileDrawCount: batches.length > 0 ? (totalTileDrawCount / batches.length) : 0
+  };
 }
 
 export function uploadAndDraw(gl, gpu, drawData, canvasWidth, canvasHeight) {

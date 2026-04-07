@@ -33,8 +33,6 @@ import {
   buildDrawArraysFromIndices,
   buildPerTileDrawBatches,
   summarizePerTileDrawBatches,
-  uploadAndDraw,
-  renderPerTileBatches,
   buildDrawStats
 } from './gpu_draw_utils.js';
 import {
@@ -65,6 +63,7 @@ import {
   summarizePackedScreenSpaceComparison
 } from './gpu_screen_space_builder.js';
 import { executeFullFrameDrawByPath } from './gpu_draw_execution_router.js';
+import { executeSelectedTileLegacyDraw } from './gpu_selected_tile_draw_executor.js';
 
 function ensureDebugOverlayCanvas(mainCanvas) {
   let overlay = document.getElementById('gpuTileDebugOverlay');
@@ -85,15 +84,27 @@ function ensureDebugOverlayCanvas(mainCanvas) {
 }
 
 function getDrawTileMode(ui) {
+  const getLiveEl = (cachedEl, id) => {
+    if (cachedEl && typeof cachedEl.checked !== 'undefined') return cachedEl;
+    const liveEl = typeof document !== 'undefined' ? document.getElementById(id) : null;
+    return liveEl || cachedEl || null;
+  };
+
+  const showTileDebugCheck = getLiveEl(ui?.showTileDebugCheck, 'showTileDebug');
+  const drawSelectedTileOnlyCheck = getLiveEl(ui?.drawSelectedTileOnlyCheck, 'drawSelectedTileOnly');
+  const useMaxTileCheck = getLiveEl(ui?.useMaxTileCheck, 'useMaxTile');
+  const selectedTileIdInput = getLiveEl(ui?.selectedTileIdInput, 'selectedTileId');
+  const tileRadiusInput = getLiveEl(ui?.tileRadiusInput, 'tileRadius');
+
   return {
-    showOverlay: !!ui?.showTileDebugCheck?.checked,
-    drawSelectedOnly: !!ui?.drawSelectedTileOnlyCheck?.checked,
-    useMaxTile: !!ui?.useMaxTileCheck?.checked,
-    selectedTileId: Number.isFinite(Number(ui?.selectedTileIdInput?.value))
-      ? (Number(ui.selectedTileIdInput.value) | 0)
+    showOverlay: !!showTileDebugCheck?.checked,
+    drawSelectedOnly: !!drawSelectedTileOnlyCheck?.checked,
+    useMaxTile: !!useMaxTileCheck?.checked,
+    selectedTileId: Number.isFinite(Number(selectedTileIdInput?.value))
+      ? (Number(selectedTileIdInput.value) | 0)
       : -1,
-    tileRadius: Number.isFinite(Number(ui?.tileRadiusInput?.value))
-      ? Math.max(0, Number(ui.tileRadiusInput.value) | 0)
+    tileRadius: Number.isFinite(Number(tileRadiusInput?.value))
+      ? Math.max(0, Number(tileRadiusInput.value) | 0)
       : 0
   };
 }
@@ -118,19 +129,6 @@ function buildFocusTileRects(tileIds, tileGrid, canvasWidth, canvasHeight) {
     });
   }
   return rects;
-}
-
-function enableTileScissor(gl, canvas, tileRect) {
-  const [x0, y0, x1, y1] = tileRect;
-  const w = Math.max(0, x1 - x0);
-  const h = Math.max(0, y1 - y0);
-  const scY = canvas.height - y1;
-  gl.enable(gl.SCISSOR_TEST);
-  gl.scissor(x0, scY, w, h);
-}
-
-function disableTileScissor(gl) {
-  gl.disable(gl.SCISSOR_TEST);
 }
 
 function buildAllVisibleDrawData(visible) {
@@ -272,61 +270,6 @@ function mergeGpuScreenComparisonSummary(builderSummary, drawSummary) {
     ...builderSummary,
     actualPath: drawSummary.actualPath ?? builderSummary.actualPath,
     actualRole: drawSummary.actualRole ?? builderSummary.actualRole
-  };
-}
-
-function executePerTileLegacyDraw({
-  gl,
-  gpu,
-  canvas,
-  focusTileRects,
-  perTileDrawBatches,
-  drawPathSelection
-}) {
-  const rectMap = new Map(focusTileRects.map((item) => [item.tileId, item.rect]));
-
-  const executionSummary = renderPerTileBatches(
-    gl,
-    gpu,
-    perTileDrawBatches,
-    canvas.width,
-    canvas.height,
-    {
-      beforeTile: (item) => {
-        const rect = rectMap.get(item.tileId);
-        if (rect) enableTileScissor(gl, canvas, rect);
-        else disableTileScissor(gl);
-      },
-      afterTile: () => {
-        disableTileScissor(gl);
-      }
-    }
-  );
-
-  disableTileScissor(gl);
-
-  executionSummary.requestedDrawPath = drawPathSelection.requestedPath;
-  executionSummary.actualDrawPath = GPU_DRAW_PATH_LEGACY;
-  executionSummary.drawPathFallbackReason = drawPathSelection.fallbackReason;
-
-  return {
-    executionSummary,
-    packedUploadSummary: {
-      packedUploadBytes: 0,
-      packedUploadCount: 0,
-      packedUploadLength: 0,
-      packedUploadCapacityBytes: 0,
-      packedUploadReusedCapacity: false,
-      packedDirectDraw: false,
-      packedDirectLayoutVersion: 0,
-      packedDirectStrideBytes: 0,
-      packedDirectAttributeCount: 0,
-      packedDirectOffsets: '',
-      packedInterleavedBound: false,
-      legacyExpandedArraysBuilt: true
-    },
-    directPackedDrawInfo: null,
-    gpuScreenDrawInfo: null
   };
 }
 
@@ -513,7 +456,7 @@ export async function renderGpuFrame({
   clearToGray(gl, bg);
 
   const executionResult = mode.drawSelectedOnly
-    ? executePerTileLegacyDraw({
+    ? executeSelectedTileLegacyDraw({
         gl,
         gpu,
         canvas,

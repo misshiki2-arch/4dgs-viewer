@@ -227,11 +227,14 @@ export function formatTileSelectionState(mode, focusTileId, focusTileIds = null,
   ];
 
   if (tileBatchSummary) {
+    const avgTileDrawCountText = Number.isFinite(tileBatchSummary.avgTileDrawCount)
+      ? tileBatchSummary.avgTileDrawCount.toFixed(2)
+      : '0.00';
     lines.push(`tileBatchCount=${tileBatchSummary.tileBatchCount}`);
     lines.push(`totalTileDrawCount=${tileBatchSummary.totalTileDrawCount}`);
     lines.push(`maxTileDrawCount=${tileBatchSummary.maxTileDrawCount}`);
     lines.push(`maxTileId=${tileBatchSummary.maxTileId}`);
-    lines.push(`avgTileDrawCount=${tileBatchSummary.avgTileDrawCount.toFixed(2)}`);
+    lines.push(`avgTileDrawCount=${avgTileDrawCountText}`);
   }
 
   return lines.join('  ');
