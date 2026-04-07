@@ -1,5 +1,10 @@
 import { GPU_VISIBLE_PACK_FLOATS_PER_ITEM } from './gpu_buffer_layout_utils.js';
 import { packVisibleItems } from './gpu_visible_pack_utils.js';
+import {
+  createGpuScreenTransformBackendGpuContext,
+  executeGpuScreenTransformBackendGpu,
+  summarizeGpuScreenTransformBackendGpuCapability
+} from './gpu_screen_transform_backend_gpu.js';
 
 // Step37 stage 1
 // 目的:
@@ -141,6 +146,32 @@ function buildTransformUploadSummary(packed, packedCount) {
   };
 }
 
+function resolveTransformBackendDispatch(requestedTransformPath, options = {}) {
+  // Step38 seam:
+  // backend selection is centralized here so future GPU implementations can be inserted
+  // without changing the public transform contract.
+  switch (requestedTransformPath) {
+    case GPU_SCREEN_TRANSFORM_PATH_GPU_PREP:
+      const backendContext = createGpuScreenTransformBackendGpuContext();
+      return {
+        backendId: 'gpu-prep-requested-gpu-helper',
+        backendContext,
+        backendCapability: summarizeGpuScreenTransformBackendGpuCapability(backendContext, options.gl ?? null),
+        execute: (sourceItemsResult) => executeGpuScreenTransformBackendGpu(
+          backendContext,
+          sourceItemsResult,
+          { gl: options.gl ?? null }
+        )
+      };
+    case GPU_SCREEN_TRANSFORM_PATH_CPU:
+    default:
+      return {
+        backendId: 'cpu-packed',
+        execute: runCpuPackedTransform
+      };
+  }
+}
+
 function runCpuPackedTransform(sourceItemsResult) {
   const items = safeSourceItems(sourceItemsResult);
   const packedResult = packVisibleItems(items);
@@ -242,10 +273,12 @@ function updateContext(context, summary) {
 
 export function executeGpuScreenPackedTransform(context, sourceItemsResult, options = {}) {
   const executionInputs = resolveTransformExecutionInputs(sourceItemsResult, options);
+  const backendDispatch = resolveTransformBackendDispatch(executionInputs.requestedTransformPath, options);
+  const backendCapability = backendDispatch.backendCapability ?? null;
 
   const t0 = nowMs();
 
-  const cpuResult = runCpuPackedTransform(sourceItemsResult);
+  const backendResult = backendDispatch.execute(sourceItemsResult);
   const actualTransformPath = resolveActualTransformPath(executionInputs.requestedTransformPath);
   const transformStageMs = nowMs() - t0;
 
@@ -254,18 +287,22 @@ export function executeGpuScreenPackedTransform(context, sourceItemsResult, opti
     sourceItemsResult,
     requestedTransformPath: executionInputs.requestedTransformPath,
     actualTransformPath,
-    packed: cpuResult.packed,
-    packedCount: cpuResult.count,
-    floatsPerItem: cpuResult.floatsPerItem,
+    packed: backendResult.packed,
+    packedCount: backendResult.count,
+    floatsPerItem: backendResult.floatsPerItem,
     transformStageMs
   });
+
+  if (backendCapability && backendCapability.isReady) {
+    // The backend seam is wired, but actual transform ownership stays in this executor for now.
+  }
 
   updateContext(context, summary);
 
   return {
-    packed: cpuResult.packed,
-    count: cpuResult.count,
-    floatsPerItem: cpuResult.floatsPerItem,
+    packed: backendResult.packed,
+    count: backendResult.count,
+    floatsPerItem: backendResult.floatsPerItem,
     sourcePath: summary.sourcePath,
     requestedTransformPath: summary.requestedTransformPath,
     actualTransformPath: summary.actualTransformPath,
