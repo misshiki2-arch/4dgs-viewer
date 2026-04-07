@@ -45,7 +45,11 @@ import {
   isGpuScreenDrawReady
 } from './gpu_screen_draw_executor.js';
 import { formatGpuViewerInfo, setInfoText } from './gpu_info_utils.js';
-import { buildGpuDebugExtraLines } from './gpu_debug_info_builder.js';
+import {
+  buildGpuDebugExtraLines,
+  buildLegacySample,
+  buildPackedSample
+} from './gpu_debug_info_builder.js';
 import {
   getRequestedDrawPath,
   resolveDrawPath,
@@ -135,40 +139,6 @@ function buildAllVisibleDrawData(visible) {
   return buildDrawArraysFromIndices(visible, allDrawIndices);
 }
 
-function fmtNum(v, digits = 4) {
-  return Number.isFinite(v) ? Number(v).toFixed(digits) : 'NaN';
-}
-
-function fmtArr(arr, digits = 4) {
-  if (!Array.isArray(arr)) return 'none';
-  return '[' + arr.map((v) => fmtNum(v, digits)).join(', ') + ']';
-}
-
-function buildLegacySample(visible) {
-  if (!Array.isArray(visible) || visible.length === 0) return null;
-  const v = visible[0];
-  return {
-    centerPx: [v.px, v.py],
-    radiusPx: v.radius,
-    colorAlpha: Array.isArray(v.colorAlpha) ? v.colorAlpha.slice(0, 4) : null,
-    conic: Array.isArray(v.conic) ? v.conic.slice(0, 3) : null
-  };
-}
-
-function buildPackedSample(screenSpace) {
-  const packed = screenSpace?.packed;
-  if (!(packed instanceof Float32Array) || packed.length < 16) return null;
-  return {
-    centerPx: [packed[0], packed[1]],
-    radiusPx: packed[2],
-    depth: packed[3],
-    colorAlpha: [packed[4], packed[5], packed[6], packed[7]],
-    conic: [packed[8], packed[9], packed[10]],
-    reserved: packed[11],
-    misc: [packed[12], packed[13], packed[14], packed[15]]
-  };
-}
-
 function computeDrawFraction(visibleCount, drawCount) {
   if (!Number.isFinite(visibleCount) || visibleCount <= 0) return 0;
   if (!Number.isFinite(drawCount)) return 0;
@@ -201,59 +171,6 @@ function buildSafeBuildStats(rawBuildStats, visible, packedScreenSpace, elapsedM
     screenSpaceBuildMs: Number.isFinite(rawBuildStats?.screenSpaceBuildMs) ? rawBuildStats.screenSpaceBuildMs : 0,
     totalBuildMs: Number.isFinite(rawBuildStats?.totalBuildMs) ? rawBuildStats.totalBuildMs : elapsedMs
   };
-}
-
-function buildPackedLines(buildStats, drawPathSelection, drawStats) {
-  return [
-    `packedVisiblePathEnabled=${!!buildStats?.packedVisiblePathEnabled}`,
-    `packedVisiblePathUsed=${!!buildStats?.packedVisiblePathUsed}`,
-    `packedVisiblePath=${buildStats?.packedVisiblePath ?? 'none'}`,
-    `packedVisibleCount=${buildStats?.packedVisibleCount ?? 0}`,
-    `packedVisibleLength=${buildStats?.packedVisibleLength ?? 0}`,
-    `packedVisibleFloatsPerItem=${buildStats?.packedVisibleFloatsPerItem ?? 0}`,
-    `packedAlphaSource=colorAlpha[3]`,
-    `requestedDrawPath=${drawPathSelection.requestedPath}`,
-    `actualDrawPath=${drawPathSelection.actualPath}`,
-    `drawPathFallbackReason=${drawPathSelection.fallbackReason}`,
-    `packedUploadBytes=${drawStats?.packedUploadBytes ?? 0}`,
-    `packedUploadCount=${drawStats?.packedUploadCount ?? 0}`,
-    `packedUploadLength=${drawStats?.packedUploadLength ?? 0}`,
-    `packedUploadCapacityBytes=${drawStats?.packedUploadCapacityBytes ?? 0}`,
-    `packedUploadReusedCapacity=${!!drawStats?.packedUploadReusedCapacity}`,
-    `packedDirectDraw=${!!drawStats?.packedDirectDraw}`,
-    `packedDirectLayoutVersion=${drawStats?.packedDirectLayoutVersion ?? 0}`,
-    `packedDirectStrideBytes=${drawStats?.packedDirectStrideBytes ?? 0}`,
-    `packedDirectAttributeCount=${drawStats?.packedDirectAttributeCount ?? 0}`,
-    `packedDirectOffsets=${drawStats?.packedDirectOffsets ?? ''}`,
-    `packedInterleavedBound=${!!drawStats?.packedInterleavedBound}`,
-    `legacyExpandedArraysBuilt=${!!drawStats?.legacyExpandedArraysBuilt}`
-  ];
-}
-
-function buildSampleLines(legacySample, packedSample) {
-  return [
-    `legacySampleCenterPx=${legacySample ? fmtArr(legacySample.centerPx, 3) : 'none'}  packedSampleCenterPx=${packedSample ? fmtArr(packedSample.centerPx, 3) : 'none'}`,
-    `legacySampleRadiusPx=${legacySample ? fmtNum(legacySample.radiusPx, 3) : 'none'}  packedSampleRadiusPx=${packedSample ? fmtNum(packedSample.radiusPx, 3) : 'none'}`,
-    `legacySampleColorAlpha=${legacySample ? fmtArr(legacySample.colorAlpha, 4) : 'none'}`,
-    `packedSampleColorAlpha=${packedSample ? fmtArr(packedSample.colorAlpha, 4) : 'none'}`,
-    `legacySampleConic=${legacySample ? fmtArr(legacySample.conic, 4) : 'none'}`,
-    `packedSampleConic=${packedSample ? fmtArr(packedSample.conic, 4) : 'none'}`,
-    `packedSampleReserved=${packedSample ? fmtNum(packedSample.reserved, 4) : 'none'}`,
-    `packedSampleMisc=${packedSample ? fmtArr(packedSample.misc, 2) : 'none'}`
-  ];
-}
-
-function buildGpuScreenExecutionLines(gpuScreenExecutionSummary) {
-  if (!gpuScreenExecutionSummary) return [];
-  return [
-    `gpuScreenDraw=${!!gpuScreenExecutionSummary.gpuScreenDraw}`,
-    `gpuScreenReady=${!!gpuScreenExecutionSummary.gpuScreenReady}`,
-    `gpuScreenReason=${gpuScreenExecutionSummary.gpuScreenReason ?? 'unknown'}`,
-    `gpuScreenDrawCount=${gpuScreenExecutionSummary.gpuScreenDrawCount ?? 0}`,
-    `gpuScreenActualPath=${gpuScreenExecutionSummary.gpuScreenActualPath ?? 'gpu-screen'}`,
-    `gpuScreenSourcePath=${gpuScreenExecutionSummary.gpuScreenSourcePath ?? 'none'}`,
-    `gpuScreenReferencePath=${gpuScreenExecutionSummary.gpuScreenReferencePath ?? 'packed-cpu'}`
-  ];
 }
 
 function selectGpuScreenSourceSpace(gpu, visible, packedCpuScreenSpace) {
@@ -647,16 +564,18 @@ export async function renderGpuFrame({
     focusTileRects,
     ui,
     gpuScreenSummary,
-    gpuScreenComparisonSummary
+    gpuScreenComparisonSummary,
+    drawPathSelection,
+    visible,
+    packedScreenSpace,
+    gpuScreenExecutionSummary,
+    legacySample,
+    packedSample
   });
 
   if (gpuScreenSourceInfo?.sourceFallbackReason && gpuScreenSourceInfo.sourceFallbackReason !== 'none') {
     extraLines.push(`gpuScreenSourceFallbackReason=${gpuScreenSourceInfo.sourceFallbackReason}`);
   }
-
-  const packedLines = buildPackedLines(buildStats, drawPathSelection, drawStats);
-  const sampleLines = buildSampleLines(legacySample, packedSample);
-  const gpuScreenExecutionLines = buildGpuScreenExecutionLines(gpuScreenExecutionSummary);
 
   const infoText = formatGpuViewerInfo({
     raw,
@@ -689,9 +608,6 @@ export async function renderGpuFrame({
     tileDebugText,
     extraLines: [
       ...extraLines,
-      ...packedLines,
-      ...sampleLines,
-      ...gpuScreenExecutionLines
     ]
   });
 

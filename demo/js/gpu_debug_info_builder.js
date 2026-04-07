@@ -26,6 +26,11 @@ function fmtNum(v, digits = 4) {
   return isFiniteNumber(v) ? Number(v).toFixed(digits) : null;
 }
 
+function fmtArr(arr, digits = 4) {
+  if (!Array.isArray(arr)) return null;
+  return '[' + arr.map((v) => (isFiniteNumber(v) ? Number(v).toFixed(digits) : 'NaN')).join(', ') + ']';
+}
+
 function fmtInt(v) {
   return isFiniteNumber(v) ? String(v | 0) : null;
 }
@@ -179,6 +184,84 @@ function buildGpuScreenComparisonLines(gpuScreenComparisonSummary) {
   return lines;
 }
 
+export function buildLegacySample(visible) {
+  if (!Array.isArray(visible) || visible.length === 0) return null;
+  const v = visible[0];
+  return {
+    centerPx: [v.px, v.py],
+    radiusPx: v.radius,
+    colorAlpha: Array.isArray(v.colorAlpha) ? v.colorAlpha.slice(0, 4) : null,
+    conic: Array.isArray(v.conic) ? v.conic.slice(0, 3) : null
+  };
+}
+
+export function buildPackedSample(screenSpace) {
+  const packed = screenSpace?.packed;
+  if (!(packed instanceof Float32Array) || packed.length < 16) return null;
+  return {
+    centerPx: [packed[0], packed[1]],
+    radiusPx: packed[2],
+    depth: packed[3],
+    colorAlpha: [packed[4], packed[5], packed[6], packed[7]],
+    conic: [packed[8], packed[9], packed[10]],
+    reserved: packed[11],
+    misc: [packed[12], packed[13], packed[14], packed[15]]
+  };
+}
+
+export function buildPackedLines(buildStats, drawPathSelection, drawStats) {
+  return [
+    `packedVisiblePathEnabled=${!!buildStats?.packedVisiblePathEnabled}`,
+    `packedVisiblePathUsed=${!!buildStats?.packedVisiblePathUsed}`,
+    `packedVisiblePath=${buildStats?.packedVisiblePath ?? 'none'}`,
+    `packedVisibleCount=${buildStats?.packedVisibleCount ?? 0}`,
+    `packedVisibleLength=${buildStats?.packedVisibleLength ?? 0}`,
+    `packedVisibleFloatsPerItem=${buildStats?.packedVisibleFloatsPerItem ?? 0}`,
+    `packedAlphaSource=colorAlpha[3]`,
+    `requestedDrawPath=${drawPathSelection?.requestedPath ?? 'legacy'}`,
+    `actualDrawPath=${drawPathSelection?.actualPath ?? 'legacy'}`,
+    `drawPathFallbackReason=${drawPathSelection?.fallbackReason ?? 'none'}`,
+    `packedUploadBytes=${drawStats?.packedUploadBytes ?? 0}`,
+    `packedUploadCount=${drawStats?.packedUploadCount ?? 0}`,
+    `packedUploadLength=${drawStats?.packedUploadLength ?? 0}`,
+    `packedUploadCapacityBytes=${drawStats?.packedUploadCapacityBytes ?? 0}`,
+    `packedUploadReusedCapacity=${!!drawStats?.packedUploadReusedCapacity}`,
+    `packedDirectDraw=${!!drawStats?.packedDirectDraw}`,
+    `packedDirectLayoutVersion=${drawStats?.packedDirectLayoutVersion ?? 0}`,
+    `packedDirectStrideBytes=${drawStats?.packedDirectStrideBytes ?? 0}`,
+    `packedDirectAttributeCount=${drawStats?.packedDirectAttributeCount ?? 0}`,
+    `packedDirectOffsets=${drawStats?.packedDirectOffsets ?? ''}`,
+    `packedInterleavedBound=${!!drawStats?.packedInterleavedBound}`,
+    `legacyExpandedArraysBuilt=${!!drawStats?.legacyExpandedArraysBuilt}`
+  ];
+}
+
+export function buildSampleLines(legacySample, packedSample) {
+  return [
+    `legacySampleCenterPx=${legacySample ? fmtArr(legacySample.centerPx, 3) : 'none'}  packedSampleCenterPx=${packedSample ? fmtArr(packedSample.centerPx, 3) : 'none'}`,
+    `legacySampleRadiusPx=${legacySample ? fmtNum(legacySample.radiusPx, 3) : 'none'}  packedSampleRadiusPx=${packedSample ? fmtNum(packedSample.radiusPx, 3) : 'none'}`,
+    `legacySampleColorAlpha=${legacySample ? fmtArr(legacySample.colorAlpha, 4) : 'none'}`,
+    `packedSampleColorAlpha=${packedSample ? fmtArr(packedSample.colorAlpha, 4) : 'none'}`,
+    `legacySampleConic=${legacySample ? fmtArr(legacySample.conic, 4) : 'none'}`,
+    `packedSampleConic=${packedSample ? fmtArr(packedSample.conic, 4) : 'none'}`,
+    `packedSampleReserved=${packedSample ? fmtNum(packedSample.reserved, 4) : 'none'}`,
+    `packedSampleMisc=${packedSample ? fmtArr(packedSample.misc, 2) : 'none'}`
+  ];
+}
+
+export function buildGpuScreenExecutionLines(gpuScreenExecutionSummary) {
+  if (!gpuScreenExecutionSummary) return [];
+  return [
+    `gpuScreenDraw=${!!gpuScreenExecutionSummary.gpuScreenDraw}`,
+    `gpuScreenReady=${!!gpuScreenExecutionSummary.gpuScreenReady}`,
+    `gpuScreenReason=${gpuScreenExecutionSummary.gpuScreenReason ?? 'unknown'}`,
+    `gpuScreenDrawCount=${gpuScreenExecutionSummary.gpuScreenDrawCount ?? 0}`,
+    `gpuScreenActualPath=${gpuScreenExecutionSummary.gpuScreenActualPath ?? 'gpu-screen'}`,
+    `gpuScreenSourcePath=${gpuScreenExecutionSummary.gpuScreenSourcePath ?? 'none'}`,
+    `gpuScreenReferencePath=${gpuScreenExecutionSummary.gpuScreenReferencePath ?? 'packed-cpu'}`
+  ];
+}
+
 export function buildGpuDebugExtraLines({
   buildConfig = null,
   buildStats = null,
@@ -188,9 +271,18 @@ export function buildGpuDebugExtraLines({
   focusTileRects = [],
   ui = null,
   gpuScreenSummary = null,
-  gpuScreenComparisonSummary = null
+  gpuScreenComparisonSummary = null,
+  drawPathSelection = null,
+  visible = null,
+  packedScreenSpace = null,
+  gpuScreenExecutionSummary = null,
+  legacySample = null,
+  packedSample = null
 } = {}) {
   const lines = [];
+
+  const resolvedLegacySample = legacySample ?? buildLegacySample(visible);
+  const resolvedPackedSample = packedSample ?? buildPackedSample(packedScreenSpace);
 
   lines.push(...buildConfigLines(buildConfig));
   lines.push(...buildTimingLines(buildStats, drawStats, gpuScreenSummary));
@@ -198,6 +290,9 @@ export function buildGpuDebugExtraLines({
   lines.push(...buildUiLines(ui));
   lines.push(...buildGpuScreenStateLines(gpuScreenSummary));
   lines.push(...buildGpuScreenComparisonLines(gpuScreenComparisonSummary));
+  lines.push(...buildPackedLines(buildStats, drawPathSelection, drawStats));
+  lines.push(...buildSampleLines(resolvedLegacySample, resolvedPackedSample));
+  lines.push(...buildGpuScreenExecutionLines(gpuScreenExecutionSummary));
 
   return lines;
 }
