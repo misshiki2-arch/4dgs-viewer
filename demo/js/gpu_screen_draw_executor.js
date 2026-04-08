@@ -5,6 +5,7 @@ import {
   uploadPackedInterleaved,
   summarizePackedUploadState
 } from './gpu_packed_upload_utils.js';
+import { ensurePackedDirectDrawResources } from './gpu_packed_draw_executor.js';
 import {
   GPU_SCREEN_SPACE_SOURCE_PACKED_CPU,
   GPU_SCREEN_SPACE_SOURCE_PACKED_GPU_PREP,
@@ -119,6 +120,28 @@ function updateGpuScreenUploadStateFromSummary(state, uploadSummary) {
   state.lastUploadManagedCapacityReused = !!uploadSummary.packedUploadManagedCapacityReused;
   state.lastUploadManagedCapacityGrown = !!uploadSummary.packedUploadManagedCapacityGrown;
   state.lastUploadManagedUploadCount = uploadSummary.packedUploadManagedUploadCount ?? 0;
+}
+
+function prepareFullFrameGpuScreenDraw(gl, canvasWidth, canvasHeight) {
+  // Full-frame gpu-screen draw must not inherit tile-only state.
+  // The renderer owns draw-path selection and blend/depth policy; this executor only
+  // restores the minimal framebuffer/scissor/viewport state required for a stable
+  // full-frame draw.
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.bindVertexArray(null);
+  gl.bindBuffer(gl.ARRAY_BUFFER, null);
+  gl.disable(gl.SCISSOR_TEST);
+  gl.disable(gl.CULL_FACE);
+  gl.disable(gl.DEPTH_TEST);
+  gl.depthMask(false);
+  gl.enable(gl.BLEND);
+  gl.blendFuncSeparate(
+    gl.SRC_ALPHA,
+    gl.ONE_MINUS_SRC_ALPHA,
+    gl.ONE,
+    gl.ONE_MINUS_SRC_ALPHA
+  );
+  gl.viewport(0, 0, canvasWidth, canvasHeight);
 }
 
 function normalizeSourcePath(gpuScreenSpace) {
@@ -307,15 +330,29 @@ export function uploadAndDrawGpuScreen(gl, gpu, gpuScreenSpace, canvasWidth, can
     ? Math.max(0, gpuScreenSpace.packedCount | 0)
     : 0;
 
+  const { state: ensuredState } = ensureGpuScreenDrawResources(gl, gpu);
+  // Step45 fix:
+  // full-frame gpu-screen draw reuses the known-good packed direct draw resources.
+  // This keeps the gpu-screen path on the same formal packed upload/VAO contract
+  // as the packed full-frame path, while leaving comparison/execution summaries here.
   const {
-    state: ensuredState,
+    vao,
     uploadState,
-    vao
-  } = ensureGpuScreenDrawResources(gl, gpu);
+    layout
+  } = ensurePackedDirectDrawResources(gl, gpu);
 
   uploadPackedInterleaved(gl, uploadState, gpuScreenSpace.packed, drawCount);
-  configureGpuScreenVao(gl, gpu, vao, uploadState, ensuredState);
+  ensuredState.hasProgram = !!gpu.program;
+  ensuredState.hasVao = !!vao;
+  ensuredState.hasBuffers = !!uploadState?.interleaved?.buffer;
+  ensuredState.layoutVersion = layout?.layoutVersion ?? 0;
+  ensuredState.strideBytes = layout?.strideBytes ?? 0;
+  ensuredState.attributeCount = Array.isArray(layout?.attributes) ? layout.attributes.length : 0;
+  ensuredState.lastOffsets = buildOffsetsText(layout?.attributes);
+  ensuredState.configured = true;
+  ensuredState.lastReason = 'ready';
 
+  prepareFullFrameGpuScreenDraw(gl, canvasWidth, canvasHeight);
   gl.useProgram(gpu.program);
   gl.bindVertexArray(vao);
   gl.bindBuffer(gl.ARRAY_BUFFER, uploadState.interleaved.buffer);

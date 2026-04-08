@@ -29,6 +29,7 @@ const GPU_BACKEND_IMPLEMENTATION_STATE_MINIMAL_GPU_PACK = 'minimal-gpu-pack';
 const GPU_BACKEND_EXECUTION_MODE_CPU_FALLBACK = 'cpu-fallback-stub';
 const GPU_BACKEND_EXECUTION_MODE_GPU_TRIAL_CPU_FALLBACK = 'gpu-trial-cpu-fallback';
 const GPU_BACKEND_EXECUTION_MODE_GPU_SMALL_BATCH_PACK = 'gpu-small-batch-pack';
+const GPU_BACKEND_DISABLE_PACKED_WRITE_REUSE_DIAGNOSTIC = false;
 
 function nowMs() {
   return performance.now();
@@ -133,6 +134,7 @@ function hasReusableTrialResources(context, gl) {
 }
 
 function hasReusablePackedWriteResources(context, gl, targetHeight, maxSupportedBatchItems) {
+  if (GPU_BACKEND_DISABLE_PACKED_WRITE_REUSE_DIAGNOSTIC) return false;
   return (
     isSameWebGlContext(context?.packedWriteResourceGl, gl) &&
     !!context?.packedWriteResources?.program &&
@@ -144,6 +146,20 @@ function hasReusablePackedWriteResources(context, gl, targetHeight, maxSupported
     Number.isFinite(context?.packedWriteMaxItems) &&
     context.packedWriteMaxItems === maxSupportedBatchItems
   );
+}
+
+function disposePackedWriteResources(context, gl) {
+  const resources = context?.packedWriteResources;
+  if (!resources || !gl || !isSameWebGlContext(context?.packedWriteResourceGl, gl)) return;
+
+  if (resources.program) gl.deleteProgram(resources.program);
+  if (resources.texture) gl.deleteTexture(resources.texture);
+  if (resources.framebuffer) gl.deleteFramebuffer(resources.framebuffer);
+  if (resources.vao) gl.deleteVertexArray(resources.vao);
+
+  context.packedWriteResources = null;
+  context.packedWriteResourceGl = null;
+  context.packedWriteAllocatedHeight = 0;
 }
 
 function ensureGpuTrialResources(context, gl) {
@@ -261,6 +277,13 @@ void main() {
 }`;
 
   try {
+    // Step44/45 diagnostic rollback stage 2:
+    // allow packed-write resource reuse again for the same GL/size contract,
+    // while still keeping the safer per-frame target initialization below.
+    if (GPU_BACKEND_DISABLE_PACKED_WRITE_REUSE_DIAGNOSTIC) {
+      disposePackedWriteResources(context, gl);
+    }
+
     if (
       isSameWebGlContext(context?.packedWriteResourceGl, gl) &&
       context?.packedWriteResources?.texture &&
@@ -451,6 +474,17 @@ function tryGenerateGpuPackedSmallBatch(context, sourceItemsResult, gl) {
     gl.bindFramebuffer(gl.FRAMEBUFFER, resources.framebuffer);
     gl.useProgram(resources.program);
     gl.bindVertexArray(resources.vao);
+    // Packed write pass contract:
+    // this pass writes formal packed payload rows into an offscreen float target.
+    // It is a data-write pass, not a visual composition pass, so BLEND must be
+    // disabled here. Otherwise previous framebuffer contents can be mixed into
+    // the new payload and silently corrupt later full-frame draws.
+    gl.disable(gl.SCISSOR_TEST);
+    gl.disable(gl.BLEND);
+    gl.disable(gl.DEPTH_TEST);
+    gl.viewport(0, 0, 4, items.length);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
 
     for (let i = 0; i < items.length; i++) {
       const rows = buildPackedRowsFromSourceItem(items[i]);
@@ -462,9 +496,17 @@ function tryGenerateGpuPackedSmallBatch(context, sourceItemsResult, gl) {
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     }
 
+    // Step44/45 diagnostic rollback stage 1:
+    // keep the safer per-frame target initialization and packed-write reuse disable,
+    // but remove the heaviest global GPU/CPU sync first so we can isolate whether
+    // readback correctness really depends on gl.finish().
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, resources.framebuffer);
+    gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
     gl.readPixels(0, 0, 4, items.length, gl.RGBA, gl.FLOAT, out);
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
     gl.bindVertexArray(null);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.useProgram(null);
 
     return {
       producedPacked: true,
@@ -478,6 +520,7 @@ function tryGenerateGpuPackedSmallBatch(context, sourceItemsResult, gl) {
   } catch (error) {
     gl.bindVertexArray(null);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.useProgram(null);
     return {
       producedPacked: false,
       packed: null,

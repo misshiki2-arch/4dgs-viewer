@@ -265,6 +265,58 @@ function didAllBatchesPromoteToGpuPrep(requestedTransformPath, batchResults) {
   return true;
 }
 
+// This batch summary is an executor-owned observation surface for downstream
+// builder / renderer / debug code.
+//
+// It represents:
+// - how the executor planned the transform work
+// - how many batches ran as GPU candidates
+// - how many batches fell back to CPU semantics
+// - whether every batch satisfied the strict GPU promotion rule
+//
+// It does not represent:
+// - per-batch packed payloads
+// - backend-private resource details
+// - the final draw-path decision
+function buildTransformBatchSummary({
+  batchPlan,
+  batchResults,
+  backendCapability,
+  requestedTransformPath
+}) {
+  const batches = Array.isArray(batchPlan?.batches) ? batchPlan.batches : [];
+  const results = Array.isArray(batchResults) ? batchResults : [];
+  let gpuBatchCount = 0;
+  let cpuFallbackBatchCount = 0;
+
+  for (let i = 0; i < batches.length; i++) {
+    const batch = batches[i];
+    const result = results[i];
+    const intendedBackend = batch?.intendedBackend ?? 'cpu';
+    const promotedToGpu = shouldPromoteActualTransformPathToGpuPrep(
+      requestedTransformPath,
+      result
+    );
+
+    if (intendedBackend === 'gpu' && promotedToGpu) {
+      gpuBatchCount++;
+    } else {
+      cpuFallbackBatchCount++;
+    }
+  }
+
+  return {
+    planMode: typeof batchPlan?.planMode === 'string' ? batchPlan.planMode : 'empty',
+    batchCount: batches.length,
+    maxBatchItems: Number.isFinite(backendCapability?.maxBatchItems)
+      ? backendCapability.maxBatchItems
+      : 0,
+    gpuBatchCount,
+    cpuFallbackBatchCount,
+    allBatchesGpuSuccess: batches.length > 0 && gpuBatchCount === batches.length
+  };
+}
+
 export function createGpuScreenTransformContext() {
   return {
     sourcePath: GPU_SCREEN_TRANSFORM_SOURCE_PACKED_CPU,
@@ -286,6 +338,7 @@ export function createGpuScreenTransformContext() {
     packedLength: 0,
     floatsPerItem: GPU_VISIBLE_PACK_FLOATS_PER_ITEM,
     transformStageMs: 0,
+    transformBatchSummary: null,
     lastSummary: null
   };
 }
@@ -300,7 +353,8 @@ function buildTransformSummary({
   packed,
   packedCount,
   floatsPerItem,
-  transformStageMs
+  transformStageMs,
+  transformBatchSummary = null
 }) {
   const uploadSummary = buildTransformUploadSummary(packed, packedCount);
   const fallbackReason = resolveFallbackReason(requestedTransformPath, actualTransformPath);
@@ -322,6 +376,7 @@ function buildTransformSummary({
       ? floatsPerItem
       : GPU_VISIBLE_PACK_FLOATS_PER_ITEM,
     transformStageMs: Number.isFinite(transformStageMs) ? transformStageMs : 0,
+    transformBatchSummary,
     ...uploadSummary
   };
 }
@@ -349,6 +404,7 @@ function updateContext(context, summary) {
     ? summary.floatsPerItem
     : GPU_VISIBLE_PACK_FLOATS_PER_ITEM;
   context.transformStageMs = Number.isFinite(summary.transformStageMs) ? summary.transformStageMs : 0;
+  context.transformBatchSummary = summary.transformBatchSummary ?? null;
   context.lastSummary = summary;
 }
 
@@ -377,6 +433,12 @@ export function executeGpuScreenPackedTransform(context, sourceItemsResult, opti
     ? GPU_SCREEN_TRANSFORM_PATH_GPU_PREP
     : resolveActualTransformPath(executionInputs.requestedTransformPath);
   const transformStageMs = nowMs() - t0;
+  const transformBatchSummary = buildTransformBatchSummary({
+    batchPlan,
+    batchResults,
+    backendCapability,
+    requestedTransformPath: executionInputs.requestedTransformPath
+  });
 
   const summary = buildTransformSummary({
     sourcePath: executionInputs.sourcePath,
@@ -386,7 +448,8 @@ export function executeGpuScreenPackedTransform(context, sourceItemsResult, opti
     packed: combinedBatchResult.packed,
     packedCount: combinedBatchResult.count,
     floatsPerItem: combinedBatchResult.floatsPerItem,
-    transformStageMs
+    transformStageMs,
+    transformBatchSummary
   });
 
   if (backendCapability && backendCapability.isReady) {
@@ -416,6 +479,7 @@ export function executeGpuScreenPackedTransform(context, sourceItemsResult, opti
     sourceItems: safeSourceItems(sourceItemsResult),
     sourceItemCount: summary.sourceItemCount,
     sourceSchemaVersion: summary.sourceSchemaVersion,
+    transformBatchSummary: summary.transformBatchSummary,
     summary
   };
 }
@@ -437,6 +501,7 @@ export function summarizeGpuScreenTransformResult(result) {
       packedLength: 0,
       floatsPerItem: GPU_VISIBLE_PACK_FLOATS_PER_ITEM,
       transformStageMs: 0,
+      transformBatchSummary: null,
       transformUploadBytes: 0,
       transformUploadCount: 0,
       transformUploadLength: 0,
@@ -463,6 +528,7 @@ export function summarizeGpuScreenTransformResult(result) {
       ? result.floatsPerItem
       : GPU_VISIBLE_PACK_FLOATS_PER_ITEM,
     transformStageMs: Number.isFinite(result.transformStageMs) ? result.transformStageMs : 0,
+    transformBatchSummary: result.transformBatchSummary ?? null,
     transformUploadBytes: Number.isFinite(result.transformUploadBytes) ? result.transformUploadBytes : 0,
     transformUploadCount: Number.isFinite(result.transformUploadCount) ? result.transformUploadCount : 0,
     transformUploadLength: Number.isFinite(result.transformUploadLength) ? result.transformUploadLength : 0,
@@ -493,6 +559,7 @@ export function summarizeGpuScreenTransformContext(context) {
       packedLength: 0,
       floatsPerItem: GPU_VISIBLE_PACK_FLOATS_PER_ITEM,
       transformStageMs: 0,
+      transformBatchSummary: null,
       lastSummary: null
     };
   }
@@ -519,6 +586,7 @@ export function summarizeGpuScreenTransformContext(context) {
       ? context.floatsPerItem
       : GPU_VISIBLE_PACK_FLOATS_PER_ITEM,
     transformStageMs: Number.isFinite(context.transformStageMs) ? context.transformStageMs : 0,
+    transformBatchSummary: context.transformBatchSummary ?? null,
     lastSummary: context.lastSummary ?? null
   };
 }

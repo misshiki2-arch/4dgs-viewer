@@ -26,12 +26,13 @@ import {
 // - visible -> normalized source items
 // - source path の決定
 // - transform executor 呼び出し
-// - executor が返した summary / comparison summary の保持
+// - executor が返した summary / comparison summary / transformBatchSummary の保持
 //
 // builder の非責務:
 // - requested / actual transform path の再解釈
 // - fallback reason の補完
 // - transform state の推測
+// - transformBatchSummary の再計算や補正
 //
 // 重要:
 // - requestedTransformPath / actualTransformPath / fallback / configured / upload stats の truth source は
@@ -114,6 +115,7 @@ export function createScreenSpaceBuildContext() {
     lastPrepStageMs: 0,
     lastPackStageMs: 0,
     lastBuildMs: 0,
+    lastTransformBatchSummary: null,
     lastSummary: null,
     lastComparisonSummary: null
   };
@@ -127,6 +129,7 @@ export function packGpuScreenSourceItems(sourceItemsResult, extra = {}) {
   const transformContext = extra.transformContext ?? createGpuScreenTransformContext();
 
   return executeGpuScreenPackedTransform(transformContext, sourceItemsResult, {
+    gl: extra.gl ?? null,
     sourcePath: extra.path ?? sourceItemsResult?.path,
     experimental: !!extra.experimental || !!sourceItemsResult?.experimental
   });
@@ -173,6 +176,7 @@ function buildPackedScreenSpaceStateSummary({
     transformUploadLength: Number.isFinite(transformSummary?.transformUploadLength) ? transformSummary.transformUploadLength : 0,
     transformUploadCapacityBytes: Number.isFinite(transformSummary?.transformUploadCapacityBytes) ? transformSummary.transformUploadCapacityBytes : 0,
     transformUploadReusedCapacity: !!transformSummary?.transformUploadReusedCapacity,
+    transformBatchSummary: transformSummary?.transformBatchSummary ?? null,
 
     packedCount,
     packedLength: packed instanceof Float32Array ? packed.length : 0,
@@ -224,6 +228,7 @@ function buildPackedScreenSpaceComparisonSummary({
     transformUploadLength: Number.isFinite(transformSummary?.transformUploadLength) ? transformSummary.transformUploadLength : 0,
     transformUploadCapacityBytes: Number.isFinite(transformSummary?.transformUploadCapacityBytes) ? transformSummary.transformUploadCapacityBytes : 0,
     transformUploadReusedCapacity: !!transformSummary?.transformUploadReusedCapacity,
+    transformBatchSummary: transformSummary?.transformBatchSummary ?? null,
 
     referencePath: ref.referencePath,
     referenceRole: ref.referenceRole,
@@ -318,6 +323,7 @@ function updateContext(context, result, inputVisible) {
   context.lastPrepStageMs = Number.isFinite(result.summary?.prepStageMs) ? result.summary.prepStageMs : 0;
   context.lastPackStageMs = Number.isFinite(result.summary?.packStageMs) ? result.summary.packStageMs : 0;
   context.lastBuildMs = Number.isFinite(result.summary?.buildMs) ? result.summary.buildMs : 0;
+  context.lastTransformBatchSummary = result.transformSummary?.transformBatchSummary ?? null;
   context.lastSummary = result.summary;
   context.lastComparisonSummary = result.comparisonSummary ?? null;
 }
@@ -430,6 +436,7 @@ export function summarizePackedScreenSpace(result) {
       transformUploadLength: 0,
       transformUploadCapacityBytes: 0,
       transformUploadReusedCapacity: false,
+      transformBatchSummary: null,
 
       packedCount: 0,
       packedLength: 0,
@@ -467,6 +474,7 @@ export function summarizePackedScreenSpace(result) {
     transformUploadLength: Number.isFinite(result.transformSummary?.transformUploadLength) ? result.transformSummary.transformUploadLength : 0,
     transformUploadCapacityBytes: Number.isFinite(result.transformSummary?.transformUploadCapacityBytes) ? result.transformSummary.transformUploadCapacityBytes : 0,
     transformUploadReusedCapacity: !!result.transformSummary?.transformUploadReusedCapacity,
+    transformBatchSummary: result.transformSummary?.transformBatchSummary ?? null,
 
     packedCount: Number.isFinite(result.packedCount) ? result.packedCount : 0,
     packedLength: result.packed instanceof Float32Array ? result.packed.length : 0,
@@ -511,6 +519,7 @@ export function summarizePackedScreenSpaceComparison(result) {
       transformUploadLength: 0,
       transformUploadCapacityBytes: 0,
       transformUploadReusedCapacity: false,
+      transformBatchSummary: null,
 
       referencePath: 'none',
       referenceRole: 'none',
@@ -570,6 +579,7 @@ export function summarizePackedScreenSpaceComparison(result) {
       ? result.comparisonSummary.transformUploadCapacityBytes
       : 0,
     transformUploadReusedCapacity: !!result.comparisonSummary.transformUploadReusedCapacity,
+    transformBatchSummary: result.comparisonSummary.transformBatchSummary ?? null,
 
     referencePath: result.comparisonSummary.referencePath ?? 'none',
     referenceRole: result.comparisonSummary.referenceRole ?? 'none',
@@ -604,6 +614,7 @@ export function summarizeScreenSpaceBuildContext(context) {
       lastPrepStageMs: 0,
       lastPackStageMs: 0,
       lastBuildMs: 0,
+      lastTransformBatchSummary: null,
       lastSummary: null,
       lastComparisonSummary: null
     };
@@ -637,6 +648,7 @@ export function summarizeScreenSpaceBuildContext(context) {
     lastPrepStageMs: Number.isFinite(context.lastPrepStageMs) ? context.lastPrepStageMs : 0,
     lastPackStageMs: Number.isFinite(context.lastPackStageMs) ? context.lastPackStageMs : 0,
     lastBuildMs: Number.isFinite(context.lastBuildMs) ? context.lastBuildMs : 0,
+    lastTransformBatchSummary: context.lastTransformBatchSummary ?? null,
     lastSummary: context.lastSummary ?? null,
     lastComparisonSummary: context.lastComparisonSummary ?? null
   };

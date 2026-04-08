@@ -27,13 +27,13 @@ out float vRadiusPx;
 out vec3 vConic;
 
 void main() {
-  vec2 ndc = vec2(
-    (aCenterPx.x / uViewportPx.x) * 2.0 - 1.0,
-    1.0 - (aCenterPx.y / uViewportPx.y) * 2.0
-  );
-
-  gl_Position = vec4(ndc, 0.0, 1.0);
-  gl_PointSize = max(1.0, aRadiusPx * 2.0);
+  // Packed centers are consumed here in the same screen-space convention used by
+  // the legacy/tile-debug overlays: pixel coordinates from a top-left origin.
+  // So pixel->NDC conversion must flip Y in the shader.
+  float x = (aCenterPx.x / uViewportPx.x) * 2.0 - 1.0;
+  float y = 1.0 - (aCenterPx.y / uViewportPx.y) * 2.0;
+  gl_Position = vec4(x, y, 0.0, 1.0);
+  gl_PointSize = 24.0;
 
   // Step24:
   // packed.colorAlpha.rgba をそのまま後段へ渡す。
@@ -59,25 +59,18 @@ void main() {
   float dx = d.x;
   float dy = d.y;
 
-  // conic = [xx, xy, yy]
   float power =
     -0.5 * (vConic.x * dx * dx + vConic.z * dy * dy)
     - vConic.y * dx * dy;
-
-  if (power > 0.0) {
-    discard;
-  }
-
-  // Step24:
-  // 正式 alpha は vColorAlpha.a のみ。
-  // 旧 opacity のような別概念は shader 側に持ち込まない。
+  float clampedPower = min(power, 0.0);
   float packedAlpha = vColorAlpha.a;
-  float gaussianAlpha = packedAlpha * exp(power);
-  float finalAlpha = min(0.99, gaussianAlpha);
+  float gaussianAlpha = packedAlpha * exp(clampedPower);
 
-  if (finalAlpha < (1.0 / 255.0)) {
-    discard;
-  }
+  // Diagnostic:
+  // keep vertex placement unchanged and force the fragment alpha to a clearly
+  // visible level so we can separate "blend+alpha visibility" from all other
+  // packed draw conditions.
+  float finalAlpha = 1.0;
 
   outColor = vec4(vColorAlpha.rgb, finalAlpha);
 }

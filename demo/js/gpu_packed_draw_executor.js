@@ -1,4 +1,3 @@
-import { bindInterleavedFloatAttribs } from './gpu_gl_utils.js';
 import {
   createPackedUploadState,
   getPackedInterleavedAttribDescriptors,
@@ -30,17 +29,66 @@ function ensurePackedUploadStateLocal(gl, gpu) {
   return gpu.packedUploadState;
 }
 
+function prepareFullFramePackedDraw(gl, canvasWidth, canvasHeight) {
+  // Packed direct draw is a full-frame path and must not inherit tile/debug-only state.
+  // The renderer owns path policy; this executor only restores the minimal draw
+  // conditions required by the formal packed contract.
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.bindVertexArray(null);
+  gl.bindBuffer(gl.ARRAY_BUFFER, null);
+  gl.disable(gl.SCISSOR_TEST);
+  gl.disable(gl.CULL_FACE);
+  gl.disable(gl.DEPTH_TEST);
+  gl.depthMask(false);
+  gl.enable(gl.BLEND);
+  gl.blendFuncSeparate(
+    gl.SRC_ALPHA,
+    gl.ONE_MINUS_SRC_ALPHA,
+    gl.ONE,
+    gl.ONE_MINUS_SRC_ALPHA
+  );
+  gl.viewport(0, 0, canvasWidth, canvasHeight);
+}
+
 function configurePackedDirectVao(gl, gpu, vao, uploadState) {
   const desc = getPackedInterleavedAttribDescriptors();
+  const runtimeBindings = [];
 
-  bindInterleavedFloatAttribs(gl, {
-    vao,
-    program: gpu.program,
-    buffer: uploadState.interleaved.buffer,
-    attributes: desc.attributes
-  });
+  gl.bindVertexArray(vao);
+  gl.bindBuffer(gl.ARRAY_BUFFER, uploadState.interleaved.buffer);
+
+  for (const attr of desc.attributes || []) {
+    const loc = gl.getAttribLocation(gpu.program, attr.name);
+    if (loc < 0) continue;
+
+    gl.enableVertexAttribArray(loc);
+    gl.vertexAttribPointer(
+      loc,
+      attr.size,
+      gl.FLOAT,
+      !!attr.normalized,
+      attr.stride ?? 0,
+      attr.offset ?? 0
+    );
+    // Full-frame packed direct draw is non-instanced. Keep divisors explicit so
+    // stale attribute state cannot silently convert per-vertex packed input into
+    // per-instance input.
+    gl.vertexAttribDivisor(loc, 0);
+
+    runtimeBindings.push({
+      name: attr.name,
+      location: loc,
+      size: attr.size,
+      stride: attr.stride ?? 0,
+      offset: attr.offset ?? 0
+    });
+  }
+
+  gl.bindVertexArray(null);
+  gl.bindBuffer(gl.ARRAY_BUFFER, null);
 
   gpu.packedDirectLayout = desc;
+  gpu.packedDirectRuntimeBindings = runtimeBindings;
   gpu.packedDirectConfigured = true;
 
   return desc;
@@ -100,6 +148,7 @@ export function uploadAndDrawPackedDirect(gl, gpu, packedScreenSpace, canvasWidt
 
   const layout = configurePackedDirectVao(gl, gpu, vao, uploadState);
 
+  prepareFullFramePackedDraw(gl, canvasWidth, canvasHeight);
   gl.useProgram(gpu.program);
   gl.bindVertexArray(vao);
   gl.bindBuffer(gl.ARRAY_BUFFER, uploadState.interleaved.buffer);

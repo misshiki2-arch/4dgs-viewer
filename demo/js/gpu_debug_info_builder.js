@@ -7,12 +7,14 @@
 // - requested / actual / fallback の補完
 // - CPU/GPU path の意味づけ変更
 // - source / transform / draw state の推測
+// - transformBatchSummary の再計算や補正
 //
 // 設計:
 // 1. buildGpuDebugExtraLines() は入力値を文字列化するだけ
 // 2. 値が無いものだけを省略する
 // 3. build config -> timing -> tile mode -> ui -> gpu-screen state -> gpu-screen comparison の順で安定化
 // 4. Step34 では transform truth source の requested / actual / fallback / upload state をそのまま表示する
+// 5. Step45 では executor-owned transformBatchSummary も、そのまま表示する
 
 function isFiniteNumber(v) {
   return Number.isFinite(v);
@@ -184,6 +186,19 @@ function buildGpuScreenComparisonLines(gpuScreenComparisonSummary) {
   return lines;
 }
 
+function buildTransformBatchLines(transformBatchSummary) {
+  if (!transformBatchSummary) return [];
+
+  const lines = [];
+  pushLine(lines, 'transformBatchPlanMode', transformBatchSummary.planMode);
+  pushLine(lines, 'transformBatchCount', fmtInt(transformBatchSummary.batchCount));
+  pushLine(lines, 'transformBatchMaxItems', fmtInt(transformBatchSummary.maxBatchItems));
+  pushLine(lines, 'transformBatchGpuCount', fmtInt(transformBatchSummary.gpuBatchCount));
+  pushLine(lines, 'transformBatchCpuFallbackCount', fmtInt(transformBatchSummary.cpuFallbackBatchCount));
+  pushLine(lines, 'transformBatchAllGpuSuccess', fmtBool(!!transformBatchSummary.allBatchesGpuSuccess));
+  return lines;
+}
+
 export function buildLegacySample(visible) {
   if (!Array.isArray(visible) || visible.length === 0) return null;
   const v = visible[0];
@@ -280,6 +295,11 @@ export function buildGpuDebugExtraLines({
   packedSample = null
 } = {}) {
   const lines = [];
+  const transformBatchSummary =
+    gpuScreenComparisonSummary?.transformBatchSummary ??
+    packedScreenSpace?.transformSummary?.transformBatchSummary ??
+    packedScreenSpace?.summary?.transformBatchSummary ??
+    null;
 
   const resolvedLegacySample = legacySample ?? buildLegacySample(visible);
   const resolvedPackedSample = packedSample ?? buildPackedSample(packedScreenSpace);
@@ -290,6 +310,7 @@ export function buildGpuDebugExtraLines({
   lines.push(...buildUiLines(ui));
   lines.push(...buildGpuScreenStateLines(gpuScreenSummary));
   lines.push(...buildGpuScreenComparisonLines(gpuScreenComparisonSummary));
+  lines.push(...buildTransformBatchLines(transformBatchSummary));
   lines.push(...buildPackedLines(buildStats, drawPathSelection, drawStats));
   lines.push(...buildSampleLines(resolvedLegacySample, resolvedPackedSample));
   lines.push(...buildGpuScreenExecutionLines(gpuScreenExecutionSummary));

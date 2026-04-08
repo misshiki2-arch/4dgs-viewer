@@ -4,7 +4,6 @@ import {
   GPU_DRAW_PATH_GPU_SCREEN
 } from './gpu_draw_path_selector.js';
 import { uploadAndDrawPackedDirect } from './gpu_packed_draw_executor.js';
-import { uploadAndDrawGpuScreen } from './gpu_screen_draw_executor.js';
 import { executeFallbackFullFrameDraw } from './gpu_fallback_draw_executor.js';
 
 function buildPackedExecutionSummary(drawPathSelection, drawCount) {
@@ -96,18 +95,40 @@ function executeGpuScreenFullFrameDraw({
   gpuScreenSourceSpace,
   drawPathSelection
 }) {
-  const gpuScreenDrawInfo = uploadAndDrawGpuScreen(
+  // Temporary Step45 diagnostic:
+  // delegate the actual full-frame gpu-screen draw call to the known-good packed direct
+  // draw path so we can isolate whether invisibility comes from the gpu-screen wrapper
+  // or from the source object itself.
+  const directPackedDrawInfo = uploadAndDrawPackedDirect(
     gl,
     gpu,
     gpuScreenSourceSpace,
     canvas.width,
     canvas.height
   );
+  const gpuScreenDrawInfo = {
+    drawCount: directPackedDrawInfo?.drawCount ?? 0,
+    gpuScreenComparisonSummary: {
+      actualPath: GPU_DRAW_PATH_GPU_SCREEN,
+      actualRole: 'experimental-draw'
+    },
+    gpuScreenExecutionSummary: {
+      gpuScreenDraw: true,
+      gpuScreenReady: true,
+      gpuScreenReason: 'ready',
+      gpuScreenDrawCount: directPackedDrawInfo?.drawCount ?? 0,
+      gpuScreenActualPath: GPU_DRAW_PATH_GPU_SCREEN,
+      gpuScreenSourcePath: gpuScreenSourceSpace?.path ?? 'none',
+      gpuScreenReferencePath: 'packed-cpu'
+    },
+    packedScreenSpacePath: gpuScreenSourceSpace?.path ?? 'none',
+    packedScreenSpaceSummary: gpuScreenSourceSpace?.summary ?? null
+  };
 
   return {
     executionSummary: buildGpuScreenExecutionSummary(drawPathSelection, gpuScreenDrawInfo),
-    packedUploadSummary: buildGpuScreenPackedUploadSummary(),
-    directPackedDrawInfo: null,
+    packedUploadSummary: buildPackedUploadSummary(directPackedDrawInfo),
+    directPackedDrawInfo,
     gpuScreenDrawInfo
   };
 }
