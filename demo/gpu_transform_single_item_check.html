@@ -177,6 +177,10 @@
             <option value="16">16</option>
             <option value="32">32</option>
             <option value="64">64</option>
+            <option value="65">65</option>
+            <option value="96">96</option>
+            <option value="128">128</option>
+            <option value="256">256</option>
           </select>
         </label>
         <button id="runBtn" type="button">Run Check</button>
@@ -184,8 +188,9 @@
       </div>
       <div class="note">
         Run steps: 1. Open this HTML in the browser. 2. Click <code>Run Check</code>.
-        3. Try <code>1 / 2 / 4 / 8 / 16 / 32 / 64</code> items and confirm whether <code>actualTransformPath</code> becomes
-        <code>gpu-packed-transform-prep</code>.
+        3. Try <code>1 / 2 / 4 / 8 / 16 / 32 / 64 / 65 / 96 / 128 / 256</code> items.
+        4. Compare <code>direct backend</code> vs <code>executor chunked</code> and confirm whether
+        <code>actualTransformPath</code> stays <code>gpu-packed-transform-prep</code> when all chunks succeed.
       </div>
     </section>
 
@@ -213,8 +218,13 @@
       GPU_SCREEN_TRANSFORM_PATH_GPU_PREP
     } from './js/gpu_screen_transform_executor.js';
     import {
+      planGpuScreenTransformBatches,
+      summarizeGpuScreenTransformBatchPlan
+    } from './js/gpu_screen_transform_batch_planner.js';
+    import {
       createGpuScreenTransformBackendGpuContext,
-      executeGpuScreenTransformBackendGpu
+      executeGpuScreenTransformBackendGpu,
+      summarizeGpuScreenTransformBackendGpuCapability
     } from './js/gpu_screen_transform_backend_gpu.js';
 
     const runBtn = document.getElementById('runBtn');
@@ -225,23 +235,25 @@
     const canvas = document.getElementById('checkCanvas');
 
     function buildSyntheticSource(itemCount) {
-      const count = Math.max(1, Math.min(64, Number(itemCount) || 1));
+      const count = Math.max(1, Math.min(256, Number(itemCount) || 1));
       const items = [];
 
       for (let i = 0; i < count; i++) {
+        const col = i % 16;
+        const row = Math.floor(i / 16);
         items.push({
-          centerPx: [48 + i * 18, 36 + i * 7],
+          centerPx: [24 + col * 14, 20 + row * 10],
           radiusPx: 14 + (i % 3),
-          depth: 0.2 + i * 0.05,
+          depth: 0.2 + i * 0.01,
           colorAlpha: [
-            Math.max(0, 0.9 - i * 0.08),
-            Math.min(1, 0.25 + i * 0.08),
-            Math.min(1, 0.1 + i * 0.06),
+            Math.max(0, 0.9 - row * 0.04),
+            Math.min(1, 0.2 + col * 0.04),
+            Math.min(1, 0.1 + (i % 10) * 0.06),
             0.8
           ],
-          conic: [1.1 + i * 0.05, 0.1 + i * 0.02, 1.4 + i * 0.04],
+          conic: [1.1 + (i % 5) * 0.05, 0.1 + (i % 7) * 0.02, 1.4 + (i % 6) * 0.04],
           reserved: i,
-          misc: [12 + i, 24 + i, 132 + i, 84 + i]
+          misc: [12 + col, 24 + row, 132 + (i % 32), 84 + (i % 24)]
         });
       }
 
@@ -262,6 +274,15 @@
     function formatPackedPreview(packed, limit = 16) {
       if (!(packed instanceof Float32Array)) return 'null';
       return '[' + Array.from(packed.slice(0, limit)).map((v) => Number(v).toFixed(4)).join(', ') + ']';
+    }
+
+    function didExecutorChunkedSucceed(executorResult) {
+      if (!executorResult) return false;
+      if (executorResult.actualTransformPath !== GPU_SCREEN_TRANSFORM_PATH_GPU_PREP) return false;
+      if (!(executorResult.packed instanceof Float32Array)) return false;
+      if (!Number.isFinite(executorResult.count) || executorResult.count < 0) return false;
+      if (!Number.isFinite(executorResult.floatsPerItem) || executorResult.floatsPerItem <= 0) return false;
+      return executorResult.packed.length === executorResult.count * executorResult.floatsPerItem;
     }
 
     async function runCheck() {
@@ -285,6 +306,14 @@
 
       const executorContext = createGpuScreenTransformContext();
       const backendContext = createGpuScreenTransformBackendGpuContext();
+      const backendCapability = summarizeGpuScreenTransformBackendGpuCapability(backendContext, gl);
+      const maxBatchItems = backendCapability?.maxBatchItems ?? 0;
+      const batchPlan = planGpuScreenTransformBatches({
+        sourceItemCount: source.itemCount,
+        maxBatchItems,
+        requestedTransformPath: GPU_SCREEN_TRANSFORM_PATH_GPU_PREP
+      });
+      const planSummary = summarizeGpuScreenTransformBatchPlan(batchPlan);
 
       const backendResult = executeGpuScreenTransformBackendGpu(backendContext, source, { gl });
       const executorResult = executeGpuScreenPackedTransform(executorContext, source, {
@@ -293,16 +322,28 @@
       });
 
       const lines = [
+        `itemCount=${source.itemCount}`,
+        `maxBatchItems=${maxBatchItems > 0 ? maxBatchItems : 'unknown'}`,
+        `planMode=${planSummary.planMode}`,
+        `batchCount=${planSummary.batchCount}`,
+        `largestBatchItemCount=${planSummary.largestBatchItemCount}`,
+        `batchSizes=${batchPlan.batches.map((batch) => batch.itemCount).join(', ') || 'none'}`,
+        '',
         `requestedTransformPath=${executorResult.requestedTransformPath}`,
         `actualTransformPath=${executorResult.actualTransformPath}`,
+        '',
+        `[direct backend]`,
         `backendProducedPacked=${backendResult.backendProducedPacked}`,
         `backendFallbackToCpu=${backendResult.backendFallbackToCpu}`,
         `backendError=${backendResult.backendError ?? 'null'}`,
+        `backendCount=${backendResult.count ?? 'null'}`,
+        `backendPackedLength=${backendResult.packed instanceof Float32Array ? backendResult.packed.length : 'null'}`,
+        '',
+        `[executor chunked]`,
         `packed.length=${executorResult.packed instanceof Float32Array ? executorResult.packed.length : 'null'}`,
         `count=${executorResult.count}`,
         `floatsPerItem=${executorResult.floatsPerItem}`,
         `expectedPackedLength=${executorResult.count * executorResult.floatsPerItem}`,
-        `maxBatchItems=${backendResult.backendContext?.maxBatchItems ?? 'unknown'}`,
         '',
         `backendStage=${backendResult.backendStage}`,
         `backendImplemented=${backendResult.backendImplemented}`,
@@ -311,18 +352,17 @@
         '',
         `packedPreview=${formatPackedPreview(executorResult.packed)}`,
         '',
+        `backendCapability=${JSON.stringify(backendCapability, null, 2)}`,
+        '',
         `backendContext=${JSON.stringify(backendResult.backendContext, null, 2)}`
       ];
 
       resultText.textContent = lines.join('\n');
 
-      if (
-        executorResult.actualTransformPath === GPU_SCREEN_TRANSFORM_PATH_GPU_PREP &&
-        backendResult.backendProducedPacked
-      ) {
-        setStatus(`gpu success (${source.itemCount})`, 'ok');
+      if (didExecutorChunkedSucceed(executorResult)) {
+        setStatus(`gpu success (executor chunked, ${source.itemCount})`, 'ok');
       } else {
-        setStatus(`cpu fallback (${source.itemCount})`, 'warn');
+        setStatus(`cpu fallback (executor chunked, ${source.itemCount})`, 'warn');
       }
     }
 

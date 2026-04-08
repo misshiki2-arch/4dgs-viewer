@@ -5,6 +5,7 @@ import {
   executeGpuScreenTransformBackendGpu,
   summarizeGpuScreenTransformBackendGpuCapability
 } from './gpu_screen_transform_backend_gpu.js';
+import { planGpuScreenTransformBatches } from './gpu_screen_transform_batch_planner.js';
 
 // Step37 stage 1
 // 目的:
@@ -140,6 +141,19 @@ function safeSourceItems(sourceItemsResult) {
   return Array.isArray(sourceItemsResult?.items) ? sourceItemsResult.items : [];
 }
 
+function buildSourceItemsResultSlice(sourceItemsResult, batch) {
+  const items = safeSourceItems(sourceItemsResult);
+  const start = Number.isFinite(batch?.start) ? Math.max(0, batch.start | 0) : 0;
+  const end = Number.isFinite(batch?.end) ? Math.max(start, batch.end | 0) : start;
+  const slicedItems = items.slice(start, end);
+
+  return {
+    ...sourceItemsResult,
+    items: slicedItems,
+    itemCount: slicedItems.length
+  };
+}
+
 function safeSourceItemCount(sourceItemsResult) {
   if (Number.isFinite(sourceItemsResult?.itemCount)) return sourceItemsResult.itemCount;
   return safeSourceItems(sourceItemsResult).length;
@@ -200,6 +214,55 @@ function runCpuPackedTransform(sourceItemsResult) {
       ? packedResult.floatsPerItem
       : GPU_VISIBLE_PACK_FLOATS_PER_ITEM
   };
+}
+
+function combinePackedBatchResults(batchResults) {
+  const results = Array.isArray(batchResults) ? batchResults : [];
+  let totalCount = 0;
+  let floatsPerItem = GPU_VISIBLE_PACK_FLOATS_PER_ITEM;
+  let totalPackedLength = 0;
+  let hasPackedArray = false;
+
+  for (const result of results) {
+    const count = Number.isFinite(result?.count) ? result.count : 0;
+    totalCount += count;
+
+    if (Number.isFinite(result?.floatsPerItem)) {
+      floatsPerItem = result.floatsPerItem;
+    }
+
+    if (result?.packed instanceof Float32Array) {
+      hasPackedArray = true;
+      totalPackedLength += result.packed.length;
+    }
+  }
+
+  const packed = hasPackedArray ? new Float32Array(totalPackedLength) : new Float32Array(0);
+  let offset = 0;
+  for (const result of results) {
+    if (!(result?.packed instanceof Float32Array)) continue;
+    packed.set(result.packed, offset);
+    offset += result.packed.length;
+  }
+
+  return {
+    packed,
+    count: totalCount,
+    floatsPerItem
+  };
+}
+
+function didAllBatchesPromoteToGpuPrep(requestedTransformPath, batchResults) {
+  if (requestedTransformPath !== GPU_SCREEN_TRANSFORM_PATH_GPU_PREP) return false;
+  if (!Array.isArray(batchResults) || batchResults.length === 0) return false;
+
+  for (const result of batchResults) {
+    if (!shouldPromoteActualTransformPathToGpuPrep(requestedTransformPath, result)) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 export function createGpuScreenTransformContext() {
@@ -293,13 +356,23 @@ export function executeGpuScreenPackedTransform(context, sourceItemsResult, opti
   const executionInputs = resolveTransformExecutionInputs(sourceItemsResult, options);
   const backendDispatch = resolveTransformBackendDispatch(executionInputs.requestedTransformPath, options);
   const backendCapability = backendDispatch.backendCapability ?? null;
+  const batchPlan = planGpuScreenTransformBatches({
+    sourceItemCount: safeSourceItemCount(sourceItemsResult),
+    maxBatchItems: backendCapability?.maxBatchItems ?? 0,
+    requestedTransformPath: executionInputs.requestedTransformPath
+  });
 
   const t0 = nowMs();
 
-  const backendResult = backendDispatch.execute(sourceItemsResult);
-  const actualTransformPath = shouldPromoteActualTransformPathToGpuPrep(
+  const batchResults = batchPlan.batches.map((batch) => {
+    const batchSourceItemsResult = buildSourceItemsResultSlice(sourceItemsResult, batch);
+    return backendDispatch.execute(batchSourceItemsResult);
+  });
+  const combinedBatchResult = combinePackedBatchResults(batchResults);
+
+  const actualTransformPath = didAllBatchesPromoteToGpuPrep(
     executionInputs.requestedTransformPath,
-    backendResult
+    batchResults
   )
     ? GPU_SCREEN_TRANSFORM_PATH_GPU_PREP
     : resolveActualTransformPath(executionInputs.requestedTransformPath);
@@ -310,9 +383,9 @@ export function executeGpuScreenPackedTransform(context, sourceItemsResult, opti
     sourceItemsResult,
     requestedTransformPath: executionInputs.requestedTransformPath,
     actualTransformPath,
-    packed: backendResult.packed,
-    packedCount: backendResult.count,
-    floatsPerItem: backendResult.floatsPerItem,
+    packed: combinedBatchResult.packed,
+    packedCount: combinedBatchResult.count,
+    floatsPerItem: combinedBatchResult.floatsPerItem,
     transformStageMs
   });
 
@@ -323,9 +396,9 @@ export function executeGpuScreenPackedTransform(context, sourceItemsResult, opti
   updateContext(context, summary);
 
   return {
-    packed: backendResult.packed,
-    count: backendResult.count,
-    floatsPerItem: backendResult.floatsPerItem,
+    packed: combinedBatchResult.packed,
+    count: combinedBatchResult.count,
+    floatsPerItem: combinedBatchResult.floatsPerItem,
     sourcePath: summary.sourcePath,
     requestedTransformPath: summary.requestedTransformPath,
     actualTransformPath: summary.actualTransformPath,
