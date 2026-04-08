@@ -120,6 +120,32 @@ function runCpuFallbackPack(sourceItemsResult) {
   };
 }
 
+function isSameWebGlContext(contextGl, gl) {
+  return !!contextGl && !!gl && contextGl === gl;
+}
+
+function hasReusableTrialResources(context, gl) {
+  return (
+    isSameWebGlContext(context?.trialResourceGl, gl) &&
+    !!context?.trialResources?.buffer &&
+    !!context?.trialResources?.vao
+  );
+}
+
+function hasReusablePackedWriteResources(context, gl, targetHeight, maxSupportedBatchItems) {
+  return (
+    isSameWebGlContext(context?.packedWriteResourceGl, gl) &&
+    !!context?.packedWriteResources?.program &&
+    !!context?.packedWriteResources?.framebuffer &&
+    !!context?.packedWriteResources?.texture &&
+    !!context?.packedWriteResources?.vao &&
+    Number.isFinite(context?.packedWriteAllocatedHeight) &&
+    context.packedWriteAllocatedHeight >= targetHeight &&
+    Number.isFinite(context?.packedWriteMaxItems) &&
+    context.packedWriteMaxItems === maxSupportedBatchItems
+  );
+}
+
 function ensureGpuTrialResources(context, gl) {
   if (!gl || !probeWebGL2Support(gl)) {
     return {
@@ -130,7 +156,7 @@ function ensureGpuTrialResources(context, gl) {
     };
   }
 
-  if (context?.trialResources?.buffer && context?.trialResources?.vao) {
+  if (hasReusableTrialResources(context, gl)) {
     return {
       ok: true,
       stage: 'resources-ready',
@@ -157,6 +183,7 @@ function ensureGpuTrialResources(context, gl) {
 
     if (context) {
       context.trialResources = { buffer, vao };
+      context.trialResourceGl = gl;
     }
 
     return {
@@ -200,13 +227,7 @@ function ensureGpuPackedWriteResources(context, gl) {
     Number.isFinite(context?.packedWriteHeight) ? context.packedWriteHeight : 1
   ));
 
-  if (
-    context?.packedWriteResources?.program &&
-    context?.packedWriteResources?.framebuffer &&
-    context?.packedWriteResources?.texture &&
-    context?.packedWriteResources?.vao &&
-    context?.packedWriteHeight === targetHeight
-  ) {
+  if (hasReusablePackedWriteResources(context, gl, targetHeight, maxSupportedBatchItems)) {
     return {
       ok: true,
       stage: 'gpu-pack-resources-ready',
@@ -240,6 +261,52 @@ void main() {
 }`;
 
   try {
+    if (
+      isSameWebGlContext(context?.packedWriteResourceGl, gl) &&
+      context?.packedWriteResources?.texture &&
+      context?.packedWriteResources?.framebuffer &&
+      context?.packedWriteResources?.program &&
+      context?.packedWriteResources?.vao &&
+      Number.isFinite(context?.packedWriteAllocatedHeight) &&
+      Number.isFinite(context?.packedWriteMaxItems) &&
+      context.packedWriteMaxItems === maxSupportedBatchItems
+    ) {
+      gl.bindTexture(gl.TEXTURE_2D, context.packedWriteResources.texture);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, 4, targetHeight, 0, gl.RGBA, gl.FLOAT, null);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, context.packedWriteResources.framebuffer);
+      gl.framebufferTexture2D(
+        gl.FRAMEBUFFER,
+        gl.COLOR_ATTACHMENT0,
+        gl.TEXTURE_2D,
+        context.packedWriteResources.texture,
+        0
+      );
+      const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.bindTexture(gl.TEXTURE_2D, null);
+
+      if (status !== gl.FRAMEBUFFER_COMPLETE) {
+        return {
+          ok: false,
+          stage: 'gpu-pack-framebuffer-incomplete',
+          reason: GPU_BACKEND_REASON_TRIAL_FAILED,
+          error: `framebuffer-status-${status}`
+        };
+      }
+
+      if (context) {
+        context.packedWriteHeight = targetHeight;
+        context.packedWriteAllocatedHeight = targetHeight;
+      }
+
+      return {
+        ok: true,
+        stage: 'gpu-pack-resources-resized',
+        reason: 'ready',
+        error: null
+      };
+    }
+
     const vertexShader = gl.createShader(gl.VERTEX_SHADER);
     const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
     const program = gl.createProgram();
@@ -324,6 +391,9 @@ void main() {
         uniformRow3: gl.getUniformLocation(program, 'uPackedRow3')
       };
       context.packedWriteHeight = targetHeight;
+      context.packedWriteAllocatedHeight = targetHeight;
+      context.packedWriteMaxItems = maxSupportedBatchItems;
+      context.packedWriteResourceGl = gl;
     }
 
     return {
@@ -475,8 +545,11 @@ export function createGpuScreenTransformBackendGpuContext(initialState = {}) {
     lastStageName: 'idle',
     lastError: null,
     trialResources: null,
+    trialResourceGl: null,
     packedWriteResources: null,
+    packedWriteResourceGl: null,
     packedWriteHeight: 1,
+    packedWriteAllocatedHeight: 0,
     packedWriteMaxItems: GPU_BACKEND_SMALL_BATCH_MAX_ITEMS,
     ...initialState
   };
@@ -562,6 +635,16 @@ export function executeGpuScreenTransformBackendGpu(context, sourceItemsResult, 
     context.lastCount = finalCount;
     context.lastStageName = producedPacked ? gpuPackedResult.stage : trialResult.stage;
     context.lastError = producedPacked ? null : (gpuPackedResult.error ?? trialResult.error);
+    if (Number.isFinite(sourceItemCount) && sourceItemCount > 0) {
+      context.packedWriteHeight = Math.min(
+        Number.isFinite(context.packedWriteAllocatedHeight) && context.packedWriteAllocatedHeight > 0
+          ? context.packedWriteAllocatedHeight
+          : sourceItemCount,
+        Number.isFinite(context.packedWriteMaxItems) && context.packedWriteMaxItems > 0
+          ? context.packedWriteMaxItems
+          : sourceItemCount
+      );
+    }
   }
 
   return {

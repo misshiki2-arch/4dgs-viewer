@@ -191,6 +191,8 @@
         3. Try <code>1 / 2 / 4 / 8 / 16 / 32 / 64 / 65 / 96 / 128 / 256</code> items.
         4. Compare <code>direct backend</code> vs <code>executor chunked</code> and confirm whether
         <code>actualTransformPath</code> stays <code>gpu-packed-transform-prep</code> when all chunks succeed.
+        5. For reuse checks, run sequences like <code>64 -&gt; 1 -&gt; 64</code> or <code>65 -&gt; 128</code> and watch
+        <code>packedWriteAllocatedHeight</code>, <code>packedWriteHeight</code>, and <code>deltaFromPreviousRun</code>.
       </div>
     </section>
 
@@ -233,6 +235,11 @@
     const sourceText = document.getElementById('sourceText');
     const resultText = document.getElementById('resultText');
     const canvas = document.getElementById('checkCanvas');
+    const directBackendContext = createGpuScreenTransformBackendGpuContext();
+    const executorContext = createGpuScreenTransformContext();
+    let sharedGl = null;
+    let runCounter = 0;
+    let previousBackendSnapshot = null;
 
     function buildSyntheticSource(itemCount) {
       const count = Math.max(1, Math.min(256, Number(itemCount) || 1));
@@ -276,6 +283,54 @@
       return '[' + Array.from(packed.slice(0, limit)).map((v) => Number(v).toFixed(4)).join(', ') + ']';
     }
 
+    function getOrCreateGl() {
+      if (sharedGl) return sharedGl;
+      sharedGl = canvas.getContext('webgl2', {
+        alpha: false,
+        antialias: false,
+        premultipliedAlpha: false,
+        preserveDrawingBuffer: true
+      });
+      return sharedGl;
+    }
+
+    function pickBackendSnapshot(backendContext) {
+      return {
+        packedWriteAllocatedHeight: backendContext?.packedWriteAllocatedHeight ?? 0,
+        packedWriteHeight: backendContext?.packedWriteHeight ?? 0,
+        packedWriteMaxItems: backendContext?.packedWriteMaxItems ?? 0,
+        lastStageName: backendContext?.lastStageName ?? 'unknown',
+        lastExecutionMs: Number.isFinite(backendContext?.lastExecutionMs)
+          ? backendContext.lastExecutionMs
+          : 0
+      };
+    }
+
+    function formatBackendSnapshotDelta(previousSnapshot, currentSnapshot) {
+      if (!previousSnapshot) {
+        return 'first-run';
+      }
+
+      const keys = [
+        'packedWriteAllocatedHeight',
+        'packedWriteHeight',
+        'packedWriteMaxItems',
+        'lastStageName',
+        'lastExecutionMs'
+      ];
+      const changes = [];
+
+      for (const key of keys) {
+        const prevValue = previousSnapshot[key];
+        const currValue = currentSnapshot[key];
+        if (prevValue !== currValue) {
+          changes.push(`${key}: ${prevValue} -> ${currValue}`);
+        }
+      }
+
+      return changes.length > 0 ? changes.join(', ') : 'no-change';
+    }
+
     function didExecutorChunkedSucceed(executorResult) {
       if (!executorResult) return false;
       if (executorResult.actualTransformPath !== GPU_SCREEN_TRANSFORM_PATH_GPU_PREP) return false;
@@ -287,16 +342,12 @@
 
     async function runCheck() {
       setStatus('running', 'warn');
+      runCounter++;
 
       const source = buildSyntheticSource(itemCountSelect.value);
       sourceText.textContent = JSON.stringify(source, null, 2);
 
-      const gl = canvas.getContext('webgl2', {
-        alpha: false,
-        antialias: false,
-        premultipliedAlpha: false,
-        preserveDrawingBuffer: true
-      });
+      const gl = getOrCreateGl();
 
       if (!gl) {
         resultText.textContent = 'WebGL2 context creation failed.';
@@ -304,9 +355,7 @@
         return;
       }
 
-      const executorContext = createGpuScreenTransformContext();
-      const backendContext = createGpuScreenTransformBackendGpuContext();
-      const backendCapability = summarizeGpuScreenTransformBackendGpuCapability(backendContext, gl);
+      const backendCapability = summarizeGpuScreenTransformBackendGpuCapability(directBackendContext, gl);
       const maxBatchItems = backendCapability?.maxBatchItems ?? 0;
       const batchPlan = planGpuScreenTransformBatches({
         sourceItemCount: source.itemCount,
@@ -315,13 +364,20 @@
       });
       const planSummary = summarizeGpuScreenTransformBatchPlan(batchPlan);
 
-      const backendResult = executeGpuScreenTransformBackendGpu(backendContext, source, { gl });
+      const backendResult = executeGpuScreenTransformBackendGpu(directBackendContext, source, { gl });
       const executorResult = executeGpuScreenPackedTransform(executorContext, source, {
         gl,
         transformPath: GPU_SCREEN_TRANSFORM_PATH_GPU_PREP
       });
+      const currentBackendSnapshot = pickBackendSnapshot(directBackendContext);
+      const backendSnapshotDelta = formatBackendSnapshotDelta(
+        previousBackendSnapshot,
+        currentBackendSnapshot
+      );
+      previousBackendSnapshot = currentBackendSnapshot;
 
       const lines = [
+        `run=${runCounter}`,
         `itemCount=${source.itemCount}`,
         `maxBatchItems=${maxBatchItems > 0 ? maxBatchItems : 'unknown'}`,
         `planMode=${planSummary.planMode}`,
@@ -349,6 +405,14 @@
         `backendImplemented=${backendResult.backendImplemented}`,
         `backendReason=${backendResult.reason}`,
         `backendReady=${backendResult.ready}`,
+        '',
+        `[backend context reuse]`,
+        `packedWriteAllocatedHeight=${currentBackendSnapshot.packedWriteAllocatedHeight}`,
+        `packedWriteHeight=${currentBackendSnapshot.packedWriteHeight}`,
+        `packedWriteMaxItems=${currentBackendSnapshot.packedWriteMaxItems}`,
+        `lastStageName=${currentBackendSnapshot.lastStageName}`,
+        `lastExecutionMs=${currentBackendSnapshot.lastExecutionMs}`,
+        `deltaFromPreviousRun=${backendSnapshotDelta}`,
         '',
         `packedPreview=${formatPackedPreview(executorResult.packed)}`,
         '',
