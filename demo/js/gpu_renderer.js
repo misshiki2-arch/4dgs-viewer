@@ -65,8 +65,6 @@ import {
 import { executeFullFrameDrawByPath } from './gpu_draw_execution_router.js';
 import { executeSelectedTileLegacyDraw } from './gpu_selected_tile_draw_executor.js';
 
-const GPU_DIAGNOSTIC_HOLD_FIRST_FULL_FRAME = true;
-
 function ensureDebugOverlayCanvas(mainCanvas) {
   let overlay = document.getElementById('gpuTileDebugOverlay');
   if (!overlay) {
@@ -238,20 +236,6 @@ function buildRendererDrawStats({
   return drawStats;
 }
 
-function prepareKnownGoodFullFrameBlend(gl) {
-  // Diagnostic:
-  // keep full-frame blend state deterministic so we can separate
-  // "backend packed-write leaked blend state" from "fragment alpha itself is wrong".
-  gl.enable(gl.BLEND);
-  gl.blendEquationSeparate(gl.FUNC_ADD, gl.FUNC_ADD);
-  gl.blendFuncSeparate(
-    gl.SRC_ALPHA,
-    gl.ONE_MINUS_SRC_ALPHA,
-    gl.ONE,
-    gl.ONE_MINUS_SRC_ALPHA
-  );
-}
-
 function selectGpuScreenSourceSpace(gpu, visible, packedCpuScreenSpace) {
   const context = ensureGpuScreenSourceContext(gpu);
 
@@ -358,16 +342,11 @@ export async function renderGpuFrame({
   camera.updateMatrixWorld(true);
 
   const mode = getDrawTileMode(ui);
-  const canHoldDiagnosticFrame =
-    GPU_DIAGNOSTIC_HOLD_FIRST_FULL_FRAME &&
-    !mode.drawSelectedOnly &&
-    !mode.showOverlay;
 
   const debugOverlayCanvas = ensureDebugOverlayCanvas(canvas);
   const debugCtx = debugOverlayCanvas.getContext('2d');
 
   if (!raw) {
-    gpu.fullFrameDiagnosticHold = null;
     gpu.resize(canvas.width, canvas.height);
     gl.disable(gl.BLEND);
     clearToGray(gl, bg);
@@ -385,14 +364,6 @@ export async function renderGpuFrame({
       buildStats: null,
       drawStats: null
     };
-  }
-
-  if (canHoldDiagnosticFrame && gpu.fullFrameDiagnosticHold?.result) {
-    setInfoText(infoEl, gpu.fullFrameDiagnosticHold.result.infoText);
-    return gpu.fullFrameDiagnosticHold.result;
-  }
-  if (!canHoldDiagnosticFrame) {
-    gpu.fullFrameDiagnosticHold = null;
   }
 
   const frameToken = ++tokenRef.value;
@@ -485,10 +456,6 @@ export async function renderGpuFrame({
   disableDepth(gl);
   enableStandardAlphaBlend(gl);
   clearToGray(gl, bg);
-
-  if (!mode.drawSelectedOnly) {
-    prepareKnownGoodFullFrameBlend(gl);
-  }
 
   const executionResult = mode.drawSelectedOnly
     ? executeSelectedTileLegacyDraw({
@@ -675,19 +642,6 @@ export async function renderGpuFrame({
     gpuScreenExecutionSummary,
     gpuScreenSourceInfo
   };
-
-  // Diagnostic only:
-  // keep the first successful full-frame image on the canvas so we can test
-  // whether later frames are erasing or overdrawing it. Renderer does not change
-  // draw ownership here; it only short-circuits later clears/redraws.
-  if (
-    canHoldDiagnosticFrame &&
-    !mode.drawSelectedOnly &&
-    drawPathSelection.actualPath !== GPU_DRAW_PATH_LEGACY &&
-    (effectiveDrawData?.nDraw ?? 0) > 0
-  ) {
-    gpu.fullFrameDiagnosticHold = { result };
-  }
 
   return result;
 }

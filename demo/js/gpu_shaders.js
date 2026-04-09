@@ -33,7 +33,7 @@ void main() {
   float x = (aCenterPx.x / uViewportPx.x) * 2.0 - 1.0;
   float y = 1.0 - (aCenterPx.y / uViewportPx.y) * 2.0;
   gl_Position = vec4(x, y, 0.0, 1.0);
-  gl_PointSize = 24.0;
+  gl_PointSize = max(1.0, aRadiusPx * 2.0);
 
   // Step24:
   // packed.colorAlpha.rgba をそのまま後段へ渡す。
@@ -62,15 +62,10 @@ void main() {
   float power =
     -0.5 * (vConic.x * dx * dx + vConic.z * dy * dy)
     - vConic.y * dx * dy;
-  float clampedPower = min(power, 0.0);
+  if (power > 0.0) discard;
   float packedAlpha = vColorAlpha.a;
-  float gaussianAlpha = packedAlpha * exp(clampedPower);
-
-  // Diagnostic:
-  // keep vertex placement unchanged and force the fragment alpha to a clearly
-  // visible level so we can separate "blend+alpha visibility" from all other
-  // packed draw conditions.
-  float finalAlpha = 1.0;
+  float gaussianAlpha = packedAlpha * exp(power);
+  float finalAlpha = clamp(gaussianAlpha, 0.0, 0.99);
 
   outColor = vec4(vColorAlpha.rgb, finalAlpha);
 }

@@ -5,7 +5,6 @@ import {
   uploadPackedInterleaved,
   summarizePackedUploadState
 } from './gpu_packed_upload_utils.js';
-import { ensurePackedDirectDrawResources } from './gpu_packed_draw_executor.js';
 import {
   GPU_SCREEN_SPACE_SOURCE_PACKED_CPU,
   GPU_SCREEN_SPACE_SOURCE_PACKED_GPU_PREP,
@@ -124,24 +123,9 @@ function updateGpuScreenUploadStateFromSummary(state, uploadSummary) {
 
 function prepareFullFrameGpuScreenDraw(gl, canvasWidth, canvasHeight) {
   // Full-frame gpu-screen draw must not inherit tile-only state.
-  // The renderer owns draw-path selection and blend/depth policy; this executor only
-  // restores the minimal framebuffer/scissor/viewport state required for a stable
-  // full-frame draw.
-  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-  gl.bindVertexArray(null);
-  gl.bindBuffer(gl.ARRAY_BUFFER, null);
-  gl.disable(gl.SCISSOR_TEST);
-  gl.disable(gl.CULL_FACE);
-  gl.disable(gl.DEPTH_TEST);
-  gl.depthMask(false);
-  gl.enable(gl.BLEND);
-  gl.blendFuncSeparate(
-    gl.SRC_ALPHA,
-    gl.ONE_MINUS_SRC_ALPHA,
-    gl.ONE,
-    gl.ONE_MINUS_SRC_ALPHA
-  );
-  gl.viewport(0, 0, canvasWidth, canvasHeight);
+  // The renderer owns draw-path selection and blend/depth policy.
+  // This executor now only keeps the seam for any future gpu-screen-specific
+  // preparation without forcing additional GL state.
 }
 
 function normalizeSourcePath(gpuScreenSpace) {
@@ -330,16 +314,12 @@ export function uploadAndDrawGpuScreen(gl, gpu, gpuScreenSpace, canvasWidth, can
     ? Math.max(0, gpuScreenSpace.packedCount | 0)
     : 0;
 
-  const { state: ensuredState } = ensureGpuScreenDrawResources(gl, gpu);
-  // Step45 fix:
-  // full-frame gpu-screen draw reuses the known-good packed direct draw resources.
-  // This keeps the gpu-screen path on the same formal packed upload/VAO contract
-  // as the packed full-frame path, while leaving comparison/execution summaries here.
   const {
+    state: ensuredState,
     vao,
     uploadState,
     layout
-  } = ensurePackedDirectDrawResources(gl, gpu);
+  } = ensureGpuScreenDrawResources(gl, gpu);
 
   uploadPackedInterleaved(gl, uploadState, gpuScreenSpace.packed, drawCount);
   ensuredState.hasProgram = !!gpu.program;
