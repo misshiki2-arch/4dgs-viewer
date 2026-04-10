@@ -416,8 +416,6 @@ function tryGenerateGpuPackedSmallBatch(context, sourceItemsResult, gl, options 
   }
 
   const resources = context?.packedWriteResources;
-  const preferGpuResident = !!options.preferGpuResident;
-
   try {
     gl.bindFramebuffer(gl.FRAMEBUFFER, resources.framebuffer);
     gl.useProgram(resources.program);
@@ -444,19 +442,8 @@ function tryGenerateGpuPackedSmallBatch(context, sourceItemsResult, gl, options 
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     }
 
-    let packed = null;
-    let gpuPackedPayload = null;
-
-    if (preferGpuResident) {
-      gpuPackedPayload = cloneGpuResidentPackedPayload(context, gl, items.length);
-    } else {
-      packed = new Float32Array(items.length * GPU_VISIBLE_PACK_FLOATS_PER_ITEM);
-      // Read back only from the packed-write target.
-      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, resources.framebuffer);
-      gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
-      gl.readPixels(0, 0, GPU_PACKED_PAYLOAD_WIDTH, items.length, gl.RGBA, gl.FLOAT, packed);
-      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
-    }
+    const packed = null;
+    const gpuPackedPayload = cloneGpuResidentPackedPayload(context, gl, items.length);
 
     gl.bindVertexArray(null);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
@@ -569,7 +556,7 @@ export function executeGpuScreenTransformBackendGpu(context, sourceItemsResult, 
     ? gpuPackedResult.reason
     : (gpuPackedResult.reason ?? (supportsWebGL2 ? GPU_BACKEND_REASON_CPU_FALLBACK : GPU_BACKEND_REASON_MISSING_WEBGL2));
   const stageMs = nowMs() - t0;
-  const finalPacked = producedPacked ? gpuPackedResult.packed : cpuFallback.packed;
+  const finalPacked = producedPacked ? null : cpuFallback.packed;
   const finalCount = producedPacked ? gpuPackedResult.count : cpuFallback.count;
   const finalFloatsPerItem = producedPacked ? gpuPackedResult.floatsPerItem : cpuFallback.floatsPerItem;
 

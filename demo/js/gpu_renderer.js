@@ -371,7 +371,7 @@ export async function renderGpuFrame({
     debugOverlayCanvas.height = canvas.height;
     debugCtx.clearRect(0, 0, debugOverlayCanvas.width, debugOverlayCanvas.height);
     debugOverlayCanvas.style.display = 'none';
-    const emptyInfo = 'GPU Step48 viewer\nNo scene loaded.';
+    const emptyInfo = 'GPU Step49 viewer\nNo scene loaded.';
     setInfoText(infoEl, emptyInfo);
     return {
       infoText: emptyInfo,
@@ -614,10 +614,10 @@ export async function renderGpuFrame({
     timestamp: buildConfig.timestamp,
     splatScale: buildConfig.scalingModifier,
     elapsedMs: elapsed,
-    stepLabel: 'GPU Step48',
+    stepLabel: 'GPU Step49',
     stepNotes: [
       'transform executor owns transformBatchSummary and downstream code forwards it without reinterpretation',
-      'gpu resident packed payloads are now the normal render product for gpu-screen and packed direct paths, with CPU packed upload retained as a fallback bridge',
+      'gpu resident packed payloads are now the normal backend and draw product for gpu-screen and packed direct paths, with CPU packed retained only as a fallback bridge',
       'renderer stays thin and forwards source, transform, and gpu-screen execution summaries to debug output',
       'packed-write backend keeps the offscreen FBO blend-disable fix while preserving existing public draw contracts'
     ],
