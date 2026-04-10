@@ -243,6 +243,7 @@ export function buildPackedLines(buildStats, drawPathSelection, drawStats) {
     `packedUploadCapacityBytes=${drawStats?.packedUploadCapacityBytes ?? 0}`,
     `packedUploadReusedCapacity=${!!drawStats?.packedUploadReusedCapacity}`,
     `packedDirectDraw=${!!drawStats?.packedDirectDraw}`,
+    `packedDirectUsesGpuResidentPayload=${!!drawStats?.packedDirectUsesGpuResidentPayload}`,
     `packedDirectLayoutVersion=${drawStats?.packedDirectLayoutVersion ?? 0}`,
     `packedDirectStrideBytes=${drawStats?.packedDirectStrideBytes ?? 0}`,
     `packedDirectAttributeCount=${drawStats?.packedDirectAttributeCount ?? 0}`,

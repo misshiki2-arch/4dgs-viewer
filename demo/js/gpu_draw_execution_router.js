@@ -7,13 +7,13 @@ import { uploadAndDrawPackedDirect } from './gpu_packed_draw_executor.js';
 import { uploadAndDrawGpuScreen } from './gpu_screen_draw_executor.js';
 import { executeFallbackFullFrameDraw } from './gpu_fallback_draw_executor.js';
 
-function buildPackedExecutionSummary(drawPathSelection, drawCount) {
+function buildPackedExecutionSummary(drawPathSelection, directPackedDrawInfo) {
   return {
     tileBatchCount: 1,
     nonEmptyTileBatchCount: 0,
-    totalTileDrawCount: drawCount ?? 0,
-    uploadCount: 1,
-    drawCallCount: 1,
+    totalTileDrawCount: directPackedDrawInfo?.drawCount ?? 0,
+    uploadCount: directPackedDrawInfo?.uploadCount ?? 1,
+    drawCallCount: directPackedDrawInfo?.drawCallCount ?? 1,
     requestedDrawPath: drawPathSelection?.requestedPath ?? GPU_DRAW_PATH_PACKED,
     actualDrawPath: drawPathSelection?.actualPath ?? GPU_DRAW_PATH_PACKED,
     drawPathFallbackReason: drawPathSelection?.fallbackReason ?? 'none'
@@ -24,6 +24,7 @@ function buildPackedUploadSummary(directPackedDrawInfo) {
   return {
     ...(directPackedDrawInfo?.uploadSummary || {}),
     packedDirectDraw: !!directPackedDrawInfo?.packedDirectDraw,
+    packedDirectUsesGpuResidentPayload: !!directPackedDrawInfo?.packedDirectUsesGpuResidentPayload,
     packedDirectLayoutVersion: directPackedDrawInfo?.packedDirectLayoutVersion ?? 0,
     packedDirectStrideBytes: directPackedDrawInfo?.packedDirectStrideBytes ?? 0,
     packedDirectAttributeCount: directPackedDrawInfo?.packedDirectAttributeCount ?? 0,
@@ -38,12 +39,18 @@ function executePackedFullFrameDraw({
   gpu,
   canvas,
   packedScreenSpace,
+  gpuScreenSourceSpace,
   drawPathSelection
 }) {
+  const packedDirectSourceSpace = Array.isArray(gpuScreenSourceSpace?.gpuPackedPayloads) &&
+    gpuScreenSourceSpace.gpuPackedPayloads.length > 0
+    ? gpuScreenSourceSpace
+    : packedScreenSpace;
+
   const directPackedDrawInfo = uploadAndDrawPackedDirect(
     gl,
     gpu,
-    packedScreenSpace,
+    packedDirectSourceSpace,
     canvas.width,
     canvas.height
   );
@@ -51,7 +58,7 @@ function executePackedFullFrameDraw({
   return {
     executionSummary: buildPackedExecutionSummary(
       drawPathSelection,
-      directPackedDrawInfo?.drawCount ?? 0
+      directPackedDrawInfo
     ),
     packedUploadSummary: buildPackedUploadSummary(directPackedDrawInfo),
     directPackedDrawInfo,
@@ -139,6 +146,7 @@ export function executeFullFrameDrawByPath({
       gpu,
       canvas,
       packedScreenSpace,
+      gpuScreenSourceSpace,
       drawPathSelection
     });
   }

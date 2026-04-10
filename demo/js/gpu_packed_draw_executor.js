@@ -1,10 +1,11 @@
-import { bindInterleavedFloatAttribs } from './gpu_gl_utils.js';
+import { bindInterleavedFloatAttribs, createProgram } from './gpu_gl_utils.js';
 import {
   createPackedUploadState,
   getPackedInterleavedAttribDescriptors,
   uploadPackedInterleaved,
   summarizePackedUploadState
 } from './gpu_packed_upload_utils.js';
+import { GPU_STEP_FRAGMENT_SHADER } from './gpu_shaders.js';
 
 // Step24:
 // packed interleaved buffer を直接使う draw 実行部。
@@ -18,6 +19,46 @@ import {
 //
 // ここでは packed direct draw だけを担当し、legacy / fallback の判断は持たない。
 
+const GPU_PACKED_TEXTURE_VERTEX_SHADER = `#version 300 es
+precision highp float;
+
+uniform sampler2D uPackedTexture;
+uniform vec2 uViewportPx;
+
+out vec4 vColorAlpha;
+out float vRadiusPx;
+out vec3 vConic;
+
+void main() {
+  int itemIndex = gl_VertexID;
+  vec4 row0 = texelFetch(uPackedTexture, ivec2(0, itemIndex), 0);
+  vec4 row1 = texelFetch(uPackedTexture, ivec2(1, itemIndex), 0);
+  vec4 row2 = texelFetch(uPackedTexture, ivec2(2, itemIndex), 0);
+
+  float x = (row0.x / uViewportPx.x) * 2.0 - 1.0;
+  float y = 1.0 - (row0.y / uViewportPx.y) * 2.0;
+  gl_Position = vec4(x, y, 0.0, 1.0);
+  gl_PointSize = max(1.0, row0.z * 2.0);
+
+  vColorAlpha = row1;
+  vRadiusPx = row0.z;
+  vConic = row2.xyz;
+}
+`;
+
+function buildZeroPackedUploadSummary() {
+  return {
+    packedUploadBytes: 0,
+    packedUploadCount: 0,
+    packedUploadLength: 0,
+    packedUploadCapacityBytes: 0,
+    packedUploadReusedCapacity: false,
+    packedUploadManagedCapacityReused: false,
+    packedUploadManagedCapacityGrown: false,
+    packedUploadManagedUploadCount: 0
+  };
+}
+
 function ensurePackedDirectVao(gl, gpu) {
   if (gpu.packedDirectVao) return gpu.packedDirectVao;
   gpu.packedDirectVao = gl.createVertexArray();
@@ -28,6 +69,23 @@ function ensurePackedUploadStateLocal(gl, gpu) {
   if (gpu.packedUploadState?.interleaved?.buffer) return gpu.packedUploadState;
   gpu.packedUploadState = createPackedUploadState(gl);
   return gpu.packedUploadState;
+}
+
+function ensurePackedDirectTextureDrawResources(gl, gpu) {
+  if (gpu.packedDirectTextureDrawResources?.program && gpu.packedDirectTextureDrawResources?.vao) {
+    return gpu.packedDirectTextureDrawResources;
+  }
+
+  const program = createProgram(gl, GPU_PACKED_TEXTURE_VERTEX_SHADER, GPU_STEP_FRAGMENT_SHADER);
+  const vao = gl.createVertexArray();
+  const resources = {
+    program,
+    vao,
+    uniformViewportPx: gl.getUniformLocation(program, 'uViewportPx'),
+    uniformPackedTexture: gl.getUniformLocation(program, 'uPackedTexture')
+  };
+  gpu.packedDirectTextureDrawResources = resources;
+  return resources;
 }
 
 function configurePackedDirectVao(gl, gpu, vao, uploadState) {
@@ -83,6 +141,50 @@ export function ensurePackedDirectDrawResources(gl, gpu) {
 }
 
 export function uploadAndDrawPackedDirect(gl, gpu, packedScreenSpace, canvasWidth, canvasHeight) {
+  const payloads = Array.isArray(packedScreenSpace?.gpuPackedPayloads)
+    ? packedScreenSpace.gpuPackedPayloads.filter((payload) => payload?.texture && payload?.gl === gl)
+    : [];
+
+  if (payloads.length > 0) {
+    const resources = ensurePackedDirectTextureDrawResources(gl, gpu);
+    let drawCount = 0;
+    let drawCallCount = 0;
+
+    gl.useProgram(resources.program);
+    gl.bindVertexArray(resources.vao);
+    gl.uniform2f(resources.uniformViewportPx, canvasWidth, canvasHeight);
+    gl.uniform1i(resources.uniformPackedTexture, 0);
+
+    for (const payload of payloads) {
+      const count = Number.isFinite(payload?.count) ? Math.max(0, payload.count | 0) : 0;
+      if (count <= 0) continue;
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, payload.texture);
+      gl.drawArrays(gl.POINTS, 0, count);
+      drawCount += count;
+      drawCallCount++;
+    }
+
+    gl.bindTexture(gl.TEXTURE_2D, null);
+    gl.bindVertexArray(null);
+
+    gpu.packedDirectConfigured = true;
+    gpu.packedDirectUsesGpuResidentPayload = true;
+
+    return {
+      drawCount,
+      drawCallCount,
+      uploadCount: 0,
+      packedDirectDraw: true,
+      packedDirectUsesGpuResidentPayload: true,
+      packedInterleavedBound: false,
+      ...summarizePackedDirectLayout(null),
+      uploadSummary: buildZeroPackedUploadSummary(),
+      packedScreenSpacePath: packedScreenSpace?.path ?? 'packed-cpu',
+      packedScreenSpaceSummary: packedScreenSpace?.summary ?? null
+    };
+  }
+
   if (!(packedScreenSpace?.packed instanceof Float32Array)) {
     throw new Error('uploadAndDrawPackedDirect requires packedScreenSpace.packed as Float32Array');
   }
@@ -109,10 +211,14 @@ export function uploadAndDrawPackedDirect(gl, gpu, packedScreenSpace, canvasWidt
 
   const uploadSummary = summarizePackedUploadState(uploadState);
   const layoutSummary = summarizePackedDirectLayout(layout);
+  gpu.packedDirectUsesGpuResidentPayload = false;
 
   return {
     drawCount,
+    drawCallCount: 1,
+    uploadCount: 1,
     packedDirectDraw: true,
+    packedDirectUsesGpuResidentPayload: false,
     packedInterleavedBound: true,
     ...layoutSummary,
     uploadSummary,
@@ -128,6 +234,7 @@ export function summarizePackedDirectResources(gpu) {
   return {
     packedDirectConfigured: !!gpu?.packedDirectConfigured,
     packedDirectHasVao: !!gpu?.packedDirectVao,
+    packedDirectUsesGpuResidentPayload: !!gpu?.packedDirectUsesGpuResidentPayload,
     ...layoutSummary,
     uploadSummary
   };
