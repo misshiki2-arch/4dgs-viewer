@@ -354,7 +354,7 @@ export async function renderGpuFrame({
     debugOverlayCanvas.height = canvas.height;
     debugCtx.clearRect(0, 0, debugOverlayCanvas.width, debugOverlayCanvas.height);
     debugOverlayCanvas.style.display = 'none';
-    const emptyInfo = 'GPU Step34 viewer\nNo scene loaded.';
+    const emptyInfo = 'GPU Step45 viewer\nNo scene loaded.';
     setInfoText(infoEl, emptyInfo);
     return {
       infoText: emptyInfo,
@@ -542,20 +542,6 @@ export async function renderGpuFrame({
     gpuScreenComparisonSummary,
     gpuScreenExecutionSummary
   } = buildGpuScreenResultSummary(gpuScreenSourceInfo, gpuScreenDrawInfo);
-  // Step45:
-  // renderer does not reinterpret transformBatchSummary.
-  // It forwards the executor-owned summary through the existing comparison/debug path.
-  const gpuScreenComparisonSummaryWithBatch =
-    gpuScreenComparisonSummary
-      ? {
-          ...gpuScreenComparisonSummary,
-          transformBatchSummary:
-            gpuScreenComparisonSummary.transformBatchSummary ??
-            packedScreenSpace?.transformSummary?.transformBatchSummary ??
-            packedScreenSpace?.summary?.transformBatchSummary ??
-            null
-        }
-      : gpuScreenComparisonSummary;
 
   const drawStats = buildRendererDrawStats({
     gpu,
@@ -579,7 +565,7 @@ export async function renderGpuFrame({
     focusTileRects,
     ui,
     gpuScreenSummary,
-    gpuScreenComparisonSummary: gpuScreenComparisonSummaryWithBatch,
+    gpuScreenComparisonSummary,
     drawPathSelection,
     visible,
     packedScreenSpace,
@@ -609,12 +595,12 @@ export async function renderGpuFrame({
     timestamp: buildConfig.timestamp,
     splatScale: buildConfig.scalingModifier,
     elapsedMs: elapsed,
-    stepLabel: 'GPU Step34',
+    stepLabel: 'GPU Step45',
     stepNotes: [
-      'transform executor is now the truth source for requested and actual transform paths',
-      'screen-space builder keeps transform state without reinterpretation',
-      'renderer stays thin and only forwards source and transform summaries to debug output',
-      'this step prepares future GPU transform ownership without changing the draw contract'
+      'transform executor owns transformBatchSummary and downstream code forwards it without reinterpretation',
+      'full-frame draw routing now goes through normal packed, gpu-screen, and legacy execution paths',
+      'renderer stays thin and forwards source, transform, and gpu-screen execution summaries to debug output',
+      'packed-write backend keeps the offscreen FBO blend-disable fix without changing public draw contracts'
     ],
     tileSummary,
     avgRefsPerVisible,
@@ -638,7 +624,7 @@ export async function renderGpuFrame({
     tileSummary,
     drawPathSummary: drawPathSelection,
     gpuScreenSummary,
-    gpuScreenComparisonSummary: gpuScreenComparisonSummaryWithBatch,
+    gpuScreenComparisonSummary,
     gpuScreenExecutionSummary,
     gpuScreenSourceInfo
   };

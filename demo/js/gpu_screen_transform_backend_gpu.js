@@ -27,9 +27,7 @@ const GPU_BACKEND_SMALL_BATCH_MAX_ITEMS = 64;
 const GPU_BACKEND_IMPLEMENTATION_STATE_STUB = 'stub';
 const GPU_BACKEND_IMPLEMENTATION_STATE_MINIMAL_GPU_PACK = 'minimal-gpu-pack';
 const GPU_BACKEND_EXECUTION_MODE_CPU_FALLBACK = 'cpu-fallback-stub';
-const GPU_BACKEND_EXECUTION_MODE_GPU_TRIAL_CPU_FALLBACK = 'gpu-trial-cpu-fallback';
 const GPU_BACKEND_EXECUTION_MODE_GPU_SMALL_BATCH_PACK = 'gpu-small-batch-pack';
-const GPU_BACKEND_DISABLE_PACKED_WRITE_REUSE_DIAGNOSTIC = false;
 
 function nowMs() {
   return performance.now();
@@ -125,100 +123,17 @@ function isSameWebGlContext(contextGl, gl) {
   return !!contextGl && !!gl && contextGl === gl;
 }
 
-function hasReusableTrialResources(context, gl) {
-  return (
-    isSameWebGlContext(context?.trialResourceGl, gl) &&
-    !!context?.trialResources?.buffer &&
-    !!context?.trialResources?.vao
-  );
-}
-
-function hasReusablePackedWriteResources(context, gl, targetHeight, maxSupportedBatchItems) {
-  if (GPU_BACKEND_DISABLE_PACKED_WRITE_REUSE_DIAGNOSTIC) return false;
+function hasReusablePackedWriteResources(context, gl) {
   return (
     isSameWebGlContext(context?.packedWriteResourceGl, gl) &&
     !!context?.packedWriteResources?.program &&
     !!context?.packedWriteResources?.framebuffer &&
     !!context?.packedWriteResources?.texture &&
-    !!context?.packedWriteResources?.vao &&
-    Number.isFinite(context?.packedWriteAllocatedHeight) &&
-    context.packedWriteAllocatedHeight >= targetHeight &&
-    Number.isFinite(context?.packedWriteMaxItems) &&
-    context.packedWriteMaxItems === maxSupportedBatchItems
+    !!context?.packedWriteResources?.vao
   );
 }
 
-function disposePackedWriteResources(context, gl) {
-  const resources = context?.packedWriteResources;
-  if (!resources || !gl || !isSameWebGlContext(context?.packedWriteResourceGl, gl)) return;
-
-  if (resources.program) gl.deleteProgram(resources.program);
-  if (resources.texture) gl.deleteTexture(resources.texture);
-  if (resources.framebuffer) gl.deleteFramebuffer(resources.framebuffer);
-  if (resources.vao) gl.deleteVertexArray(resources.vao);
-
-  context.packedWriteResources = null;
-  context.packedWriteResourceGl = null;
-  context.packedWriteAllocatedHeight = 0;
-}
-
-function ensureGpuTrialResources(context, gl) {
-  if (!gl || !probeWebGL2Support(gl)) {
-    return {
-      ok: false,
-      stage: 'probe-failed',
-      reason: GPU_BACKEND_REASON_MISSING_WEBGL2,
-      error: null
-    };
-  }
-
-  if (hasReusableTrialResources(context, gl)) {
-    return {
-      ok: true,
-      stage: 'resources-ready',
-      reason: 'ready',
-      error: null
-    };
-  }
-
-  try {
-    const buffer = gl.createBuffer();
-    const vao = gl.createVertexArray();
-    if (!buffer || !vao) {
-      return {
-        ok: false,
-        stage: 'resource-init-failed',
-        reason: GPU_BACKEND_REASON_TRIAL_FAILED,
-        error: 'failed-to-create-gpu-trial-resources'
-      };
-    }
-
-    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-    gl.bufferData(gl.ARRAY_BUFFER, 4, gl.DYNAMIC_DRAW);
-    gl.bindBuffer(gl.ARRAY_BUFFER, null);
-
-    if (context) {
-      context.trialResources = { buffer, vao };
-      context.trialResourceGl = gl;
-    }
-
-    return {
-      ok: true,
-      stage: 'resources-initialized',
-      reason: 'ready',
-      error: null
-    };
-  } catch (error) {
-    return {
-      ok: false,
-      stage: 'resource-init-exception',
-      reason: GPU_BACKEND_REASON_TRIAL_FAILED,
-      error: buildBackendError(error)
-    };
-  }
-}
-
-function ensureGpuPackedWriteResources(context, gl) {
+function ensureGpuPackedWriteResources(context, gl, targetHeight) {
   if (!gl || !probeWebGL2Support(gl)) {
     return {
       ok: false,
@@ -238,12 +153,9 @@ function ensureGpuPackedWriteResources(context, gl) {
   }
 
   const maxSupportedBatchItems = getMaxSupportedBatchItems(gl);
-  const targetHeight = Math.max(1, Math.min(
-    maxSupportedBatchItems,
-    Number.isFinite(context?.packedWriteHeight) ? context.packedWriteHeight : 1
-  ));
+  const normalizedTargetHeight = Math.max(1, Math.min(maxSupportedBatchItems, targetHeight));
 
-  if (hasReusablePackedWriteResources(context, gl, targetHeight, maxSupportedBatchItems)) {
+  if (hasReusablePackedWriteResources(context, gl)) {
     return {
       ok: true,
       stage: 'gpu-pack-resources-ready',
@@ -274,28 +186,18 @@ void main() {
   else if (column == 1) outColor = uPackedRow1;
   else if (column == 2) outColor = uPackedRow2;
   else outColor = uPackedRow3;
-}`;
+  }`;
 
   try {
-    // Step44/45 diagnostic rollback stage 2:
-    // allow packed-write resource reuse again for the same GL/size contract,
-    // while still keeping the safer per-frame target initialization below.
-    if (GPU_BACKEND_DISABLE_PACKED_WRITE_REUSE_DIAGNOSTIC) {
-      disposePackedWriteResources(context, gl);
-    }
-
     if (
       isSameWebGlContext(context?.packedWriteResourceGl, gl) &&
       context?.packedWriteResources?.texture &&
       context?.packedWriteResources?.framebuffer &&
       context?.packedWriteResources?.program &&
-      context?.packedWriteResources?.vao &&
-      Number.isFinite(context?.packedWriteAllocatedHeight) &&
-      Number.isFinite(context?.packedWriteMaxItems) &&
-      context.packedWriteMaxItems === maxSupportedBatchItems
+      context?.packedWriteResources?.vao
     ) {
       gl.bindTexture(gl.TEXTURE_2D, context.packedWriteResources.texture);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, 4, targetHeight, 0, gl.RGBA, gl.FLOAT, null);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, 4, normalizedTargetHeight, 0, gl.RGBA, gl.FLOAT, null);
       gl.bindFramebuffer(gl.FRAMEBUFFER, context.packedWriteResources.framebuffer);
       gl.framebufferTexture2D(
         gl.FRAMEBUFFER,
@@ -315,11 +217,6 @@ void main() {
           reason: GPU_BACKEND_REASON_TRIAL_FAILED,
           error: `framebuffer-status-${status}`
         };
-      }
-
-      if (context) {
-        context.packedWriteHeight = targetHeight;
-        context.packedWriteAllocatedHeight = targetHeight;
       }
 
       return {
@@ -385,7 +282,7 @@ void main() {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, 4, targetHeight, 0, gl.RGBA, gl.FLOAT, null);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, 4, normalizedTargetHeight, 0, gl.RGBA, gl.FLOAT, null);
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
@@ -413,9 +310,6 @@ void main() {
         uniformRow2: gl.getUniformLocation(program, 'uPackedRow2'),
         uniformRow3: gl.getUniformLocation(program, 'uPackedRow3')
       };
-      context.packedWriteHeight = targetHeight;
-      context.packedWriteAllocatedHeight = targetHeight;
-      context.packedWriteMaxItems = maxSupportedBatchItems;
       context.packedWriteResourceGl = gl;
     }
 
@@ -450,11 +344,7 @@ function tryGenerateGpuPackedSmallBatch(context, sourceItemsResult, gl) {
     };
   }
 
-  if (context) {
-    context.packedWriteHeight = items.length;
-  }
-
-  const resourceState = ensureGpuPackedWriteResources(context, gl);
+  const resourceState = ensureGpuPackedWriteResources(context, gl, items.length);
   if (!resourceState.ok) {
     return {
       producedPacked: false,
@@ -496,10 +386,7 @@ function tryGenerateGpuPackedSmallBatch(context, sourceItemsResult, gl) {
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     }
 
-    // Step44/45 diagnostic rollback stage 1:
-    // keep the safer per-frame target initialization and packed-write reuse disable,
-    // but remove the heaviest global GPU/CPU sync first so we can isolate whether
-    // readback correctness really depends on gl.finish().
+    // Read back only from the packed-write target.
     gl.bindFramebuffer(gl.READ_FRAMEBUFFER, resources.framebuffer);
     gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
     gl.readPixels(0, 0, 4, items.length, gl.RGBA, gl.FLOAT, out);
@@ -533,40 +420,8 @@ function tryGenerateGpuPackedSmallBatch(context, sourceItemsResult, gl) {
   }
 }
 
-function executeGpuTransformTrial(context, sourceItemsResult, gl) {
-  const resourceState = ensureGpuTrialResources(context, gl);
-  if (!resourceState.ok) {
-    return {
-      triedGpu: false,
-      stage: resourceState.stage,
-      reason: resourceState.reason,
-      error: resourceState.error
-    };
-  }
-
-  try {
-    // Minimal Step39 trial:
-    // touch GPU-owned resources and prove that the backend can initialize safely.
-    gl.bindVertexArray(context?.trialResources?.vao ?? null);
-    gl.bindBuffer(gl.ARRAY_BUFFER, context?.trialResources?.buffer ?? null);
-    gl.bufferSubData(gl.ARRAY_BUFFER, 0, new Float32Array([normalizeSourceCount(sourceItemsResult)]));
-    gl.bindBuffer(gl.ARRAY_BUFFER, null);
-    gl.bindVertexArray(null);
-
-    return {
-      triedGpu: true,
-      stage: 'gpu-trial-executed',
-      reason: GPU_BACKEND_REASON_CPU_FALLBACK,
-      error: null
-    };
-  } catch (error) {
-    return {
-      triedGpu: true,
-      stage: 'gpu-trial-failed',
-      reason: GPU_BACKEND_REASON_TRIAL_FAILED,
-      error: buildBackendError(error)
-    };
-  }
+function supportsGpuPackedWriteBackend(gl) {
+  return probeWebGL2Support(gl) && probeFloatColorSupport(gl);
 }
 
 export function createGpuScreenTransformBackendGpuContext(initialState = {}) {
@@ -587,13 +442,8 @@ export function createGpuScreenTransformBackendGpuContext(initialState = {}) {
     lastCount: 0,
     lastStageName: 'idle',
     lastError: null,
-    trialResources: null,
-    trialResourceGl: null,
     packedWriteResources: null,
     packedWriteResourceGl: null,
-    packedWriteHeight: 1,
-    packedWriteAllocatedHeight: 0,
-    packedWriteMaxItems: GPU_BACKEND_SMALL_BATCH_MAX_ITEMS,
     ...initialState
   };
 }
@@ -631,29 +481,17 @@ export function executeGpuScreenTransformBackendGpu(context, sourceItemsResult, 
   const sourceItemCount = normalizeSourceCount(sourceItemsResult);
   const gl = options?.gl ?? null;
   const supportsWebGL2 = probeWebGL2Support(gl);
+  const backendImplemented = supportsGpuPackedWriteBackend(gl);
   const cpuFallback = runCpuFallbackPack(sourceItemsResult);
-  const trialResult = executeGpuTransformTrial(context, sourceItemsResult, gl);
-  const gpuPackedResult = trialResult.triedGpu
-    ? tryGenerateGpuPackedSmallBatch(context, sourceItemsResult, gl)
-    : {
-        producedPacked: false,
-        packed: null,
-        count: 0,
-        floatsPerItem: GPU_VISIBLE_PACK_FLOATS_PER_ITEM,
-        stage: trialResult.stage,
-        reason: trialResult.reason,
-        error: trialResult.error
-      };
+  const gpuPackedResult = tryGenerateGpuPackedSmallBatch(context, sourceItemsResult, gl);
   const producedPacked = !!gpuPackedResult.producedPacked;
   const ready = producedPacked;
-  const implementationState = producedPacked
+  const implementationState = backendImplemented
     ? GPU_BACKEND_IMPLEMENTATION_STATE_MINIMAL_GPU_PACK
-    : (trialResult.triedGpu ? 'trial-only' : GPU_BACKEND_IMPLEMENTATION_STATE_STUB);
+    : GPU_BACKEND_IMPLEMENTATION_STATE_STUB;
   const executionMode = producedPacked
     ? GPU_BACKEND_EXECUTION_MODE_GPU_SMALL_BATCH_PACK
-    : trialResult.triedGpu
-      ? GPU_BACKEND_EXECUTION_MODE_GPU_TRIAL_CPU_FALLBACK
-      : GPU_BACKEND_EXECUTION_MODE_CPU_FALLBACK;
+    : GPU_BACKEND_EXECUTION_MODE_CPU_FALLBACK;
   const reason = producedPacked
     ? gpuPackedResult.reason
     : (gpuPackedResult.reason ?? (supportsWebGL2 ? GPU_BACKEND_REASON_CPU_FALLBACK : GPU_BACKEND_REASON_MISSING_WEBGL2));
@@ -669,25 +507,15 @@ export function executeGpuScreenTransformBackendGpu(context, sourceItemsResult, 
     context.supportsWebGL2 = supportsWebGL2;
     context.isAvailable = supportsWebGL2;
     context.isReady = ready;
-    context.isImplemented = !!trialResult.triedGpu;
-    context.supportsTransformPath = !!trialResult.triedGpu;
+    context.isImplemented = backendImplemented;
+    context.supportsTransformPath = backendImplemented;
     context.reason = reason;
     context.lastProbeMs = stageMs;
     context.lastExecutionMs = stageMs;
     context.lastSourceItemCount = sourceItemCount;
     context.lastCount = finalCount;
-    context.lastStageName = producedPacked ? gpuPackedResult.stage : trialResult.stage;
-    context.lastError = producedPacked ? null : (gpuPackedResult.error ?? trialResult.error);
-    if (Number.isFinite(sourceItemCount) && sourceItemCount > 0) {
-      context.packedWriteHeight = Math.min(
-        Number.isFinite(context.packedWriteAllocatedHeight) && context.packedWriteAllocatedHeight > 0
-          ? context.packedWriteAllocatedHeight
-          : sourceItemCount,
-        Number.isFinite(context.packedWriteMaxItems) && context.packedWriteMaxItems > 0
-          ? context.packedWriteMaxItems
-          : sourceItemCount
-      );
-    }
+    context.lastStageName = gpuPackedResult.stage;
+    context.lastError = producedPacked ? null : gpuPackedResult.error;
   }
 
   return {
@@ -701,12 +529,12 @@ export function executeGpuScreenTransformBackendGpu(context, sourceItemsResult, 
     count: finalCount,
     floatsPerItem: finalFloatsPerItem,
     sourceItemCount,
-    backendStage: producedPacked ? gpuPackedResult.stage : trialResult.stage,
+    backendStage: gpuPackedResult.stage,
     backendFallback: !producedPacked,
-    backendImplemented: !!trialResult.triedGpu,
+    backendImplemented,
     backendProducedPacked: producedPacked,
     backendFallbackToCpu: !producedPacked,
-    backendError: producedPacked ? null : (gpuPackedResult.error ?? trialResult.error),
+    backendError: producedPacked ? null : gpuPackedResult.error,
     backendContext: summarizeGpuScreenTransformBackendGpuCapability(context, gl)
   };
 }
