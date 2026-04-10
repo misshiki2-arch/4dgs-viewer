@@ -488,7 +488,7 @@ export function summarizePackedScreenSpace(result) {
     transformBatchSummary: result.transformSummary?.transformBatchSummary ?? null,
 
     packedCount: Number.isFinite(result.packedCount) ? result.packedCount : 0,
-    packedLength: result.packed instanceof Float32Array ? result.packed.length : 0,
+    packedLength: getPackedLogicalLength(result.packed, result.packedCount, result.floatsPerItem),
     floatsPerItem: Number.isFinite(result.floatsPerItem)
       ? result.floatsPerItem
       : GPU_VISIBLE_PACK_FLOATS_PER_ITEM,

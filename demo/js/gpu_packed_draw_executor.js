@@ -234,7 +234,9 @@ export function summarizePackedDirectResources(gpu) {
   return {
     packedDirectConfigured: !!gpu?.packedDirectConfigured,
     packedDirectHasVao: !!gpu?.packedDirectVao,
-    packedDirectUsesGpuResidentPayload: !!gpu?.packedDirectUsesGpuResidentPayload,
+    packedDirectGpuResidentPayloadAvailable:
+      !!gpu?.packedDirectTextureDrawResources?.program &&
+      !!gpu?.packedDirectTextureDrawResources?.vao,
     ...layoutSummary,
     uploadSummary
   };

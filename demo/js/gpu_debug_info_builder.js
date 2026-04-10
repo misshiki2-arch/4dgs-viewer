@@ -1,4 +1,4 @@
-// Step46 display cleanup
+// Step48 display cleanup
 // 目的:
 // - debug info builder を「整形だけ」の責務に保つ
 // - transform executor / screen-space builder / renderer が確定した truth を、そのまま表示する
@@ -140,6 +140,7 @@ function buildGpuScreenStateLines(gpuScreenSummary) {
   pushLine(lines, 'gpuScreenUsesPackedReferenceShader', fmtBool(!!gpuScreenSummary.gpuScreenUsesPackedReferenceShader));
   pushLine(lines, 'gpuScreenUsesPackedReferenceUpload', fmtBool(!!gpuScreenSummary.gpuScreenUsesPackedReferenceUpload));
   pushLine(lines, 'gpuScreenUsesGpuResidentPayload', fmtBool(!!gpuScreenSummary.gpuScreenUsesGpuResidentPayload));
+  pushLine(lines, 'gpuScreenGpuResidentPayloadAvailable', fmtBool(!!gpuScreenSummary.gpuScreenGpuResidentPayloadAvailable));
 
   return lines;
 }
@@ -244,6 +245,7 @@ export function buildPackedLines(buildStats, drawPathSelection, drawStats) {
     `packedUploadReusedCapacity=${!!drawStats?.packedUploadReusedCapacity}`,
     `packedDirectDraw=${!!drawStats?.packedDirectDraw}`,
     `packedDirectUsesGpuResidentPayload=${!!drawStats?.packedDirectUsesGpuResidentPayload}`,
+    `packedDirectGpuResidentPayloadAvailable=${!!drawStats?.packedDirectGpuResidentPayloadAvailable}`,
     `packedDirectLayoutVersion=${drawStats?.packedDirectLayoutVersion ?? 0}`,
     `packedDirectStrideBytes=${drawStats?.packedDirectStrideBytes ?? 0}`,
     `packedDirectAttributeCount=${drawStats?.packedDirectAttributeCount ?? 0}`,

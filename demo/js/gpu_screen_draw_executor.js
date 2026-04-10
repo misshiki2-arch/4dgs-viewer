@@ -462,6 +462,9 @@ export function summarizeGpuScreenDrawState(gpu) {
     gpuScreenUploadManagedCapacityGrown: !!state.lastUploadManagedCapacityGrown,
     gpuScreenUploadManagedUploadCount: state.lastUploadManagedUploadCount ?? 0,
     gpuScreenUsesGpuResidentPayload: !!state.usesGpuResidentPayload,
+    gpuScreenGpuResidentPayloadAvailable:
+      !!gpu?.gpuScreenTextureDrawResources?.program &&
+      !!gpu?.gpuScreenTextureDrawResources?.vao,
 
     gpuScreenUploadSummary: uploadSummary
   };

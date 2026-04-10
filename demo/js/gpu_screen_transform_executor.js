@@ -47,6 +47,15 @@ function hasGpuPackedPayload(result) {
   return !!result?.gpuPackedPayload?.texture;
 }
 
+function getPackedLogicalLength(packed, packedCount, floatsPerItem, gpuPackedPayloads = null) {
+  if (packed instanceof Float32Array) return packed.length;
+  if (Array.isArray(gpuPackedPayloads) && gpuPackedPayloads.length > 0) {
+    if (!Number.isFinite(packedCount) || !Number.isFinite(floatsPerItem)) return 0;
+    return Math.max(0, (packedCount | 0) * (floatsPerItem | 0));
+  }
+  return 0;
+}
+
 function nowMs() {
   return performance.now();
 }
@@ -401,7 +410,7 @@ function buildTransformSummary({
     sourceItemCount: safeSourceItemCount(sourceItemsResult),
     sourceSchemaVersion: safeSourceSchemaVersion(sourceItemsResult),
     packedCount: Number.isFinite(packedCount) ? packedCount : 0,
-    packedLength: packed instanceof Float32Array ? packed.length : 0,
+    packedLength: getPackedLogicalLength(packed, packedCount, floatsPerItem, gpuPackedPayloads),
     floatsPerItem: Number.isFinite(floatsPerItem)
       ? floatsPerItem
       : GPU_VISIBLE_PACK_FLOATS_PER_ITEM,
@@ -562,7 +571,12 @@ export function summarizeGpuScreenTransformResult(result) {
     sourceItemCount: Number.isFinite(result.sourceItemCount) ? result.sourceItemCount : 0,
     sourceSchemaVersion: Number.isFinite(result.sourceSchemaVersion) ? result.sourceSchemaVersion : 0,
     packedCount: Number.isFinite(result.count) ? result.count : 0,
-    packedLength: packed instanceof Float32Array ? packed.length : 0,
+    packedLength: getPackedLogicalLength(
+      packed,
+      result.count,
+      result.floatsPerItem,
+      result.gpuPackedPayloads
+    ),
     floatsPerItem: Number.isFinite(result.floatsPerItem)
       ? result.floatsPerItem
       : GPU_VISIBLE_PACK_FLOATS_PER_ITEM,

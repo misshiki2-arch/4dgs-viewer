@@ -143,9 +143,26 @@ function computeDrawFraction(visibleCount, drawCount) {
   return drawCount / visibleCount;
 }
 
+function hasGpuPackedPayloads(screenSpace) {
+  return Array.isArray(screenSpace?.gpuPackedPayloads) && screenSpace.gpuPackedPayloads.length > 0;
+}
+
+function hasRenderablePackedScreenSpace(screenSpace) {
+  if (screenSpace?.packed instanceof Float32Array) return true;
+  if (hasGpuPackedPayloads(screenSpace)) return true;
+  return !!screenSpace?.summary?.transformHasBuffers || !!screenSpace?.transformSummary?.transformHasBuffers;
+}
+
+function getPackedLogicalLength(screenSpace) {
+  if (screenSpace?.packed instanceof Float32Array) return screenSpace.packed.length;
+  if (Number.isFinite(screenSpace?.packedCount) && Number.isFinite(screenSpace?.floatsPerItem)) {
+    return Math.max(0, (screenSpace.packedCount | 0) * (screenSpace.floatsPerItem | 0));
+  }
+  return 0;
+}
+
 function buildSafeBuildStats(rawBuildStats, visible, packedScreenSpace, elapsedMs) {
   const visibleCount = Array.isArray(visible) ? visible.length : 0;
-  const packed = packedScreenSpace?.packed;
 
   return {
     ...(rawBuildStats || {}),
@@ -159,7 +176,7 @@ function buildSafeBuildStats(rawBuildStats, visible, packedScreenSpace, elapsedM
     packedVisibleLength:
       Number.isFinite(rawBuildStats?.packedVisibleLength)
         ? rawBuildStats.packedVisibleLength
-        : (packed instanceof Float32Array ? packed.length : 0),
+        : getPackedLogicalLength(packedScreenSpace),
     packedVisibleFloatsPerItem:
       Number.isFinite(rawBuildStats?.packedVisibleFloatsPerItem)
         ? rawBuildStats.packedVisibleFloatsPerItem
@@ -227,8 +244,8 @@ function buildRendererDrawStats({
     executionSummary,
     packedScreenSpace,
     packedUploadSummary: {
-      ...packedUploadSummary,
-      ...packedDirectResourceSummary
+      ...packedDirectResourceSummary,
+      ...packedUploadSummary
     }
   });
 
@@ -243,7 +260,7 @@ function selectGpuScreenSourceSpace(gpu, visible, packedCpuScreenSpace) {
     const experimental = buildPackedGpuPrepScreenSpaceWithContext(context, visible, {
       gl: gpu?.gl ?? null
     });
-    if (experimental?.packed instanceof Float32Array) {
+    if (hasRenderablePackedScreenSpace(experimental)) {
       return {
         sourceSpace: experimental,
         sourceSummary: summarizePackedScreenSpace(experimental),
@@ -354,7 +371,7 @@ export async function renderGpuFrame({
     debugOverlayCanvas.height = canvas.height;
     debugCtx.clearRect(0, 0, debugOverlayCanvas.width, debugOverlayCanvas.height);
     debugOverlayCanvas.style.display = 'none';
-    const emptyInfo = 'GPU Step47 viewer\nNo scene loaded.';
+    const emptyInfo = 'GPU Step48 viewer\nNo scene loaded.';
     setInfoText(infoEl, emptyInfo);
     return {
       infoText: emptyInfo,
@@ -439,7 +456,9 @@ export async function renderGpuFrame({
   const drawPathSelection = summarizeDrawPathSelection(
     resolveDrawPath({
       requestedPath,
-      hasPackedScreenSpace: !!packedScreenSpace?.packed,
+      hasPackedScreenSpace:
+        hasRenderablePackedScreenSpace(packedScreenSpace) ||
+        hasRenderablePackedScreenSpace(gpuScreenSourceInfo.sourceSpace),
       hasGpuScreenPath: isGpuScreenDrawReady(gpu)
     })
   );
@@ -595,10 +614,10 @@ export async function renderGpuFrame({
     timestamp: buildConfig.timestamp,
     splatScale: buildConfig.scalingModifier,
     elapsedMs: elapsed,
-    stepLabel: 'GPU Step47',
+    stepLabel: 'GPU Step48',
     stepNotes: [
       'transform executor owns transformBatchSummary and downstream code forwards it without reinterpretation',
-      'both gpu-screen and packed direct normal draws can consume GPU resident packed payloads directly, with CPU packed upload retained as fallback only',
+      'gpu resident packed payloads are now the normal render product for gpu-screen and packed direct paths, with CPU packed upload retained as a fallback bridge',
       'renderer stays thin and forwards source, transform, and gpu-screen execution summaries to debug output',
       'packed-write backend keeps the offscreen FBO blend-disable fix while preserving existing public draw contracts'
     ],
