@@ -28,6 +28,7 @@ const GPU_BACKEND_IMPLEMENTATION_STATE_STUB = 'stub';
 const GPU_BACKEND_IMPLEMENTATION_STATE_MINIMAL_GPU_PACK = 'minimal-gpu-pack';
 const GPU_BACKEND_EXECUTION_MODE_CPU_FALLBACK = 'cpu-fallback-stub';
 const GPU_BACKEND_EXECUTION_MODE_GPU_SMALL_BATCH_PACK = 'gpu-small-batch-pack';
+const GPU_PACKED_PAYLOAD_WIDTH = 4;
 
 function nowMs() {
   return performance.now();
@@ -59,6 +60,29 @@ function buildBackendError(error) {
   if (typeof error === 'string') return error;
   if (typeof error?.message === 'string' && error.message.length > 0) return error.message;
   return String(error);
+}
+
+function createGpuPackedPayloadRecord(gl, texture, count) {
+  return {
+    kind: 'gpu-packed-texture',
+    gl,
+    texture,
+    width: GPU_PACKED_PAYLOAD_WIDTH,
+    height: Math.max(0, count | 0),
+    count: Math.max(0, count | 0),
+    floatsPerItem: GPU_VISIBLE_PACK_FLOATS_PER_ITEM
+  };
+}
+
+function releaseGpuResidentPackedPayloads(context, gl) {
+  if (!context || !Array.isArray(context.gpuResidentPackedPayloads) || !gl) return;
+
+  for (const payload of context.gpuResidentPackedPayloads) {
+    if (payload?.gl !== gl) continue;
+    if (payload?.texture) gl.deleteTexture(payload.texture);
+  }
+
+  context.gpuResidentPackedPayloads = [];
 }
 
 function normalizeSourceCount(sourceItemsResult) {
@@ -133,6 +157,47 @@ function hasReusablePackedWriteResources(context, gl) {
   );
 }
 
+function cloneGpuResidentPackedPayload(context, gl, count) {
+  const resources = context?.packedWriteResources;
+  if (!resources?.texture || !resources?.framebuffer) {
+    throw new Error('missing-packed-write-resources-for-gpu-payload-clone');
+  }
+
+  const texture = gl.createTexture();
+  if (!texture) {
+    throw new Error('failed-to-create-gpu-packed-payload-texture');
+  }
+
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texImage2D(
+    gl.TEXTURE_2D,
+    0,
+    gl.RGBA32F,
+    GPU_PACKED_PAYLOAD_WIDTH,
+    count,
+    0,
+    gl.RGBA,
+    gl.FLOAT,
+    null
+  );
+
+  gl.bindFramebuffer(gl.READ_FRAMEBUFFER, resources.framebuffer);
+  gl.copyTexSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 0, 0, GPU_PACKED_PAYLOAD_WIDTH, count);
+  gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
+  gl.bindTexture(gl.TEXTURE_2D, null);
+
+  const payload = createGpuPackedPayloadRecord(gl, texture, count);
+  if (context) {
+    context.gpuResidentPackedPayloads = context.gpuResidentPackedPayloads ?? [];
+    context.gpuResidentPackedPayloads.push(payload);
+  }
+  return payload;
+}
+
 function ensureGpuPackedWriteResources(context, gl, targetHeight) {
   if (!gl || !probeWebGL2Support(gl)) {
     return {
@@ -154,15 +219,6 @@ function ensureGpuPackedWriteResources(context, gl, targetHeight) {
 
   const maxSupportedBatchItems = getMaxSupportedBatchItems(gl);
   const normalizedTargetHeight = Math.max(1, Math.min(maxSupportedBatchItems, targetHeight));
-
-  if (hasReusablePackedWriteResources(context, gl)) {
-    return {
-      ok: true,
-      stage: 'gpu-pack-resources-ready',
-      reason: 'ready',
-      error: null
-    };
-  }
 
   const vertexShaderSource = `#version 300 es
 void main() {
@@ -329,13 +385,14 @@ void main() {
   }
 }
 
-function tryGenerateGpuPackedSmallBatch(context, sourceItemsResult, gl) {
+function tryGenerateGpuPackedSmallBatch(context, sourceItemsResult, gl, options = {}) {
   const items = normalizeSourceItems(sourceItemsResult);
   const maxSupportedBatchItems = getMaxSupportedBatchItems(gl);
   if (items.length <= 0 || items.length > maxSupportedBatchItems) {
     return {
       producedPacked: false,
       packed: null,
+      gpuPackedPayload: null,
       count: 0,
       floatsPerItem: GPU_VISIBLE_PACK_FLOATS_PER_ITEM,
       stage: 'gpu-pack-small-batch-size-unsupported',
@@ -349,6 +406,7 @@ function tryGenerateGpuPackedSmallBatch(context, sourceItemsResult, gl) {
     return {
       producedPacked: false,
       packed: null,
+      gpuPackedPayload: null,
       count: 0,
       floatsPerItem: GPU_VISIBLE_PACK_FLOATS_PER_ITEM,
       stage: resourceState.stage,
@@ -358,7 +416,7 @@ function tryGenerateGpuPackedSmallBatch(context, sourceItemsResult, gl) {
   }
 
   const resources = context?.packedWriteResources;
-  const out = new Float32Array(items.length * GPU_VISIBLE_PACK_FLOATS_PER_ITEM);
+  const preferGpuResident = !!options.preferGpuResident;
 
   try {
     gl.bindFramebuffer(gl.FRAMEBUFFER, resources.framebuffer);
@@ -386,18 +444,28 @@ function tryGenerateGpuPackedSmallBatch(context, sourceItemsResult, gl) {
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     }
 
-    // Read back only from the packed-write target.
-    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, resources.framebuffer);
-    gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
-    gl.readPixels(0, 0, 4, items.length, gl.RGBA, gl.FLOAT, out);
-    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
+    let packed = null;
+    let gpuPackedPayload = null;
+
+    if (preferGpuResident) {
+      gpuPackedPayload = cloneGpuResidentPackedPayload(context, gl, items.length);
+    } else {
+      packed = new Float32Array(items.length * GPU_VISIBLE_PACK_FLOATS_PER_ITEM);
+      // Read back only from the packed-write target.
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, resources.framebuffer);
+      gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, null);
+      gl.readPixels(0, 0, GPU_PACKED_PAYLOAD_WIDTH, items.length, gl.RGBA, gl.FLOAT, packed);
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
+    }
+
     gl.bindVertexArray(null);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.useProgram(null);
 
     return {
       producedPacked: true,
-      packed: out,
+      packed,
+      gpuPackedPayload,
       count: items.length,
       floatsPerItem: GPU_VISIBLE_PACK_FLOATS_PER_ITEM,
       stage: 'gpu-pack-small-batch-generated',
@@ -411,6 +479,7 @@ function tryGenerateGpuPackedSmallBatch(context, sourceItemsResult, gl) {
     return {
       producedPacked: false,
       packed: null,
+      gpuPackedPayload: null,
       count: 0,
       floatsPerItem: GPU_VISIBLE_PACK_FLOATS_PER_ITEM,
       stage: 'gpu-pack-small-batch-failed',
@@ -444,6 +513,7 @@ export function createGpuScreenTransformBackendGpuContext(initialState = {}) {
     lastError: null,
     packedWriteResources: null,
     packedWriteResourceGl: null,
+    gpuResidentPackedPayloads: [],
     ...initialState
   };
 }
@@ -482,8 +552,11 @@ export function executeGpuScreenTransformBackendGpu(context, sourceItemsResult, 
   const gl = options?.gl ?? null;
   const supportsWebGL2 = probeWebGL2Support(gl);
   const backendImplemented = supportsGpuPackedWriteBackend(gl);
+  if (options?.resetGpuResidentPayloads) {
+    releaseGpuResidentPackedPayloads(context, gl);
+  }
   const cpuFallback = runCpuFallbackPack(sourceItemsResult);
-  const gpuPackedResult = tryGenerateGpuPackedSmallBatch(context, sourceItemsResult, gl);
+  const gpuPackedResult = tryGenerateGpuPackedSmallBatch(context, sourceItemsResult, gl, options);
   const producedPacked = !!gpuPackedResult.producedPacked;
   const ready = producedPacked;
   const implementationState = backendImplemented
@@ -526,6 +599,7 @@ export function executeGpuScreenTransformBackendGpu(context, sourceItemsResult, 
     reason,
     stageMs,
     packed: finalPacked,
+    gpuPackedPayload: producedPacked ? (gpuPackedResult.gpuPackedPayload ?? null) : null,
     count: finalCount,
     floatsPerItem: finalFloatsPerItem,
     sourceItemCount,

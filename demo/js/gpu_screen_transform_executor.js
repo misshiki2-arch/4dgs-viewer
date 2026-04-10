@@ -43,6 +43,10 @@ export const GPU_SCREEN_TRANSFORM_SOURCE_PACKED_CPU = 'packed-cpu';
 export const GPU_SCREEN_TRANSFORM_SOURCE_PACKED_GPU_PREP = 'packed-gpu-prep';
 export const GPU_SCREEN_TRANSFORM_SOURCE_GPU_SCREEN_EXPERIMENTAL = 'gpu-screen-experimental';
 
+function hasGpuPackedPayload(result) {
+  return !!result?.gpuPackedPayload?.texture;
+}
+
 function nowMs() {
   return performance.now();
 }
@@ -108,16 +112,23 @@ function shouldPromoteActualTransformPathToGpuPrep(requestedTransformPath, backe
   if (!backendResult?.backendProducedPacked) return false;
   if (!!backendResult?.backendFallbackToCpu) return false;
   if (backendResult?.backendError !== null && backendResult?.backendError !== undefined) return false;
-  if (!(backendResult?.packed instanceof Float32Array)) return false;
 
   const count = backendResult.count;
   const floatsPerItem = backendResult.floatsPerItem;
   if (!Number.isInteger(count) || count < 0) return false;
   if (!Number.isFinite(floatsPerItem) || floatsPerItem !== GPU_VISIBLE_PACK_FLOATS_PER_ITEM) return false;
 
-  const packedLength = backendResult.packed.length;
-  if (count === 0) return packedLength === 0;
-  return packedLength === count * floatsPerItem;
+  if (backendResult?.packed instanceof Float32Array) {
+    const packedLength = backendResult.packed.length;
+    if (count === 0) return packedLength === 0;
+    return packedLength === count * floatsPerItem;
+  }
+
+  if (hasGpuPackedPayload(backendResult)) {
+    return backendResult.gpuPackedPayload.count === count;
+  }
+
+  return false;
 }
 
 function resolveTransformRole(actualTransformPath) {
@@ -184,15 +195,20 @@ function resolveTransformBackendDispatch(requestedTransformPath, options = {}) {
   // without changing the public transform contract.
   switch (requestedTransformPath) {
     case GPU_SCREEN_TRANSFORM_PATH_GPU_PREP:
-      const backendContext = createGpuScreenTransformBackendGpuContext();
+      const backendContext =
+        options.backendContext ?? createGpuScreenTransformBackendGpuContext();
       return {
         backendId: 'gpu-prep-requested-gpu-helper',
         backendContext,
         backendCapability: summarizeGpuScreenTransformBackendGpuCapability(backendContext, options.gl ?? null),
-        execute: (sourceItemsResult) => executeGpuScreenTransformBackendGpu(
+        execute: (sourceItemsResult, executeOptions = {}) => executeGpuScreenTransformBackendGpu(
           backendContext,
           sourceItemsResult,
-          { gl: options.gl ?? null }
+          {
+            gl: options.gl ?? null,
+            preferGpuResident: !!options.preferGpuResident,
+            resetGpuResidentPayloads: !!executeOptions.resetGpuResidentPayloads
+          }
         )
       };
     case GPU_SCREEN_TRANSFORM_PATH_CPU:
@@ -250,6 +266,18 @@ function combinePackedBatchResults(batchResults) {
     count: totalCount,
     floatsPerItem
   };
+}
+
+function combineGpuPackedPayloadBatchResults(batchResults) {
+  const results = Array.isArray(batchResults) ? batchResults : [];
+  const gpuPackedPayloads = [];
+
+  for (const result of results) {
+    if (!hasGpuPackedPayload(result)) continue;
+    gpuPackedPayloads.push(result.gpuPackedPayload);
+  }
+
+  return gpuPackedPayloads;
 }
 
 function didAllBatchesPromoteToGpuPrep(requestedTransformPath, batchResults) {
@@ -319,6 +347,7 @@ function buildTransformBatchSummary({
 
 export function createGpuScreenTransformContext() {
   return {
+    backendContext: createGpuScreenTransformBackendGpuContext(),
     sourcePath: GPU_SCREEN_TRANSFORM_SOURCE_PACKED_CPU,
     requestedTransformPath: GPU_SCREEN_TRANSFORM_PATH_CPU,
     actualTransformPath: GPU_SCREEN_TRANSFORM_PATH_CPU,
@@ -351,6 +380,7 @@ function buildTransformSummary({
   requestedTransformPath,
   actualTransformPath,
   packed,
+  gpuPackedPayloads = null,
   packedCount,
   floatsPerItem,
   transformStageMs,
@@ -366,7 +396,7 @@ function buildTransformSummary({
     transformPath: actualTransformPath,
     transformRole: resolveTransformRole(actualTransformPath),
     transformConfigured: true,
-    transformHasBuffers: false,
+    transformHasBuffers: Array.isArray(gpuPackedPayloads) && gpuPackedPayloads.length > 0,
     transformFallbackReason: fallbackReason,
     sourceItemCount: safeSourceItemCount(sourceItemsResult),
     sourceSchemaVersion: safeSourceSchemaVersion(sourceItemsResult),
@@ -410,7 +440,11 @@ function updateContext(context, summary) {
 
 export function executeGpuScreenPackedTransform(context, sourceItemsResult, options = {}) {
   const executionInputs = resolveTransformExecutionInputs(sourceItemsResult, options);
-  const backendDispatch = resolveTransformBackendDispatch(executionInputs.requestedTransformPath, options);
+  const backendDispatch = resolveTransformBackendDispatch(executionInputs.requestedTransformPath, {
+    ...options,
+    preferGpuResident: executionInputs.requestedTransformPath === GPU_SCREEN_TRANSFORM_PATH_GPU_PREP,
+    backendContext: context?.backendContext
+  });
   const backendCapability = backendDispatch.backendCapability ?? null;
   const batchPlan = planGpuScreenTransformBatches({
     sourceItemCount: safeSourceItemCount(sourceItemsResult),
@@ -422,9 +456,12 @@ export function executeGpuScreenPackedTransform(context, sourceItemsResult, opti
 
   const batchResults = batchPlan.batches.map((batch) => {
     const batchSourceItemsResult = buildSourceItemsResultSlice(sourceItemsResult, batch);
-    return backendDispatch.execute(batchSourceItemsResult);
+    return backendDispatch.execute(batchSourceItemsResult, {
+      resetGpuResidentPayloads: batch.batchIndex === 0
+    });
   });
   const combinedBatchResult = combinePackedBatchResults(batchResults);
+  const gpuPackedPayloads = combineGpuPackedPayloadBatchResults(batchResults);
 
   const actualTransformPath = didAllBatchesPromoteToGpuPrep(
     executionInputs.requestedTransformPath,
@@ -446,6 +483,7 @@ export function executeGpuScreenPackedTransform(context, sourceItemsResult, opti
     requestedTransformPath: executionInputs.requestedTransformPath,
     actualTransformPath,
     packed: combinedBatchResult.packed,
+    gpuPackedPayloads,
     packedCount: combinedBatchResult.count,
     floatsPerItem: combinedBatchResult.floatsPerItem,
     transformStageMs,
@@ -460,6 +498,7 @@ export function executeGpuScreenPackedTransform(context, sourceItemsResult, opti
 
   return {
     packed: combinedBatchResult.packed,
+    gpuPackedPayloads,
     count: combinedBatchResult.count,
     floatsPerItem: combinedBatchResult.floatsPerItem,
     sourcePath: summary.sourcePath,

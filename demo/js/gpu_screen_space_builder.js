@@ -49,6 +49,12 @@ function nowMs() {
   return performance.now();
 }
 
+function getPackedLogicalLength(packed, packedCount, floatsPerItem) {
+  if (packed instanceof Float32Array) return packed.length;
+  if (!Number.isFinite(packedCount) || !Number.isFinite(floatsPerItem)) return 0;
+  return Math.max(0, (packedCount | 0) * (floatsPerItem | 0));
+}
+
 export function normalizeScreenSpaceItem(item) {
   return normalizeScreenSpaceItemImpl(item);
 }
@@ -179,7 +185,7 @@ function buildPackedScreenSpaceStateSummary({
     transformBatchSummary: transformSummary?.transformBatchSummary ?? null,
 
     packedCount,
-    packedLength: packed instanceof Float32Array ? packed.length : 0,
+    packedLength: getPackedLogicalLength(packed, packedCount, floatsPerItem),
     floatsPerItem,
     alphaSource: 'colorAlpha[3]',
     centerSource: 'centerPx',
@@ -208,7 +214,7 @@ function buildPackedScreenSpaceComparisonSummary({
     sourceExperimental: !!experimental,
     sourceBuildMs: Number.isFinite(buildMs) ? buildMs : 0,
     sourcePackedCount: Number.isFinite(packedCount) ? packedCount : 0,
-    sourcePackedLength: packed instanceof Float32Array ? packed.length : 0,
+    sourcePackedLength: getPackedLogicalLength(packed, packedCount, transformSummary?.floatsPerItem ?? GPU_VISIBLE_PACK_FLOATS_PER_ITEM),
 
     sourceItemCount: sourceSummary?.sourceItemCount ?? 0,
     sourceSchemaVersion: sourceSummary?.sourceSchemaVersion ?? GPU_SCREEN_SPACE_SOURCE_SCHEMA_VERSION,
@@ -255,6 +261,9 @@ function buildPackedScreenSpaceResult(normalizedVisible, sourceItemsResult, pack
     ? sourceItemsResult.schemaVersion
     : GPU_SCREEN_SPACE_SOURCE_SCHEMA_VERSION;
   const transformSummary = packedStageResult?.summary ?? null;
+  const gpuPackedPayloads = Array.isArray(packedStageResult?.gpuPackedPayloads)
+    ? packedStageResult.gpuPackedPayloads
+    : [];
 
   const stateSummary = buildPackedScreenSpaceStateSummary({
     path,
@@ -262,6 +271,7 @@ function buildPackedScreenSpaceResult(normalizedVisible, sourceItemsResult, pack
     normalizedVisible,
     sourceItems,
     packed,
+    gpuPackedPayloads,
     packedCount,
     floatsPerItem,
     prepStageMs,
@@ -287,6 +297,7 @@ function buildPackedScreenSpaceResult(normalizedVisible, sourceItemsResult, pack
     visible: normalizedVisible,
     sourceItems,
     packed,
+    gpuPackedPayloads,
     packedCount,
     floatsPerItem,
     layout: getVisiblePackLayout(),
@@ -319,7 +330,7 @@ function updateContext(context, result, inputVisible) {
   context.lastNormalizedVisibleCount = Array.isArray(result.visible) ? result.visible.length : 0;
   context.lastSourceItemCount = Array.isArray(result.sourceItems) ? result.sourceItems.length : 0;
   context.lastPackCount = Number.isFinite(result.packedCount) ? result.packedCount : 0;
-  context.lastPackedLength = result.packed instanceof Float32Array ? result.packed.length : 0;
+  context.lastPackedLength = getPackedLogicalLength(result.packed, result.packedCount, result.floatsPerItem);
   context.lastPrepStageMs = Number.isFinite(result.summary?.prepStageMs) ? result.summary.prepStageMs : 0;
   context.lastPackStageMs = Number.isFinite(result.summary?.packStageMs) ? result.summary.packStageMs : 0;
   context.lastBuildMs = Number.isFinite(result.summary?.buildMs) ? result.summary.buildMs : 0;

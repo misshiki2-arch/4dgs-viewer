@@ -1,4 +1,4 @@
-// Step34 redesign
+// Step46 display cleanup
 // 目的:
 // - debug info builder を「整形だけ」の責務に保つ
 // - transform executor / screen-space builder / renderer が確定した truth を、そのまま表示する
@@ -13,8 +13,8 @@
 // 1. buildGpuDebugExtraLines() は入力値を文字列化するだけ
 // 2. 値が無いものだけを省略する
 // 3. build config -> timing -> tile mode -> ui -> gpu-screen state -> gpu-screen comparison の順で安定化
-// 4. Step34 では transform truth source の requested / actual / fallback / upload state をそのまま表示する
-// 5. Step45 では executor-owned transformBatchSummary も、そのまま表示する
+// 4. transform truth source の requested / actual / fallback / upload state をそのまま表示する
+// 5. executor-owned transformBatchSummary と gpu-screen draw path の GPU-resident usage も、そのまま表示する
 
 function isFiniteNumber(v) {
   return Number.isFinite(v);
@@ -139,6 +139,7 @@ function buildGpuScreenStateLines(gpuScreenSummary) {
   pushLine(lines, 'gpuScreenUsesPackedReferenceLayout', fmtBool(!!gpuScreenSummary.gpuScreenUsesPackedReferenceLayout));
   pushLine(lines, 'gpuScreenUsesPackedReferenceShader', fmtBool(!!gpuScreenSummary.gpuScreenUsesPackedReferenceShader));
   pushLine(lines, 'gpuScreenUsesPackedReferenceUpload', fmtBool(!!gpuScreenSummary.gpuScreenUsesPackedReferenceUpload));
+  pushLine(lines, 'gpuScreenUsesGpuResidentPayload', fmtBool(!!gpuScreenSummary.gpuScreenUsesGpuResidentPayload));
 
   return lines;
 }
@@ -162,7 +163,7 @@ function buildGpuScreenComparisonLines(gpuScreenComparisonSummary) {
   pushLine(lines, 'gpuScreenSourcePrepStageMs', fmtNum(gpuScreenComparisonSummary.sourcePrepStageMs, 3));
   pushLine(lines, 'gpuScreenSourcePackStageMs', fmtNum(gpuScreenComparisonSummary.sourcePackStageMs, 3));
 
-  // Step34 redesign: transform truth source fields
+  // Transform truth source fields are forwarded without reinterpretation.
   pushLine(lines, 'gpuScreenRequestedTransformPath', gpuScreenComparisonSummary.requestedTransformPath);
   pushLine(lines, 'gpuScreenActualTransformPath', gpuScreenComparisonSummary.actualTransformPath);
   pushLine(lines, 'gpuScreenTransformPath', gpuScreenComparisonSummary.transformPath);

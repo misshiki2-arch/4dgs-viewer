@@ -1,10 +1,12 @@
-import { bindInterleavedFloatAttribs } from './gpu_gl_utils.js';
+import { bindInterleavedFloatAttribs, createProgram } from './gpu_gl_utils.js';
 import {
   createPackedUploadState,
   getPackedInterleavedAttribDescriptors,
   uploadPackedInterleaved,
   summarizePackedUploadState
 } from './gpu_packed_upload_utils.js';
+import { packVisibleItems } from './gpu_visible_pack_utils.js';
+import { GPU_STEP_FRAGMENT_SHADER } from './gpu_shaders.js';
 import {
   GPU_SCREEN_SPACE_SOURCE_PACKED_CPU,
   GPU_SCREEN_SPACE_SOURCE_PACKED_GPU_PREP,
@@ -23,6 +25,33 @@ import {
 // 2. attribute descriptor は packed formal contract をそのまま使う
 // 3. source path / role / internal stage metrics は input gpuScreenSpace.summary から読む
 // 4. readiness の公開挙動は Step30/31 互換を維持する
+
+const GPU_SCREEN_TEXTURE_VERTEX_SHADER = `#version 300 es
+precision highp float;
+
+uniform sampler2D uPackedTexture;
+uniform vec2 uViewportPx;
+
+out vec4 vColorAlpha;
+out float vRadiusPx;
+out vec3 vConic;
+
+void main() {
+  int itemIndex = gl_VertexID;
+  vec4 row0 = texelFetch(uPackedTexture, ivec2(0, itemIndex), 0);
+  vec4 row1 = texelFetch(uPackedTexture, ivec2(1, itemIndex), 0);
+  vec4 row2 = texelFetch(uPackedTexture, ivec2(2, itemIndex), 0);
+
+  float x = (row0.x / uViewportPx.x) * 2.0 - 1.0;
+  float y = 1.0 - (row0.y / uViewportPx.y) * 2.0;
+  gl_Position = vec4(x, y, 0.0, 1.0);
+  gl_PointSize = max(1.0, row0.z * 2.0);
+
+  vColorAlpha = row1;
+  vRadiusPx = row0.z;
+  vConic = row2.xyz;
+}
+`;
 
 function createDefaultGpuScreenState() {
   return {
@@ -54,7 +83,8 @@ function createDefaultGpuScreenState() {
     lastUploadReusedCapacity: false,
     lastUploadManagedCapacityReused: false,
     lastUploadManagedCapacityGrown: false,
-    lastUploadManagedUploadCount: 0
+    lastUploadManagedUploadCount: 0,
+    usesGpuResidentPayload: false
   };
 }
 
@@ -75,6 +105,23 @@ function ensureGpuScreenVao(gl, gpu) {
   if (gpu.gpuScreenVao) return gpu.gpuScreenVao;
   gpu.gpuScreenVao = gl.createVertexArray();
   return gpu.gpuScreenVao;
+}
+
+function ensureGpuScreenTextureDrawResources(gl, gpu) {
+  if (gpu.gpuScreenTextureDrawResources?.program && gpu.gpuScreenTextureDrawResources?.vao) {
+    return gpu.gpuScreenTextureDrawResources;
+  }
+
+  const program = createProgram(gl, GPU_SCREEN_TEXTURE_VERTEX_SHADER, GPU_STEP_FRAGMENT_SHADER);
+  const vao = gl.createVertexArray();
+  const resources = {
+    program,
+    vao,
+    uniformViewportPx: gl.getUniformLocation(program, 'uViewportPx'),
+    uniformPackedTexture: gl.getUniformLocation(program, 'uPackedTexture')
+  };
+  gpu.gpuScreenTextureDrawResources = resources;
+  return resources;
 }
 
 function buildOffsetsText(attributes) {
@@ -119,6 +166,19 @@ function updateGpuScreenUploadStateFromSummary(state, uploadSummary) {
   state.lastUploadManagedCapacityReused = !!uploadSummary.packedUploadManagedCapacityReused;
   state.lastUploadManagedCapacityGrown = !!uploadSummary.packedUploadManagedCapacityGrown;
   state.lastUploadManagedUploadCount = uploadSummary.packedUploadManagedUploadCount ?? 0;
+}
+
+function resetGpuScreenUploadState(state) {
+  updateGpuScreenUploadStateFromSummary(state, {
+    packedUploadBytes: 0,
+    packedUploadCount: 0,
+    packedUploadLength: 0,
+    packedUploadCapacityBytes: 0,
+    packedUploadReusedCapacity: false,
+    packedUploadManagedCapacityReused: false,
+    packedUploadManagedCapacityGrown: false,
+    packedUploadManagedUploadCount: 0
+  });
 }
 
 function prepareFullFrameGpuScreenDraw(gl, canvasWidth, canvasHeight) {
@@ -178,9 +238,14 @@ function buildGpuScreenComparisonSummary(state, gpuScreenSpace) {
     sourcePackedCount: Number.isFinite(gpuScreenSpace?.packedCount)
       ? gpuScreenSpace.packedCount
       : 0,
-    sourcePackedLength: gpuScreenSpace?.packed instanceof Float32Array
-      ? gpuScreenSpace.packed.length
-      : 0,
+    sourcePackedLength:
+      gpuScreenSpace?.packed instanceof Float32Array
+        ? gpuScreenSpace.packed.length
+        : (
+          Number.isFinite(gpuScreenSpace?.packedCount) && Number.isFinite(gpuScreenSpace?.floatsPerItem)
+            ? (gpuScreenSpace.packedCount | 0) * (gpuScreenSpace.floatsPerItem | 0)
+            : 0
+        ),
 
     sourceItemCount: stageMetrics.sourceItemCount,
     sourceSchemaVersion: stageMetrics.sourceSchemaVersion,
@@ -241,6 +306,104 @@ function buildFailureResult(gpu, gpuScreenSpace, reason) {
   };
 }
 
+function buildCpuFallbackGpuScreenSpace(gpuScreenSpace) {
+  const items = Array.isArray(gpuScreenSpace?.sourceItems) ? gpuScreenSpace.sourceItems : [];
+  const packedResult = packVisibleItems(items);
+  return {
+    ...gpuScreenSpace,
+    packed: packedResult?.packed instanceof Float32Array ? packedResult.packed : null,
+    packedCount: Number.isFinite(packedResult?.count) ? packedResult.count : items.length,
+    floatsPerItem: Number.isFinite(packedResult?.floatsPerItem)
+      ? packedResult.floatsPerItem
+      : 16
+  };
+}
+
+function drawGpuScreenWithPackedUpload(gl, gpu, gpuScreenSpace, canvasWidth, canvasHeight, state) {
+  const drawCount = Number.isFinite(gpuScreenSpace?.packedCount)
+    ? Math.max(0, gpuScreenSpace.packedCount | 0)
+    : 0;
+
+  const {
+    state: ensuredState,
+    vao,
+    uploadState,
+    layout
+  } = ensureGpuScreenDrawResources(gl, gpu);
+
+  uploadPackedInterleaved(gl, uploadState, gpuScreenSpace.packed, drawCount);
+  ensuredState.hasProgram = !!gpu.program;
+  ensuredState.hasVao = !!vao;
+  ensuredState.hasBuffers = !!uploadState?.interleaved?.buffer;
+  ensuredState.layoutVersion = layout?.layoutVersion ?? 0;
+  ensuredState.strideBytes = layout?.strideBytes ?? 0;
+  ensuredState.attributeCount = Array.isArray(layout?.attributes) ? layout.attributes.length : 0;
+  ensuredState.lastOffsets = buildOffsetsText(layout?.attributes);
+  ensuredState.configured = true;
+  ensuredState.lastReason = 'ready';
+  ensuredState.usesGpuResidentPayload = false;
+  ensuredState.usesPackedReferenceLayout = true;
+  ensuredState.usesPackedReferenceShader = true;
+  ensuredState.usesPackedReferenceUpload = true;
+
+  prepareFullFrameGpuScreenDraw(gl, canvasWidth, canvasHeight);
+  gl.useProgram(gpu.program);
+  gl.bindVertexArray(vao);
+  gl.bindBuffer(gl.ARRAY_BUFFER, uploadState.interleaved.buffer);
+  gl.uniform2f(gpu.uViewportPx, canvasWidth, canvasHeight);
+  gl.drawArrays(gl.POINTS, 0, drawCount);
+  gl.bindBuffer(gl.ARRAY_BUFFER, null);
+  gl.bindVertexArray(null);
+
+  const uploadSummary = summarizePackedUploadState(uploadState);
+  updateGpuScreenUploadStateFromSummary(ensuredState, uploadSummary);
+  return drawCount;
+}
+
+function drawGpuScreenWithGpuResidentPayloads(gl, gpu, gpuScreenSpace, canvasWidth, canvasHeight, state) {
+  const payloads = Array.isArray(gpuScreenSpace?.gpuPackedPayloads)
+    ? gpuScreenSpace.gpuPackedPayloads.filter((payload) => payload?.texture && payload?.gl === gl)
+    : [];
+  if (payloads.length <= 0) return null;
+
+  const resources = ensureGpuScreenTextureDrawResources(gl, gpu);
+  let drawCount = 0;
+
+  state.hasProgram = !!resources.program;
+  state.hasVao = !!resources.vao;
+  state.hasBuffers = true;
+  state.layoutVersion = 0;
+  state.strideBytes = 0;
+  state.attributeCount = 0;
+  state.lastOffsets = 'gpu-packed-texture';
+  state.configured = true;
+  state.lastReason = 'ready';
+  state.usesGpuResidentPayload = true;
+  state.usesPackedReferenceLayout = false;
+  state.usesPackedReferenceShader = false;
+  state.usesPackedReferenceUpload = false;
+  resetGpuScreenUploadState(state);
+
+  prepareFullFrameGpuScreenDraw(gl, canvasWidth, canvasHeight);
+  gl.useProgram(resources.program);
+  gl.bindVertexArray(resources.vao);
+  gl.uniform2f(resources.uniformViewportPx, canvasWidth, canvasHeight);
+  gl.uniform1i(resources.uniformPackedTexture, 0);
+
+  for (const payload of payloads) {
+    const count = Number.isFinite(payload?.count) ? Math.max(0, payload.count | 0) : 0;
+    if (count <= 0) continue;
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, payload.texture);
+    gl.drawArrays(gl.POINTS, 0, count);
+    drawCount += count;
+  }
+
+  gl.bindTexture(gl.TEXTURE_2D, null);
+  gl.bindVertexArray(null);
+  return drawCount;
+}
+
 export function createGpuScreenDrawState() {
   return createDefaultGpuScreenState();
 }
@@ -298,6 +461,7 @@ export function summarizeGpuScreenDrawState(gpu) {
     gpuScreenUploadManagedCapacityReused: !!state.lastUploadManagedCapacityReused,
     gpuScreenUploadManagedCapacityGrown: !!state.lastUploadManagedCapacityGrown,
     gpuScreenUploadManagedUploadCount: state.lastUploadManagedUploadCount ?? 0,
+    gpuScreenUsesGpuResidentPayload: !!state.usesGpuResidentPayload,
 
     gpuScreenUploadSummary: uploadSummary
   };
@@ -305,53 +469,43 @@ export function summarizeGpuScreenDrawState(gpu) {
 
 export function uploadAndDrawGpuScreen(gl, gpu, gpuScreenSpace, canvasWidth, canvasHeight) {
   const state = ensureGpuScreenState(gpu);
+  let drawCount = drawGpuScreenWithGpuResidentPayloads(
+    gl,
+    gpu,
+    gpuScreenSpace,
+    canvasWidth,
+    canvasHeight,
+    state
+  );
+  let drawInput = gpuScreenSpace;
 
-  if (!(gpuScreenSpace?.packed instanceof Float32Array)) {
-    return buildFailureResult(gpu, gpuScreenSpace, 'missing-gpu-screen-source');
+  if (drawCount === null) {
+    drawInput = gpuScreenSpace?.packed instanceof Float32Array
+      ? gpuScreenSpace
+      : buildCpuFallbackGpuScreenSpace(gpuScreenSpace);
+
+    if (!(drawInput?.packed instanceof Float32Array)) {
+      return buildFailureResult(gpu, gpuScreenSpace, 'missing-gpu-screen-source');
+    }
+
+    drawCount = drawGpuScreenWithPackedUpload(
+      gl,
+      gpu,
+      drawInput,
+      canvasWidth,
+      canvasHeight,
+      state
+    );
   }
 
-  const drawCount = Number.isFinite(gpuScreenSpace?.packedCount)
-    ? Math.max(0, gpuScreenSpace.packedCount | 0)
-    : 0;
-
-  const {
-    state: ensuredState,
-    vao,
-    uploadState,
-    layout
-  } = ensureGpuScreenDrawResources(gl, gpu);
-
-  uploadPackedInterleaved(gl, uploadState, gpuScreenSpace.packed, drawCount);
-  ensuredState.hasProgram = !!gpu.program;
-  ensuredState.hasVao = !!vao;
-  ensuredState.hasBuffers = !!uploadState?.interleaved?.buffer;
-  ensuredState.layoutVersion = layout?.layoutVersion ?? 0;
-  ensuredState.strideBytes = layout?.strideBytes ?? 0;
-  ensuredState.attributeCount = Array.isArray(layout?.attributes) ? layout.attributes.length : 0;
-  ensuredState.lastOffsets = buildOffsetsText(layout?.attributes);
-  ensuredState.configured = true;
-  ensuredState.lastReason = 'ready';
-
-  prepareFullFrameGpuScreenDraw(gl, canvasWidth, canvasHeight);
-  gl.useProgram(gpu.program);
-  gl.bindVertexArray(vao);
-  gl.bindBuffer(gl.ARRAY_BUFFER, uploadState.interleaved.buffer);
-  gl.uniform2f(gpu.uViewportPx, canvasWidth, canvasHeight);
-  gl.drawArrays(gl.POINTS, 0, drawCount);
-  gl.bindBuffer(gl.ARRAY_BUFFER, null);
-  gl.bindVertexArray(null);
-
-  ensuredState.lastActualPath = 'gpu-screen';
-  ensuredState.lastBuildMs = Number.isFinite(gpuScreenSpace?.summary?.buildMs)
+  state.lastActualPath = 'gpu-screen';
+  state.lastBuildMs = Number.isFinite(gpuScreenSpace?.summary?.buildMs)
     ? gpuScreenSpace.summary.buildMs
     : 0;
-  ensuredState.lastDrawCount = drawCount;
-  ensuredState.lastReason = 'ready';
+  state.lastDrawCount = drawCount;
+  state.lastReason = 'ready';
 
-  const uploadSummary = summarizePackedUploadState(uploadState);
-  updateGpuScreenUploadStateFromSummary(ensuredState, uploadSummary);
-
-  const comparisonSummary = buildGpuScreenComparisonSummary(ensuredState, gpuScreenSpace);
+  const comparisonSummary = buildGpuScreenComparisonSummary(state, gpuScreenSpace);
 
   return {
     drawCount,
