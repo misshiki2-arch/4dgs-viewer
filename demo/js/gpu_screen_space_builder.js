@@ -55,6 +55,21 @@ function getPackedLogicalLength(packed, packedCount, floatsPerItem) {
   return Math.max(0, (packedCount | 0) * (floatsPerItem | 0));
 }
 
+export function hasGpuResidentPackedScreenSpace(result) {
+  if (Array.isArray(result?.gpuPackedPayloads) && result.gpuPackedPayloads.length > 0) return true;
+  return !!result?.transformSummary?.transformHasBuffers || !!result?.summary?.transformHasBuffers;
+}
+
+export function hasCpuPackedFallbackScreenSpace(result) {
+  return result?.packed instanceof Float32Array;
+}
+
+export function resolvePackedScreenSpaceContract(result) {
+  if (hasGpuResidentPackedScreenSpace(result)) return 'gpu-resident-normal';
+  if (hasCpuPackedFallbackScreenSpace(result)) return 'cpu-packed-fallback';
+  return 'unavailable';
+}
+
 export function normalizeScreenSpaceItem(item) {
   return normalizeScreenSpaceItemImpl(item);
 }
@@ -183,6 +198,10 @@ function buildPackedScreenSpaceStateSummary({
     transformUploadCapacityBytes: Number.isFinite(transformSummary?.transformUploadCapacityBytes) ? transformSummary.transformUploadCapacityBytes : 0,
     transformUploadReusedCapacity: !!transformSummary?.transformUploadReusedCapacity,
     transformBatchSummary: transformSummary?.transformBatchSummary ?? null,
+    packedContract: resolvePackedScreenSpaceContract({
+      packed,
+      transformSummary
+    }),
 
     packedCount,
     packedLength: getPackedLogicalLength(packed, packedCount, floatsPerItem),
@@ -235,6 +254,10 @@ function buildPackedScreenSpaceComparisonSummary({
     transformUploadCapacityBytes: Number.isFinite(transformSummary?.transformUploadCapacityBytes) ? transformSummary.transformUploadCapacityBytes : 0,
     transformUploadReusedCapacity: !!transformSummary?.transformUploadReusedCapacity,
     transformBatchSummary: transformSummary?.transformBatchSummary ?? null,
+    sourceContract: resolvePackedScreenSpaceContract({
+      packed,
+      transformSummary
+    }),
 
     referencePath: ref.referencePath,
     referenceRole: ref.referenceRole,
@@ -306,6 +329,11 @@ function buildPackedScreenSpaceResult(normalizedVisible, sourceItemsResult, pack
     experimental,
     ...extra,
     transformSummary,
+    packedContract: resolvePackedScreenSpaceContract({
+      packed,
+      gpuPackedPayloads,
+      transformSummary
+    }),
     pathNormalized: path
   };
 }
@@ -448,6 +476,7 @@ export function summarizePackedScreenSpace(result) {
       transformUploadCapacityBytes: 0,
       transformUploadReusedCapacity: false,
       transformBatchSummary: null,
+      packedContract: 'unavailable',
 
       packedCount: 0,
       packedLength: 0,
@@ -486,6 +515,7 @@ export function summarizePackedScreenSpace(result) {
     transformUploadCapacityBytes: Number.isFinite(result.transformSummary?.transformUploadCapacityBytes) ? result.transformSummary.transformUploadCapacityBytes : 0,
     transformUploadReusedCapacity: !!result.transformSummary?.transformUploadReusedCapacity,
     transformBatchSummary: result.transformSummary?.transformBatchSummary ?? null,
+    packedContract: result.packedContract ?? resolvePackedScreenSpaceContract(result),
 
     packedCount: Number.isFinite(result.packedCount) ? result.packedCount : 0,
     packedLength: getPackedLogicalLength(result.packed, result.packedCount, result.floatsPerItem),
@@ -531,6 +561,7 @@ export function summarizePackedScreenSpaceComparison(result) {
       transformUploadCapacityBytes: 0,
       transformUploadReusedCapacity: false,
       transformBatchSummary: null,
+      sourceContract: 'unavailable',
 
       referencePath: 'none',
       referenceRole: 'none',
@@ -591,6 +622,7 @@ export function summarizePackedScreenSpaceComparison(result) {
       : 0,
     transformUploadReusedCapacity: !!result.comparisonSummary.transformUploadReusedCapacity,
     transformBatchSummary: result.comparisonSummary.transformBatchSummary ?? null,
+    sourceContract: result.comparisonSummary.sourceContract ?? resolvePackedScreenSpaceContract(result),
 
     referencePath: result.comparisonSummary.referencePath ?? 'none',
     referenceRole: result.comparisonSummary.referenceRole ?? 'none',

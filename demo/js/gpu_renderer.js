@@ -59,6 +59,9 @@ import {
 import {
   createScreenSpaceBuildContext,
   buildPackedGpuPrepScreenSpaceWithContext,
+  hasCpuPackedFallbackScreenSpace,
+  hasGpuResidentPackedScreenSpace,
+  resolvePackedScreenSpaceContract,
   summarizePackedScreenSpace,
   summarizePackedScreenSpaceComparison
 } from './gpu_screen_space_builder.js';
@@ -143,14 +146,8 @@ function computeDrawFraction(visibleCount, drawCount) {
   return drawCount / visibleCount;
 }
 
-function hasGpuPackedPayloads(screenSpace) {
-  return Array.isArray(screenSpace?.gpuPackedPayloads) && screenSpace.gpuPackedPayloads.length > 0;
-}
-
 function hasRenderablePackedScreenSpace(screenSpace) {
-  if (screenSpace?.packed instanceof Float32Array) return true;
-  if (hasGpuPackedPayloads(screenSpace)) return true;
-  return !!screenSpace?.summary?.transformHasBuffers || !!screenSpace?.transformSummary?.transformHasBuffers;
+  return hasGpuResidentPackedScreenSpace(screenSpace) || hasCpuPackedFallbackScreenSpace(screenSpace);
 }
 
 function getPackedLogicalLength(screenSpace) {
@@ -260,12 +257,24 @@ function selectGpuScreenSourceSpace(gpu, visible, packedCpuScreenSpace) {
     const experimental = buildPackedGpuPrepScreenSpaceWithContext(context, visible, {
       gl: gpu?.gl ?? null
     });
-    if (hasRenderablePackedScreenSpace(experimental)) {
+    if (hasGpuResidentPackedScreenSpace(experimental)) {
       return {
         sourceSpace: experimental,
         sourceSummary: summarizePackedScreenSpace(experimental),
         sourceComparisonSummary: summarizePackedScreenSpaceComparison(experimental),
-        sourceFallbackReason: 'none'
+        sourceFallbackReason: 'none',
+        sourceContract: resolvePackedScreenSpaceContract(experimental),
+        sourceFallbackContract: 'none'
+      };
+    }
+    if (hasCpuPackedFallbackScreenSpace(experimental)) {
+      return {
+        sourceSpace: packedCpuScreenSpace,
+        sourceSummary: summarizePackedScreenSpace(packedCpuScreenSpace),
+        sourceComparisonSummary: summarizePackedScreenSpaceComparison(packedCpuScreenSpace),
+        sourceFallbackReason: 'gpu-source-produced-cpu-packed-fallback-to-packed-cpu',
+        sourceContract: resolvePackedScreenSpaceContract(packedCpuScreenSpace),
+        sourceFallbackContract: 'cpu-packed-compatibility-bridge'
       };
     }
   } catch (err) {
@@ -276,7 +285,9 @@ function selectGpuScreenSourceSpace(gpu, visible, packedCpuScreenSpace) {
     sourceSpace: packedCpuScreenSpace,
     sourceSummary: summarizePackedScreenSpace(packedCpuScreenSpace),
     sourceComparisonSummary: summarizePackedScreenSpaceComparison(packedCpuScreenSpace),
-    sourceFallbackReason: 'gpu-source-build-fallback-to-packed-cpu'
+    sourceFallbackReason: 'gpu-source-build-fallback-to-packed-cpu',
+    sourceContract: resolvePackedScreenSpaceContract(packedCpuScreenSpace),
+    sourceFallbackContract: 'cpu-packed-compatibility-bridge'
   };
 }
 
@@ -371,7 +382,7 @@ export async function renderGpuFrame({
     debugOverlayCanvas.height = canvas.height;
     debugCtx.clearRect(0, 0, debugOverlayCanvas.width, debugOverlayCanvas.height);
     debugOverlayCanvas.style.display = 'none';
-    const emptyInfo = 'GPU Step53 viewer\nNo scene loaded.';
+    const emptyInfo = 'GPU Step54 viewer\nNo scene loaded.';
     setInfoText(infoEl, emptyInfo);
     return {
       infoText: emptyInfo,
@@ -597,6 +608,12 @@ export async function renderGpuFrame({
   if (gpuScreenSourceInfo?.sourceFallbackReason && gpuScreenSourceInfo.sourceFallbackReason !== 'none') {
     extraLines.push(`gpuScreenSourceFallbackReason=${gpuScreenSourceInfo.sourceFallbackReason}`);
   }
+  if (gpuScreenSourceInfo?.sourceContract) {
+    extraLines.push(`gpuScreenSourceContract=${gpuScreenSourceInfo.sourceContract}`);
+  }
+  if (gpuScreenSourceInfo?.sourceFallbackContract && gpuScreenSourceInfo.sourceFallbackContract !== 'none') {
+    extraLines.push(`gpuScreenSourceFallbackContract=${gpuScreenSourceInfo.sourceFallbackContract}`);
+  }
 
   const infoText = formatGpuViewerInfo({
     raw,
@@ -615,11 +632,11 @@ export async function renderGpuFrame({
     timestamp: buildConfig.timestamp,
     splatScale: buildConfig.scalingModifier,
     elapsedMs: elapsed,
-    stepLabel: 'GPU Step53',
+    stepLabel: 'GPU Step54',
     stepNotes: [
       'transform executor owns transformBatchSummary and downstream code forwards it without reinterpretation',
-      'gpu resident payload pooling now has an upper-bound trim policy, preserving reuse while capping retained backend-owned textures across frames',
-      'renderer stays thin and forwards source, transform, lifecycle, pool, and gpu-screen execution summaries to debug output',
+      'gpu resident payload is now the explicit normal source contract, while cpu packed is kept as a named compatibility fallback instead of an adjacent normal-path bridge',
+      'renderer stays thin and forwards source, transform, lifecycle, fallback, and gpu-screen execution summaries to debug output',
       'packed-write backend keeps the offscreen FBO blend-disable fix while preserving existing public draw contracts'
     ],
     tileSummary,
