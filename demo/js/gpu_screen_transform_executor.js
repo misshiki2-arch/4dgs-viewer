@@ -373,7 +373,12 @@ export function createGpuScreenTransformContext() {
     transformUploadReusedCapacity: false,
     transformPayloadOwner: 'none',
     transformActivePayloadCount: 0,
+    transformReusablePayloadCount: 0,
     transformReleasedPayloadCount: 0,
+    transformPayloadPoolReleaseCount: 0,
+    transformPayloadReuseCount: 0,
+    transformPayloadCreateCount: 0,
+    transformPayloadPoolHighWaterCount: 0,
     transformPayloadResetReason: 'none',
     transformPayloadGeneration: 0,
     sourceItemCount: 0,
@@ -427,8 +432,23 @@ function buildTransformSummary({
     transformActivePayloadCount: Number.isFinite(backendCapability?.activePayloadCount)
       ? backendCapability.activePayloadCount
       : 0,
+    transformReusablePayloadCount: Number.isFinite(backendCapability?.reusablePayloadCount)
+      ? backendCapability.reusablePayloadCount
+      : 0,
     transformReleasedPayloadCount: Number.isFinite(backendCapability?.lastReleasedPayloadCount)
       ? backendCapability.lastReleasedPayloadCount
+      : 0,
+    transformPayloadPoolReleaseCount: Number.isFinite(backendCapability?.lastPayloadPoolReleaseCount)
+      ? backendCapability.lastPayloadPoolReleaseCount
+      : 0,
+    transformPayloadReuseCount: Number.isFinite(backendCapability?.lastPayloadReuseCount)
+      ? backendCapability.lastPayloadReuseCount
+      : 0,
+    transformPayloadCreateCount: Number.isFinite(backendCapability?.lastPayloadCreateCount)
+      ? backendCapability.lastPayloadCreateCount
+      : 0,
+    transformPayloadPoolHighWaterCount: Number.isFinite(backendCapability?.payloadPoolHighWaterCount)
+      ? backendCapability.payloadPoolHighWaterCount
       : 0,
     transformPayloadResetReason: backendCapability?.lastPayloadResetReason ?? 'none',
     transformPayloadGeneration: Number.isFinite(backendCapability?.payloadGeneration)
@@ -466,8 +486,23 @@ function updateContext(context, summary) {
   context.transformActivePayloadCount = Number.isFinite(summary.transformActivePayloadCount)
     ? summary.transformActivePayloadCount
     : 0;
+  context.transformReusablePayloadCount = Number.isFinite(summary.transformReusablePayloadCount)
+    ? summary.transformReusablePayloadCount
+    : 0;
   context.transformReleasedPayloadCount = Number.isFinite(summary.transformReleasedPayloadCount)
     ? summary.transformReleasedPayloadCount
+    : 0;
+  context.transformPayloadPoolReleaseCount = Number.isFinite(summary.transformPayloadPoolReleaseCount)
+    ? summary.transformPayloadPoolReleaseCount
+    : 0;
+  context.transformPayloadReuseCount = Number.isFinite(summary.transformPayloadReuseCount)
+    ? summary.transformPayloadReuseCount
+    : 0;
+  context.transformPayloadCreateCount = Number.isFinite(summary.transformPayloadCreateCount)
+    ? summary.transformPayloadCreateCount
+    : 0;
+  context.transformPayloadPoolHighWaterCount = Number.isFinite(summary.transformPayloadPoolHighWaterCount)
+    ? summary.transformPayloadPoolHighWaterCount
     : 0;
   context.transformPayloadResetReason = summary.transformPayloadResetReason ?? 'none';
   context.transformPayloadGeneration = Number.isFinite(summary.transformPayloadGeneration)
@@ -566,7 +601,12 @@ export function executeGpuScreenPackedTransform(context, sourceItemsResult, opti
     transformUploadReusedCapacity: summary.transformUploadReusedCapacity,
     transformPayloadOwner: summary.transformPayloadOwner,
     transformActivePayloadCount: summary.transformActivePayloadCount,
+    transformReusablePayloadCount: summary.transformReusablePayloadCount,
     transformReleasedPayloadCount: summary.transformReleasedPayloadCount,
+    transformPayloadPoolReleaseCount: summary.transformPayloadPoolReleaseCount,
+    transformPayloadReuseCount: summary.transformPayloadReuseCount,
+    transformPayloadCreateCount: summary.transformPayloadCreateCount,
+    transformPayloadPoolHighWaterCount: summary.transformPayloadPoolHighWaterCount,
     transformPayloadResetReason: summary.transformPayloadResetReason,
     transformPayloadGeneration: summary.transformPayloadGeneration,
     sourceItems: safeSourceItems(sourceItemsResult),
@@ -602,7 +642,12 @@ export function summarizeGpuScreenTransformResult(result) {
       transformUploadReusedCapacity: false,
       transformPayloadOwner: 'none',
       transformActivePayloadCount: 0,
+      transformReusablePayloadCount: 0,
       transformReleasedPayloadCount: 0,
+      transformPayloadPoolReleaseCount: 0,
+      transformPayloadReuseCount: 0,
+      transformPayloadCreateCount: 0,
+      transformPayloadPoolHighWaterCount: 0,
       transformPayloadResetReason: 'none',
       transformPayloadGeneration: 0
     };
@@ -641,8 +686,23 @@ export function summarizeGpuScreenTransformResult(result) {
     transformActivePayloadCount: Number.isFinite(result.transformActivePayloadCount)
       ? result.transformActivePayloadCount
       : 0,
+    transformReusablePayloadCount: Number.isFinite(result.transformReusablePayloadCount)
+      ? result.transformReusablePayloadCount
+      : 0,
     transformReleasedPayloadCount: Number.isFinite(result.transformReleasedPayloadCount)
       ? result.transformReleasedPayloadCount
+      : 0,
+    transformPayloadPoolReleaseCount: Number.isFinite(result.transformPayloadPoolReleaseCount)
+      ? result.transformPayloadPoolReleaseCount
+      : 0,
+    transformPayloadReuseCount: Number.isFinite(result.transformPayloadReuseCount)
+      ? result.transformPayloadReuseCount
+      : 0,
+    transformPayloadCreateCount: Number.isFinite(result.transformPayloadCreateCount)
+      ? result.transformPayloadCreateCount
+      : 0,
+    transformPayloadPoolHighWaterCount: Number.isFinite(result.transformPayloadPoolHighWaterCount)
+      ? result.transformPayloadPoolHighWaterCount
       : 0,
     transformPayloadResetReason: result.transformPayloadResetReason ?? 'none',
     transformPayloadGeneration: Number.isFinite(result.transformPayloadGeneration)
@@ -676,7 +736,12 @@ export function summarizeGpuScreenTransformContext(context) {
       transformBatchSummary: null,
       transformPayloadOwner: 'none',
       transformActivePayloadCount: 0,
+      transformReusablePayloadCount: 0,
       transformReleasedPayloadCount: 0,
+      transformPayloadPoolReleaseCount: 0,
+      transformPayloadReuseCount: 0,
+      transformPayloadCreateCount: 0,
+      transformPayloadPoolHighWaterCount: 0,
       transformPayloadResetReason: 'none',
       transformPayloadGeneration: 0,
       lastSummary: null
@@ -710,8 +775,23 @@ export function summarizeGpuScreenTransformContext(context) {
     transformActivePayloadCount: Number.isFinite(context.transformActivePayloadCount)
       ? context.transformActivePayloadCount
       : 0,
+    transformReusablePayloadCount: Number.isFinite(context.transformReusablePayloadCount)
+      ? context.transformReusablePayloadCount
+      : 0,
     transformReleasedPayloadCount: Number.isFinite(context.transformReleasedPayloadCount)
       ? context.transformReleasedPayloadCount
+      : 0,
+    transformPayloadPoolReleaseCount: Number.isFinite(context.transformPayloadPoolReleaseCount)
+      ? context.transformPayloadPoolReleaseCount
+      : 0,
+    transformPayloadReuseCount: Number.isFinite(context.transformPayloadReuseCount)
+      ? context.transformPayloadReuseCount
+      : 0,
+    transformPayloadCreateCount: Number.isFinite(context.transformPayloadCreateCount)
+      ? context.transformPayloadCreateCount
+      : 0,
+    transformPayloadPoolHighWaterCount: Number.isFinite(context.transformPayloadPoolHighWaterCount)
+      ? context.transformPayloadPoolHighWaterCount
       : 0,
     transformPayloadResetReason: context.transformPayloadResetReason ?? 'none',
     transformPayloadGeneration: Number.isFinite(context.transformPayloadGeneration)

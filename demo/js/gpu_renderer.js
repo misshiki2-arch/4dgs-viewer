@@ -371,7 +371,7 @@ export async function renderGpuFrame({
     debugOverlayCanvas.height = canvas.height;
     debugCtx.clearRect(0, 0, debugOverlayCanvas.width, debugOverlayCanvas.height);
     debugOverlayCanvas.style.display = 'none';
-    const emptyInfo = 'GPU Step51 viewer\nNo scene loaded.';
+    const emptyInfo = 'GPU Step52 viewer\nNo scene loaded.';
     setInfoText(infoEl, emptyInfo);
     return {
       infoText: emptyInfo,
@@ -615,11 +615,11 @@ export async function renderGpuFrame({
     timestamp: buildConfig.timestamp,
     splatScale: buildConfig.scalingModifier,
     elapsedMs: elapsed,
-    stepLabel: 'GPU Step51',
+    stepLabel: 'GPU Step52',
     stepNotes: [
       'transform executor owns transformBatchSummary and downstream code forwards it without reinterpretation',
-      'gpu-screen and packed direct now share one GPU resident payload consumer contract, with CPU upload retained only as a fallback bridge',
-      'renderer stays thin and forwards source, transform, and gpu-screen execution summaries to debug output',
+      'gpu resident payload lifecycle now pools and reuses backend-owned textures across frames, reducing normal-path churn while keeping the shared draw consumer contract',
+      'renderer stays thin and forwards source, transform, lifecycle, and gpu-screen execution summaries to debug output',
       'packed-write backend keeps the offscreen FBO blend-disable fix while preserving existing public draw contracts'
     ],
     tileSummary,

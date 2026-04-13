@@ -1,4 +1,4 @@
-// Step51 display cleanup
+// Step52 display cleanup
 // 目的:
 // - debug info builder を「整形だけ」の責務に保つ
 // - transform executor / screen-space builder / renderer が確定した truth を、そのまま表示する
@@ -207,7 +207,12 @@ function buildTransformLifecycleLines(transformSummary) {
   const lines = [];
   pushLine(lines, 'transformPayloadOwner', transformSummary.transformPayloadOwner ?? 'none');
   pushLine(lines, 'transformActivePayloadCount', fmtInt(transformSummary.transformActivePayloadCount));
+  pushLine(lines, 'transformReusablePayloadCount', fmtInt(transformSummary.transformReusablePayloadCount));
   pushLine(lines, 'transformReleasedPayloadCount', fmtInt(transformSummary.transformReleasedPayloadCount));
+  pushLine(lines, 'transformPayloadPoolReleaseCount', fmtInt(transformSummary.transformPayloadPoolReleaseCount));
+  pushLine(lines, 'transformPayloadReuseCount', fmtInt(transformSummary.transformPayloadReuseCount));
+  pushLine(lines, 'transformPayloadCreateCount', fmtInt(transformSummary.transformPayloadCreateCount));
+  pushLine(lines, 'transformPayloadPoolHighWaterCount', fmtInt(transformSummary.transformPayloadPoolHighWaterCount));
   pushLine(lines, 'transformPayloadResetReason', transformSummary.transformPayloadResetReason ?? 'none');
   pushLine(lines, 'transformPayloadGeneration', fmtInt(transformSummary.transformPayloadGeneration));
   return lines;

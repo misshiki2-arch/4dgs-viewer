@@ -78,18 +78,40 @@ function countGpuResidentPackedPayloads(context) {
   return Array.isArray(context?.gpuResidentPackedPayloads) ? context.gpuResidentPackedPayloads.length : 0;
 }
 
+function countReusableGpuResidentPayloadTextures(context) {
+  return Array.isArray(context?.reusableGpuResidentPayloadTextures)
+    ? context.reusableGpuResidentPayloadTextures.length
+    : 0;
+}
+
 function releaseGpuResidentPackedPayloads(context) {
   if (!context || !Array.isArray(context.gpuResidentPackedPayloads)) return 0;
 
+  context.reusableGpuResidentPayloadTextures = context.reusableGpuResidentPayloadTextures ?? [];
   let releasedCount = 0;
+  let pooledCount = 0;
   for (const payload of context.gpuResidentPackedPayloads) {
     if (!payload?.texture || !payload?.gl || typeof payload.gl.deleteTexture !== 'function') continue;
-    payload.gl.deleteTexture(payload.texture);
+    if (isSameWebGlContext(context?.packedWriteResourceGl, payload.gl)) {
+      context.reusableGpuResidentPayloadTextures.push({
+        gl: payload.gl,
+        texture: payload.texture
+      });
+      pooledCount++;
+    } else {
+      payload.gl.deleteTexture(payload.texture);
+    }
     releasedCount++;
   }
 
   context.gpuResidentPackedPayloads = [];
   context.activePayloadCount = 0;
+  context.reusablePayloadCount = countReusableGpuResidentPayloadTextures(context);
+  context.payloadPoolHighWaterCount = Math.max(
+    Number.isFinite(context.payloadPoolHighWaterCount) ? context.payloadPoolHighWaterCount : 0,
+    context.reusablePayloadCount
+  );
+  context.lastPayloadPoolReleaseCount = pooledCount;
   return releasedCount;
 }
 
@@ -101,7 +123,9 @@ export function resetGpuScreenTransformBackendGpuPayloads(context, reason = 'man
   context.payloadGeneration = Number.isFinite(context.payloadGeneration)
     ? (context.payloadGeneration + 1)
     : 1;
-  context.lastPayloadOwner = releasedCount > 0 ? 'backend-released' : (context.lastPayloadOwner ?? 'backend-gpu-resident');
+  context.lastPayloadOwner = releasedCount > 0
+    ? 'backend-gpu-pool'
+    : (context.lastPayloadOwner ?? 'backend-gpu-resident');
   return releasedCount;
 }
 
@@ -177,13 +201,38 @@ function hasReusablePackedWriteResources(context, gl) {
   );
 }
 
+function acquireReusableGpuResidentPackedPayloadTexture(context, gl) {
+  const pool = Array.isArray(context?.reusableGpuResidentPayloadTextures)
+    ? context.reusableGpuResidentPayloadTextures
+    : null;
+
+  if (pool) {
+    for (let i = pool.length - 1; i >= 0; i--) {
+      const entry = pool[i];
+      if (!entry?.texture || !isSameWebGlContext(entry?.gl, gl)) continue;
+      pool.splice(i, 1);
+      if (context) {
+        context.reusablePayloadCount = pool.length;
+        context.lastPayloadReuseCount = (context.lastPayloadReuseCount ?? 0) + 1;
+      }
+      return entry.texture;
+    }
+  }
+
+  const texture = gl.createTexture();
+  if (texture && context) {
+    context.lastPayloadCreateCount = (context.lastPayloadCreateCount ?? 0) + 1;
+  }
+  return texture;
+}
+
 function cloneGpuResidentPackedPayload(context, gl, count) {
   const resources = context?.packedWriteResources;
   if (!resources?.texture || !resources?.framebuffer) {
     throw new Error('missing-packed-write-resources-for-gpu-payload-clone');
   }
 
-  const texture = gl.createTexture();
+  const texture = acquireReusableGpuResidentPackedPayloadTexture(context, gl);
   if (!texture) {
     throw new Error('failed-to-create-gpu-packed-payload-texture');
   }
@@ -215,6 +264,11 @@ function cloneGpuResidentPackedPayload(context, gl, count) {
     context.gpuResidentPackedPayloads = context.gpuResidentPackedPayloads ?? [];
     context.gpuResidentPackedPayloads.push(payload);
     context.activePayloadCount = context.gpuResidentPackedPayloads.length;
+    context.reusablePayloadCount = countReusableGpuResidentPayloadTextures(context);
+    context.payloadPoolHighWaterCount = Math.max(
+      Number.isFinite(context.payloadPoolHighWaterCount) ? context.payloadPoolHighWaterCount : 0,
+      context.reusablePayloadCount
+    );
     context.lastPayloadOwner = 'backend-gpu-resident';
   }
   return payload;
@@ -521,13 +575,19 @@ export function createGpuScreenTransformBackendGpuContext(initialState = {}) {
     lastStageName: 'idle',
     lastError: null,
     activePayloadCount: 0,
+    reusablePayloadCount: 0,
     lastReleasedPayloadCount: 0,
+    lastPayloadPoolReleaseCount: 0,
+    lastPayloadReuseCount: 0,
+    lastPayloadCreateCount: 0,
+    payloadPoolHighWaterCount: 0,
     lastPayloadResetReason: 'none',
     payloadGeneration: 0,
     lastPayloadOwner: 'backend-gpu-resident',
     packedWriteResources: null,
     packedWriteResourceGl: null,
     gpuResidentPackedPayloads: [],
+    reusableGpuResidentPayloadTextures: [],
     ...initialState
   };
 }
@@ -560,8 +620,23 @@ export function summarizeGpuScreenTransformBackendGpuCapability(context, gl = nu
     activePayloadCount: Number.isFinite(context?.activePayloadCount)
       ? context.activePayloadCount
       : countGpuResidentPackedPayloads(context),
+    reusablePayloadCount: Number.isFinite(context?.reusablePayloadCount)
+      ? context.reusablePayloadCount
+      : countReusableGpuResidentPayloadTextures(context),
     lastReleasedPayloadCount: Number.isFinite(context?.lastReleasedPayloadCount)
       ? context.lastReleasedPayloadCount
+      : 0,
+    lastPayloadPoolReleaseCount: Number.isFinite(context?.lastPayloadPoolReleaseCount)
+      ? context.lastPayloadPoolReleaseCount
+      : 0,
+    lastPayloadReuseCount: Number.isFinite(context?.lastPayloadReuseCount)
+      ? context.lastPayloadReuseCount
+      : 0,
+    lastPayloadCreateCount: Number.isFinite(context?.lastPayloadCreateCount)
+      ? context.lastPayloadCreateCount
+      : 0,
+    payloadPoolHighWaterCount: Number.isFinite(context?.payloadPoolHighWaterCount)
+      ? context.payloadPoolHighWaterCount
       : 0,
     lastPayloadResetReason: context?.lastPayloadResetReason ?? 'none',
     payloadGeneration: Number.isFinite(context?.payloadGeneration) ? context.payloadGeneration : 0,
@@ -575,6 +650,11 @@ export function executeGpuScreenTransformBackendGpu(context, sourceItemsResult, 
   const gl = options?.gl ?? null;
   const supportsWebGL2 = probeWebGL2Support(gl);
   const backendImplemented = supportsGpuPackedWriteBackend(gl);
+  if (context) {
+    context.lastPayloadReuseCount = 0;
+    context.lastPayloadCreateCount = 0;
+    context.lastPayloadPoolReleaseCount = 0;
+  }
   if (options?.resetGpuResidentPayloads) {
     resetGpuScreenTransformBackendGpuPayloads(context, options.resetGpuResidentPayloadsReason ?? 'batch-reset');
   }
@@ -613,6 +693,7 @@ export function executeGpuScreenTransformBackendGpu(context, sourceItemsResult, 
     context.lastStageName = gpuPackedResult.stage;
     context.lastError = producedPacked ? null : gpuPackedResult.error;
     context.activePayloadCount = countGpuResidentPackedPayloads(context);
+    context.reusablePayloadCount = countReusableGpuResidentPayloadTextures(context);
     if (producedPacked) {
       context.lastPayloadOwner = 'backend-gpu-resident';
     }
