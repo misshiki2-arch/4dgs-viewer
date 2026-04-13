@@ -1,4 +1,4 @@
-// Step55 display cleanup
+// Step56 display cleanup
 // 目的:
 // - debug info builder を「整形だけ」の責務に保つ
 // - transform executor / screen-space builder / renderer が確定した truth を、そのまま表示する
@@ -173,6 +173,7 @@ function buildGpuScreenComparisonLines(gpuScreenComparisonSummary) {
   pushLine(lines, 'gpuScreenTransformConfigured', gpuScreenComparisonSummary.transformConfigured);
   pushLine(lines, 'gpuScreenTransformHasBuffers', gpuScreenComparisonSummary.transformHasBuffers);
   pushLine(lines, 'gpuScreenTransformFallbackReason', gpuScreenComparisonSummary.transformFallbackReason);
+  pushLine(lines, 'gpuScreenTransformFallbackContract', gpuScreenComparisonSummary.transformFallbackContract);
   pushLine(lines, 'gpuScreenTransformStageMs', gpuScreenComparisonSummary.transformStageMs);
   pushLine(lines, 'gpuScreenTransformUploadBytes', gpuScreenComparisonSummary.transformUploadBytes);
   pushLine(lines, 'gpuScreenTransformUploadCount', gpuScreenComparisonSummary.transformUploadCount);

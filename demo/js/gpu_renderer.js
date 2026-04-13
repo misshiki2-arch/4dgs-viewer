@@ -162,6 +162,17 @@ function resolveDrawFallbackContract(drawPathSelection) {
   return 'draw-path-fallback';
 }
 
+function buildFallbackContractSummary({ sourceInfo, comparisonSummary, drawPathSelection }) {
+  const sourceContract = sourceInfo?.sourceFallbackContract ?? 'none';
+  const transformContract = comparisonSummary?.transformFallbackContract ?? 'none';
+  const drawContract = resolveDrawFallbackContract(drawPathSelection);
+  const parts = [];
+  if (sourceContract !== 'none') parts.push(`source:${sourceContract}`);
+  if (transformContract !== 'none') parts.push(`transform:${transformContract}`);
+  if (drawContract !== 'none') parts.push(`draw:${drawContract}`);
+  return parts.length > 0 ? parts.join(' | ') : 'none';
+}
+
 function getPackedLogicalLength(screenSpace) {
   if (screenSpace?.packed instanceof Float32Array) return screenSpace.packed.length;
   if (Number.isFinite(screenSpace?.packedCount) && Number.isFinite(screenSpace?.floatsPerItem)) {
@@ -394,7 +405,7 @@ export async function renderGpuFrame({
     debugOverlayCanvas.height = canvas.height;
     debugCtx.clearRect(0, 0, debugOverlayCanvas.width, debugOverlayCanvas.height);
     debugOverlayCanvas.style.display = 'none';
-    const emptyInfo = 'GPU Step55 viewer\nNo scene loaded.';
+    const emptyInfo = 'GPU Step56 viewer\nNo scene loaded.';
     setInfoText(infoEl, emptyInfo);
     return {
       infoText: emptyInfo,
@@ -626,9 +637,23 @@ export async function renderGpuFrame({
   if (gpuScreenSourceInfo?.sourceFallbackContract && gpuScreenSourceInfo.sourceFallbackContract !== 'none') {
     extraLines.push(`gpuScreenSourceFallbackContract=${gpuScreenSourceInfo.sourceFallbackContract}`);
   }
+  if (
+    gpuScreenComparisonSummary?.transformFallbackContract &&
+    gpuScreenComparisonSummary.transformFallbackContract !== 'none'
+  ) {
+    extraLines.push(`gpuScreenTransformFallbackContract=${gpuScreenComparisonSummary.transformFallbackContract}`);
+  }
   const drawFallbackContract = resolveDrawFallbackContract(drawPathSelection);
   if (drawFallbackContract !== 'none') {
     extraLines.push(`drawPathFallbackContract=${drawFallbackContract}`);
+  }
+  const fallbackContractSummary = buildFallbackContractSummary({
+    sourceInfo: gpuScreenSourceInfo,
+    comparisonSummary: gpuScreenComparisonSummary,
+    drawPathSelection
+  });
+  if (fallbackContractSummary !== 'none') {
+    extraLines.push(`gpuFallbackContractSummary=${fallbackContractSummary}`);
   }
 
   const infoText = formatGpuViewerInfo({
@@ -648,11 +673,11 @@ export async function renderGpuFrame({
     timestamp: buildConfig.timestamp,
     splatScale: buildConfig.scalingModifier,
     elapsedMs: elapsed,
-    stepLabel: 'GPU Step55',
+    stepLabel: 'GPU Step56',
     stepNotes: [
       'transform executor owns transformBatchSummary and downstream code forwards it without reinterpretation',
-      'gpu resident payload remains the explicit normal source contract, while source and draw fallback paths now expose named fallback contracts and reasons across the same debug surface',
-      'renderer stays thin and forwards source, transform, lifecycle, fallback, and gpu-screen execution summaries to debug output',
+      'gpu resident payload remains the explicit normal source contract, while source, transform, and draw fallback paths now expose named fallback contracts and reasons across the same debug surface',
+      'renderer stays thin and forwards source, transform, lifecycle, fallback, and gpu-screen execution summaries to debug output, including a single fallback contract summary when a fallback path is active',
       'packed-write backend keeps the offscreen FBO blend-disable fix while preserving existing public draw contracts'
     ],
     tileSummary,

@@ -191,6 +191,7 @@ function buildPackedScreenSpaceStateSummary({
     transformConfigured: !!transformSummary?.transformConfigured,
     transformHasBuffers: !!transformSummary?.transformHasBuffers,
     transformFallbackReason: transformSummary?.transformFallbackReason ?? 'none',
+    transformFallbackContract: transformSummary?.transformFallbackContract ?? 'none',
     transformStageMs: Number.isFinite(transformSummary?.transformStageMs) ? transformSummary.transformStageMs : 0,
     transformUploadBytes: Number.isFinite(transformSummary?.transformUploadBytes) ? transformSummary.transformUploadBytes : 0,
     transformUploadCount: Number.isFinite(transformSummary?.transformUploadCount) ? transformSummary.transformUploadCount : 0,
@@ -247,6 +248,7 @@ function buildPackedScreenSpaceComparisonSummary({
     transformConfigured: !!transformSummary?.transformConfigured,
     transformHasBuffers: !!transformSummary?.transformHasBuffers,
     transformFallbackReason: transformSummary?.transformFallbackReason ?? 'none',
+    transformFallbackContract: transformSummary?.transformFallbackContract ?? 'none',
     transformStageMs: Number.isFinite(transformSummary?.transformStageMs) ? transformSummary.transformStageMs : 0,
     transformUploadBytes: Number.isFinite(transformSummary?.transformUploadBytes) ? transformSummary.transformUploadBytes : 0,
     transformUploadCount: Number.isFinite(transformSummary?.transformUploadCount) ? transformSummary.transformUploadCount : 0,
@@ -349,6 +351,7 @@ function updateContext(context, result, inputVisible) {
   context.lastTransformConfigured = !!result.transformSummary?.transformConfigured;
   context.lastTransformHasBuffers = !!result.transformSummary?.transformHasBuffers;
   context.lastTransformFallbackReason = result.transformSummary?.transformFallbackReason ?? 'none';
+  context.lastTransformFallbackContract = result.transformSummary?.transformFallbackContract ?? 'none';
   context.lastTransformUploadBytes = Number.isFinite(result.transformSummary?.transformUploadBytes) ? result.transformSummary.transformUploadBytes : 0;
   context.lastTransformUploadCount = Number.isFinite(result.transformSummary?.transformUploadCount) ? result.transformSummary.transformUploadCount : 0;
   context.lastTransformUploadLength = Number.isFinite(result.transformSummary?.transformUploadLength) ? result.transformSummary.transformUploadLength : 0;
@@ -469,6 +472,7 @@ export function summarizePackedScreenSpace(result) {
       transformConfigured: false,
       transformHasBuffers: false,
       transformFallbackReason: 'none',
+      transformFallbackContract: 'none',
       transformStageMs: 0,
       transformUploadBytes: 0,
       transformUploadCount: 0,
@@ -508,6 +512,7 @@ export function summarizePackedScreenSpace(result) {
     transformConfigured: !!result.transformSummary?.transformConfigured,
     transformHasBuffers: !!result.transformSummary?.transformHasBuffers,
     transformFallbackReason: result.transformSummary?.transformFallbackReason ?? 'none',
+    transformFallbackContract: result.transformSummary?.transformFallbackContract ?? 'none',
     transformStageMs: Number.isFinite(result.transformSummary?.transformStageMs) ? result.transformSummary.transformStageMs : 0,
     transformUploadBytes: Number.isFinite(result.transformSummary?.transformUploadBytes) ? result.transformSummary.transformUploadBytes : 0,
     transformUploadCount: Number.isFinite(result.transformSummary?.transformUploadCount) ? result.transformSummary.transformUploadCount : 0,
@@ -554,6 +559,7 @@ export function summarizePackedScreenSpaceComparison(result) {
       transformConfigured: false,
       transformHasBuffers: false,
       transformFallbackReason: 'none',
+      transformFallbackContract: 'none',
       transformStageMs: 0,
       transformUploadBytes: 0,
       transformUploadCount: 0,
@@ -605,6 +611,7 @@ export function summarizePackedScreenSpaceComparison(result) {
     transformConfigured: !!result.comparisonSummary.transformConfigured,
     transformHasBuffers: !!result.comparisonSummary.transformHasBuffers,
     transformFallbackReason: result.comparisonSummary.transformFallbackReason ?? 'none',
+    transformFallbackContract: result.comparisonSummary.transformFallbackContract ?? 'none',
     transformStageMs: Number.isFinite(result.comparisonSummary.transformStageMs)
       ? result.comparisonSummary.transformStageMs
       : 0,
@@ -644,6 +651,7 @@ export function summarizeScreenSpaceBuildContext(context) {
       lastTransformConfigured: false,
       lastTransformHasBuffers: false,
       lastTransformFallbackReason: 'none',
+      lastTransformFallbackContract: 'none',
       lastTransformUploadBytes: 0,
       lastTransformUploadCount: 0,
       lastTransformUploadLength: 0,
@@ -672,6 +680,7 @@ export function summarizeScreenSpaceBuildContext(context) {
     lastTransformConfigured: !!context.lastTransformConfigured,
     lastTransformHasBuffers: !!context.lastTransformHasBuffers,
     lastTransformFallbackReason: context.lastTransformFallbackReason ?? 'none',
+    lastTransformFallbackContract: context.lastTransformFallbackContract ?? 'none',
     lastTransformUploadBytes: Number.isFinite(context.lastTransformUploadBytes) ? context.lastTransformUploadBytes : 0,
     lastTransformUploadCount: Number.isFinite(context.lastTransformUploadCount) ? context.lastTransformUploadCount : 0,
     lastTransformUploadLength: Number.isFinite(context.lastTransformUploadLength) ? context.lastTransformUploadLength : 0,

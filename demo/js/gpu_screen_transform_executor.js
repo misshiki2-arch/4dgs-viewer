@@ -158,6 +158,17 @@ function resolveFallbackReason(requestedTransformPath, actualTransformPath) {
   return 'transform-path-fallback';
 }
 
+function resolveFallbackContract(requestedTransformPath, actualTransformPath, fallbackReason) {
+  if (fallbackReason === 'none' || requestedTransformPath === actualTransformPath) return 'none';
+  if (
+    requestedTransformPath === GPU_SCREEN_TRANSFORM_PATH_GPU_PREP &&
+    actualTransformPath === GPU_SCREEN_TRANSFORM_PATH_CPU
+  ) {
+    return 'cpu-packed-transform-compatibility-fallback';
+  }
+  return 'transform-path-fallback';
+}
+
 function safeSourceItems(sourceItemsResult) {
   return Array.isArray(sourceItemsResult?.items) ? sourceItemsResult.items : [];
 }
@@ -366,6 +377,7 @@ export function createGpuScreenTransformContext() {
     transformConfigured: false,
     transformHasBuffers: false,
     transformFallbackReason: 'none',
+    transformFallbackContract: 'none',
     transformUploadBytes: 0,
     transformUploadCount: 0,
     transformUploadLength: 0,
@@ -412,6 +424,11 @@ function buildTransformSummary({
 }) {
   const uploadSummary = buildTransformUploadSummary(packed, packedCount);
   const fallbackReason = resolveFallbackReason(requestedTransformPath, actualTransformPath);
+  const fallbackContract = resolveFallbackContract(
+    requestedTransformPath,
+    actualTransformPath,
+    fallbackReason
+  );
 
   return {
     sourcePath,
@@ -422,6 +439,7 @@ function buildTransformSummary({
     transformConfigured: true,
     transformHasBuffers: Array.isArray(gpuPackedPayloads) && gpuPackedPayloads.length > 0,
     transformFallbackReason: fallbackReason,
+    transformFallbackContract: fallbackContract,
     sourceItemCount: safeSourceItemCount(sourceItemsResult),
     sourceSchemaVersion: safeSourceSchemaVersion(sourceItemsResult),
     packedCount: Number.isFinite(packedCount) ? packedCount : 0,
@@ -480,6 +498,7 @@ function updateContext(context, summary) {
   context.transformConfigured = !!summary.transformConfigured;
   context.transformHasBuffers = !!summary.transformHasBuffers;
   context.transformFallbackReason = summary.transformFallbackReason ?? 'none';
+  context.transformFallbackContract = summary.transformFallbackContract ?? 'none';
   context.transformUploadBytes = Number.isFinite(summary.transformUploadBytes) ? summary.transformUploadBytes : 0;
   context.transformUploadCount = Number.isFinite(summary.transformUploadCount) ? summary.transformUploadCount : 0;
   context.transformUploadLength = Number.isFinite(summary.transformUploadLength) ? summary.transformUploadLength : 0;
@@ -614,6 +633,7 @@ export function executeGpuScreenPackedTransform(context, sourceItemsResult, opti
     transformConfigured: summary.transformConfigured,
     transformHasBuffers: summary.transformHasBuffers,
     transformFallbackReason: summary.transformFallbackReason,
+    transformFallbackContract: summary.transformFallbackContract,
     transformStageMs: summary.transformStageMs,
     transformUploadBytes: summary.transformUploadBytes,
     transformUploadCount: summary.transformUploadCount,
@@ -652,6 +672,7 @@ export function summarizeGpuScreenTransformResult(result) {
       transformConfigured: false,
       transformHasBuffers: false,
       transformFallbackReason: 'none',
+      transformFallbackContract: 'none',
       sourceItemCount: 0,
       sourceSchemaVersion: 0,
       packedCount: 0,
@@ -690,6 +711,7 @@ export function summarizeGpuScreenTransformResult(result) {
     transformConfigured: !!result.transformConfigured,
     transformHasBuffers: !!result.transformHasBuffers,
     transformFallbackReason: result.transformFallbackReason ?? 'none',
+    transformFallbackContract: result.transformFallbackContract ?? 'none',
     sourceItemCount: Number.isFinite(result.sourceItemCount) ? result.sourceItemCount : 0,
     sourceSchemaVersion: Number.isFinite(result.sourceSchemaVersion) ? result.sourceSchemaVersion : 0,
     packedCount: Number.isFinite(result.count) ? result.count : 0,
@@ -758,6 +780,7 @@ export function summarizeGpuScreenTransformContext(context) {
       transformConfigured: false,
       transformHasBuffers: false,
       transformFallbackReason: 'none',
+      transformFallbackContract: 'none',
       transformUploadBytes: 0,
       transformUploadCount: 0,
       transformUploadLength: 0,
@@ -796,6 +819,7 @@ export function summarizeGpuScreenTransformContext(context) {
     transformConfigured: !!context.transformConfigured,
     transformHasBuffers: !!context.transformHasBuffers,
     transformFallbackReason: context.transformFallbackReason ?? 'none',
+    transformFallbackContract: context.transformFallbackContract ?? 'none',
     transformUploadBytes: Number.isFinite(context.transformUploadBytes) ? context.transformUploadBytes : 0,
     transformUploadCount: Number.isFinite(context.transformUploadCount) ? context.transformUploadCount : 0,
     transformUploadLength: Number.isFinite(context.transformUploadLength) ? context.transformUploadLength : 0,
