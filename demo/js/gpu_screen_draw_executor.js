@@ -1,4 +1,4 @@
-import { bindInterleavedFloatAttribs, createProgram } from './gpu_gl_utils.js';
+import { bindInterleavedFloatAttribs } from './gpu_gl_utils.js';
 import {
   createPackedUploadState,
   getPackedInterleavedAttribDescriptors,
@@ -6,7 +6,7 @@ import {
   summarizePackedUploadState
 } from './gpu_packed_upload_utils.js';
 import { packVisibleItems } from './gpu_visible_pack_utils.js';
-import { GPU_STEP_FRAGMENT_SHADER } from './gpu_shaders.js';
+import { drawGpuPackedPayloads, ensureGpuPackedPayloadTextureDrawResources } from './gpu_packed_payload_draw_shared.js';
 import {
   GPU_SCREEN_SPACE_SOURCE_PACKED_CPU,
   GPU_SCREEN_SPACE_SOURCE_PACKED_GPU_PREP,
@@ -25,33 +25,6 @@ import {
 // 2. attribute descriptor は packed formal contract をそのまま使う
 // 3. source path / role / internal stage metrics は input gpuScreenSpace.summary から読む
 // 4. readiness の公開挙動は Step30/31 互換を維持する
-
-const GPU_SCREEN_TEXTURE_VERTEX_SHADER = `#version 300 es
-precision highp float;
-
-uniform sampler2D uPackedTexture;
-uniform vec2 uViewportPx;
-
-out vec4 vColorAlpha;
-out float vRadiusPx;
-out vec3 vConic;
-
-void main() {
-  int itemIndex = gl_VertexID;
-  vec4 row0 = texelFetch(uPackedTexture, ivec2(0, itemIndex), 0);
-  vec4 row1 = texelFetch(uPackedTexture, ivec2(1, itemIndex), 0);
-  vec4 row2 = texelFetch(uPackedTexture, ivec2(2, itemIndex), 0);
-
-  float x = (row0.x / uViewportPx.x) * 2.0 - 1.0;
-  float y = 1.0 - (row0.y / uViewportPx.y) * 2.0;
-  gl_Position = vec4(x, y, 0.0, 1.0);
-  gl_PointSize = max(1.0, row0.z * 2.0);
-
-  vColorAlpha = row1;
-  vRadiusPx = row0.z;
-  vConic = row2.xyz;
-}
-`;
 
 function createDefaultGpuScreenState() {
   return {
@@ -108,20 +81,7 @@ function ensureGpuScreenVao(gl, gpu) {
 }
 
 function ensureGpuScreenTextureDrawResources(gl, gpu) {
-  if (gpu.gpuScreenTextureDrawResources?.program && gpu.gpuScreenTextureDrawResources?.vao) {
-    return gpu.gpuScreenTextureDrawResources;
-  }
-
-  const program = createProgram(gl, GPU_SCREEN_TEXTURE_VERTEX_SHADER, GPU_STEP_FRAGMENT_SHADER);
-  const vao = gl.createVertexArray();
-  const resources = {
-    program,
-    vao,
-    uniformViewportPx: gl.getUniformLocation(program, 'uViewportPx'),
-    uniformPackedTexture: gl.getUniformLocation(program, 'uPackedTexture')
-  };
-  gpu.gpuScreenTextureDrawResources = resources;
-  return resources;
+  return ensureGpuPackedPayloadTextureDrawResources(gl, gpu, 'gpuScreenTextureDrawResources');
 }
 
 function buildOffsetsText(attributes) {
@@ -361,13 +321,11 @@ function drawGpuScreenWithPackedUpload(gl, gpu, gpuScreenSpace, canvasWidth, can
 }
 
 function drawGpuScreenWithGpuResidentPayloads(gl, gpu, gpuScreenSpace, canvasWidth, canvasHeight, state) {
-  const payloads = Array.isArray(gpuScreenSpace?.gpuPackedPayloads)
-    ? gpuScreenSpace.gpuPackedPayloads.filter((payload) => payload?.texture && payload?.gl === gl)
-    : [];
-  if (payloads.length <= 0) return null;
-
   const resources = ensureGpuScreenTextureDrawResources(gl, gpu);
-  let drawCount = 0;
+  const drawResult = drawGpuPackedPayloads(gl, gpu, gpuScreenSpace, canvasWidth, canvasHeight, {
+    storageKey: 'gpuScreenTextureDrawResources'
+  });
+  if (!drawResult) return null;
 
   state.hasProgram = !!resources.program;
   state.hasVao = !!resources.vao;
@@ -385,23 +343,7 @@ function drawGpuScreenWithGpuResidentPayloads(gl, gpu, gpuScreenSpace, canvasWid
   resetGpuScreenUploadState(state);
 
   prepareFullFrameGpuScreenDraw(gl, canvasWidth, canvasHeight);
-  gl.useProgram(resources.program);
-  gl.bindVertexArray(resources.vao);
-  gl.uniform2f(resources.uniformViewportPx, canvasWidth, canvasHeight);
-  gl.uniform1i(resources.uniformPackedTexture, 0);
-
-  for (const payload of payloads) {
-    const count = Number.isFinite(payload?.count) ? Math.max(0, payload.count | 0) : 0;
-    if (count <= 0) continue;
-    gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, payload.texture);
-    gl.drawArrays(gl.POINTS, 0, count);
-    drawCount += count;
-  }
-
-  gl.bindTexture(gl.TEXTURE_2D, null);
-  gl.bindVertexArray(null);
-  return drawCount;
+  return drawResult.drawCount;
 }
 
 export function createGpuScreenDrawState() {
