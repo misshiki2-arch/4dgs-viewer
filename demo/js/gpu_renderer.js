@@ -150,6 +150,18 @@ function hasRenderablePackedScreenSpace(screenSpace) {
   return hasGpuResidentPackedScreenSpace(screenSpace) || hasCpuPackedFallbackScreenSpace(screenSpace);
 }
 
+function resolveDrawFallbackContract(drawPathSelection) {
+  const requestedPath = drawPathSelection?.requestedPath ?? 'none';
+  const actualPath = drawPathSelection?.actualPath ?? 'none';
+  const fallbackReason = drawPathSelection?.fallbackReason ?? 'none';
+
+  if (fallbackReason === 'none' || requestedPath === actualPath) return 'none';
+  if (actualPath === GPU_DRAW_PATH_LEGACY) return 'legacy-draw-fallback';
+  if (actualPath === GPU_DRAW_PATH_PACKED) return 'packed-direct-compatibility-fallback';
+  if (actualPath === GPU_DRAW_PATH_GPU_SCREEN) return 'gpu-screen-compatibility-fallback';
+  return 'draw-path-fallback';
+}
+
 function getPackedLogicalLength(screenSpace) {
   if (screenSpace?.packed instanceof Float32Array) return screenSpace.packed.length;
   if (Number.isFinite(screenSpace?.packedCount) && Number.isFinite(screenSpace?.floatsPerItem)) {
@@ -382,7 +394,7 @@ export async function renderGpuFrame({
     debugOverlayCanvas.height = canvas.height;
     debugCtx.clearRect(0, 0, debugOverlayCanvas.width, debugOverlayCanvas.height);
     debugOverlayCanvas.style.display = 'none';
-    const emptyInfo = 'GPU Step54 viewer\nNo scene loaded.';
+    const emptyInfo = 'GPU Step55 viewer\nNo scene loaded.';
     setInfoText(infoEl, emptyInfo);
     return {
       infoText: emptyInfo,
@@ -614,6 +626,10 @@ export async function renderGpuFrame({
   if (gpuScreenSourceInfo?.sourceFallbackContract && gpuScreenSourceInfo.sourceFallbackContract !== 'none') {
     extraLines.push(`gpuScreenSourceFallbackContract=${gpuScreenSourceInfo.sourceFallbackContract}`);
   }
+  const drawFallbackContract = resolveDrawFallbackContract(drawPathSelection);
+  if (drawFallbackContract !== 'none') {
+    extraLines.push(`drawPathFallbackContract=${drawFallbackContract}`);
+  }
 
   const infoText = formatGpuViewerInfo({
     raw,
@@ -632,10 +648,10 @@ export async function renderGpuFrame({
     timestamp: buildConfig.timestamp,
     splatScale: buildConfig.scalingModifier,
     elapsedMs: elapsed,
-    stepLabel: 'GPU Step54',
+    stepLabel: 'GPU Step55',
     stepNotes: [
       'transform executor owns transformBatchSummary and downstream code forwards it without reinterpretation',
-      'gpu resident payload is now the explicit normal source contract, while cpu packed is kept as a named compatibility fallback instead of an adjacent normal-path bridge',
+      'gpu resident payload remains the explicit normal source contract, while source and draw fallback paths now expose named fallback contracts and reasons across the same debug surface',
       'renderer stays thin and forwards source, transform, lifecycle, fallback, and gpu-screen execution summaries to debug output',
       'packed-write backend keeps the offscreen FBO blend-disable fix while preserving existing public draw contracts'
     ],

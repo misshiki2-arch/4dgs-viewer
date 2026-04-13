@@ -1,4 +1,4 @@
-// Step54 display cleanup
+// Step55 display cleanup
 // 目的:
 // - debug info builder を「整形だけ」の責務に保つ
 // - transform executor / screen-space builder / renderer が確定した truth を、そのまま表示する
