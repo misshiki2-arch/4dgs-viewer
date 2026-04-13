@@ -3,6 +3,7 @@ import { packVisibleItems } from './gpu_visible_pack_utils.js';
 import {
   createGpuScreenTransformBackendGpuContext,
   executeGpuScreenTransformBackendGpu,
+  resetGpuScreenTransformBackendGpuPayloads,
   summarizeGpuScreenTransformBackendGpuCapability
 } from './gpu_screen_transform_backend_gpu.js';
 import { planGpuScreenTransformBatches } from './gpu_screen_transform_batch_planner.js';
@@ -370,6 +371,11 @@ export function createGpuScreenTransformContext() {
     transformUploadLength: 0,
     transformUploadCapacityBytes: 0,
     transformUploadReusedCapacity: false,
+    transformPayloadOwner: 'none',
+    transformActivePayloadCount: 0,
+    transformReleasedPayloadCount: 0,
+    transformPayloadResetReason: 'none',
+    transformPayloadGeneration: 0,
     sourceItemCount: 0,
     sourceSchemaVersion: 0,
     packedCount: 0,
@@ -393,7 +399,8 @@ function buildTransformSummary({
   packedCount,
   floatsPerItem,
   transformStageMs,
-  transformBatchSummary = null
+  transformBatchSummary = null,
+  backendCapability = null
 }) {
   const uploadSummary = buildTransformUploadSummary(packed, packedCount);
   const fallbackReason = resolveFallbackReason(requestedTransformPath, actualTransformPath);
@@ -416,6 +423,17 @@ function buildTransformSummary({
       : GPU_VISIBLE_PACK_FLOATS_PER_ITEM,
     transformStageMs: Number.isFinite(transformStageMs) ? transformStageMs : 0,
     transformBatchSummary,
+    transformPayloadOwner: backendCapability?.lastPayloadOwner ?? 'none',
+    transformActivePayloadCount: Number.isFinite(backendCapability?.activePayloadCount)
+      ? backendCapability.activePayloadCount
+      : 0,
+    transformReleasedPayloadCount: Number.isFinite(backendCapability?.lastReleasedPayloadCount)
+      ? backendCapability.lastReleasedPayloadCount
+      : 0,
+    transformPayloadResetReason: backendCapability?.lastPayloadResetReason ?? 'none',
+    transformPayloadGeneration: Number.isFinite(backendCapability?.payloadGeneration)
+      ? backendCapability.payloadGeneration
+      : 0,
     ...uploadSummary
   };
 }
@@ -444,15 +462,35 @@ function updateContext(context, summary) {
     : GPU_VISIBLE_PACK_FLOATS_PER_ITEM;
   context.transformStageMs = Number.isFinite(summary.transformStageMs) ? summary.transformStageMs : 0;
   context.transformBatchSummary = summary.transformBatchSummary ?? null;
+  context.transformPayloadOwner = summary.transformPayloadOwner ?? 'none';
+  context.transformActivePayloadCount = Number.isFinite(summary.transformActivePayloadCount)
+    ? summary.transformActivePayloadCount
+    : 0;
+  context.transformReleasedPayloadCount = Number.isFinite(summary.transformReleasedPayloadCount)
+    ? summary.transformReleasedPayloadCount
+    : 0;
+  context.transformPayloadResetReason = summary.transformPayloadResetReason ?? 'none';
+  context.transformPayloadGeneration = Number.isFinite(summary.transformPayloadGeneration)
+    ? summary.transformPayloadGeneration
+    : 0;
   context.lastSummary = summary;
 }
 
 export function executeGpuScreenPackedTransform(context, sourceItemsResult, options = {}) {
   const executionInputs = resolveTransformExecutionInputs(sourceItemsResult, options);
+  const backendContext = context?.backendContext ?? null;
+  if (backendContext) {
+    resetGpuScreenTransformBackendGpuPayloads(
+      backendContext,
+      executionInputs.requestedTransformPath === GPU_SCREEN_TRANSFORM_PATH_GPU_PREP
+        ? 'frame-start-gpu-prep'
+        : 'frame-start-non-gpu-prep'
+    );
+  }
   const backendDispatch = resolveTransformBackendDispatch(executionInputs.requestedTransformPath, {
     ...options,
     preferGpuResident: executionInputs.requestedTransformPath === GPU_SCREEN_TRANSFORM_PATH_GPU_PREP,
-    backendContext: context?.backendContext
+    backendContext
   });
   const backendCapability = backendDispatch.backendCapability ?? null;
   const batchPlan = planGpuScreenTransformBatches({
@@ -465,12 +503,13 @@ export function executeGpuScreenPackedTransform(context, sourceItemsResult, opti
 
   const batchResults = batchPlan.batches.map((batch) => {
     const batchSourceItemsResult = buildSourceItemsResultSlice(sourceItemsResult, batch);
-    return backendDispatch.execute(batchSourceItemsResult, {
-      resetGpuResidentPayloads: batch.batchIndex === 0
-    });
+    return backendDispatch.execute(batchSourceItemsResult);
   });
   const combinedBatchResult = combinePackedBatchResults(batchResults);
   const gpuPackedPayloads = combineGpuPackedPayloadBatchResults(batchResults);
+  const finalBackendCapability = backendDispatch.backendContext
+    ? summarizeGpuScreenTransformBackendGpuCapability(backendDispatch.backendContext, options.gl ?? null)
+    : null;
 
   const actualTransformPath = didAllBatchesPromoteToGpuPrep(
     executionInputs.requestedTransformPath,
@@ -496,7 +535,8 @@ export function executeGpuScreenPackedTransform(context, sourceItemsResult, opti
     packedCount: combinedBatchResult.count,
     floatsPerItem: combinedBatchResult.floatsPerItem,
     transformStageMs,
-    transformBatchSummary
+    transformBatchSummary,
+    backendCapability: finalBackendCapability
   });
 
   if (backendCapability && backendCapability.isReady) {
@@ -524,6 +564,11 @@ export function executeGpuScreenPackedTransform(context, sourceItemsResult, opti
     transformUploadLength: summary.transformUploadLength,
     transformUploadCapacityBytes: summary.transformUploadCapacityBytes,
     transformUploadReusedCapacity: summary.transformUploadReusedCapacity,
+    transformPayloadOwner: summary.transformPayloadOwner,
+    transformActivePayloadCount: summary.transformActivePayloadCount,
+    transformReleasedPayloadCount: summary.transformReleasedPayloadCount,
+    transformPayloadResetReason: summary.transformPayloadResetReason,
+    transformPayloadGeneration: summary.transformPayloadGeneration,
     sourceItems: safeSourceItems(sourceItemsResult),
     sourceItemCount: summary.sourceItemCount,
     sourceSchemaVersion: summary.sourceSchemaVersion,
@@ -554,7 +599,12 @@ export function summarizeGpuScreenTransformResult(result) {
       transformUploadCount: 0,
       transformUploadLength: 0,
       transformUploadCapacityBytes: 0,
-      transformUploadReusedCapacity: false
+      transformUploadReusedCapacity: false,
+      transformPayloadOwner: 'none',
+      transformActivePayloadCount: 0,
+      transformReleasedPayloadCount: 0,
+      transformPayloadResetReason: 'none',
+      transformPayloadGeneration: 0
     };
   }
 
@@ -586,7 +636,18 @@ export function summarizeGpuScreenTransformResult(result) {
     transformUploadCount: Number.isFinite(result.transformUploadCount) ? result.transformUploadCount : 0,
     transformUploadLength: Number.isFinite(result.transformUploadLength) ? result.transformUploadLength : 0,
     transformUploadCapacityBytes: Number.isFinite(result.transformUploadCapacityBytes) ? result.transformUploadCapacityBytes : 0,
-    transformUploadReusedCapacity: !!result.transformUploadReusedCapacity
+    transformUploadReusedCapacity: !!result.transformUploadReusedCapacity,
+    transformPayloadOwner: result.transformPayloadOwner ?? 'none',
+    transformActivePayloadCount: Number.isFinite(result.transformActivePayloadCount)
+      ? result.transformActivePayloadCount
+      : 0,
+    transformReleasedPayloadCount: Number.isFinite(result.transformReleasedPayloadCount)
+      ? result.transformReleasedPayloadCount
+      : 0,
+    transformPayloadResetReason: result.transformPayloadResetReason ?? 'none',
+    transformPayloadGeneration: Number.isFinite(result.transformPayloadGeneration)
+      ? result.transformPayloadGeneration
+      : 0
   };
 }
 
@@ -613,6 +674,11 @@ export function summarizeGpuScreenTransformContext(context) {
       floatsPerItem: GPU_VISIBLE_PACK_FLOATS_PER_ITEM,
       transformStageMs: 0,
       transformBatchSummary: null,
+      transformPayloadOwner: 'none',
+      transformActivePayloadCount: 0,
+      transformReleasedPayloadCount: 0,
+      transformPayloadResetReason: 'none',
+      transformPayloadGeneration: 0,
       lastSummary: null
     };
   }
@@ -640,6 +706,17 @@ export function summarizeGpuScreenTransformContext(context) {
       : GPU_VISIBLE_PACK_FLOATS_PER_ITEM,
     transformStageMs: Number.isFinite(context.transformStageMs) ? context.transformStageMs : 0,
     transformBatchSummary: context.transformBatchSummary ?? null,
+    transformPayloadOwner: context.transformPayloadOwner ?? 'none',
+    transformActivePayloadCount: Number.isFinite(context.transformActivePayloadCount)
+      ? context.transformActivePayloadCount
+      : 0,
+    transformReleasedPayloadCount: Number.isFinite(context.transformReleasedPayloadCount)
+      ? context.transformReleasedPayloadCount
+      : 0,
+    transformPayloadResetReason: context.transformPayloadResetReason ?? 'none',
+    transformPayloadGeneration: Number.isFinite(context.transformPayloadGeneration)
+      ? context.transformPayloadGeneration
+      : 0,
     lastSummary: context.lastSummary ?? null
   };
 }

@@ -74,15 +74,35 @@ function createGpuPackedPayloadRecord(gl, texture, count) {
   };
 }
 
-function releaseGpuResidentPackedPayloads(context, gl) {
-  if (!context || !Array.isArray(context.gpuResidentPackedPayloads) || !gl) return;
+function countGpuResidentPackedPayloads(context) {
+  return Array.isArray(context?.gpuResidentPackedPayloads) ? context.gpuResidentPackedPayloads.length : 0;
+}
 
+function releaseGpuResidentPackedPayloads(context) {
+  if (!context || !Array.isArray(context.gpuResidentPackedPayloads)) return 0;
+
+  let releasedCount = 0;
   for (const payload of context.gpuResidentPackedPayloads) {
-    if (payload?.gl !== gl) continue;
-    if (payload?.texture) gl.deleteTexture(payload.texture);
+    if (!payload?.texture || !payload?.gl || typeof payload.gl.deleteTexture !== 'function') continue;
+    payload.gl.deleteTexture(payload.texture);
+    releasedCount++;
   }
 
   context.gpuResidentPackedPayloads = [];
+  context.activePayloadCount = 0;
+  return releasedCount;
+}
+
+export function resetGpuScreenTransformBackendGpuPayloads(context, reason = 'manual-reset') {
+  if (!context) return 0;
+  const releasedCount = releaseGpuResidentPackedPayloads(context);
+  context.lastReleasedPayloadCount = releasedCount;
+  context.lastPayloadResetReason = reason;
+  context.payloadGeneration = Number.isFinite(context.payloadGeneration)
+    ? (context.payloadGeneration + 1)
+    : 1;
+  context.lastPayloadOwner = releasedCount > 0 ? 'backend-released' : (context.lastPayloadOwner ?? 'backend-gpu-resident');
+  return releasedCount;
 }
 
 function normalizeSourceCount(sourceItemsResult) {
@@ -194,6 +214,8 @@ function cloneGpuResidentPackedPayload(context, gl, count) {
   if (context) {
     context.gpuResidentPackedPayloads = context.gpuResidentPackedPayloads ?? [];
     context.gpuResidentPackedPayloads.push(payload);
+    context.activePayloadCount = context.gpuResidentPackedPayloads.length;
+    context.lastPayloadOwner = 'backend-gpu-resident';
   }
   return payload;
 }
@@ -498,6 +520,11 @@ export function createGpuScreenTransformBackendGpuContext(initialState = {}) {
     lastCount: 0,
     lastStageName: 'idle',
     lastError: null,
+    activePayloadCount: 0,
+    lastReleasedPayloadCount: 0,
+    lastPayloadResetReason: 'none',
+    payloadGeneration: 0,
+    lastPayloadOwner: 'backend-gpu-resident',
     packedWriteResources: null,
     packedWriteResourceGl: null,
     gpuResidentPackedPayloads: [],
@@ -529,7 +556,16 @@ export function summarizeGpuScreenTransformBackendGpuCapability(context, gl = nu
     lastSourceItemCount: Number.isFinite(context?.lastSourceItemCount) ? context.lastSourceItemCount : 0,
     lastCount: Number.isFinite(context?.lastCount) ? context.lastCount : 0,
     lastStageName: context?.lastStageName ?? 'idle',
-    lastError: context?.lastError ?? null
+    lastError: context?.lastError ?? null,
+    activePayloadCount: Number.isFinite(context?.activePayloadCount)
+      ? context.activePayloadCount
+      : countGpuResidentPackedPayloads(context),
+    lastReleasedPayloadCount: Number.isFinite(context?.lastReleasedPayloadCount)
+      ? context.lastReleasedPayloadCount
+      : 0,
+    lastPayloadResetReason: context?.lastPayloadResetReason ?? 'none',
+    payloadGeneration: Number.isFinite(context?.payloadGeneration) ? context.payloadGeneration : 0,
+    lastPayloadOwner: context?.lastPayloadOwner ?? 'backend-gpu-resident'
   };
 }
 
@@ -540,7 +576,7 @@ export function executeGpuScreenTransformBackendGpu(context, sourceItemsResult, 
   const supportsWebGL2 = probeWebGL2Support(gl);
   const backendImplemented = supportsGpuPackedWriteBackend(gl);
   if (options?.resetGpuResidentPayloads) {
-    releaseGpuResidentPackedPayloads(context, gl);
+    resetGpuScreenTransformBackendGpuPayloads(context, options.resetGpuResidentPayloadsReason ?? 'batch-reset');
   }
   const cpuFallback = runCpuFallbackPack(sourceItemsResult);
   const gpuPackedResult = tryGenerateGpuPackedSmallBatch(context, sourceItemsResult, gl, options);
@@ -576,6 +612,10 @@ export function executeGpuScreenTransformBackendGpu(context, sourceItemsResult, 
     context.lastCount = finalCount;
     context.lastStageName = gpuPackedResult.stage;
     context.lastError = producedPacked ? null : gpuPackedResult.error;
+    context.activePayloadCount = countGpuResidentPackedPayloads(context);
+    if (producedPacked) {
+      context.lastPayloadOwner = 'backend-gpu-resident';
+    }
   }
 
   return {

@@ -1,4 +1,4 @@
-// Step48 display cleanup
+// Step50 display cleanup
 // 目的:
 // - debug info builder を「整形だけ」の責務に保つ
 // - transform executor / screen-space builder / renderer が確定した truth を、そのまま表示する
@@ -201,6 +201,18 @@ function buildTransformBatchLines(transformBatchSummary) {
   return lines;
 }
 
+function buildTransformLifecycleLines(transformSummary) {
+  if (!transformSummary) return [];
+
+  const lines = [];
+  pushLine(lines, 'transformPayloadOwner', transformSummary.transformPayloadOwner ?? 'none');
+  pushLine(lines, 'transformActivePayloadCount', fmtInt(transformSummary.transformActivePayloadCount));
+  pushLine(lines, 'transformReleasedPayloadCount', fmtInt(transformSummary.transformReleasedPayloadCount));
+  pushLine(lines, 'transformPayloadResetReason', transformSummary.transformPayloadResetReason ?? 'none');
+  pushLine(lines, 'transformPayloadGeneration', fmtInt(transformSummary.transformPayloadGeneration));
+  return lines;
+}
+
 export function buildLegacySample(visible) {
   if (!Array.isArray(visible) || visible.length === 0) return null;
   const v = visible[0];
@@ -290,6 +302,7 @@ export function buildGpuDebugExtraLines({
   focusTileRects = [],
   ui = null,
   gpuScreenSummary = null,
+  gpuScreenSourceSpace = null,
   gpuScreenComparisonSummary = null,
   drawPathSelection = null,
   visible = null,
@@ -301,8 +314,13 @@ export function buildGpuDebugExtraLines({
   const lines = [];
   const transformBatchSummary =
     gpuScreenComparisonSummary?.transformBatchSummary ??
+    gpuScreenSourceSpace?.transformSummary?.transformBatchSummary ??
     packedScreenSpace?.transformSummary?.transformBatchSummary ??
     packedScreenSpace?.summary?.transformBatchSummary ??
+    null;
+  const transformLifecycleSummary =
+    gpuScreenSourceSpace?.transformSummary ??
+    packedScreenSpace?.transformSummary ??
     null;
 
   const resolvedLegacySample = legacySample ?? buildLegacySample(visible);
@@ -315,6 +333,7 @@ export function buildGpuDebugExtraLines({
   lines.push(...buildGpuScreenStateLines(gpuScreenSummary));
   lines.push(...buildGpuScreenComparisonLines(gpuScreenComparisonSummary));
   lines.push(...buildTransformBatchLines(transformBatchSummary));
+  lines.push(...buildTransformLifecycleLines(transformLifecycleSummary));
   lines.push(...buildPackedLines(buildStats, drawPathSelection, drawStats));
   lines.push(...buildSampleLines(resolvedLegacySample, resolvedPackedSample));
   lines.push(...buildGpuScreenExecutionLines(gpuScreenExecutionSummary));
