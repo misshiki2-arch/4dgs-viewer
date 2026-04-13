@@ -378,7 +378,10 @@ export function createGpuScreenTransformContext() {
     transformPayloadPoolReleaseCount: 0,
     transformPayloadReuseCount: 0,
     transformPayloadCreateCount: 0,
+    transformPayloadTrimCount: 0,
+    transformPayloadRetainedCount: 0,
     transformPayloadPoolHighWaterCount: 0,
+    transformPayloadPoolMaxRetained: 0,
     transformPayloadResetReason: 'none',
     transformPayloadGeneration: 0,
     sourceItemCount: 0,
@@ -447,8 +450,17 @@ function buildTransformSummary({
     transformPayloadCreateCount: Number.isFinite(backendCapability?.lastPayloadCreateCount)
       ? backendCapability.lastPayloadCreateCount
       : 0,
+    transformPayloadTrimCount: Number.isFinite(backendCapability?.lastPayloadTrimCount)
+      ? backendCapability.lastPayloadTrimCount
+      : 0,
+    transformPayloadRetainedCount: Number.isFinite(backendCapability?.lastPayloadRetainedCount)
+      ? backendCapability.lastPayloadRetainedCount
+      : 0,
     transformPayloadPoolHighWaterCount: Number.isFinite(backendCapability?.payloadPoolHighWaterCount)
       ? backendCapability.payloadPoolHighWaterCount
+      : 0,
+    transformPayloadPoolMaxRetained: Number.isFinite(backendCapability?.payloadPoolMaxRetained)
+      ? backendCapability.payloadPoolMaxRetained
       : 0,
     transformPayloadResetReason: backendCapability?.lastPayloadResetReason ?? 'none',
     transformPayloadGeneration: Number.isFinite(backendCapability?.payloadGeneration)
@@ -501,8 +513,17 @@ function updateContext(context, summary) {
   context.transformPayloadCreateCount = Number.isFinite(summary.transformPayloadCreateCount)
     ? summary.transformPayloadCreateCount
     : 0;
+  context.transformPayloadTrimCount = Number.isFinite(summary.transformPayloadTrimCount)
+    ? summary.transformPayloadTrimCount
+    : 0;
+  context.transformPayloadRetainedCount = Number.isFinite(summary.transformPayloadRetainedCount)
+    ? summary.transformPayloadRetainedCount
+    : 0;
   context.transformPayloadPoolHighWaterCount = Number.isFinite(summary.transformPayloadPoolHighWaterCount)
     ? summary.transformPayloadPoolHighWaterCount
+    : 0;
+  context.transformPayloadPoolMaxRetained = Number.isFinite(summary.transformPayloadPoolMaxRetained)
+    ? summary.transformPayloadPoolMaxRetained
     : 0;
   context.transformPayloadResetReason = summary.transformPayloadResetReason ?? 'none';
   context.transformPayloadGeneration = Number.isFinite(summary.transformPayloadGeneration)
@@ -606,7 +627,10 @@ export function executeGpuScreenPackedTransform(context, sourceItemsResult, opti
     transformPayloadPoolReleaseCount: summary.transformPayloadPoolReleaseCount,
     transformPayloadReuseCount: summary.transformPayloadReuseCount,
     transformPayloadCreateCount: summary.transformPayloadCreateCount,
+    transformPayloadTrimCount: summary.transformPayloadTrimCount,
+    transformPayloadRetainedCount: summary.transformPayloadRetainedCount,
     transformPayloadPoolHighWaterCount: summary.transformPayloadPoolHighWaterCount,
+    transformPayloadPoolMaxRetained: summary.transformPayloadPoolMaxRetained,
     transformPayloadResetReason: summary.transformPayloadResetReason,
     transformPayloadGeneration: summary.transformPayloadGeneration,
     sourceItems: safeSourceItems(sourceItemsResult),
@@ -647,7 +671,10 @@ export function summarizeGpuScreenTransformResult(result) {
       transformPayloadPoolReleaseCount: 0,
       transformPayloadReuseCount: 0,
       transformPayloadCreateCount: 0,
+      transformPayloadTrimCount: 0,
+      transformPayloadRetainedCount: 0,
       transformPayloadPoolHighWaterCount: 0,
+      transformPayloadPoolMaxRetained: 0,
       transformPayloadResetReason: 'none',
       transformPayloadGeneration: 0
     };
@@ -701,8 +728,17 @@ export function summarizeGpuScreenTransformResult(result) {
     transformPayloadCreateCount: Number.isFinite(result.transformPayloadCreateCount)
       ? result.transformPayloadCreateCount
       : 0,
+    transformPayloadTrimCount: Number.isFinite(result.transformPayloadTrimCount)
+      ? result.transformPayloadTrimCount
+      : 0,
+    transformPayloadRetainedCount: Number.isFinite(result.transformPayloadRetainedCount)
+      ? result.transformPayloadRetainedCount
+      : 0,
     transformPayloadPoolHighWaterCount: Number.isFinite(result.transformPayloadPoolHighWaterCount)
       ? result.transformPayloadPoolHighWaterCount
+      : 0,
+    transformPayloadPoolMaxRetained: Number.isFinite(result.transformPayloadPoolMaxRetained)
+      ? result.transformPayloadPoolMaxRetained
       : 0,
     transformPayloadResetReason: result.transformPayloadResetReason ?? 'none',
     transformPayloadGeneration: Number.isFinite(result.transformPayloadGeneration)
@@ -741,7 +777,10 @@ export function summarizeGpuScreenTransformContext(context) {
       transformPayloadPoolReleaseCount: 0,
       transformPayloadReuseCount: 0,
       transformPayloadCreateCount: 0,
+      transformPayloadTrimCount: 0,
+      transformPayloadRetainedCount: 0,
       transformPayloadPoolHighWaterCount: 0,
+      transformPayloadPoolMaxRetained: 0,
       transformPayloadResetReason: 'none',
       transformPayloadGeneration: 0,
       lastSummary: null
@@ -790,8 +829,17 @@ export function summarizeGpuScreenTransformContext(context) {
     transformPayloadCreateCount: Number.isFinite(context.transformPayloadCreateCount)
       ? context.transformPayloadCreateCount
       : 0,
+    transformPayloadTrimCount: Number.isFinite(context.transformPayloadTrimCount)
+      ? context.transformPayloadTrimCount
+      : 0,
+    transformPayloadRetainedCount: Number.isFinite(context.transformPayloadRetainedCount)
+      ? context.transformPayloadRetainedCount
+      : 0,
     transformPayloadPoolHighWaterCount: Number.isFinite(context.transformPayloadPoolHighWaterCount)
       ? context.transformPayloadPoolHighWaterCount
+      : 0,
+    transformPayloadPoolMaxRetained: Number.isFinite(context.transformPayloadPoolMaxRetained)
+      ? context.transformPayloadPoolMaxRetained
       : 0,
     transformPayloadResetReason: context.transformPayloadResetReason ?? 'none',
     transformPayloadGeneration: Number.isFinite(context.transformPayloadGeneration)
