@@ -399,6 +399,10 @@ export function createGpuScreenTransformContext() {
     transformPayloadPoolPolicy: 'adaptive-hold-base',
     transformPayloadResetReason: 'none',
     transformPayloadGeneration: 0,
+    transformDispatchCount: 0,
+    transformDispatchMode: 'none',
+    transformDispatchUploadBytes: 0,
+    transformDispatchItemCount: 0,
     sourceItemCount: 0,
     sourceSchemaVersion: 0,
     packedCount: 0,
@@ -494,6 +498,16 @@ function buildTransformSummary({
     transformPayloadGeneration: Number.isFinite(backendCapability?.payloadGeneration)
       ? backendCapability.payloadGeneration
       : 0,
+    transformDispatchCount: Number.isFinite(backendCapability?.lastDispatchCount)
+      ? backendCapability.lastDispatchCount
+      : 0,
+    transformDispatchMode: backendCapability?.lastDispatchMode ?? 'none',
+    transformDispatchUploadBytes: Number.isFinite(backendCapability?.lastDispatchUploadBytes)
+      ? backendCapability.lastDispatchUploadBytes
+      : 0,
+    transformDispatchItemCount: Number.isFinite(backendCapability?.lastDispatchItemCount)
+      ? backendCapability.lastDispatchItemCount
+      : 0,
     ...uploadSummary
   };
 }
@@ -564,6 +578,16 @@ function updateContext(context, summary) {
   context.transformPayloadResetReason = summary.transformPayloadResetReason ?? 'none';
   context.transformPayloadGeneration = Number.isFinite(summary.transformPayloadGeneration)
     ? summary.transformPayloadGeneration
+    : 0;
+  context.transformDispatchCount = Number.isFinite(summary.transformDispatchCount)
+    ? summary.transformDispatchCount
+    : 0;
+  context.transformDispatchMode = summary.transformDispatchMode ?? 'none';
+  context.transformDispatchUploadBytes = Number.isFinite(summary.transformDispatchUploadBytes)
+    ? summary.transformDispatchUploadBytes
+    : 0;
+  context.transformDispatchItemCount = Number.isFinite(summary.transformDispatchItemCount)
+    ? summary.transformDispatchItemCount
     : 0;
   context.lastSummary = summary;
 }
@@ -673,6 +697,10 @@ export function executeGpuScreenPackedTransform(context, sourceItemsResult, opti
     transformPayloadPoolPolicy: summary.transformPayloadPoolPolicy,
     transformPayloadResetReason: summary.transformPayloadResetReason,
     transformPayloadGeneration: summary.transformPayloadGeneration,
+    transformDispatchCount: summary.transformDispatchCount,
+    transformDispatchMode: summary.transformDispatchMode,
+    transformDispatchUploadBytes: summary.transformDispatchUploadBytes,
+    transformDispatchItemCount: summary.transformDispatchItemCount,
     sourceItems: safeSourceItems(sourceItemsResult),
     sourceItemCount: summary.sourceItemCount,
     sourceSchemaVersion: summary.sourceSchemaVersion,
@@ -720,7 +748,11 @@ export function summarizeGpuScreenTransformResult(result) {
       transformPayloadPoolMaxRetained: 0,
       transformPayloadPoolPolicy: 'adaptive-hold-base',
       transformPayloadResetReason: 'none',
-      transformPayloadGeneration: 0
+      transformPayloadGeneration: 0,
+      transformDispatchCount: 0,
+      transformDispatchMode: 'none',
+      transformDispatchUploadBytes: 0,
+      transformDispatchItemCount: 0
     };
   }
 
@@ -795,6 +827,16 @@ export function summarizeGpuScreenTransformResult(result) {
     transformPayloadResetReason: result.transformPayloadResetReason ?? 'none',
     transformPayloadGeneration: Number.isFinite(result.transformPayloadGeneration)
       ? result.transformPayloadGeneration
+      : 0,
+    transformDispatchCount: Number.isFinite(result.transformDispatchCount)
+      ? result.transformDispatchCount
+      : 0,
+    transformDispatchMode: result.transformDispatchMode ?? 'none',
+    transformDispatchUploadBytes: Number.isFinite(result.transformDispatchUploadBytes)
+      ? result.transformDispatchUploadBytes
+      : 0,
+    transformDispatchItemCount: Number.isFinite(result.transformDispatchItemCount)
+      ? result.transformDispatchItemCount
       : 0
   };
 }
@@ -839,6 +881,10 @@ export function summarizeGpuScreenTransformContext(context) {
       transformPayloadPoolPolicy: 'adaptive-hold-base',
       transformPayloadResetReason: 'none',
       transformPayloadGeneration: 0,
+      transformDispatchCount: 0,
+      transformDispatchMode: 'none',
+      transformDispatchUploadBytes: 0,
+      transformDispatchItemCount: 0,
       lastSummary: null
     };
   }
@@ -908,6 +954,16 @@ export function summarizeGpuScreenTransformContext(context) {
     transformPayloadResetReason: context.transformPayloadResetReason ?? 'none',
     transformPayloadGeneration: Number.isFinite(context.transformPayloadGeneration)
       ? context.transformPayloadGeneration
+      : 0,
+    transformDispatchCount: Number.isFinite(context.transformDispatchCount)
+      ? context.transformDispatchCount
+      : 0,
+    transformDispatchMode: context.transformDispatchMode ?? 'none',
+    transformDispatchUploadBytes: Number.isFinite(context.transformDispatchUploadBytes)
+      ? context.transformDispatchUploadBytes
+      : 0,
+    transformDispatchItemCount: Number.isFinite(context.transformDispatchItemCount)
+      ? context.transformDispatchItemCount
       : 0,
     lastSummary: context.lastSummary ?? null
   };

@@ -231,6 +231,10 @@ export function resetGpuScreenTransformBackendGpuPayloads(context, reason = 'man
   context.lastPayloadOwner = releasedCount > 0
     ? 'backend-gpu-pool'
     : (context.lastPayloadOwner ?? 'backend-gpu-resident');
+  context.lastDispatchCount = 0;
+  context.lastDispatchMode = 'none';
+  context.lastDispatchUploadBytes = 0;
+  context.lastDispatchItemCount = 0;
   return releasedCount;
 }
 
@@ -280,6 +284,22 @@ function buildPackedRowsFromSourceItem(item) {
   ];
 }
 
+function buildPackedSourceUpload(items) {
+  const normalizedItems = Array.isArray(items) ? items : [];
+  const upload = new Float32Array(normalizedItems.length * GPU_VISIBLE_PACK_FLOATS_PER_ITEM);
+  let offset = 0;
+
+  for (let i = 0; i < normalizedItems.length; i++) {
+    const rows = buildPackedRowsFromSourceItem(normalizedItems[i]);
+    for (let rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+      upload.set(rows[rowIndex], offset);
+      offset += 4;
+    }
+  }
+
+  return upload;
+}
+
 function runCpuFallbackPack(sourceItemsResult) {
   const items = normalizeSourceItems(sourceItemsResult);
   const packedResult = packVisibleItems(items);
@@ -302,6 +322,8 @@ function hasReusablePackedWriteResources(context, gl) {
     !!context?.packedWriteResources?.program &&
     !!context?.packedWriteResources?.framebuffer &&
     !!context?.packedWriteResources?.texture &&
+    !!context?.packedWriteResources?.sourceTexture &&
+    !!context?.packedWriteResources?.uniformSourceTexture &&
     !!context?.packedWriteResources?.vao
   );
 }
@@ -412,28 +434,18 @@ void main() {
 
   const fragmentShaderSource = `#version 300 es
 precision highp float;
-uniform vec4 uPackedRow0;
-uniform vec4 uPackedRow1;
-uniform vec4 uPackedRow2;
-uniform vec4 uPackedRow3;
+uniform sampler2D uPackedSourceTexture;
 out vec4 outColor;
 void main() {
-  int column = int(floor(gl_FragCoord.x));
-  if (column == 0) outColor = uPackedRow0;
-  else if (column == 1) outColor = uPackedRow1;
-  else if (column == 2) outColor = uPackedRow2;
-  else outColor = uPackedRow3;
-  }`;
+  ivec2 coord = ivec2(int(floor(gl_FragCoord.x)), int(floor(gl_FragCoord.y)));
+  outColor = texelFetch(uPackedSourceTexture, coord, 0);
+}`;
 
   try {
-    if (
-      isSameWebGlContext(context?.packedWriteResourceGl, gl) &&
-      context?.packedWriteResources?.texture &&
-      context?.packedWriteResources?.framebuffer &&
-      context?.packedWriteResources?.program &&
-      context?.packedWriteResources?.vao
-    ) {
+    if (hasReusablePackedWriteResources(context, gl)) {
       gl.bindTexture(gl.TEXTURE_2D, context.packedWriteResources.texture);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, 4, normalizedTargetHeight, 0, gl.RGBA, gl.FLOAT, null);
+      gl.bindTexture(gl.TEXTURE_2D, context.packedWriteResources.sourceTexture);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, 4, normalizedTargetHeight, 0, gl.RGBA, gl.FLOAT, null);
       gl.bindFramebuffer(gl.FRAMEBUFFER, context.packedWriteResources.framebuffer);
       gl.framebufferTexture2D(
@@ -469,9 +481,10 @@ void main() {
     const program = gl.createProgram();
     const vao = gl.createVertexArray();
     const texture = gl.createTexture();
+    const sourceTexture = gl.createTexture();
     const framebuffer = gl.createFramebuffer();
 
-    if (!vertexShader || !fragmentShader || !program || !vao || !texture || !framebuffer) {
+    if (!vertexShader || !fragmentShader || !program || !vao || !texture || !sourceTexture || !framebuffer) {
       return {
         ok: false,
         stage: 'gpu-pack-resource-create-failed',
@@ -537,15 +550,21 @@ void main() {
     }
 
     if (context) {
+      gl.bindTexture(gl.TEXTURE_2D, sourceTexture);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, 4, normalizedTargetHeight, 0, gl.RGBA, gl.FLOAT, null);
+      gl.bindTexture(gl.TEXTURE_2D, null);
+
       context.packedWriteResources = {
         program,
         vao,
         texture,
+        sourceTexture,
         framebuffer,
-        uniformRow0: gl.getUniformLocation(program, 'uPackedRow0'),
-        uniformRow1: gl.getUniformLocation(program, 'uPackedRow1'),
-        uniformRow2: gl.getUniformLocation(program, 'uPackedRow2'),
-        uniformRow3: gl.getUniformLocation(program, 'uPackedRow3')
+        uniformSourceTexture: gl.getUniformLocation(program, 'uPackedSourceTexture')
       };
       context.packedWriteResourceGl = gl;
     }
@@ -598,6 +617,8 @@ function tryGenerateGpuPackedSmallBatch(context, sourceItemsResult, gl, options 
 
   const resources = context?.packedWriteResources;
   try {
+    const packedSourceUpload = buildPackedSourceUpload(items);
+
     gl.bindFramebuffer(gl.FRAMEBUFFER, resources.framebuffer);
     gl.useProgram(resources.program);
     gl.bindVertexArray(resources.vao);
@@ -612,20 +633,30 @@ function tryGenerateGpuPackedSmallBatch(context, sourceItemsResult, gl, options 
     gl.viewport(0, 0, 4, items.length);
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT);
-
-    for (let i = 0; i < items.length; i++) {
-      const rows = buildPackedRowsFromSourceItem(items[i]);
-      gl.viewport(0, i, 4, 1);
-      gl.uniform4fv(resources.uniformRow0, rows[0]);
-      gl.uniform4fv(resources.uniformRow1, rows[1]);
-      gl.uniform4fv(resources.uniformRow2, rows[2]);
-      gl.uniform4fv(resources.uniformRow3, rows[3]);
-      gl.drawArrays(gl.TRIANGLES, 0, 3);
-    }
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, resources.sourceTexture);
+    gl.texSubImage2D(
+      gl.TEXTURE_2D,
+      0,
+      0,
+      0,
+      GPU_PACKED_PAYLOAD_WIDTH,
+      items.length,
+      gl.RGBA,
+      gl.FLOAT,
+      packedSourceUpload
+    );
+    gl.uniform1i(resources.uniformSourceTexture, 0);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
 
     const packed = null;
     const gpuPackedPayload = cloneGpuResidentPackedPayload(context, gl, items.length);
+    context.lastDispatchCount = 1;
+    context.lastDispatchMode = 'single-texture-copy-pass';
+    context.lastDispatchUploadBytes = packedSourceUpload.byteLength;
+    context.lastDispatchItemCount = items.length;
 
+    gl.bindTexture(gl.TEXTURE_2D, null);
     gl.bindVertexArray(null);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.useProgram(null);
@@ -641,6 +672,7 @@ function tryGenerateGpuPackedSmallBatch(context, sourceItemsResult, gl, options 
       error: null
     };
   } catch (error) {
+    gl.bindTexture(gl.TEXTURE_2D, null);
     gl.bindVertexArray(null);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.useProgram(null);
@@ -695,6 +727,10 @@ export function createGpuScreenTransformBackendGpuContext(initialState = {}) {
     lastPayloadResetReason: 'none',
     payloadGeneration: 0,
     lastPayloadOwner: 'backend-gpu-resident',
+    lastDispatchCount: 0,
+    lastDispatchMode: 'none',
+    lastDispatchUploadBytes: 0,
+    lastDispatchItemCount: 0,
     packedWriteResources: null,
     packedWriteResourceGl: null,
     gpuResidentPackedPayloads: [],
@@ -761,7 +797,15 @@ export function summarizeGpuScreenTransformBackendGpuCapability(context, gl = nu
     lastPayloadPoolPolicy: context?.lastPayloadPoolPolicy ?? 'adaptive-hold-base',
     lastPayloadResetReason: context?.lastPayloadResetReason ?? 'none',
     payloadGeneration: Number.isFinite(context?.payloadGeneration) ? context.payloadGeneration : 0,
-    lastPayloadOwner: context?.lastPayloadOwner ?? 'backend-gpu-resident'
+    lastPayloadOwner: context?.lastPayloadOwner ?? 'backend-gpu-resident',
+    lastDispatchCount: Number.isFinite(context?.lastDispatchCount) ? context.lastDispatchCount : 0,
+    lastDispatchMode: context?.lastDispatchMode ?? 'none',
+    lastDispatchUploadBytes: Number.isFinite(context?.lastDispatchUploadBytes)
+      ? context.lastDispatchUploadBytes
+      : 0,
+    lastDispatchItemCount: Number.isFinite(context?.lastDispatchItemCount)
+      ? context.lastDispatchItemCount
+      : 0
   };
 }
 
@@ -833,6 +877,14 @@ export function executeGpuScreenTransformBackendGpu(context, sourceItemsResult, 
     backendProducedPacked: producedPacked,
     backendFallbackToCpu: !producedPacked,
     backendError: producedPacked ? null : gpuPackedResult.error,
-    backendContext: summarizeGpuScreenTransformBackendGpuCapability(context, gl)
+    backendContext: summarizeGpuScreenTransformBackendGpuCapability(context, gl),
+    backendDispatchCount: Number.isFinite(context?.lastDispatchCount) ? context.lastDispatchCount : 0,
+    backendDispatchMode: context?.lastDispatchMode ?? 'none',
+    backendDispatchUploadBytes: Number.isFinite(context?.lastDispatchUploadBytes)
+      ? context.lastDispatchUploadBytes
+      : 0,
+    backendDispatchItemCount: Number.isFinite(context?.lastDispatchItemCount)
+      ? context.lastDispatchItemCount
+      : 0
   };
 }
