@@ -59,7 +59,7 @@ import {
 import {
   createScreenSpaceBuildContext,
   buildPackedGpuPrepScreenSpaceWithContext,
-  hasCpuPackedFallbackScreenSpace,
+  hasExplicitCpuPackedCompatibilityBridge,
   hasGpuResidentPackedScreenSpace,
   resolvePackedScreenSpaceContract,
   summarizePackedScreenSpace,
@@ -147,7 +147,7 @@ function computeDrawFraction(visibleCount, drawCount) {
 }
 
 function hasRenderablePackedScreenSpace(screenSpace) {
-  return hasGpuResidentPackedScreenSpace(screenSpace) || hasCpuPackedFallbackScreenSpace(screenSpace);
+  return hasGpuResidentPackedScreenSpace(screenSpace) || hasExplicitCpuPackedCompatibilityBridge(screenSpace);
 }
 
 function resolveDrawFallbackContract(drawPathSelection) {
@@ -337,7 +337,7 @@ function selectGpuScreenSourceSpace(gpu, visible, packedCpuScreenSpace) {
         sourceFallbackContract: 'none'
       };
     }
-    if (hasCpuPackedFallbackScreenSpace(experimental)) {
+    if (hasExplicitCpuPackedCompatibilityBridge(experimental)) {
       return {
         sourceSpace: packedCpuScreenSpace,
         sourceSummary: summarizePackedScreenSpace(packedCpuScreenSpace),
@@ -452,7 +452,7 @@ export async function renderGpuFrame({
     debugOverlayCanvas.height = canvas.height;
     debugCtx.clearRect(0, 0, debugOverlayCanvas.width, debugOverlayCanvas.height);
     debugOverlayCanvas.style.display = 'none';
-    const emptyInfo = 'GPU Step58 viewer\nNo scene loaded.';
+    const emptyInfo = 'GPU Step59 viewer\nNo scene loaded.';
     setInfoText(infoEl, emptyInfo);
     return {
       infoText: emptyInfo,
@@ -721,11 +721,11 @@ export async function renderGpuFrame({
     timestamp: buildConfig.timestamp,
     splatScale: buildConfig.scalingModifier,
     elapsedMs: elapsed,
-    stepLabel: 'GPU Step58',
+    stepLabel: 'GPU Step59',
     stepNotes: [
       'transform executor owns transformBatchSummary and downstream code forwards it without reinterpretation',
-      'gpu resident payload remains the explicit normal source contract, while source, transform, and draw fallback paths now expose named fallback contracts and reasons across the same debug surface',
-      'renderer stays thin and forwards source, transform, lifecycle, fallback, and gpu-screen execution summaries to debug output, while backend-owned payload pooling now adapts its retained limit from recent release/reuse/create pressure',
+      'gpu resident payload remains the explicit normal source contract, while cpu packed is now treated only as an explicit compatibility-bridge contract instead of a nearby normal-path substitute',
+      'renderer stays thin and forwards source, transform, lifecycle, fallback, and gpu-screen execution summaries to debug output, while backend-owned payload pooling adapts its retained limit from recent release/reuse/create pressure',
       'packed-write backend keeps the offscreen FBO blend-disable fix while preserving existing public draw contracts'
     ],
     tileSummary,

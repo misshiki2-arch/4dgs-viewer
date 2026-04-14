@@ -64,9 +64,13 @@ export function hasCpuPackedFallbackScreenSpace(result) {
   return result?.packed instanceof Float32Array;
 }
 
+export function hasExplicitCpuPackedCompatibilityBridge(result) {
+  return resolvePackedScreenSpaceContract(result) === 'cpu-packed-compatibility-bridge';
+}
+
 export function resolvePackedScreenSpaceContract(result) {
   if (hasGpuResidentPackedScreenSpace(result)) return 'gpu-resident-normal';
-  if (hasCpuPackedFallbackScreenSpace(result)) return 'cpu-packed-fallback';
+  if (hasCpuPackedFallbackScreenSpace(result)) return 'cpu-packed-compatibility-bridge';
   return 'unavailable';
 }
 
