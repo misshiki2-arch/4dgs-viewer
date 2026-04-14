@@ -452,7 +452,7 @@ export async function renderGpuFrame({
     debugOverlayCanvas.height = canvas.height;
     debugCtx.clearRect(0, 0, debugOverlayCanvas.width, debugOverlayCanvas.height);
     debugOverlayCanvas.style.display = 'none';
-    const emptyInfo = 'GPU Step57 viewer\nNo scene loaded.';
+    const emptyInfo = 'GPU Step58 viewer\nNo scene loaded.';
     setInfoText(infoEl, emptyInfo);
     return {
       infoText: emptyInfo,
@@ -721,11 +721,11 @@ export async function renderGpuFrame({
     timestamp: buildConfig.timestamp,
     splatScale: buildConfig.scalingModifier,
     elapsedMs: elapsed,
-    stepLabel: 'GPU Step57',
+    stepLabel: 'GPU Step58',
     stepNotes: [
       'transform executor owns transformBatchSummary and downstream code forwards it without reinterpretation',
       'gpu resident payload remains the explicit normal source contract, while source, transform, and draw fallback paths now expose named fallback contracts and reasons across the same debug surface',
-      'renderer stays thin and forwards source, transform, lifecycle, fallback, and gpu-screen execution summaries to debug output, including one stage/reason/contract summary that stays readable when fallback actually fires',
+      'renderer stays thin and forwards source, transform, lifecycle, fallback, and gpu-screen execution summaries to debug output, while backend-owned payload pooling now adapts its retained limit from recent release/reuse/create pressure',
       'packed-write backend keeps the offscreen FBO blend-disable fix while preserving existing public draw contracts'
     ],
     tileSummary,

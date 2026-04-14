@@ -29,7 +29,8 @@ const GPU_BACKEND_IMPLEMENTATION_STATE_MINIMAL_GPU_PACK = 'minimal-gpu-pack';
 const GPU_BACKEND_EXECUTION_MODE_CPU_FALLBACK = 'cpu-fallback-stub';
 const GPU_BACKEND_EXECUTION_MODE_GPU_SMALL_BATCH_PACK = 'gpu-small-batch-pack';
 const GPU_PACKED_PAYLOAD_WIDTH = 4;
-const GPU_BACKEND_MAX_REUSABLE_PAYLOAD_TEXTURES = 2;
+const GPU_BACKEND_BASE_REUSABLE_PAYLOAD_TEXTURES = 2;
+const GPU_BACKEND_HARD_MAX_REUSABLE_PAYLOAD_TEXTURES = 16;
 
 function nowMs() {
   return performance.now();
@@ -90,7 +91,73 @@ function getReusableGpuResidentPayloadTextureLimit(context) {
   if (Number.isFinite(configuredLimit)) {
     return Math.max(0, configuredLimit | 0);
   }
-  return GPU_BACKEND_MAX_REUSABLE_PAYLOAD_TEXTURES;
+  return GPU_BACKEND_BASE_REUSABLE_PAYLOAD_TEXTURES;
+}
+
+function getReusableGpuResidentPayloadTextureBaseLimit(context) {
+  const configuredLimit = context?.payloadPoolBaseRetained;
+  if (Number.isFinite(configuredLimit)) {
+    return Math.max(0, configuredLimit | 0);
+  }
+  return GPU_BACKEND_BASE_REUSABLE_PAYLOAD_TEXTURES;
+}
+
+function getReusableGpuResidentPayloadTextureHardLimit(context) {
+  const configuredLimit = context?.payloadPoolHardMaxRetained;
+  if (Number.isFinite(configuredLimit)) {
+    return Math.max(0, configuredLimit | 0);
+  }
+  return GPU_BACKEND_HARD_MAX_REUSABLE_PAYLOAD_TEXTURES;
+}
+
+function resolveAdaptiveReusablePayloadTextureLimit(context) {
+  const baseLimit = getReusableGpuResidentPayloadTextureBaseLimit(context);
+  const hardLimit = Math.max(baseLimit, getReusableGpuResidentPayloadTextureHardLimit(context));
+  const activeCount = countGpuResidentPackedPayloads(context);
+  const recentReuseCount = Number.isFinite(context?.lastPayloadReuseCount)
+    ? Math.max(0, context.lastPayloadReuseCount | 0)
+    : 0;
+  const recentCreateCount = Number.isFinite(context?.lastPayloadCreateCount)
+    ? Math.max(0, context.lastPayloadCreateCount | 0)
+    : 0;
+
+  const burstRetain = Math.ceil(recentCreateCount / 8);
+  const reuseRetain = recentReuseCount + (recentCreateCount > 0 ? 1 : 0);
+  const releaseCap = activeCount > 0 ? activeCount : baseLimit;
+  const adaptiveDemand = Math.max(baseLimit, burstRetain, reuseRetain);
+
+  return Math.max(
+    baseLimit,
+    Math.min(hardLimit, adaptiveDemand, Math.max(baseLimit, releaseCap))
+  );
+}
+
+function resolveAdaptiveReusablePayloadTexturePolicy(context) {
+  const baseLimit = getReusableGpuResidentPayloadTextureBaseLimit(context);
+  const hardLimit = Math.max(baseLimit, getReusableGpuResidentPayloadTextureHardLimit(context));
+  const nextLimit = resolveAdaptiveReusablePayloadTextureLimit(context);
+  const recentReuseCount = Number.isFinite(context?.lastPayloadReuseCount)
+    ? Math.max(0, context.lastPayloadReuseCount | 0)
+    : 0;
+  const recentCreateCount = Number.isFinite(context?.lastPayloadCreateCount)
+    ? Math.max(0, context.lastPayloadCreateCount | 0)
+    : 0;
+
+  let reason = 'adaptive-hold-base';
+  if (nextLimit >= hardLimit && nextLimit > baseLimit) {
+    reason = 'adaptive-hit-hard-cap';
+  } else if (nextLimit > baseLimit && recentCreateCount > recentReuseCount) {
+    reason = 'adaptive-grow-create-pressure';
+  } else if (nextLimit > baseLimit && recentReuseCount > 0) {
+    reason = 'adaptive-grow-reuse-pressure';
+  } else if (nextLimit === baseLimit && (recentReuseCount > 0 || recentCreateCount > 0)) {
+    reason = 'adaptive-clamp-base';
+  }
+
+  return {
+    nextLimit,
+    reason
+  };
 }
 
 function trimReusableGpuResidentPayloadTextures(context, limit = getReusableGpuResidentPayloadTextureLimit(context)) {
@@ -147,6 +214,9 @@ function releaseGpuResidentPackedPayloads(context) {
 
 export function resetGpuScreenTransformBackendGpuPayloads(context, reason = 'manual-reset') {
   if (!context) return 0;
+  const adaptivePolicy = resolveAdaptiveReusablePayloadTexturePolicy(context);
+  context.payloadPoolMaxRetained = adaptivePolicy.nextLimit;
+  context.lastPayloadPoolPolicy = adaptivePolicy.reason;
   context.lastPayloadPoolReleaseCount = 0;
   context.lastPayloadReuseCount = 0;
   context.lastPayloadCreateCount = 0;
@@ -618,7 +688,10 @@ export function createGpuScreenTransformBackendGpuContext(initialState = {}) {
     lastPayloadTrimCount: 0,
     lastPayloadRetainedCount: 0,
     payloadPoolHighWaterCount: 0,
-    payloadPoolMaxRetained: GPU_BACKEND_MAX_REUSABLE_PAYLOAD_TEXTURES,
+    payloadPoolBaseRetained: GPU_BACKEND_BASE_REUSABLE_PAYLOAD_TEXTURES,
+    payloadPoolHardMaxRetained: GPU_BACKEND_HARD_MAX_REUSABLE_PAYLOAD_TEXTURES,
+    payloadPoolMaxRetained: GPU_BACKEND_BASE_REUSABLE_PAYLOAD_TEXTURES,
+    lastPayloadPoolPolicy: 'adaptive-hold-base',
     lastPayloadResetReason: 'none',
     payloadGeneration: 0,
     lastPayloadOwner: 'backend-gpu-resident',
@@ -682,7 +755,10 @@ export function summarizeGpuScreenTransformBackendGpuCapability(context, gl = nu
     payloadPoolHighWaterCount: Number.isFinite(context?.payloadPoolHighWaterCount)
       ? context.payloadPoolHighWaterCount
       : 0,
+    payloadPoolBaseRetained: getReusableGpuResidentPayloadTextureBaseLimit(context),
+    payloadPoolHardMaxRetained: getReusableGpuResidentPayloadTextureHardLimit(context),
     payloadPoolMaxRetained: getReusableGpuResidentPayloadTextureLimit(context),
+    lastPayloadPoolPolicy: context?.lastPayloadPoolPolicy ?? 'adaptive-hold-base',
     lastPayloadResetReason: context?.lastPayloadResetReason ?? 'none',
     payloadGeneration: Number.isFinite(context?.payloadGeneration) ? context.payloadGeneration : 0,
     lastPayloadOwner: context?.lastPayloadOwner ?? 'backend-gpu-resident'
