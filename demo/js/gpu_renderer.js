@@ -220,6 +220,48 @@ function buildGpuFallbackSummary({ sourceInfo, comparisonSummary, drawPathSelect
   };
 }
 
+function buildGpuCompatibilityBridgeSummary({ sourceInfo, comparisonSummary, drawPathSelection }) {
+  const sourceContract = sourceInfo?.sourceFallbackContract ?? 'none';
+  const transformContract = comparisonSummary?.transformFallbackContract ?? 'none';
+  const drawContract = resolveDrawFallbackContract(drawPathSelection);
+  const sourceReason = sourceInfo?.sourceFallbackReason ?? 'none';
+  const transformReason = comparisonSummary?.transformFallbackReason ?? 'none';
+  const drawReason = drawPathSelection?.fallbackReason ?? 'none';
+
+  const sourceBridge = sourceContract === 'cpu-packed-compatibility-bridge';
+  const transformBridge = transformContract === 'cpu-packed-transform-compatibility-fallback';
+  const drawBridge =
+    drawContract === 'packed-direct-compatibility-fallback' ||
+    drawContract === 'gpu-screen-compatibility-fallback';
+
+  const stages = [];
+  const reasons = [];
+  if (sourceBridge) {
+    stages.push('source');
+    reasons.push(`source:${sourceReason}`);
+  }
+  if (transformBridge) {
+    stages.push('transform');
+    reasons.push(`transform:${transformReason}`);
+  }
+  if (drawBridge) {
+    stages.push('draw');
+    reasons.push(`draw:${drawReason}`);
+  }
+
+  const gpuRetainedStages = [];
+  if (comparisonSummary?.sourceContract === 'gpu-resident-normal') gpuRetainedStages.push('source');
+  if (comparisonSummary?.transformFallbackContract === 'none') gpuRetainedStages.push('transform');
+  if (drawContract === 'none') gpuRetainedStages.push('draw');
+
+  return {
+    active: sourceBridge || transformBridge || drawBridge,
+    stageSummary: stages.length > 0 ? stages.join(' -> ') : 'none',
+    reasonSummary: reasons.length > 0 ? reasons.join(' | ') : 'none',
+    gpuRetainedSummary: gpuRetainedStages.length > 0 ? gpuRetainedStages.join(' -> ') : 'none'
+  };
+}
+
 function getPackedLogicalLength(screenSpace) {
   if (screenSpace?.packed instanceof Float32Array) return screenSpace.packed.length;
   if (Number.isFinite(screenSpace?.packedCount) && Number.isFinite(screenSpace?.floatsPerItem)) {
@@ -452,7 +494,7 @@ export async function renderGpuFrame({
     debugOverlayCanvas.height = canvas.height;
     debugCtx.clearRect(0, 0, debugOverlayCanvas.width, debugOverlayCanvas.height);
     debugOverlayCanvas.style.display = 'none';
-    const emptyInfo = 'GPU Step59 viewer\nNo scene loaded.';
+    const emptyInfo = 'GPU Step60 viewer\nNo scene loaded.';
     setInfoText(infoEl, emptyInfo);
     return {
       infoText: emptyInfo,
@@ -699,10 +741,19 @@ export async function renderGpuFrame({
     comparisonSummary: gpuScreenComparisonSummary,
     drawPathSelection
   });
+  const gpuCompatibilityBridgeSummary = buildGpuCompatibilityBridgeSummary({
+    sourceInfo: gpuScreenSourceInfo,
+    comparisonSummary: gpuScreenComparisonSummary,
+    drawPathSelection
+  });
   extraLines.push(`gpuFallbackActive=${gpuFallbackSummary.active}`);
   extraLines.push(`gpuFallbackStageSummary=${gpuFallbackSummary.stageSummary}`);
   extraLines.push(`gpuFallbackReasonSummary=${gpuFallbackSummary.reasonSummary}`);
   extraLines.push(`gpuFallbackContractSummary=${gpuFallbackSummary.contractSummary}`);
+  extraLines.push(`gpuCompatibilityBridgeActive=${gpuCompatibilityBridgeSummary.active}`);
+  extraLines.push(`gpuCompatibilityBridgeStageSummary=${gpuCompatibilityBridgeSummary.stageSummary}`);
+  extraLines.push(`gpuCompatibilityBridgeReasonSummary=${gpuCompatibilityBridgeSummary.reasonSummary}`);
+  extraLines.push(`gpuCompatibilityBridgeGpuRetainedSummary=${gpuCompatibilityBridgeSummary.gpuRetainedSummary}`);
 
   const infoText = formatGpuViewerInfo({
     raw,
@@ -721,11 +772,11 @@ export async function renderGpuFrame({
     timestamp: buildConfig.timestamp,
     splatScale: buildConfig.scalingModifier,
     elapsedMs: elapsed,
-    stepLabel: 'GPU Step59',
+    stepLabel: 'GPU Step60',
     stepNotes: [
       'transform executor owns transformBatchSummary and downstream code forwards it without reinterpretation',
-      'gpu resident payload remains the explicit normal source contract, while cpu packed is now treated only as an explicit compatibility-bridge contract instead of a nearby normal-path substitute',
-      'renderer stays thin and forwards source, transform, lifecycle, fallback, and gpu-screen execution summaries to debug output, while backend-owned payload pooling adapts its retained limit from recent release/reuse/create pressure',
+      'gpu resident payload remains the explicit normal source contract, while cpu packed is kept behind explicit compatibility-bridge contracts that can now be summarized end-to-end across source, transform, and draw',
+      'renderer stays thin and forwards source, transform, lifecycle, fallback, and gpu-screen execution summaries to debug output, including bridge-stage and gpu-retained summaries that stay readable when compatibility paths fire',
       'packed-write backend keeps the offscreen FBO blend-disable fix while preserving existing public draw contracts'
     ],
     tileSummary,
@@ -750,6 +801,7 @@ export async function renderGpuFrame({
     tileSummary,
     drawPathSummary: drawPathSelection,
     gpuFallbackSummary,
+    gpuCompatibilityBridgeSummary,
     gpuScreenSummary,
     gpuScreenComparisonSummary,
     gpuScreenExecutionSummary,
