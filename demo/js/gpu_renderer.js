@@ -173,6 +173,53 @@ function buildFallbackContractSummary({ sourceInfo, comparisonSummary, drawPathS
   return parts.length > 0 ? parts.join(' | ') : 'none';
 }
 
+function buildFallbackReasonSummary({ sourceInfo, comparisonSummary, drawPathSelection }) {
+  const sourceReason = sourceInfo?.sourceFallbackReason ?? 'none';
+  const transformReason = comparisonSummary?.transformFallbackReason ?? 'none';
+  const drawReason = drawPathSelection?.fallbackReason ?? 'none';
+  const parts = [];
+  if (sourceReason !== 'none') parts.push(`source:${sourceReason}`);
+  if (transformReason !== 'none') parts.push(`transform:${transformReason}`);
+  if (drawReason !== 'none') parts.push(`draw:${drawReason}`);
+  return parts.length > 0 ? parts.join(' | ') : 'none';
+}
+
+function buildFallbackStageSummary({ sourceInfo, comparisonSummary, drawPathSelection }) {
+  const sourceActive = (sourceInfo?.sourceFallbackContract ?? 'none') !== 'none';
+  const transformActive = (comparisonSummary?.transformFallbackContract ?? 'none') !== 'none';
+  const drawActive = resolveDrawFallbackContract(drawPathSelection) !== 'none';
+  const stages = [];
+  if (sourceActive) stages.push('source');
+  if (transformActive) stages.push('transform');
+  if (drawActive) stages.push('draw');
+  return stages.length > 0 ? stages.join(' -> ') : 'none';
+}
+
+function buildGpuFallbackSummary({ sourceInfo, comparisonSummary, drawPathSelection }) {
+  const contractSummary = buildFallbackContractSummary({
+    sourceInfo,
+    comparisonSummary,
+    drawPathSelection
+  });
+  const reasonSummary = buildFallbackReasonSummary({
+    sourceInfo,
+    comparisonSummary,
+    drawPathSelection
+  });
+  const stageSummary = buildFallbackStageSummary({
+    sourceInfo,
+    comparisonSummary,
+    drawPathSelection
+  });
+
+  return {
+    active: contractSummary !== 'none' || reasonSummary !== 'none' || stageSummary !== 'none',
+    stageSummary,
+    reasonSummary,
+    contractSummary
+  };
+}
+
 function getPackedLogicalLength(screenSpace) {
   if (screenSpace?.packed instanceof Float32Array) return screenSpace.packed.length;
   if (Number.isFinite(screenSpace?.packedCount) && Number.isFinite(screenSpace?.floatsPerItem)) {
@@ -405,7 +452,7 @@ export async function renderGpuFrame({
     debugOverlayCanvas.height = canvas.height;
     debugCtx.clearRect(0, 0, debugOverlayCanvas.width, debugOverlayCanvas.height);
     debugOverlayCanvas.style.display = 'none';
-    const emptyInfo = 'GPU Step56 viewer\nNo scene loaded.';
+    const emptyInfo = 'GPU Step57 viewer\nNo scene loaded.';
     setInfoText(infoEl, emptyInfo);
     return {
       infoText: emptyInfo,
@@ -647,14 +694,15 @@ export async function renderGpuFrame({
   if (drawFallbackContract !== 'none') {
     extraLines.push(`drawPathFallbackContract=${drawFallbackContract}`);
   }
-  const fallbackContractSummary = buildFallbackContractSummary({
+  const gpuFallbackSummary = buildGpuFallbackSummary({
     sourceInfo: gpuScreenSourceInfo,
     comparisonSummary: gpuScreenComparisonSummary,
     drawPathSelection
   });
-  if (fallbackContractSummary !== 'none') {
-    extraLines.push(`gpuFallbackContractSummary=${fallbackContractSummary}`);
-  }
+  extraLines.push(`gpuFallbackActive=${gpuFallbackSummary.active}`);
+  extraLines.push(`gpuFallbackStageSummary=${gpuFallbackSummary.stageSummary}`);
+  extraLines.push(`gpuFallbackReasonSummary=${gpuFallbackSummary.reasonSummary}`);
+  extraLines.push(`gpuFallbackContractSummary=${gpuFallbackSummary.contractSummary}`);
 
   const infoText = formatGpuViewerInfo({
     raw,
@@ -673,11 +721,11 @@ export async function renderGpuFrame({
     timestamp: buildConfig.timestamp,
     splatScale: buildConfig.scalingModifier,
     elapsedMs: elapsed,
-    stepLabel: 'GPU Step56',
+    stepLabel: 'GPU Step57',
     stepNotes: [
       'transform executor owns transformBatchSummary and downstream code forwards it without reinterpretation',
       'gpu resident payload remains the explicit normal source contract, while source, transform, and draw fallback paths now expose named fallback contracts and reasons across the same debug surface',
-      'renderer stays thin and forwards source, transform, lifecycle, fallback, and gpu-screen execution summaries to debug output, including a single fallback contract summary when a fallback path is active',
+      'renderer stays thin and forwards source, transform, lifecycle, fallback, and gpu-screen execution summaries to debug output, including one stage/reason/contract summary that stays readable when fallback actually fires',
       'packed-write backend keeps the offscreen FBO blend-disable fix while preserving existing public draw contracts'
     ],
     tileSummary,
@@ -701,6 +749,7 @@ export async function renderGpuFrame({
     drawStats,
     tileSummary,
     drawPathSummary: drawPathSelection,
+    gpuFallbackSummary,
     gpuScreenSummary,
     gpuScreenComparisonSummary,
     gpuScreenExecutionSummary,
