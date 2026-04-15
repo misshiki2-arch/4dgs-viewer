@@ -1,4 +1,4 @@
-// Step61 display cleanup
+// Step62 display cleanup
 // 目的:
 // - debug info builder を「整形だけ」の責務に保つ
 // - transform executor / screen-space builder / renderer が確定した truth を、そのまま表示する
@@ -140,6 +140,11 @@ function buildGpuScreenStateLines(gpuScreenSummary) {
   pushLine(lines, 'gpuScreenUsesPackedReferenceShader', fmtBool(!!gpuScreenSummary.gpuScreenUsesPackedReferenceShader));
   pushLine(lines, 'gpuScreenUsesPackedReferenceUpload', fmtBool(!!gpuScreenSummary.gpuScreenUsesPackedReferenceUpload));
   pushLine(lines, 'gpuScreenUsesGpuResidentPayload', fmtBool(!!gpuScreenSummary.gpuScreenUsesGpuResidentPayload));
+  pushLine(lines, 'gpuScreenSharedSetupCount', fmtInt(gpuScreenSummary.gpuScreenSharedSetupCount));
+  pushLine(lines, 'gpuScreenSharedBindCount', fmtInt(gpuScreenSummary.gpuScreenSharedBindCount));
+  pushLine(lines, 'gpuScreenSharedDispatchCount', fmtInt(gpuScreenSummary.gpuScreenSharedDispatchCount));
+  pushLine(lines, 'gpuScreenSharedDispatchMode', gpuScreenSummary.gpuScreenSharedDispatchMode ?? 'none');
+  pushLine(lines, 'gpuScreenSharedPayloadCount', fmtInt(gpuScreenSummary.gpuScreenSharedPayloadCount));
   pushLine(lines, 'gpuScreenGpuResidentPayloadAvailable', fmtBool(!!gpuScreenSummary.gpuScreenGpuResidentPayloadAvailable));
 
   return lines;
@@ -274,6 +279,11 @@ export function buildPackedLines(buildStats, drawPathSelection, drawStats) {
     `packedUploadReusedCapacity=${!!drawStats?.packedUploadReusedCapacity}`,
     `packedDirectDraw=${!!drawStats?.packedDirectDraw}`,
     `packedDirectUsesGpuResidentPayload=${!!drawStats?.packedDirectUsesGpuResidentPayload}`,
+    `packedDirectSharedSetupCount=${drawStats?.packedDirectSharedSetupCount ?? 0}`,
+    `packedDirectSharedBindCount=${drawStats?.packedDirectSharedBindCount ?? 0}`,
+    `packedDirectSharedDispatchCount=${drawStats?.packedDirectSharedDispatchCount ?? 0}`,
+    `packedDirectSharedDispatchMode=${drawStats?.packedDirectSharedDispatchMode ?? 'none'}`,
+    `packedDirectSharedPayloadCount=${drawStats?.packedDirectSharedPayloadCount ?? 0}`,
     `packedDirectGpuResidentPayloadAvailable=${!!drawStats?.packedDirectGpuResidentPayloadAvailable}`,
     `packedDirectLayoutVersion=${drawStats?.packedDirectLayoutVersion ?? 0}`,
     `packedDirectStrideBytes=${drawStats?.packedDirectStrideBytes ?? 0}`,

@@ -53,9 +53,10 @@ export function drawGpuPackedPayloads(gl, gpu, screenSpace, canvasWidth, canvasH
   const payloads = getValidGpuPackedPayloads(gl, screenSpace);
   if (payloads.length <= 0) return null;
 
-  const resources = ensureGpuPackedPayloadTextureDrawResources(gl, gpu, options.storageKey);
+  const resources = options.resources || ensureGpuPackedPayloadTextureDrawResources(gl, gpu, options.storageKey);
   let drawCount = 0;
   let drawCallCount = 0;
+  let bindCount = 0;
 
   gl.useProgram(resources.program);
   gl.bindVertexArray(resources.vao);
@@ -67,6 +68,7 @@ export function drawGpuPackedPayloads(gl, gpu, screenSpace, canvasWidth, canvasH
     if (count <= 0) continue;
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, payload.texture);
+    bindCount++;
     gl.drawArrays(gl.POINTS, 0, count);
     drawCount += count;
     drawCallCount++;
@@ -78,6 +80,12 @@ export function drawGpuPackedPayloads(gl, gpu, screenSpace, canvasWidth, canvasH
   return {
     drawCount,
     drawCallCount,
+    bindCount,
+    setupCount: 1,
+    dispatchCount: drawCallCount,
+    dispatchMode: payloads.length > 1
+      ? 'shared-texture-multi-payload'
+      : 'shared-texture-single-payload',
     resources,
     payloadCount: payloads.length
   };

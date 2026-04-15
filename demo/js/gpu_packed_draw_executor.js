@@ -101,8 +101,10 @@ export function ensurePackedDirectDrawResources(gl, gpu) {
 }
 
 export function uploadAndDrawPackedDirect(gl, gpu, packedScreenSpace, canvasWidth, canvasHeight) {
+  const textureResources = ensurePackedDirectTextureDrawResources(gl, gpu);
   const drawResult = drawGpuPackedPayloads(gl, gpu, packedScreenSpace, canvasWidth, canvasHeight, {
-    storageKey: 'packedDirectTextureDrawResources'
+    storageKey: 'packedDirectTextureDrawResources',
+    resources: textureResources
   });
 
   if (drawResult) {
@@ -112,6 +114,11 @@ export function uploadAndDrawPackedDirect(gl, gpu, packedScreenSpace, canvasWidt
     return {
       drawCount: drawResult.drawCount,
       drawCallCount: drawResult.drawCallCount,
+      packedDirectSharedSetupCount: drawResult.setupCount ?? 0,
+      packedDirectSharedBindCount: drawResult.bindCount ?? 0,
+      packedDirectSharedDispatchCount: drawResult.dispatchCount ?? 0,
+      packedDirectSharedDispatchMode: drawResult.dispatchMode ?? 'none',
+      packedDirectSharedPayloadCount: drawResult.payloadCount ?? 0,
       uploadCount: 0,
       packedDirectDraw: true,
       packedDirectUsesGpuResidentPayload: true,
@@ -154,6 +161,11 @@ export function uploadAndDrawPackedDirect(gl, gpu, packedScreenSpace, canvasWidt
   return {
     drawCount,
     drawCallCount: 1,
+    packedDirectSharedSetupCount: 0,
+    packedDirectSharedBindCount: 0,
+    packedDirectSharedDispatchCount: 0,
+    packedDirectSharedDispatchMode: 'none',
+    packedDirectSharedPayloadCount: 0,
     uploadCount: 1,
     packedDirectDraw: true,
     packedDirectUsesGpuResidentPayload: false,
@@ -175,6 +187,11 @@ export function summarizePackedDirectResources(gpu) {
     packedDirectGpuResidentPayloadAvailable:
       !!gpu?.packedDirectTextureDrawResources?.program &&
       !!gpu?.packedDirectTextureDrawResources?.vao,
+    packedDirectSharedSetupCount: 0,
+    packedDirectSharedBindCount: 0,
+    packedDirectSharedDispatchCount: 0,
+    packedDirectSharedDispatchMode: 'none',
+    packedDirectSharedPayloadCount: 0,
     ...layoutSummary,
     uploadSummary
   };

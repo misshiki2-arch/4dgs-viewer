@@ -57,7 +57,12 @@ function createDefaultGpuScreenState() {
     lastUploadManagedCapacityReused: false,
     lastUploadManagedCapacityGrown: false,
     lastUploadManagedUploadCount: 0,
-    usesGpuResidentPayload: false
+    usesGpuResidentPayload: false,
+    lastSharedSetupCount: 0,
+    lastSharedBindCount: 0,
+    lastSharedDispatchCount: 0,
+    lastSharedDispatchMode: 'none',
+    lastSharedPayloadCount: 0
   };
 }
 
@@ -139,6 +144,15 @@ function resetGpuScreenUploadState(state) {
     packedUploadManagedCapacityGrown: false,
     packedUploadManagedUploadCount: 0
   });
+}
+
+function resetGpuScreenSharedDrawState(state) {
+  if (!state) return;
+  state.lastSharedSetupCount = 0;
+  state.lastSharedBindCount = 0;
+  state.lastSharedDispatchCount = 0;
+  state.lastSharedDispatchMode = 'none';
+  state.lastSharedPayloadCount = 0;
 }
 
 function prepareFullFrameGpuScreenDraw(gl, canvasWidth, canvasHeight) {
@@ -305,6 +319,7 @@ function drawGpuScreenWithPackedUpload(gl, gpu, gpuScreenSpace, canvasWidth, can
   ensuredState.usesPackedReferenceLayout = true;
   ensuredState.usesPackedReferenceShader = true;
   ensuredState.usesPackedReferenceUpload = true;
+  resetGpuScreenSharedDrawState(ensuredState);
 
   prepareFullFrameGpuScreenDraw(gl, canvasWidth, canvasHeight);
   gl.useProgram(gpu.program);
@@ -323,7 +338,8 @@ function drawGpuScreenWithPackedUpload(gl, gpu, gpuScreenSpace, canvasWidth, can
 function drawGpuScreenWithGpuResidentPayloads(gl, gpu, gpuScreenSpace, canvasWidth, canvasHeight, state) {
   const resources = ensureGpuScreenTextureDrawResources(gl, gpu);
   const drawResult = drawGpuPackedPayloads(gl, gpu, gpuScreenSpace, canvasWidth, canvasHeight, {
-    storageKey: 'gpuScreenTextureDrawResources'
+    storageKey: 'gpuScreenTextureDrawResources',
+    resources
   });
   if (!drawResult) return null;
 
@@ -340,10 +356,15 @@ function drawGpuScreenWithGpuResidentPayloads(gl, gpu, gpuScreenSpace, canvasWid
   state.usesPackedReferenceLayout = false;
   state.usesPackedReferenceShader = false;
   state.usesPackedReferenceUpload = false;
+  state.lastSharedSetupCount = drawResult.setupCount ?? 0;
+  state.lastSharedBindCount = drawResult.bindCount ?? 0;
+  state.lastSharedDispatchCount = drawResult.dispatchCount ?? 0;
+  state.lastSharedDispatchMode = drawResult.dispatchMode ?? 'none';
+  state.lastSharedPayloadCount = drawResult.payloadCount ?? 0;
   resetGpuScreenUploadState(state);
 
   prepareFullFrameGpuScreenDraw(gl, canvasWidth, canvasHeight);
-  return drawResult.drawCount;
+  return drawResult;
 }
 
 export function createGpuScreenDrawState() {
@@ -404,6 +425,11 @@ export function summarizeGpuScreenDrawState(gpu) {
     gpuScreenUploadManagedCapacityGrown: !!state.lastUploadManagedCapacityGrown,
     gpuScreenUploadManagedUploadCount: state.lastUploadManagedUploadCount ?? 0,
     gpuScreenUsesGpuResidentPayload: !!state.usesGpuResidentPayload,
+    gpuScreenSharedSetupCount: state.lastSharedSetupCount ?? 0,
+    gpuScreenSharedBindCount: state.lastSharedBindCount ?? 0,
+    gpuScreenSharedDispatchCount: state.lastSharedDispatchCount ?? 0,
+    gpuScreenSharedDispatchMode: state.lastSharedDispatchMode ?? 'none',
+    gpuScreenSharedPayloadCount: state.lastSharedPayloadCount ?? 0,
     gpuScreenGpuResidentPayloadAvailable:
       !!gpu?.gpuScreenTextureDrawResources?.program &&
       !!gpu?.gpuScreenTextureDrawResources?.vao,
@@ -414,7 +440,7 @@ export function summarizeGpuScreenDrawState(gpu) {
 
 export function uploadAndDrawGpuScreen(gl, gpu, gpuScreenSpace, canvasWidth, canvasHeight) {
   const state = ensureGpuScreenState(gpu);
-  let drawCount = drawGpuScreenWithGpuResidentPayloads(
+  let textureDrawResult = drawGpuScreenWithGpuResidentPayloads(
     gl,
     gpu,
     gpuScreenSpace,
@@ -422,6 +448,7 @@ export function uploadAndDrawGpuScreen(gl, gpu, gpuScreenSpace, canvasWidth, can
     canvasHeight,
     state
   );
+  let drawCount = textureDrawResult?.drawCount ?? null;
   let drawInput = gpuScreenSpace;
 
   if (drawCount === null) {
@@ -454,6 +481,12 @@ export function uploadAndDrawGpuScreen(gl, gpu, gpuScreenSpace, canvasWidth, can
 
   return {
     drawCount,
+    drawCallCount: textureDrawResult?.drawCallCount ?? 1,
+    sharedSetupCount: textureDrawResult?.setupCount ?? 0,
+    sharedBindCount: textureDrawResult?.bindCount ?? 0,
+    sharedDispatchCount: textureDrawResult?.dispatchCount ?? 0,
+    sharedDispatchMode: textureDrawResult?.dispatchMode ?? 'none',
+    sharedPayloadCount: textureDrawResult?.payloadCount ?? 0,
     gpuScreenSummary: summarizeGpuScreenDrawState(gpu),
     gpuScreenComparisonSummary: comparisonSummary,
     gpuScreenExecutionSummary: buildGpuScreenExecutionSummary({
