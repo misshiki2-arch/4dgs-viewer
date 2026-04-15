@@ -494,7 +494,7 @@ export async function renderGpuFrame({
     debugOverlayCanvas.height = canvas.height;
     debugCtx.clearRect(0, 0, debugOverlayCanvas.width, debugOverlayCanvas.height);
     debugOverlayCanvas.style.display = 'none';
-    const emptyInfo = 'GPU Step62 viewer\nNo scene loaded.';
+    const emptyInfo = 'GPU Step63 viewer\nNo scene loaded.';
     setInfoText(infoEl, emptyInfo);
     return {
       infoText: emptyInfo,
@@ -772,11 +772,12 @@ export async function renderGpuFrame({
     timestamp: buildConfig.timestamp,
     splatScale: buildConfig.scalingModifier,
     elapsedMs: elapsed,
-    stepLabel: 'GPU Step62',
+    stepLabel: 'GPU Step63',
     stepNotes: [
       'transform executor owns transformBatchSummary and downstream code forwards it without reinterpretation',
-      'gpu resident payload draw now shares more of its bind, setup, and dispatch work between gpu-screen and packed direct through the shared texture consumer path',
-      'debug output keeps the existing truth-source transform metrics and now also exposes shared draw setup, bind, dispatch, and payload-count metrics for gpu-screen and packed direct',
+      'transform backend now advertises a preferred GPU batch size based on successful single-texture-copy-pass history, and the executor plans GPU batches against that preferred size instead of only the raw hard cap',
+      'debug output keeps the existing truth-source transform metrics and now also exposes preferred transform batch size alongside dispatch metrics so batch-count reductions are visible',
+      'gpu resident payload draw still shares its bind, setup, and dispatch work between gpu-screen and packed direct through the shared texture consumer path',
       'gpu resident payload remains the explicit normal source contract, while cpu packed stays behind explicit compatibility-bridge contracts without changing public draw contracts',
       'packed-write backend keeps the offscreen FBO blend-disable fix while preserving existing public draw contracts'
     ],

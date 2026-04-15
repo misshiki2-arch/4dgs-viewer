@@ -337,15 +337,21 @@ function buildTransformBatchSummary({
   const results = Array.isArray(batchResults) ? batchResults : [];
   let gpuBatchCount = 0;
   let cpuFallbackBatchCount = 0;
+  let largestBatchItemCount = 0;
 
   for (let i = 0; i < batches.length; i++) {
     const batch = batches[i];
     const result = results[i];
     const intendedBackend = batch?.intendedBackend ?? 'cpu';
+    const batchItemCount = Number.isFinite(batch?.itemCount) ? Math.max(0, batch.itemCount | 0) : 0;
     const promotedToGpu = shouldPromoteActualTransformPathToGpuPrep(
       requestedTransformPath,
       result
     );
+
+    if (batchItemCount > largestBatchItemCount) {
+      largestBatchItemCount = batchItemCount;
+    }
 
     if (intendedBackend === 'gpu' && promotedToGpu) {
       gpuBatchCount++;
@@ -360,6 +366,11 @@ function buildTransformBatchSummary({
     maxBatchItems: Number.isFinite(backendCapability?.maxBatchItems)
       ? backendCapability.maxBatchItems
       : 0,
+    preferredBatchItems: Number.isFinite(backendCapability?.preferredBatchItems)
+      ? backendCapability.preferredBatchItems
+      : 0,
+    preferredBatchPolicy: backendCapability?.preferredBatchPolicy ?? 'preferred-batch-none',
+    largestBatchItemCount,
     gpuBatchCount,
     cpuFallbackBatchCount,
     allBatchesGpuSuccess: batches.length > 0 && gpuBatchCount === batches.length
@@ -611,7 +622,7 @@ export function executeGpuScreenPackedTransform(context, sourceItemsResult, opti
   const backendCapability = backendDispatch.backendCapability ?? null;
   const batchPlan = planGpuScreenTransformBatches({
     sourceItemCount: safeSourceItemCount(sourceItemsResult),
-    maxBatchItems: backendCapability?.maxBatchItems ?? 0,
+    maxBatchItems: backendCapability?.preferredBatchItems ?? backendCapability?.maxBatchItems ?? 0,
     requestedTransformPath: executionInputs.requestedTransformPath
   });
 

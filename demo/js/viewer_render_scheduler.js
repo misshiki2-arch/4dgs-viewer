@@ -8,7 +8,6 @@ export function createRenderScheduler({ renderFrame, tokenRef, isPlaying }) {
   async function scheduleRender() {
     if (state.rendering || state.renderPending) {
       state.needsRenderAgain = true;
-      if (tokenRef) tokenRef.value++;
       return;
     }
 
