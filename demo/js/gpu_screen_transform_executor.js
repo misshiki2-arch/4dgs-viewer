@@ -377,6 +377,84 @@ function buildTransformBatchSummary({
   };
 }
 
+function summarizeDispatchMode(batchResults) {
+  const results = Array.isArray(batchResults) ? batchResults : [];
+  let mode = 'none';
+
+  for (const result of results) {
+    const dispatchCount = Number.isFinite(result?.backendDispatchCount)
+      ? Math.max(0, result.backendDispatchCount | 0)
+      : 0;
+    if (dispatchCount <= 0) continue;
+    const nextMode = result?.backendDispatchMode ?? 'none';
+    if (mode === 'none') {
+      mode = nextMode;
+      continue;
+    }
+    if (mode !== nextMode) return 'mixed-dispatch-modes';
+  }
+
+  return mode;
+}
+
+function buildTransformThroughputSummary({
+  batchResults,
+  transformBatchSummary
+}) {
+  const results = Array.isArray(batchResults) ? batchResults : [];
+  let totalDispatchCount = 0;
+  let totalDispatchUploadBytes = 0;
+  let largestDispatchItemCount = 0;
+
+  for (const result of results) {
+    const dispatchCount = Number.isFinite(result?.backendDispatchCount)
+      ? Math.max(0, result.backendDispatchCount | 0)
+      : 0;
+    const dispatchUploadBytes = Number.isFinite(result?.backendDispatchUploadBytes)
+      ? Math.max(0, result.backendDispatchUploadBytes | 0)
+      : 0;
+    const dispatchItemCount = Number.isFinite(result?.backendDispatchItemCount)
+      ? Math.max(0, result.backendDispatchItemCount | 0)
+      : 0;
+
+    totalDispatchCount += dispatchCount;
+    totalDispatchUploadBytes += dispatchUploadBytes;
+    if (dispatchItemCount > largestDispatchItemCount) {
+      largestDispatchItemCount = dispatchItemCount;
+    }
+  }
+
+  const gpuBatchCount = Number.isFinite(transformBatchSummary?.gpuBatchCount)
+    ? Math.max(0, transformBatchSummary.gpuBatchCount | 0)
+    : 0;
+  const drawPressure = totalDispatchCount > gpuBatchCount
+    ? 'dispatch-split-within-gpu-batches'
+    : gpuBatchCount > 0
+      ? 'gpu-batch-bound'
+      : 'cpu-fallback-bound';
+
+  return {
+    batchCount: Number.isFinite(transformBatchSummary?.batchCount)
+      ? Math.max(0, transformBatchSummary.batchCount | 0)
+      : 0,
+    gpuBatchCount,
+    cpuFallbackBatchCount: Number.isFinite(transformBatchSummary?.cpuFallbackBatchCount)
+      ? Math.max(0, transformBatchSummary.cpuFallbackBatchCount | 0)
+      : 0,
+    preferredBatchItems: Number.isFinite(transformBatchSummary?.preferredBatchItems)
+      ? Math.max(0, transformBatchSummary.preferredBatchItems | 0)
+      : 0,
+    largestBatchItemCount: Number.isFinite(transformBatchSummary?.largestBatchItemCount)
+      ? Math.max(0, transformBatchSummary.largestBatchItemCount | 0)
+      : 0,
+    totalDispatchCount,
+    totalDispatchUploadBytes,
+    largestDispatchItemCount,
+    dispatchMode: summarizeDispatchMode(results),
+    throughputPressure: drawPressure
+  };
+}
+
 export function createGpuScreenTransformContext() {
   return {
     backendContext: createGpuScreenTransformBackendGpuContext(),
@@ -414,6 +492,7 @@ export function createGpuScreenTransformContext() {
     transformDispatchMode: 'none',
     transformDispatchUploadBytes: 0,
     transformDispatchItemCount: 0,
+    transformThroughputSummary: null,
     sourceItemCount: 0,
     sourceSchemaVersion: 0,
     packedCount: 0,
@@ -438,6 +517,7 @@ function buildTransformSummary({
   floatsPerItem,
   transformStageMs,
   transformBatchSummary = null,
+  transformThroughputSummary = null,
   backendCapability = null
 }) {
   const uploadSummary = buildTransformUploadSummary(packed, packedCount);
@@ -467,6 +547,7 @@ function buildTransformSummary({
       : GPU_VISIBLE_PACK_FLOATS_PER_ITEM,
     transformStageMs: Number.isFinite(transformStageMs) ? transformStageMs : 0,
     transformBatchSummary,
+    transformThroughputSummary,
     transformPayloadOwner: backendCapability?.lastPayloadOwner ?? 'none',
     transformActivePayloadCount: Number.isFinite(backendCapability?.activePayloadCount)
       ? backendCapability.activePayloadCount
@@ -600,6 +681,7 @@ function updateContext(context, summary) {
   context.transformDispatchItemCount = Number.isFinite(summary.transformDispatchItemCount)
     ? summary.transformDispatchItemCount
     : 0;
+  context.transformThroughputSummary = summary.transformThroughputSummary ?? null;
   context.lastSummary = summary;
 }
 
@@ -651,6 +733,10 @@ export function executeGpuScreenPackedTransform(context, sourceItemsResult, opti
     backendCapability,
     requestedTransformPath: executionInputs.requestedTransformPath
   });
+  const transformThroughputSummary = buildTransformThroughputSummary({
+    batchResults,
+    transformBatchSummary
+  });
 
   const summary = buildTransformSummary({
     sourcePath: executionInputs.sourcePath,
@@ -663,6 +749,7 @@ export function executeGpuScreenPackedTransform(context, sourceItemsResult, opti
     floatsPerItem: combinedBatchResult.floatsPerItem,
     transformStageMs,
     transformBatchSummary,
+    transformThroughputSummary,
     backendCapability: finalBackendCapability
   });
 
@@ -712,6 +799,7 @@ export function executeGpuScreenPackedTransform(context, sourceItemsResult, opti
     transformDispatchMode: summary.transformDispatchMode,
     transformDispatchUploadBytes: summary.transformDispatchUploadBytes,
     transformDispatchItemCount: summary.transformDispatchItemCount,
+    transformThroughputSummary: summary.transformThroughputSummary,
     sourceItems: safeSourceItems(sourceItemsResult),
     sourceItemCount: summary.sourceItemCount,
     sourceSchemaVersion: summary.sourceSchemaVersion,
@@ -763,7 +851,8 @@ export function summarizeGpuScreenTransformResult(result) {
       transformDispatchCount: 0,
       transformDispatchMode: 'none',
       transformDispatchUploadBytes: 0,
-      transformDispatchItemCount: 0
+      transformDispatchItemCount: 0,
+      transformThroughputSummary: null
     };
   }
 
@@ -848,7 +937,8 @@ export function summarizeGpuScreenTransformResult(result) {
       : 0,
     transformDispatchItemCount: Number.isFinite(result.transformDispatchItemCount)
       ? result.transformDispatchItemCount
-      : 0
+      : 0,
+    transformThroughputSummary: result.transformThroughputSummary ?? null
   };
 }
 

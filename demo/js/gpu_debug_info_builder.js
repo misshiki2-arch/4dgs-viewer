@@ -1,4 +1,4 @@
-// Step63 display cleanup
+// Step64 display cleanup
 // 目的:
 // - debug info builder を「整形だけ」の責務に保つ
 // - transform executor / screen-space builder / renderer が確定した truth を、そのまま表示する
@@ -238,6 +238,56 @@ function buildTransformLifecycleLines(transformSummary) {
   return lines;
 }
 
+function buildTransformThroughputLines(transformThroughputSummary) {
+  if (!transformThroughputSummary) return [];
+
+  const lines = [];
+  pushLine(lines, 'transformThroughputBatchCount', fmtInt(transformThroughputSummary.batchCount));
+  pushLine(lines, 'transformThroughputGpuBatchCount', fmtInt(transformThroughputSummary.gpuBatchCount));
+  pushLine(lines, 'transformThroughputCpuFallbackBatchCount', fmtInt(transformThroughputSummary.cpuFallbackBatchCount));
+  pushLine(lines, 'transformThroughputPreferredBatchItems', fmtInt(transformThroughputSummary.preferredBatchItems));
+  pushLine(lines, 'transformThroughputLargestBatchItemCount', fmtInt(transformThroughputSummary.largestBatchItemCount));
+  pushLine(lines, 'transformThroughputDispatchCount', fmtInt(transformThroughputSummary.totalDispatchCount));
+  pushLine(lines, 'transformThroughputDispatchMode', transformThroughputSummary.dispatchMode ?? 'none');
+  pushLine(lines, 'transformThroughputLargestDispatchItemCount', fmtInt(transformThroughputSummary.largestDispatchItemCount));
+  pushLine(lines, 'transformThroughputDispatchUploadBytes', fmtInt(transformThroughputSummary.totalDispatchUploadBytes));
+  pushLine(lines, 'transformThroughputPressure', transformThroughputSummary.throughputPressure ?? 'none');
+  return lines;
+}
+
+function buildDrawThroughputLines(drawThroughputSummary) {
+  if (!drawThroughputSummary) return [];
+
+  const lines = [];
+  pushLine(lines, 'drawThroughputActualPath', drawThroughputSummary.actualDrawPath ?? 'none');
+  pushLine(lines, 'drawThroughputDrawCallCount', fmtInt(drawThroughputSummary.drawCallCount));
+  pushLine(lines, 'drawThroughputUploadCount', fmtInt(drawThroughputSummary.uploadCount));
+  pushLine(lines, 'drawThroughputUploadBytes', fmtInt(drawThroughputSummary.uploadBytes));
+  pushLine(lines, 'drawThroughputSharedSetupCount', fmtInt(drawThroughputSummary.sharedSetupCount));
+  pushLine(lines, 'drawThroughputSharedBindCount', fmtInt(drawThroughputSummary.sharedBindCount));
+  pushLine(lines, 'drawThroughputSharedDispatchCount', fmtInt(drawThroughputSummary.sharedDispatchCount));
+  pushLine(lines, 'drawThroughputSharedDispatchMode', drawThroughputSummary.sharedDispatchMode ?? 'none');
+  pushLine(lines, 'drawThroughputSharedPayloadCount', fmtInt(drawThroughputSummary.sharedPayloadCount));
+  pushLine(lines, 'drawThroughputUsesGpuResidentPayload', fmtBool(!!drawThroughputSummary.usesGpuResidentPayload));
+  pushLine(lines, 'drawThroughputPressure', drawThroughputSummary.throughputPressure ?? 'none');
+  return lines;
+}
+
+function buildFrameGpuThroughputLines(frameGpuThroughputSummary) {
+  if (!frameGpuThroughputSummary) return [];
+
+  const lines = [];
+  pushLine(lines, 'gpuFrameTransformBatchCount', fmtInt(frameGpuThroughputSummary.transformBatchCount));
+  pushLine(lines, 'gpuFrameTransformDispatchCount', fmtInt(frameGpuThroughputSummary.transformDispatchCount));
+  pushLine(lines, 'gpuFrameTransformDispatchMode', frameGpuThroughputSummary.transformDispatchMode ?? 'none');
+  pushLine(lines, 'gpuFrameDrawCallCount', fmtInt(frameGpuThroughputSummary.drawCallCount));
+  pushLine(lines, 'gpuFrameDrawDispatchCount', fmtInt(frameGpuThroughputSummary.drawDispatchCount));
+  pushLine(lines, 'gpuFrameDrawDispatchMode', frameGpuThroughputSummary.drawDispatchMode ?? 'none');
+  pushLine(lines, 'gpuFrameDrawUsesGpuResidentPayload', fmtBool(!!frameGpuThroughputSummary.drawUsesGpuResidentPayload));
+  pushLine(lines, 'gpuFrameThroughputBottleneck', frameGpuThroughputSummary.bottleneckStage ?? 'balanced-gpu-path');
+  return lines;
+}
+
 export function buildLegacySample(visible) {
   if (!Array.isArray(visible) || visible.length === 0) return null;
   const v = visible[0];
@@ -338,6 +388,9 @@ export function buildGpuDebugExtraLines({
   visible = null,
   packedScreenSpace = null,
   gpuScreenExecutionSummary = null,
+  transformThroughputSummary = null,
+  drawThroughputSummary = null,
+  frameGpuThroughputSummary = null,
   legacySample = null,
   packedSample = null
 } = {}) {
@@ -364,7 +417,10 @@ export function buildGpuDebugExtraLines({
   lines.push(...buildGpuScreenComparisonLines(gpuScreenComparisonSummary));
   lines.push(...buildTransformBatchLines(transformBatchSummary));
   lines.push(...buildTransformLifecycleLines(transformLifecycleSummary));
+  lines.push(...buildTransformThroughputLines(transformThroughputSummary));
   lines.push(...buildPackedLines(buildStats, drawPathSelection, drawStats));
+  lines.push(...buildDrawThroughputLines(drawThroughputSummary));
+  lines.push(...buildFrameGpuThroughputLines(frameGpuThroughputSummary));
   lines.push(...buildSampleLines(resolvedLegacySample, resolvedPackedSample));
   lines.push(...buildGpuScreenExecutionLines(gpuScreenExecutionSummary));
 

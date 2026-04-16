@@ -362,6 +362,42 @@ function buildRendererDrawStats({
   return drawStats;
 }
 
+function buildFrameGpuThroughputSummary({
+  transformThroughputSummary,
+  drawThroughputSummary
+}) {
+  const transformDispatchCount = Number.isFinite(transformThroughputSummary?.totalDispatchCount)
+    ? Math.max(0, transformThroughputSummary.totalDispatchCount | 0)
+    : 0;
+  const drawDispatchCount = Number.isFinite(drawThroughputSummary?.sharedDispatchCount)
+    ? Math.max(0, drawThroughputSummary.sharedDispatchCount | 0)
+    : 0;
+  const transformBatchCount = Number.isFinite(transformThroughputSummary?.batchCount)
+    ? Math.max(0, transformThroughputSummary.batchCount | 0)
+    : 0;
+  const drawCallCount = Number.isFinite(drawThroughputSummary?.drawCallCount)
+    ? Math.max(0, drawThroughputSummary.drawCallCount | 0)
+    : 0;
+
+  let bottleneckStage = 'balanced-gpu-path';
+  if (transformDispatchCount > drawDispatchCount || transformBatchCount > drawCallCount) {
+    bottleneckStage = 'transform-throughput-pressure';
+  } else if (drawDispatchCount > transformDispatchCount || drawCallCount > transformBatchCount) {
+    bottleneckStage = 'draw-throughput-pressure';
+  }
+
+  return {
+    transformBatchCount,
+    transformDispatchCount,
+    transformDispatchMode: transformThroughputSummary?.dispatchMode ?? 'none',
+    drawCallCount,
+    drawDispatchCount,
+    drawDispatchMode: drawThroughputSummary?.sharedDispatchMode ?? 'none',
+    drawUsesGpuResidentPayload: !!drawThroughputSummary?.usesGpuResidentPayload,
+    bottleneckStage
+  };
+}
+
 function selectGpuScreenSourceSpace(gpu, visible, packedCpuScreenSpace) {
   const context = ensureGpuScreenSourceContext(gpu);
 
@@ -494,7 +530,7 @@ export async function renderGpuFrame({
     debugOverlayCanvas.height = canvas.height;
     debugCtx.clearRect(0, 0, debugOverlayCanvas.width, debugOverlayCanvas.height);
     debugOverlayCanvas.style.display = 'none';
-    const emptyInfo = 'GPU Step63 viewer\nNo scene loaded.';
+    const emptyInfo = 'GPU Step64 viewer\nNo scene loaded.';
     setInfoText(infoEl, emptyInfo);
     return {
       infoText: emptyInfo,
@@ -621,6 +657,7 @@ export async function renderGpuFrame({
   const {
     executionSummary,
     packedUploadSummary,
+    drawThroughputSummary,
     directPackedDrawInfo,
     gpuScreenDrawInfo
   } = executionResult;
@@ -684,6 +721,15 @@ export async function renderGpuFrame({
     gpuScreenComparisonSummary,
     gpuScreenExecutionSummary
   } = buildGpuScreenResultSummary(gpuScreenSourceInfo, gpuScreenDrawInfo);
+  const transformThroughputSummary =
+    gpuScreenComparisonSummary?.transformThroughputSummary ??
+    gpuScreenSourceInfo?.sourceSpace?.transformSummary?.transformThroughputSummary ??
+    packedScreenSpace?.transformSummary?.transformThroughputSummary ??
+    null;
+  const frameGpuThroughputSummary = buildFrameGpuThroughputSummary({
+    transformThroughputSummary,
+    drawThroughputSummary
+  });
 
   const drawStats = buildRendererDrawStats({
     gpu,
@@ -713,6 +759,9 @@ export async function renderGpuFrame({
     visible,
     packedScreenSpace,
     gpuScreenExecutionSummary,
+    transformThroughputSummary,
+    drawThroughputSummary,
+    frameGpuThroughputSummary,
     legacySample,
     packedSample
   });
@@ -772,11 +821,12 @@ export async function renderGpuFrame({
     timestamp: buildConfig.timestamp,
     splatScale: buildConfig.scalingModifier,
     elapsedMs: elapsed,
-    stepLabel: 'GPU Step63',
+    stepLabel: 'GPU Step64',
     stepNotes: [
       'transform executor owns transformBatchSummary and downstream code forwards it without reinterpretation',
-      'transform backend now advertises a preferred GPU batch size based on successful single-texture-copy-pass history, and the executor plans GPU batches against that preferred size instead of only the raw hard cap',
-      'debug output keeps the existing truth-source transform metrics and now also exposes preferred transform batch size alongside dispatch metrics so batch-count reductions are visible',
+      'transform truth and draw truth are now forwarded into frame-level GPU throughput summaries so the main-path bottleneck is readable without reinterpreting executor-owned contracts',
+      'transform backend still advertises a preferred GPU batch size based on successful single-texture-copy-pass history, and draw still exposes shared consumer setup, bind, and dispatch metrics',
+      'debug output now shows transform throughput, draw throughput, and frame-level bottleneck hints while preserving existing truth-source metrics',
       'gpu resident payload draw still shares its bind, setup, and dispatch work between gpu-screen and packed direct through the shared texture consumer path',
       'gpu resident payload remains the explicit normal source contract, while cpu packed stays behind explicit compatibility-bridge contracts without changing public draw contracts',
       'packed-write backend keeps the offscreen FBO blend-disable fix while preserving existing public draw contracts'
@@ -807,7 +857,10 @@ export async function renderGpuFrame({
     gpuScreenSummary,
     gpuScreenComparisonSummary,
     gpuScreenExecutionSummary,
-    gpuScreenSourceInfo
+    gpuScreenSourceInfo,
+    transformThroughputSummary,
+    drawThroughputSummary,
+    frameGpuThroughputSummary
   };
 
   return result;

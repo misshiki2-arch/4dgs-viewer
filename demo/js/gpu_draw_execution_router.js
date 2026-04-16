@@ -39,6 +39,42 @@ function buildPackedUploadSummary(directPackedDrawInfo) {
   };
 }
 
+function buildDrawThroughputSummary({
+  drawPathSelection,
+  actualDrawPath,
+  drawCallCount = 0,
+  uploadCount = 0,
+  uploadBytes = 0,
+  sharedSetupCount = 0,
+  sharedBindCount = 0,
+  sharedDispatchCount = 0,
+  sharedDispatchMode = 'none',
+  sharedPayloadCount = 0,
+  usesGpuResidentPayload = false
+}) {
+  const dispatchPressure = sharedDispatchCount > 0
+    ? 'shared-dispatch-bound'
+    : drawCallCount > 0
+      ? 'draw-call-bound'
+      : 'no-draw-work';
+
+  return {
+    requestedDrawPath: drawPathSelection?.requestedPath ?? actualDrawPath,
+    actualDrawPath: actualDrawPath ?? drawPathSelection?.actualPath ?? 'legacy',
+    drawPathFallbackReason: drawPathSelection?.fallbackReason ?? 'none',
+    drawCallCount: Number.isFinite(drawCallCount) ? Math.max(0, drawCallCount | 0) : 0,
+    uploadCount: Number.isFinite(uploadCount) ? Math.max(0, uploadCount | 0) : 0,
+    uploadBytes: Number.isFinite(uploadBytes) ? Math.max(0, uploadBytes | 0) : 0,
+    sharedSetupCount: Number.isFinite(sharedSetupCount) ? Math.max(0, sharedSetupCount | 0) : 0,
+    sharedBindCount: Number.isFinite(sharedBindCount) ? Math.max(0, sharedBindCount | 0) : 0,
+    sharedDispatchCount: Number.isFinite(sharedDispatchCount) ? Math.max(0, sharedDispatchCount | 0) : 0,
+    sharedDispatchMode: sharedDispatchMode ?? 'none',
+    sharedPayloadCount: Number.isFinite(sharedPayloadCount) ? Math.max(0, sharedPayloadCount | 0) : 0,
+    usesGpuResidentPayload: !!usesGpuResidentPayload,
+    throughputPressure: dispatchPressure
+  };
+}
+
 function executePackedFullFrameDraw({
   gl,
   gpu,
@@ -66,6 +102,19 @@ function executePackedFullFrameDraw({
       directPackedDrawInfo
     ),
     packedUploadSummary: buildPackedUploadSummary(directPackedDrawInfo),
+    drawThroughputSummary: buildDrawThroughputSummary({
+      drawPathSelection,
+      actualDrawPath: GPU_DRAW_PATH_PACKED,
+      drawCallCount: directPackedDrawInfo?.drawCallCount ?? 1,
+      uploadCount: directPackedDrawInfo?.uploadCount ?? 0,
+      uploadBytes: directPackedDrawInfo?.uploadSummary?.packedUploadBytes ?? 0,
+      sharedSetupCount: directPackedDrawInfo?.packedDirectSharedSetupCount ?? 0,
+      sharedBindCount: directPackedDrawInfo?.packedDirectSharedBindCount ?? 0,
+      sharedDispatchCount: directPackedDrawInfo?.packedDirectSharedDispatchCount ?? 0,
+      sharedDispatchMode: directPackedDrawInfo?.packedDirectSharedDispatchMode ?? 'none',
+      sharedPayloadCount: directPackedDrawInfo?.packedDirectSharedPayloadCount ?? 0,
+      usesGpuResidentPayload: !!directPackedDrawInfo?.packedDirectUsesGpuResidentPayload
+    }),
     directPackedDrawInfo,
     gpuScreenDrawInfo: null
   };
@@ -119,6 +168,23 @@ function executeGpuScreenFullFrameDraw({
   return {
     executionSummary: buildGpuScreenExecutionSummary(drawPathSelection, gpuScreenDrawInfo),
     packedUploadSummary: buildGpuScreenPackedUploadSummary(),
+    drawThroughputSummary: buildDrawThroughputSummary({
+      drawPathSelection,
+      actualDrawPath: GPU_DRAW_PATH_GPU_SCREEN,
+      drawCallCount: gpuScreenDrawInfo?.drawCallCount ?? 1,
+      uploadCount: gpuScreenDrawInfo?.sharedDispatchCount > 0 ? 0 : 1,
+      uploadBytes: gpuScreenDrawInfo?.gpuScreenSummary?.gpuScreenUploadBytes
+        ?? gpuScreenDrawInfo?.gpuScreenUploadSummary?.packedUploadBytes
+        ?? 0,
+      sharedSetupCount: gpuScreenDrawInfo?.sharedSetupCount ?? 0,
+      sharedBindCount: gpuScreenDrawInfo?.sharedBindCount ?? 0,
+      sharedDispatchCount: gpuScreenDrawInfo?.sharedDispatchCount ?? 0,
+      sharedDispatchMode: gpuScreenDrawInfo?.sharedDispatchMode ?? 'none',
+      sharedPayloadCount: gpuScreenDrawInfo?.sharedPayloadCount ?? 0,
+      usesGpuResidentPayload: !!(
+        gpuScreenDrawInfo?.gpuScreenSummary?.gpuScreenUsesGpuResidentPayload
+      )
+    }),
     directPackedDrawInfo: null,
     gpuScreenDrawInfo
   };
@@ -157,13 +223,29 @@ export function executeFullFrameDrawByPath({
   }
 
   if (actualPath === GPU_DRAW_PATH_LEGACY) {
-    return executeFallbackFullFrameDraw({
+    const fallbackResult = executeFallbackFullFrameDraw({
       gl,
       gpu,
       canvas,
       legacyDrawData,
       drawPathSelection
     });
+    return {
+      ...fallbackResult,
+      drawThroughputSummary: buildDrawThroughputSummary({
+        drawPathSelection,
+        actualDrawPath: GPU_DRAW_PATH_LEGACY,
+        drawCallCount: fallbackResult?.executionSummary?.drawCallCount ?? 1,
+        uploadCount: fallbackResult?.executionSummary?.uploadCount ?? 1,
+        uploadBytes: 0,
+        sharedSetupCount: 0,
+        sharedBindCount: 0,
+        sharedDispatchCount: 0,
+        sharedDispatchMode: 'none',
+        sharedPayloadCount: 0,
+        usesGpuResidentPayload: false
+      })
+    };
   }
 
   throw new Error(`Unsupported full-frame draw path: ${actualPath}`);
