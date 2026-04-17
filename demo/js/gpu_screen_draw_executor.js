@@ -75,7 +75,14 @@ function createDefaultGpuScreenState() {
     lastSharedMergePolicyReason: 'none',
     lastSharedMergePolicyEstimatedCopyCount: 0,
     lastSharedMergePolicyEstimatedDispatchSavings: 0,
-    lastSharedMergePolicyAtlasArea: 0
+    lastSharedMergePolicyAtlasArea: 0,
+    lastSharedMergeAtlasReused: false,
+    lastSharedMergeAtlasRebuilt: false,
+    lastSharedMergeAtlasChurnReason: 'none',
+    lastSharedMergeAtlasCapacityWidth: 0,
+    lastSharedMergeAtlasCapacityHeight: 0,
+    lastSharedMergeAtlasAllocationBytes: 0,
+    lastSharedMergeAtlasSavedAllocationBytes: 0
   };
 }
 
@@ -179,6 +186,13 @@ function resetGpuScreenSharedDrawState(state) {
   state.lastSharedMergePolicyEstimatedCopyCount = 0;
   state.lastSharedMergePolicyEstimatedDispatchSavings = 0;
   state.lastSharedMergePolicyAtlasArea = 0;
+  state.lastSharedMergeAtlasReused = false;
+  state.lastSharedMergeAtlasRebuilt = false;
+  state.lastSharedMergeAtlasChurnReason = 'none';
+  state.lastSharedMergeAtlasCapacityWidth = 0;
+  state.lastSharedMergeAtlasCapacityHeight = 0;
+  state.lastSharedMergeAtlasAllocationBytes = 0;
+  state.lastSharedMergeAtlasSavedAllocationBytes = 0;
 }
 
 function prepareFullFrameGpuScreenDraw(gl, canvasWidth, canvasHeight) {
@@ -400,6 +414,13 @@ function drawGpuScreenWithGpuResidentPayloads(gl, gpu, gpuScreenSpace, canvasWid
   state.lastSharedMergePolicyEstimatedCopyCount = drawResult.mergePolicyEstimatedCopyCount ?? 0;
   state.lastSharedMergePolicyEstimatedDispatchSavings = drawResult.mergePolicyEstimatedDispatchSavings ?? 0;
   state.lastSharedMergePolicyAtlasArea = drawResult.mergePolicyAtlasArea ?? 0;
+  state.lastSharedMergeAtlasReused = !!drawResult.mergeAtlasReused;
+  state.lastSharedMergeAtlasRebuilt = !!drawResult.mergeAtlasRebuilt;
+  state.lastSharedMergeAtlasChurnReason = drawResult.mergeAtlasChurnReason ?? 'none';
+  state.lastSharedMergeAtlasCapacityWidth = drawResult.mergeAtlasCapacityWidth ?? 0;
+  state.lastSharedMergeAtlasCapacityHeight = drawResult.mergeAtlasCapacityHeight ?? 0;
+  state.lastSharedMergeAtlasAllocationBytes = drawResult.mergeAtlasAllocationBytes ?? 0;
+  state.lastSharedMergeAtlasSavedAllocationBytes = drawResult.mergeAtlasSavedAllocationBytes ?? 0;
   resetGpuScreenUploadState(state);
 
   prepareFullFrameGpuScreenDraw(gl, canvasWidth, canvasHeight);
@@ -482,6 +503,13 @@ export function summarizeGpuScreenDrawState(gpu) {
     gpuScreenSharedMergePolicyEstimatedCopyCount: state.lastSharedMergePolicyEstimatedCopyCount ?? 0,
     gpuScreenSharedMergePolicyEstimatedDispatchSavings: state.lastSharedMergePolicyEstimatedDispatchSavings ?? 0,
     gpuScreenSharedMergePolicyAtlasArea: state.lastSharedMergePolicyAtlasArea ?? 0,
+    gpuScreenSharedMergeAtlasReused: !!state.lastSharedMergeAtlasReused,
+    gpuScreenSharedMergeAtlasRebuilt: !!state.lastSharedMergeAtlasRebuilt,
+    gpuScreenSharedMergeAtlasChurnReason: state.lastSharedMergeAtlasChurnReason ?? 'none',
+    gpuScreenSharedMergeAtlasCapacityWidth: state.lastSharedMergeAtlasCapacityWidth ?? 0,
+    gpuScreenSharedMergeAtlasCapacityHeight: state.lastSharedMergeAtlasCapacityHeight ?? 0,
+    gpuScreenSharedMergeAtlasAllocationBytes: state.lastSharedMergeAtlasAllocationBytes ?? 0,
+    gpuScreenSharedMergeAtlasSavedAllocationBytes: state.lastSharedMergeAtlasSavedAllocationBytes ?? 0,
     gpuScreenGpuResidentPayloadAvailable:
       !!gpu?.gpuScreenTextureDrawResources?.program &&
       !!gpu?.gpuScreenTextureDrawResources?.vao,
@@ -552,6 +580,13 @@ export function uploadAndDrawGpuScreen(gl, gpu, gpuScreenSpace, canvasWidth, can
     sharedMergePolicyEstimatedCopyCount: textureDrawResult?.mergePolicyEstimatedCopyCount ?? 0,
     sharedMergePolicyEstimatedDispatchSavings: textureDrawResult?.mergePolicyEstimatedDispatchSavings ?? 0,
     sharedMergePolicyAtlasArea: textureDrawResult?.mergePolicyAtlasArea ?? 0,
+    sharedMergeAtlasReused: !!textureDrawResult?.mergeAtlasReused,
+    sharedMergeAtlasRebuilt: !!textureDrawResult?.mergeAtlasRebuilt,
+    sharedMergeAtlasChurnReason: textureDrawResult?.mergeAtlasChurnReason ?? 'none',
+    sharedMergeAtlasCapacityWidth: textureDrawResult?.mergeAtlasCapacityWidth ?? 0,
+    sharedMergeAtlasCapacityHeight: textureDrawResult?.mergeAtlasCapacityHeight ?? 0,
+    sharedMergeAtlasAllocationBytes: textureDrawResult?.mergeAtlasAllocationBytes ?? 0,
+    sharedMergeAtlasSavedAllocationBytes: textureDrawResult?.mergeAtlasSavedAllocationBytes ?? 0,
     gpuScreenSummary: summarizeGpuScreenDrawState(gpu),
     gpuScreenComparisonSummary: comparisonSummary,
     gpuScreenExecutionSummary: buildGpuScreenExecutionSummary({

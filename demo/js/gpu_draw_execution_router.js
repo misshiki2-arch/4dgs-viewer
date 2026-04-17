@@ -43,6 +43,13 @@ function buildPackedUploadSummary(directPackedDrawInfo) {
     packedDirectSharedMergePolicyEstimatedCopyCount: directPackedDrawInfo?.packedDirectSharedMergePolicyEstimatedCopyCount ?? 0,
     packedDirectSharedMergePolicyEstimatedDispatchSavings: directPackedDrawInfo?.packedDirectSharedMergePolicyEstimatedDispatchSavings ?? 0,
     packedDirectSharedMergePolicyAtlasArea: directPackedDrawInfo?.packedDirectSharedMergePolicyAtlasArea ?? 0,
+    packedDirectSharedMergeAtlasReused: !!directPackedDrawInfo?.packedDirectSharedMergeAtlasReused,
+    packedDirectSharedMergeAtlasRebuilt: !!directPackedDrawInfo?.packedDirectSharedMergeAtlasRebuilt,
+    packedDirectSharedMergeAtlasChurnReason: directPackedDrawInfo?.packedDirectSharedMergeAtlasChurnReason ?? 'none',
+    packedDirectSharedMergeAtlasCapacityWidth: directPackedDrawInfo?.packedDirectSharedMergeAtlasCapacityWidth ?? 0,
+    packedDirectSharedMergeAtlasCapacityHeight: directPackedDrawInfo?.packedDirectSharedMergeAtlasCapacityHeight ?? 0,
+    packedDirectSharedMergeAtlasAllocationBytes: directPackedDrawInfo?.packedDirectSharedMergeAtlasAllocationBytes ?? 0,
+    packedDirectSharedMergeAtlasSavedAllocationBytes: directPackedDrawInfo?.packedDirectSharedMergeAtlasSavedAllocationBytes ?? 0,
     packedDirectLayoutVersion: directPackedDrawInfo?.packedDirectLayoutVersion ?? 0,
     packedDirectStrideBytes: directPackedDrawInfo?.packedDirectStrideBytes ?? 0,
     packedDirectAttributeCount: directPackedDrawInfo?.packedDirectAttributeCount ?? 0,
@@ -76,6 +83,13 @@ function buildDrawThroughputSummary({
   sharedMergePolicyEstimatedCopyCount = 0,
   sharedMergePolicyEstimatedDispatchSavings = 0,
   sharedMergePolicyAtlasArea = 0,
+  sharedMergeAtlasReused = false,
+  sharedMergeAtlasRebuilt = false,
+  sharedMergeAtlasChurnReason = 'none',
+  sharedMergeAtlasCapacityWidth = 0,
+  sharedMergeAtlasCapacityHeight = 0,
+  sharedMergeAtlasAllocationBytes = 0,
+  sharedMergeAtlasSavedAllocationBytes = 0,
   usesGpuResidentPayload = false
 }) {
   const dispatchPressure = sharedDispatchCount > 0
@@ -109,6 +123,13 @@ function buildDrawThroughputSummary({
     sharedMergePolicyEstimatedCopyCount: Number.isFinite(sharedMergePolicyEstimatedCopyCount) ? Math.max(0, sharedMergePolicyEstimatedCopyCount | 0) : 0,
     sharedMergePolicyEstimatedDispatchSavings: Number.isFinite(sharedMergePolicyEstimatedDispatchSavings) ? Math.max(0, sharedMergePolicyEstimatedDispatchSavings | 0) : 0,
     sharedMergePolicyAtlasArea: Number.isFinite(sharedMergePolicyAtlasArea) ? Math.max(0, sharedMergePolicyAtlasArea | 0) : 0,
+    sharedMergeAtlasReused: !!sharedMergeAtlasReused,
+    sharedMergeAtlasRebuilt: !!sharedMergeAtlasRebuilt,
+    sharedMergeAtlasChurnReason: sharedMergeAtlasChurnReason ?? 'none',
+    sharedMergeAtlasCapacityWidth: Number.isFinite(sharedMergeAtlasCapacityWidth) ? Math.max(0, sharedMergeAtlasCapacityWidth | 0) : 0,
+    sharedMergeAtlasCapacityHeight: Number.isFinite(sharedMergeAtlasCapacityHeight) ? Math.max(0, sharedMergeAtlasCapacityHeight | 0) : 0,
+    sharedMergeAtlasAllocationBytes: Number.isFinite(sharedMergeAtlasAllocationBytes) ? Math.max(0, sharedMergeAtlasAllocationBytes | 0) : 0,
+    sharedMergeAtlasSavedAllocationBytes: Number.isFinite(sharedMergeAtlasSavedAllocationBytes) ? Math.max(0, sharedMergeAtlasSavedAllocationBytes | 0) : 0,
     usesGpuResidentPayload: !!usesGpuResidentPayload,
     throughputPressure: dispatchPressure
   };
@@ -165,6 +186,13 @@ function executePackedFullFrameDraw({
       sharedMergePolicyEstimatedCopyCount: directPackedDrawInfo?.packedDirectSharedMergePolicyEstimatedCopyCount ?? 0,
       sharedMergePolicyEstimatedDispatchSavings: directPackedDrawInfo?.packedDirectSharedMergePolicyEstimatedDispatchSavings ?? 0,
       sharedMergePolicyAtlasArea: directPackedDrawInfo?.packedDirectSharedMergePolicyAtlasArea ?? 0,
+      sharedMergeAtlasReused: !!directPackedDrawInfo?.packedDirectSharedMergeAtlasReused,
+      sharedMergeAtlasRebuilt: !!directPackedDrawInfo?.packedDirectSharedMergeAtlasRebuilt,
+      sharedMergeAtlasChurnReason: directPackedDrawInfo?.packedDirectSharedMergeAtlasChurnReason ?? 'none',
+      sharedMergeAtlasCapacityWidth: directPackedDrawInfo?.packedDirectSharedMergeAtlasCapacityWidth ?? 0,
+      sharedMergeAtlasCapacityHeight: directPackedDrawInfo?.packedDirectSharedMergeAtlasCapacityHeight ?? 0,
+      sharedMergeAtlasAllocationBytes: directPackedDrawInfo?.packedDirectSharedMergeAtlasAllocationBytes ?? 0,
+      sharedMergeAtlasSavedAllocationBytes: directPackedDrawInfo?.packedDirectSharedMergeAtlasSavedAllocationBytes ?? 0,
       usesGpuResidentPayload: !!directPackedDrawInfo?.packedDirectUsesGpuResidentPayload
     }),
     directPackedDrawInfo,
@@ -246,6 +274,13 @@ function executeGpuScreenFullFrameDraw({
       sharedMergePolicyEstimatedCopyCount: gpuScreenDrawInfo?.sharedMergePolicyEstimatedCopyCount ?? 0,
       sharedMergePolicyEstimatedDispatchSavings: gpuScreenDrawInfo?.sharedMergePolicyEstimatedDispatchSavings ?? 0,
       sharedMergePolicyAtlasArea: gpuScreenDrawInfo?.sharedMergePolicyAtlasArea ?? 0,
+      sharedMergeAtlasReused: !!gpuScreenDrawInfo?.sharedMergeAtlasReused,
+      sharedMergeAtlasRebuilt: !!gpuScreenDrawInfo?.sharedMergeAtlasRebuilt,
+      sharedMergeAtlasChurnReason: gpuScreenDrawInfo?.sharedMergeAtlasChurnReason ?? 'none',
+      sharedMergeAtlasCapacityWidth: gpuScreenDrawInfo?.sharedMergeAtlasCapacityWidth ?? 0,
+      sharedMergeAtlasCapacityHeight: gpuScreenDrawInfo?.sharedMergeAtlasCapacityHeight ?? 0,
+      sharedMergeAtlasAllocationBytes: gpuScreenDrawInfo?.sharedMergeAtlasAllocationBytes ?? 0,
+      sharedMergeAtlasSavedAllocationBytes: gpuScreenDrawInfo?.sharedMergeAtlasSavedAllocationBytes ?? 0,
       usesGpuResidentPayload: !!(
         gpuScreenDrawInfo?.gpuScreenSummary?.gpuScreenUsesGpuResidentPayload
       )

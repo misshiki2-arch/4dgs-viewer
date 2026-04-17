@@ -68,12 +68,17 @@ export function ensureGpuPackedPayloadTextureDrawResources(gl, gpu, storageKey) 
       drawFramebuffer: gl.createFramebuffer(),
       mergeTextureWidth: 0,
       mergeTextureHeight: 0,
+      mergeTextureCapacityWidth: 0,
+      mergeTextureCapacityHeight: 0,
       mergeRowsPerColumn: 0,
       mergeColumnCount: 0,
       lastMergeSucceeded: false,
       lastMergeFailureReason: 'none',
       lastMergeRowCount: 0,
-      lastMergePayloadCount: 0
+      lastMergePayloadCount: 0,
+      lastMergeAtlasReused: false,
+      lastMergeAtlasRebuilt: false,
+      lastMergeAtlasChurnReason: 'none'
     };
     gpu[key] = resources;
     return resources;
@@ -256,22 +261,78 @@ function buildMergePolicyDecision(gl, resources, payloads, totalCount) {
   };
 }
 
+function chooseMergeTextureCapacity(currentSize, requestedSize, maxTextureSize) {
+  if (requestedSize <= 0) return 0;
+  if (currentSize >= requestedSize) return currentSize;
+  let nextSize = Math.max(requestedSize, currentSize > 0 ? currentSize : 1);
+  while (nextSize < requestedSize) {
+    nextSize = Math.min(maxTextureSize, Math.max(nextSize + 1, nextSize * 2));
+    if (nextSize === maxTextureSize) break;
+  }
+  return Math.min(maxTextureSize, Math.max(requestedSize, nextSize));
+}
+
 function ensureMergedPackedPayloadTexture(gl, resources, layout) {
   if (!resources?.mergeTexture || !resources?.drawFramebuffer || !layout?.ok) {
     return {
       ok: false,
-      failureReason: layout?.failureReason ?? 'merge-layout-invalid'
+      failureReason: layout?.failureReason ?? 'merge-layout-invalid',
+      atlasReused: false,
+      atlasRebuilt: false,
+      atlasChurnReason: layout?.failureReason ?? 'merge-layout-invalid',
+      atlasCapacityWidth: resources?.mergeTextureCapacityWidth ?? 0,
+      atlasCapacityHeight: resources?.mergeTextureCapacityHeight ?? 0,
+      atlasAllocationBytes: 0,
+      atlasSavedAllocationBytes: 0
     };
   }
-  if (
-    resources.mergeTextureWidth === layout.textureWidth &&
-    resources.mergeTextureHeight === layout.textureHeight &&
-    resources.mergeRowsPerColumn === layout.rowsPerColumn &&
-    resources.mergeColumnCount === layout.columnCount
-  ) {
+
+  const currentCapacityWidth = resources.mergeTextureCapacityWidth ?? 0;
+  const currentCapacityHeight = resources.mergeTextureCapacityHeight ?? 0;
+  const canReuseExistingAtlas =
+    currentCapacityWidth >= layout.textureWidth &&
+    currentCapacityHeight >= layout.textureHeight;
+
+  if (canReuseExistingAtlas) {
+    resources.mergeTextureWidth = layout.textureWidth;
+    resources.mergeTextureHeight = layout.textureHeight;
+    resources.mergeRowsPerColumn = layout.rowsPerColumn;
+    resources.mergeColumnCount = layout.columnCount;
     return {
       ok: true,
-      failureReason: 'none'
+      failureReason: 'none',
+      atlasReused: true,
+      atlasRebuilt: false,
+      atlasChurnReason: 'atlas-reuse-capacity',
+      atlasCapacityWidth: currentCapacityWidth,
+      atlasCapacityHeight: currentCapacityHeight,
+      atlasAllocationBytes: 0,
+      atlasSavedAllocationBytes: layout.textureWidth * layout.textureHeight * 16
+    };
+  }
+
+  const targetWidth = chooseMergeTextureCapacity(
+    currentCapacityWidth,
+    layout.textureWidth,
+    layout.maxTextureSize ?? layout.textureWidth
+  );
+  const targetHeight = chooseMergeTextureCapacity(
+    currentCapacityHeight,
+    layout.textureHeight,
+    layout.maxTextureSize ?? layout.textureHeight
+  );
+
+  if (targetWidth < layout.textureWidth || targetHeight < layout.textureHeight) {
+    return {
+      ok: false,
+      failureReason: 'merge-atlas-capacity-growth-failed',
+      atlasReused: false,
+      atlasRebuilt: false,
+      atlasChurnReason: 'atlas-growth-failed',
+      atlasCapacityWidth: currentCapacityWidth,
+      atlasCapacityHeight: currentCapacityHeight,
+      atlasAllocationBytes: 0,
+      atlasSavedAllocationBytes: 0
     };
   }
 
@@ -284,8 +345,8 @@ function ensureMergedPackedPayloadTexture(gl, resources, layout) {
     gl.TEXTURE_2D,
     0,
     gl.RGBA32F,
-    layout.textureWidth,
-    layout.textureHeight,
+    targetWidth,
+    targetHeight,
     0,
     gl.RGBA,
     gl.FLOAT,
@@ -308,16 +369,34 @@ function ensureMergedPackedPayloadTexture(gl, resources, layout) {
   if (status !== gl.FRAMEBUFFER_COMPLETE) {
     return {
       ok: false,
-      failureReason: `merge-draw-framebuffer-incomplete-${status}`
+      failureReason: `merge-draw-framebuffer-incomplete-${status}`,
+      atlasReused: false,
+      atlasRebuilt: false,
+      atlasChurnReason: 'atlas-framebuffer-incomplete',
+      atlasCapacityWidth: currentCapacityWidth,
+      atlasCapacityHeight: currentCapacityHeight,
+      atlasAllocationBytes: 0,
+      atlasSavedAllocationBytes: 0
     };
   }
   resources.mergeTextureWidth = layout.textureWidth;
   resources.mergeTextureHeight = layout.textureHeight;
+  resources.mergeTextureCapacityWidth = targetWidth;
+  resources.mergeTextureCapacityHeight = targetHeight;
   resources.mergeRowsPerColumn = layout.rowsPerColumn;
   resources.mergeColumnCount = layout.columnCount;
   return {
     ok: true,
-    failureReason: 'none'
+    failureReason: 'none',
+    atlasReused: false,
+    atlasRebuilt: true,
+    atlasChurnReason: currentCapacityWidth > 0 || currentCapacityHeight > 0
+      ? 'atlas-grow-capacity'
+      : 'atlas-initial-allocation',
+    atlasCapacityWidth: targetWidth,
+    atlasCapacityHeight: targetHeight,
+    atlasAllocationBytes: targetWidth * targetHeight * 16,
+    atlasSavedAllocationBytes: 0
   };
 }
 
@@ -333,7 +412,14 @@ function mergeGpuPackedPayloads(gl, resources, payloads, totalCount, layout) {
       textureHeight: layout.textureHeight ?? 0,
       rowCount: totalCount,
       rowsPerColumn: layout.rowsPerColumn ?? 0,
-      columnCount: layout.columnCount ?? 0
+      columnCount: layout.columnCount ?? 0,
+      atlasReused: !!textureState.atlasReused,
+      atlasRebuilt: !!textureState.atlasRebuilt,
+      atlasChurnReason: textureState.atlasChurnReason ?? 'merge-resources-unavailable',
+      atlasCapacityWidth: textureState.atlasCapacityWidth ?? 0,
+      atlasCapacityHeight: textureState.atlasCapacityHeight ?? 0,
+      atlasAllocationBytes: textureState.atlasAllocationBytes ?? 0,
+      atlasSavedAllocationBytes: textureState.atlasSavedAllocationBytes ?? 0
     };
   }
 
@@ -387,7 +473,14 @@ function mergeGpuPackedPayloads(gl, resources, payloads, totalCount, layout) {
           textureHeight: layout.textureHeight,
           rowCount: totalCount,
           rowsPerColumn: layout.rowsPerColumn,
-          columnCount: layout.columnCount
+          columnCount: layout.columnCount,
+          atlasReused: !!textureState.atlasReused,
+          atlasRebuilt: !!textureState.atlasRebuilt,
+          atlasChurnReason: textureState.atlasChurnReason ?? failureReason,
+          atlasCapacityWidth: textureState.atlasCapacityWidth ?? 0,
+          atlasCapacityHeight: textureState.atlasCapacityHeight ?? 0,
+          atlasAllocationBytes: textureState.atlasAllocationBytes ?? 0,
+          atlasSavedAllocationBytes: textureState.atlasSavedAllocationBytes ?? 0
         };
       }
       let payloadOffset = 0;
@@ -427,7 +520,14 @@ function mergeGpuPackedPayloads(gl, resources, payloads, totalCount, layout) {
       textureHeight: layout.textureHeight,
       rowCount: totalCount,
       rowsPerColumn: layout.rowsPerColumn,
-      columnCount: layout.columnCount
+      columnCount: layout.columnCount,
+      atlasReused: !!textureState.atlasReused,
+      atlasRebuilt: !!textureState.atlasRebuilt,
+      atlasChurnReason: textureState.atlasChurnReason ?? failureReason,
+      atlasCapacityWidth: textureState.atlasCapacityWidth ?? 0,
+      atlasCapacityHeight: textureState.atlasCapacityHeight ?? 0,
+      atlasAllocationBytes: textureState.atlasAllocationBytes ?? 0,
+      atlasSavedAllocationBytes: textureState.atlasSavedAllocationBytes ?? 0
     };
   } finally {
     gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
@@ -455,7 +555,14 @@ function mergeGpuPackedPayloads(gl, resources, payloads, totalCount, layout) {
     textureHeight: layout.textureHeight,
     rowCount: totalCount,
     rowsPerColumn: layout.rowsPerColumn,
-    columnCount: layout.columnCount
+    columnCount: layout.columnCount,
+    atlasReused: !!textureState.atlasReused,
+    atlasRebuilt: !!textureState.atlasRebuilt,
+    atlasChurnReason: textureState.atlasChurnReason ?? 'none',
+    atlasCapacityWidth: textureState.atlasCapacityWidth ?? 0,
+    atlasCapacityHeight: textureState.atlasCapacityHeight ?? 0,
+    atlasAllocationBytes: textureState.atlasAllocationBytes ?? 0,
+    atlasSavedAllocationBytes: textureState.atlasSavedAllocationBytes ?? 0
   };
 }
 
@@ -520,6 +627,9 @@ export function drawGpuPackedPayloads(gl, gpu, screenSpace, canvasWidth, canvasH
     resources.lastMergeFailureReason = mergeResult.failureReason ?? 'none';
     resources.lastMergeRowCount = mergeResult.rowCount ?? totalCount;
     resources.lastMergePayloadCount = payloads.length;
+    resources.lastMergeAtlasReused = !!mergeResult.atlasReused;
+    resources.lastMergeAtlasRebuilt = !!mergeResult.atlasRebuilt;
+    resources.lastMergeAtlasChurnReason = mergeResult.atlasChurnReason ?? 'none';
 
     return {
       drawCount,
@@ -558,7 +668,14 @@ export function drawGpuPackedPayloads(gl, gpu, screenSpace, canvasWidth, canvasH
         ),
       mergePolicyEstimatedCopyCount: mergePolicy.estimatedCopyCount ?? payloads.length,
       mergePolicyEstimatedDispatchSavings: mergePolicy.estimatedDispatchSavings ?? Math.max(0, payloads.length - 1),
-      mergePolicyAtlasArea: mergePolicy.atlasArea ?? 0
+      mergePolicyAtlasArea: mergePolicy.atlasArea ?? 0,
+      mergeAtlasReused: !!mergeResult.atlasReused,
+      mergeAtlasRebuilt: !!mergeResult.atlasRebuilt,
+      mergeAtlasChurnReason: mergeResult.atlasChurnReason ?? 'none',
+      mergeAtlasCapacityWidth: mergeResult.atlasCapacityWidth ?? 0,
+      mergeAtlasCapacityHeight: mergeResult.atlasCapacityHeight ?? 0,
+      mergeAtlasAllocationBytes: mergeResult.atlasAllocationBytes ?? 0,
+      mergeAtlasSavedAllocationBytes: mergeResult.atlasSavedAllocationBytes ?? 0
     };
   } catch (_error) {
     try {

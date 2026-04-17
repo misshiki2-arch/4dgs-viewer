@@ -398,6 +398,10 @@ function buildFrameGpuThroughputSummary({
     drawMergePolicyReason: drawThroughputSummary?.sharedMergePolicyReason ?? 'none',
     drawMergePolicyEstimatedCopyCount: drawThroughputSummary?.sharedMergePolicyEstimatedCopyCount ?? 0,
     drawMergePolicyEstimatedDispatchSavings: drawThroughputSummary?.sharedMergePolicyEstimatedDispatchSavings ?? 0,
+    drawMergeAtlasReused: !!drawThroughputSummary?.sharedMergeAtlasReused,
+    drawMergeAtlasRebuilt: !!drawThroughputSummary?.sharedMergeAtlasRebuilt,
+    drawMergeAtlasAllocationBytes: drawThroughputSummary?.sharedMergeAtlasAllocationBytes ?? 0,
+    drawMergeAtlasSavedAllocationBytes: drawThroughputSummary?.sharedMergeAtlasSavedAllocationBytes ?? 0,
     bottleneckStage
   };
 }
@@ -534,7 +538,7 @@ export async function renderGpuFrame({
     debugOverlayCanvas.height = canvas.height;
     debugCtx.clearRect(0, 0, debugOverlayCanvas.width, debugOverlayCanvas.height);
     debugOverlayCanvas.style.display = 'none';
-    const emptyInfo = 'GPU Step66 viewer\nNo scene loaded.';
+    const emptyInfo = 'GPU Step67 viewer\nNo scene loaded.';
     setInfoText(infoEl, emptyInfo);
     return {
       infoText: emptyInfo,
@@ -825,13 +829,13 @@ export async function renderGpuFrame({
     timestamp: buildConfig.timestamp,
     splatScale: buildConfig.scalingModifier,
     elapsedMs: elapsed,
-    stepLabel: 'GPU Step66',
+    stepLabel: 'GPU Step67',
     stepNotes: [
       'transform executor owns transformBatchSummary and downstream code forwards it without reinterpretation',
       'transform truth and draw truth still flow into frame-level GPU throughput summaries so the main-path bottleneck stays readable without reinterpreting executor-owned contracts',
-      'transform backend still advertises a preferred GPU batch size based on successful single-texture-copy-pass history, and draw now picks merged-atlas versus multi-payload shared dispatch through a workload-aware atlas policy',
-      'debug output now shows transform throughput, draw throughput, frame-level bottleneck hints, merge policy reasons, atlas shape, and shared merge-copy costs while preserving existing truth-source metrics',
-      'gpu resident payload draw still shares bind and setup work between gpu-screen and packed direct through the shared texture consumer path, and Step66 makes the merge path conditional on dispatch savings versus copy cost',
+      'transform backend still advertises a preferred GPU batch size based on successful single-texture-copy-pass history, and draw now reuses merged atlas capacity when possible instead of rebuilding atlas storage every frame',
+      'debug output now shows transform throughput, draw throughput, frame-level bottleneck hints, merge policy reasons, atlas shape, atlas reuse versus rebuild, and avoided allocation cost while preserving existing truth-source metrics',
+      'gpu resident payload draw still shares bind and setup work between gpu-screen and packed direct through the shared texture consumer path, and Step67 reduces merged-path churn by growing atlas capacity only when needed',
       'gpu resident payload remains the explicit normal source contract, while cpu packed stays behind explicit compatibility-bridge contracts without changing public draw contracts',
       'packed-write backend keeps the offscreen FBO blend-disable fix while preserving existing public draw contracts'
     ],
