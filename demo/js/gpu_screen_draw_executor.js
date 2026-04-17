@@ -70,7 +70,12 @@ function createDefaultGpuScreenState() {
     lastSharedMergeTextureHeight: 0,
     lastSharedMergeRowCount: 0,
     lastSharedMergeRowsPerColumn: 0,
-    lastSharedMergeColumnCount: 0
+    lastSharedMergeColumnCount: 0,
+    lastSharedMergePolicySelectedPath: 'none',
+    lastSharedMergePolicyReason: 'none',
+    lastSharedMergePolicyEstimatedCopyCount: 0,
+    lastSharedMergePolicyEstimatedDispatchSavings: 0,
+    lastSharedMergePolicyAtlasArea: 0
   };
 }
 
@@ -169,6 +174,11 @@ function resetGpuScreenSharedDrawState(state) {
   state.lastSharedMergeRowCount = 0;
   state.lastSharedMergeRowsPerColumn = 0;
   state.lastSharedMergeColumnCount = 0;
+  state.lastSharedMergePolicySelectedPath = 'none';
+  state.lastSharedMergePolicyReason = 'none';
+  state.lastSharedMergePolicyEstimatedCopyCount = 0;
+  state.lastSharedMergePolicyEstimatedDispatchSavings = 0;
+  state.lastSharedMergePolicyAtlasArea = 0;
 }
 
 function prepareFullFrameGpuScreenDraw(gl, canvasWidth, canvasHeight) {
@@ -385,6 +395,11 @@ function drawGpuScreenWithGpuResidentPayloads(gl, gpu, gpuScreenSpace, canvasWid
   state.lastSharedMergeRowCount = drawResult.mergeRowCount ?? 0;
   state.lastSharedMergeRowsPerColumn = drawResult.mergeRowsPerColumn ?? 0;
   state.lastSharedMergeColumnCount = drawResult.mergeColumnCount ?? 0;
+  state.lastSharedMergePolicySelectedPath = drawResult.mergePolicySelectedPath ?? 'none';
+  state.lastSharedMergePolicyReason = drawResult.mergePolicyReason ?? 'none';
+  state.lastSharedMergePolicyEstimatedCopyCount = drawResult.mergePolicyEstimatedCopyCount ?? 0;
+  state.lastSharedMergePolicyEstimatedDispatchSavings = drawResult.mergePolicyEstimatedDispatchSavings ?? 0;
+  state.lastSharedMergePolicyAtlasArea = drawResult.mergePolicyAtlasArea ?? 0;
   resetGpuScreenUploadState(state);
 
   prepareFullFrameGpuScreenDraw(gl, canvasWidth, canvasHeight);
@@ -462,6 +477,11 @@ export function summarizeGpuScreenDrawState(gpu) {
     gpuScreenSharedMergeRowCount: state.lastSharedMergeRowCount ?? 0,
     gpuScreenSharedMergeRowsPerColumn: state.lastSharedMergeRowsPerColumn ?? 0,
     gpuScreenSharedMergeColumnCount: state.lastSharedMergeColumnCount ?? 0,
+    gpuScreenSharedMergePolicySelectedPath: state.lastSharedMergePolicySelectedPath ?? 'none',
+    gpuScreenSharedMergePolicyReason: state.lastSharedMergePolicyReason ?? 'none',
+    gpuScreenSharedMergePolicyEstimatedCopyCount: state.lastSharedMergePolicyEstimatedCopyCount ?? 0,
+    gpuScreenSharedMergePolicyEstimatedDispatchSavings: state.lastSharedMergePolicyEstimatedDispatchSavings ?? 0,
+    gpuScreenSharedMergePolicyAtlasArea: state.lastSharedMergePolicyAtlasArea ?? 0,
     gpuScreenGpuResidentPayloadAvailable:
       !!gpu?.gpuScreenTextureDrawResources?.program &&
       !!gpu?.gpuScreenTextureDrawResources?.vao,
@@ -527,6 +547,11 @@ export function uploadAndDrawGpuScreen(gl, gpu, gpuScreenSpace, canvasWidth, can
     sharedMergeRowCount: textureDrawResult?.mergeRowCount ?? 0,
     sharedMergeRowsPerColumn: textureDrawResult?.mergeRowsPerColumn ?? 0,
     sharedMergeColumnCount: textureDrawResult?.mergeColumnCount ?? 0,
+    sharedMergePolicySelectedPath: textureDrawResult?.mergePolicySelectedPath ?? 'none',
+    sharedMergePolicyReason: textureDrawResult?.mergePolicyReason ?? 'none',
+    sharedMergePolicyEstimatedCopyCount: textureDrawResult?.mergePolicyEstimatedCopyCount ?? 0,
+    sharedMergePolicyEstimatedDispatchSavings: textureDrawResult?.mergePolicyEstimatedDispatchSavings ?? 0,
+    sharedMergePolicyAtlasArea: textureDrawResult?.mergePolicyAtlasArea ?? 0,
     gpuScreenSummary: summarizeGpuScreenDrawState(gpu),
     gpuScreenComparisonSummary: comparisonSummary,
     gpuScreenExecutionSummary: buildGpuScreenExecutionSummary({

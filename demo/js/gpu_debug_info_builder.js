@@ -153,6 +153,11 @@ function buildGpuScreenStateLines(gpuScreenSummary) {
   pushLine(lines, 'gpuScreenSharedMergeRowCount', fmtInt(gpuScreenSummary.gpuScreenSharedMergeRowCount));
   pushLine(lines, 'gpuScreenSharedMergeRowsPerColumn', fmtInt(gpuScreenSummary.gpuScreenSharedMergeRowsPerColumn));
   pushLine(lines, 'gpuScreenSharedMergeColumnCount', fmtInt(gpuScreenSummary.gpuScreenSharedMergeColumnCount));
+  pushLine(lines, 'gpuScreenSharedMergePolicySelectedPath', gpuScreenSummary.gpuScreenSharedMergePolicySelectedPath ?? 'none');
+  pushLine(lines, 'gpuScreenSharedMergePolicyReason', gpuScreenSummary.gpuScreenSharedMergePolicyReason ?? 'none');
+  pushLine(lines, 'gpuScreenSharedMergePolicyEstimatedCopyCount', fmtInt(gpuScreenSummary.gpuScreenSharedMergePolicyEstimatedCopyCount));
+  pushLine(lines, 'gpuScreenSharedMergePolicyEstimatedDispatchSavings', fmtInt(gpuScreenSummary.gpuScreenSharedMergePolicyEstimatedDispatchSavings));
+  pushLine(lines, 'gpuScreenSharedMergePolicyAtlasArea', fmtInt(gpuScreenSummary.gpuScreenSharedMergePolicyAtlasArea));
   pushLine(lines, 'gpuScreenGpuResidentPayloadAvailable', fmtBool(!!gpuScreenSummary.gpuScreenGpuResidentPayloadAvailable));
 
   return lines;
@@ -284,6 +289,11 @@ function buildDrawThroughputLines(drawThroughputSummary) {
   pushLine(lines, 'drawThroughputSharedMergeRowCount', fmtInt(drawThroughputSummary.sharedMergeRowCount));
   pushLine(lines, 'drawThroughputSharedMergeRowsPerColumn', fmtInt(drawThroughputSummary.sharedMergeRowsPerColumn));
   pushLine(lines, 'drawThroughputSharedMergeColumnCount', fmtInt(drawThroughputSummary.sharedMergeColumnCount));
+  pushLine(lines, 'drawThroughputSharedMergePolicySelectedPath', drawThroughputSummary.sharedMergePolicySelectedPath ?? 'none');
+  pushLine(lines, 'drawThroughputSharedMergePolicyReason', drawThroughputSummary.sharedMergePolicyReason ?? 'none');
+  pushLine(lines, 'drawThroughputSharedMergePolicyEstimatedCopyCount', fmtInt(drawThroughputSummary.sharedMergePolicyEstimatedCopyCount));
+  pushLine(lines, 'drawThroughputSharedMergePolicyEstimatedDispatchSavings', fmtInt(drawThroughputSummary.sharedMergePolicyEstimatedDispatchSavings));
+  pushLine(lines, 'drawThroughputSharedMergePolicyAtlasArea', fmtInt(drawThroughputSummary.sharedMergePolicyAtlasArea));
   pushLine(lines, 'drawThroughputUsesGpuResidentPayload', fmtBool(!!drawThroughputSummary.usesGpuResidentPayload));
   pushLine(lines, 'drawThroughputPressure', drawThroughputSummary.throughputPressure ?? 'none');
   return lines;
@@ -300,6 +310,10 @@ function buildFrameGpuThroughputLines(frameGpuThroughputSummary) {
   pushLine(lines, 'gpuFrameDrawDispatchCount', fmtInt(frameGpuThroughputSummary.drawDispatchCount));
   pushLine(lines, 'gpuFrameDrawDispatchMode', frameGpuThroughputSummary.drawDispatchMode ?? 'none');
   pushLine(lines, 'gpuFrameDrawUsesGpuResidentPayload', fmtBool(!!frameGpuThroughputSummary.drawUsesGpuResidentPayload));
+  pushLine(lines, 'gpuFrameDrawMergePolicySelectedPath', frameGpuThroughputSummary.drawMergePolicySelectedPath ?? 'none');
+  pushLine(lines, 'gpuFrameDrawMergePolicyReason', frameGpuThroughputSummary.drawMergePolicyReason ?? 'none');
+  pushLine(lines, 'gpuFrameDrawMergePolicyEstimatedCopyCount', fmtInt(frameGpuThroughputSummary.drawMergePolicyEstimatedCopyCount));
+  pushLine(lines, 'gpuFrameDrawMergePolicyEstimatedDispatchSavings', fmtInt(frameGpuThroughputSummary.drawMergePolicyEstimatedDispatchSavings));
   pushLine(lines, 'gpuFrameThroughputBottleneck', frameGpuThroughputSummary.bottleneckStage ?? 'balanced-gpu-path');
   return lines;
 }
@@ -361,6 +375,11 @@ export function buildPackedLines(buildStats, drawPathSelection, drawStats) {
     `packedDirectSharedMergeRowCount=${drawStats?.packedDirectSharedMergeRowCount ?? 0}`,
     `packedDirectSharedMergeRowsPerColumn=${drawStats?.packedDirectSharedMergeRowsPerColumn ?? 0}`,
     `packedDirectSharedMergeColumnCount=${drawStats?.packedDirectSharedMergeColumnCount ?? 0}`,
+    `packedDirectSharedMergePolicySelectedPath=${drawStats?.packedDirectSharedMergePolicySelectedPath ?? 'none'}`,
+    `packedDirectSharedMergePolicyReason=${drawStats?.packedDirectSharedMergePolicyReason ?? 'none'}`,
+    `packedDirectSharedMergePolicyEstimatedCopyCount=${drawStats?.packedDirectSharedMergePolicyEstimatedCopyCount ?? 0}`,
+    `packedDirectSharedMergePolicyEstimatedDispatchSavings=${drawStats?.packedDirectSharedMergePolicyEstimatedDispatchSavings ?? 0}`,
+    `packedDirectSharedMergePolicyAtlasArea=${drawStats?.packedDirectSharedMergePolicyAtlasArea ?? 0}`,
     `packedDirectGpuResidentPayloadAvailable=${!!drawStats?.packedDirectGpuResidentPayloadAvailable}`,
     `packedDirectLayoutVersion=${drawStats?.packedDirectLayoutVersion ?? 0}`,
     `packedDirectStrideBytes=${drawStats?.packedDirectStrideBytes ?? 0}`,

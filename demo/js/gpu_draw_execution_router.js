@@ -38,6 +38,11 @@ function buildPackedUploadSummary(directPackedDrawInfo) {
     packedDirectSharedMergeRowCount: directPackedDrawInfo?.packedDirectSharedMergeRowCount ?? 0,
     packedDirectSharedMergeRowsPerColumn: directPackedDrawInfo?.packedDirectSharedMergeRowsPerColumn ?? 0,
     packedDirectSharedMergeColumnCount: directPackedDrawInfo?.packedDirectSharedMergeColumnCount ?? 0,
+    packedDirectSharedMergePolicySelectedPath: directPackedDrawInfo?.packedDirectSharedMergePolicySelectedPath ?? 'none',
+    packedDirectSharedMergePolicyReason: directPackedDrawInfo?.packedDirectSharedMergePolicyReason ?? 'none',
+    packedDirectSharedMergePolicyEstimatedCopyCount: directPackedDrawInfo?.packedDirectSharedMergePolicyEstimatedCopyCount ?? 0,
+    packedDirectSharedMergePolicyEstimatedDispatchSavings: directPackedDrawInfo?.packedDirectSharedMergePolicyEstimatedDispatchSavings ?? 0,
+    packedDirectSharedMergePolicyAtlasArea: directPackedDrawInfo?.packedDirectSharedMergePolicyAtlasArea ?? 0,
     packedDirectLayoutVersion: directPackedDrawInfo?.packedDirectLayoutVersion ?? 0,
     packedDirectStrideBytes: directPackedDrawInfo?.packedDirectStrideBytes ?? 0,
     packedDirectAttributeCount: directPackedDrawInfo?.packedDirectAttributeCount ?? 0,
@@ -66,6 +71,11 @@ function buildDrawThroughputSummary({
   sharedMergeRowCount = 0,
   sharedMergeRowsPerColumn = 0,
   sharedMergeColumnCount = 0,
+  sharedMergePolicySelectedPath = 'none',
+  sharedMergePolicyReason = 'none',
+  sharedMergePolicyEstimatedCopyCount = 0,
+  sharedMergePolicyEstimatedDispatchSavings = 0,
+  sharedMergePolicyAtlasArea = 0,
   usesGpuResidentPayload = false
 }) {
   const dispatchPressure = sharedDispatchCount > 0
@@ -94,6 +104,11 @@ function buildDrawThroughputSummary({
     sharedMergeRowCount: Number.isFinite(sharedMergeRowCount) ? Math.max(0, sharedMergeRowCount | 0) : 0,
     sharedMergeRowsPerColumn: Number.isFinite(sharedMergeRowsPerColumn) ? Math.max(0, sharedMergeRowsPerColumn | 0) : 0,
     sharedMergeColumnCount: Number.isFinite(sharedMergeColumnCount) ? Math.max(0, sharedMergeColumnCount | 0) : 0,
+    sharedMergePolicySelectedPath: sharedMergePolicySelectedPath ?? 'none',
+    sharedMergePolicyReason: sharedMergePolicyReason ?? 'none',
+    sharedMergePolicyEstimatedCopyCount: Number.isFinite(sharedMergePolicyEstimatedCopyCount) ? Math.max(0, sharedMergePolicyEstimatedCopyCount | 0) : 0,
+    sharedMergePolicyEstimatedDispatchSavings: Number.isFinite(sharedMergePolicyEstimatedDispatchSavings) ? Math.max(0, sharedMergePolicyEstimatedDispatchSavings | 0) : 0,
+    sharedMergePolicyAtlasArea: Number.isFinite(sharedMergePolicyAtlasArea) ? Math.max(0, sharedMergePolicyAtlasArea | 0) : 0,
     usesGpuResidentPayload: !!usesGpuResidentPayload,
     throughputPressure: dispatchPressure
   };
@@ -145,6 +160,11 @@ function executePackedFullFrameDraw({
       sharedMergeRowCount: directPackedDrawInfo?.packedDirectSharedMergeRowCount ?? 0,
       sharedMergeRowsPerColumn: directPackedDrawInfo?.packedDirectSharedMergeRowsPerColumn ?? 0,
       sharedMergeColumnCount: directPackedDrawInfo?.packedDirectSharedMergeColumnCount ?? 0,
+      sharedMergePolicySelectedPath: directPackedDrawInfo?.packedDirectSharedMergePolicySelectedPath ?? 'none',
+      sharedMergePolicyReason: directPackedDrawInfo?.packedDirectSharedMergePolicyReason ?? 'none',
+      sharedMergePolicyEstimatedCopyCount: directPackedDrawInfo?.packedDirectSharedMergePolicyEstimatedCopyCount ?? 0,
+      sharedMergePolicyEstimatedDispatchSavings: directPackedDrawInfo?.packedDirectSharedMergePolicyEstimatedDispatchSavings ?? 0,
+      sharedMergePolicyAtlasArea: directPackedDrawInfo?.packedDirectSharedMergePolicyAtlasArea ?? 0,
       usesGpuResidentPayload: !!directPackedDrawInfo?.packedDirectUsesGpuResidentPayload
     }),
     directPackedDrawInfo,
@@ -221,6 +241,11 @@ function executeGpuScreenFullFrameDraw({
       sharedMergeRowCount: gpuScreenDrawInfo?.sharedMergeRowCount ?? 0,
       sharedMergeRowsPerColumn: gpuScreenDrawInfo?.sharedMergeRowsPerColumn ?? 0,
       sharedMergeColumnCount: gpuScreenDrawInfo?.sharedMergeColumnCount ?? 0,
+      sharedMergePolicySelectedPath: gpuScreenDrawInfo?.sharedMergePolicySelectedPath ?? 'none',
+      sharedMergePolicyReason: gpuScreenDrawInfo?.sharedMergePolicyReason ?? 'none',
+      sharedMergePolicyEstimatedCopyCount: gpuScreenDrawInfo?.sharedMergePolicyEstimatedCopyCount ?? 0,
+      sharedMergePolicyEstimatedDispatchSavings: gpuScreenDrawInfo?.sharedMergePolicyEstimatedDispatchSavings ?? 0,
+      sharedMergePolicyAtlasArea: gpuScreenDrawInfo?.sharedMergePolicyAtlasArea ?? 0,
       usesGpuResidentPayload: !!(
         gpuScreenDrawInfo?.gpuScreenSummary?.gpuScreenUsesGpuResidentPayload
       )
