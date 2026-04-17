@@ -62,7 +62,15 @@ function createDefaultGpuScreenState() {
     lastSharedBindCount: 0,
     lastSharedDispatchCount: 0,
     lastSharedDispatchMode: 'none',
-    lastSharedPayloadCount: 0
+    lastSharedPayloadCount: 0,
+    lastSharedMergeCopyCount: 0,
+    lastSharedMergeAttempted: false,
+    lastSharedMergeFailureReason: 'none',
+    lastSharedMergeTextureWidth: 0,
+    lastSharedMergeTextureHeight: 0,
+    lastSharedMergeRowCount: 0,
+    lastSharedMergeRowsPerColumn: 0,
+    lastSharedMergeColumnCount: 0
   };
 }
 
@@ -153,6 +161,14 @@ function resetGpuScreenSharedDrawState(state) {
   state.lastSharedDispatchCount = 0;
   state.lastSharedDispatchMode = 'none';
   state.lastSharedPayloadCount = 0;
+  state.lastSharedMergeCopyCount = 0;
+  state.lastSharedMergeAttempted = false;
+  state.lastSharedMergeFailureReason = 'none';
+  state.lastSharedMergeTextureWidth = 0;
+  state.lastSharedMergeTextureHeight = 0;
+  state.lastSharedMergeRowCount = 0;
+  state.lastSharedMergeRowsPerColumn = 0;
+  state.lastSharedMergeColumnCount = 0;
 }
 
 function prepareFullFrameGpuScreenDraw(gl, canvasWidth, canvasHeight) {
@@ -361,6 +377,14 @@ function drawGpuScreenWithGpuResidentPayloads(gl, gpu, gpuScreenSpace, canvasWid
   state.lastSharedDispatchCount = drawResult.dispatchCount ?? 0;
   state.lastSharedDispatchMode = drawResult.dispatchMode ?? 'none';
   state.lastSharedPayloadCount = drawResult.payloadCount ?? 0;
+  state.lastSharedMergeCopyCount = drawResult.mergeCopyCount ?? 0;
+  state.lastSharedMergeAttempted = !!drawResult.mergeAttempted;
+  state.lastSharedMergeFailureReason = drawResult.mergeFailureReason ?? 'none';
+  state.lastSharedMergeTextureWidth = drawResult.mergeTextureWidth ?? 0;
+  state.lastSharedMergeTextureHeight = drawResult.mergeTextureHeight ?? 0;
+  state.lastSharedMergeRowCount = drawResult.mergeRowCount ?? 0;
+  state.lastSharedMergeRowsPerColumn = drawResult.mergeRowsPerColumn ?? 0;
+  state.lastSharedMergeColumnCount = drawResult.mergeColumnCount ?? 0;
   resetGpuScreenUploadState(state);
 
   prepareFullFrameGpuScreenDraw(gl, canvasWidth, canvasHeight);
@@ -430,6 +454,14 @@ export function summarizeGpuScreenDrawState(gpu) {
     gpuScreenSharedDispatchCount: state.lastSharedDispatchCount ?? 0,
     gpuScreenSharedDispatchMode: state.lastSharedDispatchMode ?? 'none',
     gpuScreenSharedPayloadCount: state.lastSharedPayloadCount ?? 0,
+    gpuScreenSharedMergeCopyCount: state.lastSharedMergeCopyCount ?? 0,
+    gpuScreenSharedMergeAttempted: !!state.lastSharedMergeAttempted,
+    gpuScreenSharedMergeFailureReason: state.lastSharedMergeFailureReason ?? 'none',
+    gpuScreenSharedMergeTextureWidth: state.lastSharedMergeTextureWidth ?? 0,
+    gpuScreenSharedMergeTextureHeight: state.lastSharedMergeTextureHeight ?? 0,
+    gpuScreenSharedMergeRowCount: state.lastSharedMergeRowCount ?? 0,
+    gpuScreenSharedMergeRowsPerColumn: state.lastSharedMergeRowsPerColumn ?? 0,
+    gpuScreenSharedMergeColumnCount: state.lastSharedMergeColumnCount ?? 0,
     gpuScreenGpuResidentPayloadAvailable:
       !!gpu?.gpuScreenTextureDrawResources?.program &&
       !!gpu?.gpuScreenTextureDrawResources?.vao,
@@ -487,6 +519,14 @@ export function uploadAndDrawGpuScreen(gl, gpu, gpuScreenSpace, canvasWidth, can
     sharedDispatchCount: textureDrawResult?.dispatchCount ?? 0,
     sharedDispatchMode: textureDrawResult?.dispatchMode ?? 'none',
     sharedPayloadCount: textureDrawResult?.payloadCount ?? 0,
+    sharedMergeCopyCount: textureDrawResult?.mergeCopyCount ?? 0,
+    sharedMergeAttempted: !!textureDrawResult?.mergeAttempted,
+    sharedMergeFailureReason: textureDrawResult?.mergeFailureReason ?? 'none',
+    sharedMergeTextureWidth: textureDrawResult?.mergeTextureWidth ?? 0,
+    sharedMergeTextureHeight: textureDrawResult?.mergeTextureHeight ?? 0,
+    sharedMergeRowCount: textureDrawResult?.mergeRowCount ?? 0,
+    sharedMergeRowsPerColumn: textureDrawResult?.mergeRowsPerColumn ?? 0,
+    sharedMergeColumnCount: textureDrawResult?.mergeColumnCount ?? 0,
     gpuScreenSummary: summarizeGpuScreenDrawState(gpu),
     gpuScreenComparisonSummary: comparisonSummary,
     gpuScreenExecutionSummary: buildGpuScreenExecutionSummary({

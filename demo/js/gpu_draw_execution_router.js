@@ -30,6 +30,14 @@ function buildPackedUploadSummary(directPackedDrawInfo) {
     packedDirectSharedDispatchCount: directPackedDrawInfo?.packedDirectSharedDispatchCount ?? 0,
     packedDirectSharedDispatchMode: directPackedDrawInfo?.packedDirectSharedDispatchMode ?? 'none',
     packedDirectSharedPayloadCount: directPackedDrawInfo?.packedDirectSharedPayloadCount ?? 0,
+    packedDirectSharedMergeCopyCount: directPackedDrawInfo?.packedDirectSharedMergeCopyCount ?? 0,
+    packedDirectSharedMergeAttempted: !!directPackedDrawInfo?.packedDirectSharedMergeAttempted,
+    packedDirectSharedMergeFailureReason: directPackedDrawInfo?.packedDirectSharedMergeFailureReason ?? 'none',
+    packedDirectSharedMergeTextureWidth: directPackedDrawInfo?.packedDirectSharedMergeTextureWidth ?? 0,
+    packedDirectSharedMergeTextureHeight: directPackedDrawInfo?.packedDirectSharedMergeTextureHeight ?? 0,
+    packedDirectSharedMergeRowCount: directPackedDrawInfo?.packedDirectSharedMergeRowCount ?? 0,
+    packedDirectSharedMergeRowsPerColumn: directPackedDrawInfo?.packedDirectSharedMergeRowsPerColumn ?? 0,
+    packedDirectSharedMergeColumnCount: directPackedDrawInfo?.packedDirectSharedMergeColumnCount ?? 0,
     packedDirectLayoutVersion: directPackedDrawInfo?.packedDirectLayoutVersion ?? 0,
     packedDirectStrideBytes: directPackedDrawInfo?.packedDirectStrideBytes ?? 0,
     packedDirectAttributeCount: directPackedDrawInfo?.packedDirectAttributeCount ?? 0,
@@ -50,6 +58,14 @@ function buildDrawThroughputSummary({
   sharedDispatchCount = 0,
   sharedDispatchMode = 'none',
   sharedPayloadCount = 0,
+  sharedMergeCopyCount = 0,
+  sharedMergeAttempted = false,
+  sharedMergeFailureReason = 'none',
+  sharedMergeTextureWidth = 0,
+  sharedMergeTextureHeight = 0,
+  sharedMergeRowCount = 0,
+  sharedMergeRowsPerColumn = 0,
+  sharedMergeColumnCount = 0,
   usesGpuResidentPayload = false
 }) {
   const dispatchPressure = sharedDispatchCount > 0
@@ -70,6 +86,14 @@ function buildDrawThroughputSummary({
     sharedDispatchCount: Number.isFinite(sharedDispatchCount) ? Math.max(0, sharedDispatchCount | 0) : 0,
     sharedDispatchMode: sharedDispatchMode ?? 'none',
     sharedPayloadCount: Number.isFinite(sharedPayloadCount) ? Math.max(0, sharedPayloadCount | 0) : 0,
+    sharedMergeCopyCount: Number.isFinite(sharedMergeCopyCount) ? Math.max(0, sharedMergeCopyCount | 0) : 0,
+    sharedMergeAttempted: !!sharedMergeAttempted,
+    sharedMergeFailureReason: sharedMergeFailureReason ?? 'none',
+    sharedMergeTextureWidth: Number.isFinite(sharedMergeTextureWidth) ? Math.max(0, sharedMergeTextureWidth | 0) : 0,
+    sharedMergeTextureHeight: Number.isFinite(sharedMergeTextureHeight) ? Math.max(0, sharedMergeTextureHeight | 0) : 0,
+    sharedMergeRowCount: Number.isFinite(sharedMergeRowCount) ? Math.max(0, sharedMergeRowCount | 0) : 0,
+    sharedMergeRowsPerColumn: Number.isFinite(sharedMergeRowsPerColumn) ? Math.max(0, sharedMergeRowsPerColumn | 0) : 0,
+    sharedMergeColumnCount: Number.isFinite(sharedMergeColumnCount) ? Math.max(0, sharedMergeColumnCount | 0) : 0,
     usesGpuResidentPayload: !!usesGpuResidentPayload,
     throughputPressure: dispatchPressure
   };
@@ -113,6 +137,14 @@ function executePackedFullFrameDraw({
       sharedDispatchCount: directPackedDrawInfo?.packedDirectSharedDispatchCount ?? 0,
       sharedDispatchMode: directPackedDrawInfo?.packedDirectSharedDispatchMode ?? 'none',
       sharedPayloadCount: directPackedDrawInfo?.packedDirectSharedPayloadCount ?? 0,
+      sharedMergeCopyCount: directPackedDrawInfo?.packedDirectSharedMergeCopyCount ?? 0,
+      sharedMergeAttempted: !!directPackedDrawInfo?.packedDirectSharedMergeAttempted,
+      sharedMergeFailureReason: directPackedDrawInfo?.packedDirectSharedMergeFailureReason ?? 'none',
+      sharedMergeTextureWidth: directPackedDrawInfo?.packedDirectSharedMergeTextureWidth ?? 0,
+      sharedMergeTextureHeight: directPackedDrawInfo?.packedDirectSharedMergeTextureHeight ?? 0,
+      sharedMergeRowCount: directPackedDrawInfo?.packedDirectSharedMergeRowCount ?? 0,
+      sharedMergeRowsPerColumn: directPackedDrawInfo?.packedDirectSharedMergeRowsPerColumn ?? 0,
+      sharedMergeColumnCount: directPackedDrawInfo?.packedDirectSharedMergeColumnCount ?? 0,
       usesGpuResidentPayload: !!directPackedDrawInfo?.packedDirectUsesGpuResidentPayload
     }),
     directPackedDrawInfo,
@@ -181,6 +213,14 @@ function executeGpuScreenFullFrameDraw({
       sharedDispatchCount: gpuScreenDrawInfo?.sharedDispatchCount ?? 0,
       sharedDispatchMode: gpuScreenDrawInfo?.sharedDispatchMode ?? 'none',
       sharedPayloadCount: gpuScreenDrawInfo?.sharedPayloadCount ?? 0,
+      sharedMergeCopyCount: gpuScreenDrawInfo?.sharedMergeCopyCount ?? 0,
+      sharedMergeAttempted: !!gpuScreenDrawInfo?.sharedMergeAttempted,
+      sharedMergeFailureReason: gpuScreenDrawInfo?.sharedMergeFailureReason ?? 'none',
+      sharedMergeTextureWidth: gpuScreenDrawInfo?.sharedMergeTextureWidth ?? 0,
+      sharedMergeTextureHeight: gpuScreenDrawInfo?.sharedMergeTextureHeight ?? 0,
+      sharedMergeRowCount: gpuScreenDrawInfo?.sharedMergeRowCount ?? 0,
+      sharedMergeRowsPerColumn: gpuScreenDrawInfo?.sharedMergeRowsPerColumn ?? 0,
+      sharedMergeColumnCount: gpuScreenDrawInfo?.sharedMergeColumnCount ?? 0,
       usesGpuResidentPayload: !!(
         gpuScreenDrawInfo?.gpuScreenSummary?.gpuScreenUsesGpuResidentPayload
       )
@@ -243,6 +283,7 @@ export function executeFullFrameDrawByPath({
         sharedDispatchCount: 0,
         sharedDispatchMode: 'none',
         sharedPayloadCount: 0,
+        sharedMergeCopyCount: 0,
         usesGpuResidentPayload: false
       })
     };

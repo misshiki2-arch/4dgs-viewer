@@ -1,4 +1,4 @@
-// Step64 display cleanup
+// Step65 display cleanup
 // 目的:
 // - debug info builder を「整形だけ」の責務に保つ
 // - transform executor / screen-space builder / renderer が確定した truth を、そのまま表示する
@@ -145,6 +145,14 @@ function buildGpuScreenStateLines(gpuScreenSummary) {
   pushLine(lines, 'gpuScreenSharedDispatchCount', fmtInt(gpuScreenSummary.gpuScreenSharedDispatchCount));
   pushLine(lines, 'gpuScreenSharedDispatchMode', gpuScreenSummary.gpuScreenSharedDispatchMode ?? 'none');
   pushLine(lines, 'gpuScreenSharedPayloadCount', fmtInt(gpuScreenSummary.gpuScreenSharedPayloadCount));
+  pushLine(lines, 'gpuScreenSharedMergeCopyCount', fmtInt(gpuScreenSummary.gpuScreenSharedMergeCopyCount));
+  pushLine(lines, 'gpuScreenSharedMergeAttempted', fmtBool(!!gpuScreenSummary.gpuScreenSharedMergeAttempted));
+  pushLine(lines, 'gpuScreenSharedMergeFailureReason', gpuScreenSummary.gpuScreenSharedMergeFailureReason ?? 'none');
+  pushLine(lines, 'gpuScreenSharedMergeTextureWidth', fmtInt(gpuScreenSummary.gpuScreenSharedMergeTextureWidth));
+  pushLine(lines, 'gpuScreenSharedMergeTextureHeight', fmtInt(gpuScreenSummary.gpuScreenSharedMergeTextureHeight));
+  pushLine(lines, 'gpuScreenSharedMergeRowCount', fmtInt(gpuScreenSummary.gpuScreenSharedMergeRowCount));
+  pushLine(lines, 'gpuScreenSharedMergeRowsPerColumn', fmtInt(gpuScreenSummary.gpuScreenSharedMergeRowsPerColumn));
+  pushLine(lines, 'gpuScreenSharedMergeColumnCount', fmtInt(gpuScreenSummary.gpuScreenSharedMergeColumnCount));
   pushLine(lines, 'gpuScreenGpuResidentPayloadAvailable', fmtBool(!!gpuScreenSummary.gpuScreenGpuResidentPayloadAvailable));
 
   return lines;
@@ -268,6 +276,14 @@ function buildDrawThroughputLines(drawThroughputSummary) {
   pushLine(lines, 'drawThroughputSharedDispatchCount', fmtInt(drawThroughputSummary.sharedDispatchCount));
   pushLine(lines, 'drawThroughputSharedDispatchMode', drawThroughputSummary.sharedDispatchMode ?? 'none');
   pushLine(lines, 'drawThroughputSharedPayloadCount', fmtInt(drawThroughputSummary.sharedPayloadCount));
+  pushLine(lines, 'drawThroughputSharedMergeCopyCount', fmtInt(drawThroughputSummary.sharedMergeCopyCount));
+  pushLine(lines, 'drawThroughputSharedMergeAttempted', fmtBool(!!drawThroughputSummary.sharedMergeAttempted));
+  pushLine(lines, 'drawThroughputSharedMergeFailureReason', drawThroughputSummary.sharedMergeFailureReason ?? 'none');
+  pushLine(lines, 'drawThroughputSharedMergeTextureWidth', fmtInt(drawThroughputSummary.sharedMergeTextureWidth));
+  pushLine(lines, 'drawThroughputSharedMergeTextureHeight', fmtInt(drawThroughputSummary.sharedMergeTextureHeight));
+  pushLine(lines, 'drawThroughputSharedMergeRowCount', fmtInt(drawThroughputSummary.sharedMergeRowCount));
+  pushLine(lines, 'drawThroughputSharedMergeRowsPerColumn', fmtInt(drawThroughputSummary.sharedMergeRowsPerColumn));
+  pushLine(lines, 'drawThroughputSharedMergeColumnCount', fmtInt(drawThroughputSummary.sharedMergeColumnCount));
   pushLine(lines, 'drawThroughputUsesGpuResidentPayload', fmtBool(!!drawThroughputSummary.usesGpuResidentPayload));
   pushLine(lines, 'drawThroughputPressure', drawThroughputSummary.throughputPressure ?? 'none');
   return lines;
@@ -337,6 +353,14 @@ export function buildPackedLines(buildStats, drawPathSelection, drawStats) {
     `packedDirectSharedDispatchCount=${drawStats?.packedDirectSharedDispatchCount ?? 0}`,
     `packedDirectSharedDispatchMode=${drawStats?.packedDirectSharedDispatchMode ?? 'none'}`,
     `packedDirectSharedPayloadCount=${drawStats?.packedDirectSharedPayloadCount ?? 0}`,
+    `packedDirectSharedMergeCopyCount=${drawStats?.packedDirectSharedMergeCopyCount ?? 0}`,
+    `packedDirectSharedMergeAttempted=${!!drawStats?.packedDirectSharedMergeAttempted}`,
+    `packedDirectSharedMergeFailureReason=${drawStats?.packedDirectSharedMergeFailureReason ?? 'none'}`,
+    `packedDirectSharedMergeTextureWidth=${drawStats?.packedDirectSharedMergeTextureWidth ?? 0}`,
+    `packedDirectSharedMergeTextureHeight=${drawStats?.packedDirectSharedMergeTextureHeight ?? 0}`,
+    `packedDirectSharedMergeRowCount=${drawStats?.packedDirectSharedMergeRowCount ?? 0}`,
+    `packedDirectSharedMergeRowsPerColumn=${drawStats?.packedDirectSharedMergeRowsPerColumn ?? 0}`,
+    `packedDirectSharedMergeColumnCount=${drawStats?.packedDirectSharedMergeColumnCount ?? 0}`,
     `packedDirectGpuResidentPayloadAvailable=${!!drawStats?.packedDirectGpuResidentPayloadAvailable}`,
     `packedDirectLayoutVersion=${drawStats?.packedDirectLayoutVersion ?? 0}`,
     `packedDirectStrideBytes=${drawStats?.packedDirectStrideBytes ?? 0}`,
