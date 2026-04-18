@@ -16,6 +16,10 @@
 
 import { GPU_VISIBLE_PACK_FLOATS_PER_ITEM } from './gpu_buffer_layout_utils.js';
 import { packVisibleItems } from './gpu_visible_pack_utils.js';
+import {
+  buildGpuPackedPayloadAtlas,
+  ensureGpuPackedPayloadTextureDrawResources
+} from './gpu_packed_payload_draw_shared.js';
 
 const GPU_BACKEND_ID = 'gpu-transform-backend';
 const GPU_BACKEND_REASON_NOT_IMPLEMENTED = 'gpu-backend-not-implemented';
@@ -111,12 +115,17 @@ function createGpuPackedPayloadRecord(gl, texture, count) {
     width: GPU_PACKED_PAYLOAD_WIDTH,
     height: Math.max(0, count | 0),
     count: Math.max(0, count | 0),
+    rowsPerColumn: Math.max(1, count | 0),
+    columnCount: 1,
     floatsPerItem: GPU_VISIBLE_PACK_FLOATS_PER_ITEM
   };
 }
 
 function countGpuResidentPackedPayloads(context) {
-  return Array.isArray(context?.gpuResidentPackedPayloads) ? context.gpuResidentPackedPayloads.length : 0;
+  const residentCount = Array.isArray(context?.gpuResidentPackedPayloads)
+    ? context.gpuResidentPackedPayloads.length
+    : 0;
+  return residentCount + (context?.atlasGpuPackedPayload?.texture ? 1 : 0);
 }
 
 function countReusableGpuResidentPayloadTextures(context) {
@@ -251,6 +260,43 @@ function releaseGpuResidentPackedPayloads(context) {
   return releasedCount;
 }
 
+function releaseSpecificGpuResidentPackedPayloads(context, payloads) {
+  if (!context || !Array.isArray(context.gpuResidentPackedPayloads) || !Array.isArray(payloads) || payloads.length <= 0) {
+    return 0;
+  }
+
+  const releaseSet = new Set(payloads);
+  const retainedPayloads = [];
+  let releasedCount = 0;
+  let pooledCount = 0;
+
+  context.reusableGpuResidentPayloadTextures = context.reusableGpuResidentPayloadTextures ?? [];
+
+  for (const payload of context.gpuResidentPackedPayloads) {
+    if (!releaseSet.has(payload)) {
+      retainedPayloads.push(payload);
+      continue;
+    }
+    if (payload?.texture && payload?.gl && typeof payload.gl.deleteTexture === 'function' && probeWebGL2Support(payload.gl)) {
+      context.reusableGpuResidentPayloadTextures.push({
+        gl: payload.gl,
+        texture: payload.texture
+      });
+      pooledCount++;
+    } else if (payload?.texture && payload?.gl && typeof payload.gl.deleteTexture === 'function') {
+      payload.gl.deleteTexture(payload.texture);
+    }
+    releasedCount++;
+  }
+
+  context.gpuResidentPackedPayloads = retainedPayloads;
+  context.activePayloadCount = countGpuResidentPackedPayloads(context);
+  context.reusablePayloadCount = countReusableGpuResidentPayloadTextures(context);
+  context.lastPayloadPoolReleaseCount = (context.lastPayloadPoolReleaseCount ?? 0) + pooledCount;
+  trimReusableGpuResidentPayloadTextures(context);
+  return releasedCount;
+}
+
 export function resetGpuScreenTransformBackendGpuPayloads(context, reason = 'manual-reset') {
   if (!context) return 0;
   const adaptivePolicy = resolveAdaptiveReusablePayloadTexturePolicy(context);
@@ -261,6 +307,21 @@ export function resetGpuScreenTransformBackendGpuPayloads(context, reason = 'man
   context.lastPayloadCreateCount = 0;
   context.lastPayloadTrimCount = 0;
   context.lastPayloadRetainedCount = 0;
+  context.atlasGpuPackedPayload = null;
+  context.lastAtlasPayloadBuilt = false;
+  context.lastAtlasPayloadBatchCount = 0;
+  context.lastAtlasPayloadCopyCount = 0;
+  context.lastAtlasPayloadPolicySelectedPath = 'none';
+  context.lastAtlasPayloadPolicyReason = 'none';
+  context.lastAtlasPayloadReused = false;
+  context.lastAtlasPayloadRebuilt = false;
+  context.lastAtlasPayloadChurnReason = 'none';
+  context.lastAtlasPayloadCapacityWidth = 0;
+  context.lastAtlasPayloadCapacityHeight = 0;
+  context.lastAtlasPayloadAllocationBytes = 0;
+  context.lastAtlasPayloadSavedAllocationBytes = 0;
+  context.lastAtlasPayloadWidth = 0;
+  context.lastAtlasPayloadHeight = 0;
   const releasedCount = releaseGpuResidentPackedPayloads(context);
   context.lastReleasedPayloadCount = releasedCount;
   context.lastPayloadResetReason = reason;
@@ -438,6 +499,79 @@ function cloneGpuResidentPackedPayload(context, gl, count) {
     context.lastPayloadOwner = 'backend-gpu-resident';
   }
   return payload;
+}
+
+function ensureBackendAtlasResources(context, gl) {
+  return ensureGpuPackedPayloadTextureDrawResources(gl, context, 'backendPackedAtlasResources');
+}
+
+function consolidateGpuResidentPackedPayloadAtlas(context, gl, payloads, options = {}) {
+  const validPayloads = Array.isArray(payloads)
+    ? payloads.filter((payload) => payload?.texture && payload?.gl === gl)
+    : [];
+  if (!context || validPayloads.length <= 1) {
+    return {
+      atlasPayload: validPayloads.length === 1 ? validPayloads[0] : null,
+      usedBackendAtlas: false,
+      avoidedDrawTimeMerge: false
+    };
+  }
+
+  const resources = ensureBackendAtlasResources(context, gl);
+  const atlasResult = buildGpuPackedPayloadAtlas(gl, context, validPayloads, {
+    resources,
+    storageKey: 'backendPackedAtlasResources',
+    policyOverride: options.drawPolicyOverride ?? null
+  });
+
+  context.lastAtlasPayloadBuilt = !!atlasResult.atlasPayload?.texture;
+  context.lastAtlasPayloadBatchCount = validPayloads.length;
+  context.lastAtlasPayloadCopyCount = atlasResult.mergeCopyCount ?? 0;
+  context.lastAtlasPayloadPolicySelectedPath = atlasResult.mergePolicySelectedPath ?? 'none';
+  context.lastAtlasPayloadPolicyReason = atlasResult.mergePolicyReason ?? 'none';
+  context.lastAtlasPayloadReused = !!atlasResult.mergeAtlasReused;
+  context.lastAtlasPayloadRebuilt = !!atlasResult.mergeAtlasRebuilt;
+  context.lastAtlasPayloadChurnReason = atlasResult.mergeAtlasChurnReason ?? 'none';
+  context.lastAtlasPayloadCapacityWidth = atlasResult.mergeAtlasCapacityWidth ?? 0;
+  context.lastAtlasPayloadCapacityHeight = atlasResult.mergeAtlasCapacityHeight ?? 0;
+  context.lastAtlasPayloadAllocationBytes = atlasResult.mergeAtlasAllocationBytes ?? 0;
+  context.lastAtlasPayloadSavedAllocationBytes = atlasResult.mergeAtlasSavedAllocationBytes ?? 0;
+  context.lastAtlasPayloadWidth = atlasResult.mergeTextureWidth ?? 0;
+  context.lastAtlasPayloadHeight = atlasResult.mergeTextureHeight ?? 0;
+
+  if (!atlasResult.atlasPayload?.texture) {
+    context.atlasGpuPackedPayload = null;
+    return {
+      atlasPayload: null,
+      usedBackendAtlas: false,
+      avoidedDrawTimeMerge: false
+    };
+  }
+
+  const atlasPayload = {
+    ...atlasResult.atlasPayload,
+    atlasReady: true,
+    owner: 'backend-transform-atlas',
+    mergePolicySelectedPath: atlasResult.mergePolicySelectedPath ?? 'none',
+    mergePolicyReason: atlasResult.mergePolicyReason ?? 'none',
+    mergeCopyCount: atlasResult.mergeCopyCount ?? 0,
+    atlasReused: !!atlasResult.mergeAtlasReused,
+    atlasRebuilt: !!atlasResult.mergeAtlasRebuilt,
+    atlasChurnReason: atlasResult.mergeAtlasChurnReason ?? 'none',
+    atlasAllocationBytes: atlasResult.mergeAtlasAllocationBytes ?? 0,
+    atlasSavedAllocationBytes: atlasResult.mergeAtlasSavedAllocationBytes ?? 0
+  };
+
+  context.atlasGpuPackedPayload = atlasPayload;
+  releaseSpecificGpuResidentPackedPayloads(context, validPayloads);
+  context.activePayloadCount = countGpuResidentPackedPayloads(context);
+  context.lastPayloadOwner = 'backend-transform-atlas';
+
+  return {
+    atlasPayload,
+    usedBackendAtlas: true,
+    avoidedDrawTimeMerge: true
+  };
 }
 
 function ensureGpuPackedWriteResources(context, gl, targetHeight) {
@@ -774,9 +908,24 @@ export function createGpuScreenTransformBackendGpuContext(initialState = {}) {
     lastDispatchItemCount: 0,
     lastSuccessfulDispatchMode: 'none',
     lastSuccessfulDispatchItemCount: 0,
+    lastAtlasPayloadBuilt: false,
+    lastAtlasPayloadBatchCount: 0,
+    lastAtlasPayloadCopyCount: 0,
+    lastAtlasPayloadPolicySelectedPath: 'none',
+    lastAtlasPayloadPolicyReason: 'none',
+    lastAtlasPayloadReused: false,
+    lastAtlasPayloadRebuilt: false,
+    lastAtlasPayloadChurnReason: 'none',
+    lastAtlasPayloadCapacityWidth: 0,
+    lastAtlasPayloadCapacityHeight: 0,
+    lastAtlasPayloadAllocationBytes: 0,
+    lastAtlasPayloadSavedAllocationBytes: 0,
+    lastAtlasPayloadWidth: 0,
+    lastAtlasPayloadHeight: 0,
     packedWriteResources: null,
     packedWriteResourceGl: null,
     gpuResidentPackedPayloads: [],
+    atlasGpuPackedPayload: null,
     reusableGpuResidentPayloadTextures: [],
     ...initialState
   };
@@ -858,8 +1007,50 @@ export function summarizeGpuScreenTransformBackendGpuCapability(context, gl = nu
     lastSuccessfulDispatchMode: context?.lastSuccessfulDispatchMode ?? 'none',
     lastSuccessfulDispatchItemCount: Number.isFinite(context?.lastSuccessfulDispatchItemCount)
       ? context.lastSuccessfulDispatchItemCount
+      : 0,
+    lastAtlasPayloadBuilt: !!context?.lastAtlasPayloadBuilt,
+    lastAtlasPayloadBatchCount: Number.isFinite(context?.lastAtlasPayloadBatchCount)
+      ? context.lastAtlasPayloadBatchCount
+      : 0,
+    lastAtlasPayloadCopyCount: Number.isFinite(context?.lastAtlasPayloadCopyCount)
+      ? context.lastAtlasPayloadCopyCount
+      : 0,
+    lastAtlasPayloadPolicySelectedPath: context?.lastAtlasPayloadPolicySelectedPath ?? 'none',
+    lastAtlasPayloadPolicyReason: context?.lastAtlasPayloadPolicyReason ?? 'none',
+    lastAtlasPayloadReused: !!context?.lastAtlasPayloadReused,
+    lastAtlasPayloadRebuilt: !!context?.lastAtlasPayloadRebuilt,
+    lastAtlasPayloadChurnReason: context?.lastAtlasPayloadChurnReason ?? 'none',
+    lastAtlasPayloadCapacityWidth: Number.isFinite(context?.lastAtlasPayloadCapacityWidth)
+      ? context.lastAtlasPayloadCapacityWidth
+      : 0,
+    lastAtlasPayloadCapacityHeight: Number.isFinite(context?.lastAtlasPayloadCapacityHeight)
+      ? context.lastAtlasPayloadCapacityHeight
+      : 0,
+    lastAtlasPayloadAllocationBytes: Number.isFinite(context?.lastAtlasPayloadAllocationBytes)
+      ? context.lastAtlasPayloadAllocationBytes
+      : 0,
+    lastAtlasPayloadSavedAllocationBytes: Number.isFinite(context?.lastAtlasPayloadSavedAllocationBytes)
+      ? context.lastAtlasPayloadSavedAllocationBytes
+      : 0,
+    lastAtlasPayloadWidth: Number.isFinite(context?.lastAtlasPayloadWidth)
+      ? context.lastAtlasPayloadWidth
+      : 0,
+    lastAtlasPayloadHeight: Number.isFinite(context?.lastAtlasPayloadHeight)
+      ? context.lastAtlasPayloadHeight
       : 0
   };
+}
+
+export function finalizeGpuScreenTransformBackendGpuAtlas(context, payloads, options = {}) {
+  const gl = options?.gl ?? null;
+  if (!probeWebGL2Support(gl)) {
+    return {
+      atlasPayload: null,
+      usedBackendAtlas: false,
+      avoidedDrawTimeMerge: false
+    };
+  }
+  return consolidateGpuResidentPackedPayloadAtlas(context, gl, payloads, options);
 }
 
 export function executeGpuScreenTransformBackendGpu(context, sourceItemsResult, options = {}) {

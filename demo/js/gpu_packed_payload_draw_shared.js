@@ -37,6 +37,24 @@ void main() {
 }
 `;
 
+function getPayloadRowsPerColumn(payload) {
+  if (Number.isFinite(payload?.rowsPerColumn)) {
+    return Math.max(1, payload.rowsPerColumn | 0);
+  }
+  if (Number.isFinite(payload?.height)) {
+    return Math.max(1, payload.height | 0);
+  }
+  if (Number.isFinite(payload?.count)) {
+    return Math.max(1, payload.count | 0);
+  }
+  return 1;
+}
+
+function isBackendAtlasPayload(payload) {
+  return payload?.kind === 'gpu-packed-texture-atlas' ||
+    (Number.isFinite(payload?.columnCount) && (payload.columnCount | 0) > 1);
+}
+
 export function getValidGpuPackedPayloads(gl, screenSpace) {
   const payloads = Array.isArray(screenSpace?.gpuPackedPayloads) ? screenSpace.gpuPackedPayloads : [];
   return payloads.filter((payload) => payload?.texture && payload?.gl === gl);
@@ -85,6 +103,165 @@ export function ensureGpuPackedPayloadTextureDrawResources(gl, gpu, storageKey) 
   } catch (_error) {
     return null;
   }
+}
+
+export function buildGpuPackedPayloadAtlas(gl, gpu, payloads, options = {}) {
+  const validPayloads = Array.isArray(payloads)
+    ? payloads.filter((payload) => payload?.texture && payload?.gl === gl)
+    : [];
+  if (validPayloads.length <= 1) {
+    return {
+      atlasPayload: validPayloads.length === 1 ? validPayloads[0] : null,
+      payloadCount: validPayloads.length,
+      totalCount: getPayloadDrawCount(validPayloads),
+      mergeAttempted: false,
+      mergeSucceeded: false,
+      mergeCopyCount: 0,
+      mergeFailureReason: validPayloads.length === 1 ? 'single-payload-not-merged' : 'no-valid-payloads',
+      mergePolicySelectedPath: validPayloads.length === 1 && isBackendAtlasPayload(validPayloads[0])
+        ? 'backend-atlas-payload'
+        : 'single-payload',
+      mergePolicyReason: validPayloads.length === 1 && isBackendAtlasPayload(validPayloads[0])
+        ? 'backend-atlas-already-ready'
+        : (validPayloads.length === 1 ? 'single-payload-not-needed' : 'no-valid-payloads'),
+      mergePolicyEstimatedCopyCount: 0,
+      mergePolicyEstimatedDispatchSavings: 0,
+      mergePolicyAtlasArea: 0,
+      mergePolicyOverrideMode: options.policyOverride?.mode ?? 'none',
+      mergePolicyOverrideReason: options.policyOverride?.reason ?? 'none',
+      mergeAtlasReused: false,
+      mergeAtlasRebuilt: false,
+      mergeAtlasChurnReason: 'none',
+      mergeAtlasCapacityWidth: 0,
+      mergeAtlasCapacityHeight: 0,
+      mergeAtlasAllocationBytes: 0,
+      mergeAtlasSavedAllocationBytes: 0,
+      mergeTextureWidth: validPayloads[0]?.width ?? 0,
+      mergeTextureHeight: validPayloads[0]?.height ?? 0,
+      mergeRowCount: getPayloadDrawCount(validPayloads),
+      mergeRowsPerColumn: validPayloads.length === 1 ? getPayloadRowsPerColumn(validPayloads[0]) : 0,
+      mergeColumnCount: validPayloads[0]?.columnCount ?? 1
+    };
+  }
+
+  const resources = options.resources || ensureGpuPackedPayloadTextureDrawResources(
+    gl,
+    gpu,
+    options.storageKey
+  );
+  if (!resources) {
+    return {
+      atlasPayload: null,
+      payloadCount: validPayloads.length,
+      totalCount: getPayloadDrawCount(validPayloads),
+      mergeAttempted: false,
+      mergeSucceeded: false,
+      mergeCopyCount: 0,
+      mergeFailureReason: 'merge-resources-unavailable',
+      mergePolicySelectedPath: 'multi-payload',
+      mergePolicyReason: 'merge-resources-unavailable',
+      mergePolicyEstimatedCopyCount: 0,
+      mergePolicyEstimatedDispatchSavings: 0,
+      mergePolicyAtlasArea: 0,
+      mergePolicyOverrideMode: options.policyOverride?.mode ?? 'none',
+      mergePolicyOverrideReason: options.policyOverride?.reason ?? 'none',
+      mergeAtlasReused: false,
+      mergeAtlasRebuilt: false,
+      mergeAtlasChurnReason: 'merge-resources-unavailable',
+      mergeAtlasCapacityWidth: 0,
+      mergeAtlasCapacityHeight: 0,
+      mergeAtlasAllocationBytes: 0,
+      mergeAtlasSavedAllocationBytes: 0,
+      mergeTextureWidth: 0,
+      mergeTextureHeight: 0,
+      mergeRowCount: 0,
+      mergeRowsPerColumn: 0,
+      mergeColumnCount: 0
+    };
+  }
+
+  const totalCount = getPayloadDrawCount(validPayloads);
+  const mergePolicy = buildMergePolicyDecision(
+    gl,
+    resources,
+    validPayloads,
+    totalCount,
+    options.policyOverride ?? null
+  );
+  const mergeResult = mergePolicy.shouldMerge
+    ? mergeGpuPackedPayloads(gl, resources, validPayloads, totalCount, mergePolicy.layout)
+    : {
+        attempted: false,
+        merged: false,
+        copyCount: 0,
+        failureReason: mergePolicy.policyReason,
+        textureWidth: mergePolicy.layout?.textureWidth ?? 0,
+        textureHeight: mergePolicy.layout?.textureHeight ?? 0,
+        rowCount: totalCount,
+        rowsPerColumn: mergePolicy.layout?.rowsPerColumn ?? 0,
+        columnCount: mergePolicy.layout?.columnCount ?? 0,
+        atlasReused: false,
+        atlasRebuilt: false,
+        atlasChurnReason: 'none',
+        atlasCapacityWidth: resources.mergeTextureCapacityWidth ?? 0,
+        atlasCapacityHeight: resources.mergeTextureCapacityHeight ?? 0,
+        atlasAllocationBytes: 0,
+        atlasSavedAllocationBytes: 0
+      };
+
+  const atlasPayload = mergeResult.merged
+    ? {
+        kind: 'gpu-packed-texture-atlas',
+        gl,
+        texture: resources.mergeTexture,
+        width: mergeResult.textureWidth ?? 0,
+        height: mergeResult.textureHeight ?? 0,
+        count: totalCount,
+        rowsPerColumn: mergeResult.rowsPerColumn ?? 0,
+        columnCount: mergeResult.columnCount ?? 0
+      }
+    : null;
+
+  return {
+    atlasPayload,
+    payloadCount: validPayloads.length,
+    totalCount,
+    mergeAttempted: !!mergeResult.attempted,
+    mergeSucceeded: !!mergeResult.merged,
+    mergeCopyCount: mergeResult.copyCount ?? 0,
+    mergeFailureReason: mergeResult.failureReason ?? 'none',
+    mergePolicySelectedPath: mergeResult.merged
+      ? 'merged-atlas'
+      : (
+        mergeResult.attempted
+          ? 'multi-payload-fallback'
+          : mergePolicy.policySelectedPath
+      ),
+    mergePolicyReason: mergeResult.merged
+      ? mergePolicy.policyReason
+      : (
+        mergeResult.attempted
+          ? `merge-policy-fallback:${mergeResult.failureReason ?? 'unknown'}`
+          : mergePolicy.policyReason
+      ),
+    mergePolicyEstimatedCopyCount: mergePolicy.estimatedCopyCount ?? validPayloads.length,
+    mergePolicyEstimatedDispatchSavings: mergePolicy.estimatedDispatchSavings ?? Math.max(0, validPayloads.length - 1),
+    mergePolicyAtlasArea: mergePolicy.atlasArea ?? 0,
+    mergePolicyOverrideMode: mergePolicy.overrideMode ?? 'none',
+    mergePolicyOverrideReason: mergePolicy.overrideReason ?? 'none',
+    mergeAtlasReused: !!mergeResult.atlasReused,
+    mergeAtlasRebuilt: !!mergeResult.atlasRebuilt,
+    mergeAtlasChurnReason: mergeResult.atlasChurnReason ?? 'none',
+    mergeAtlasCapacityWidth: mergeResult.atlasCapacityWidth ?? 0,
+    mergeAtlasCapacityHeight: mergeResult.atlasCapacityHeight ?? 0,
+    mergeAtlasAllocationBytes: mergeResult.atlasAllocationBytes ?? 0,
+    mergeAtlasSavedAllocationBytes: mergeResult.atlasSavedAllocationBytes ?? 0,
+    mergeTextureWidth: mergeResult.textureWidth ?? 0,
+    mergeTextureHeight: mergeResult.textureHeight ?? 0,
+    mergeRowCount: mergeResult.rowCount ?? totalCount,
+    mergeRowsPerColumn: mergeResult.rowsPerColumn ?? 0,
+    mergeColumnCount: mergeResult.columnCount ?? 0
+  };
 }
 
 function getPayloadDrawCount(payloads) {
@@ -632,26 +809,11 @@ export function drawGpuPackedPayloads(gl, gpu, screenSpace, canvasWidth, canvasH
     if (!resources?.program || !resources?.vao) return null;
 
     const totalCount = getPayloadDrawCount(payloads);
-    const mergePolicy = buildMergePolicyDecision(
-      gl,
+    const atlasResult = buildGpuPackedPayloadAtlas(gl, gpu, payloads, {
       resources,
-      payloads,
-      totalCount,
-      options.policyOverride ?? null
-    );
-    const mergeResult = mergePolicy.shouldMerge
-      ? mergeGpuPackedPayloads(gl, resources, payloads, totalCount, mergePolicy.layout)
-      : {
-          attempted: false,
-          merged: false,
-          copyCount: 0,
-          failureReason: mergePolicy.policyReason,
-          textureWidth: mergePolicy.layout?.textureWidth ?? 0,
-          textureHeight: mergePolicy.layout?.textureHeight ?? 0,
-          rowCount: totalCount,
-          rowsPerColumn: mergePolicy.layout?.rowsPerColumn ?? 0,
-          columnCount: mergePolicy.layout?.columnCount ?? 0
-        };
+      storageKey: options.storageKey,
+      policyOverride: options.policyOverride ?? null
+    });
     let drawCount = 0;
     let drawCallCount = 0;
     let bindCount = 0;
@@ -661,10 +823,10 @@ export function drawGpuPackedPayloads(gl, gpu, screenSpace, canvasWidth, canvasH
     gl.uniform2f(resources.uniformViewportPx, canvasWidth, canvasHeight);
     gl.uniform1i(resources.uniformPackedTexture, 0);
 
-    if (mergeResult.merged) {
+    if (atlasResult.mergeSucceeded && atlasResult.atlasPayload?.texture) {
       gl.activeTexture(gl.TEXTURE0);
-      gl.bindTexture(gl.TEXTURE_2D, resources.mergeTexture);
-      gl.uniform1i(resources.uniformPackedRowsPerColumn, Math.max(1, mergeResult.rowsPerColumn | 0));
+      gl.bindTexture(gl.TEXTURE_2D, atlasResult.atlasPayload.texture);
+      gl.uniform1i(resources.uniformPackedRowsPerColumn, Math.max(1, getPayloadRowsPerColumn(atlasResult.atlasPayload)));
       bindCount++;
       gl.drawArrays(gl.POINTS, 0, totalCount);
       drawCount = totalCount;
@@ -675,7 +837,7 @@ export function drawGpuPackedPayloads(gl, gpu, screenSpace, canvasWidth, canvasH
         if (count <= 0) continue;
         gl.activeTexture(gl.TEXTURE0);
         gl.bindTexture(gl.TEXTURE_2D, payload.texture);
-        gl.uniform1i(resources.uniformPackedRowsPerColumn, Math.max(1, count));
+        gl.uniform1i(resources.uniformPackedRowsPerColumn, getPayloadRowsPerColumn(payload));
         bindCount++;
         gl.drawArrays(gl.POINTS, 0, count);
         drawCount += count;
@@ -686,13 +848,13 @@ export function drawGpuPackedPayloads(gl, gpu, screenSpace, canvasWidth, canvasH
     gl.bindTexture(gl.TEXTURE_2D, null);
     gl.bindVertexArray(null);
 
-    resources.lastMergeSucceeded = !!mergeResult.merged;
-    resources.lastMergeFailureReason = mergeResult.failureReason ?? 'none';
-    resources.lastMergeRowCount = mergeResult.rowCount ?? totalCount;
+    resources.lastMergeSucceeded = !!atlasResult.mergeSucceeded;
+    resources.lastMergeFailureReason = atlasResult.mergeFailureReason ?? 'none';
+    resources.lastMergeRowCount = atlasResult.mergeRowCount ?? totalCount;
     resources.lastMergePayloadCount = payloads.length;
-    resources.lastMergeAtlasReused = !!mergeResult.atlasReused;
-    resources.lastMergeAtlasRebuilt = !!mergeResult.atlasRebuilt;
-    resources.lastMergeAtlasChurnReason = mergeResult.atlasChurnReason ?? 'none';
+    resources.lastMergeAtlasReused = !!atlasResult.mergeAtlasReused;
+    resources.lastMergeAtlasRebuilt = !!atlasResult.mergeAtlasRebuilt;
+    resources.lastMergeAtlasChurnReason = atlasResult.mergeAtlasChurnReason ?? 'none';
 
     return {
       drawCount,
@@ -700,47 +862,37 @@ export function drawGpuPackedPayloads(gl, gpu, screenSpace, canvasWidth, canvasH
       bindCount,
       setupCount: 1,
       dispatchCount: drawCallCount,
-      dispatchMode: mergeResult.merged
+      dispatchMode: atlasResult.mergeSucceeded
         ? 'shared-texture-merged-payloads'
         : payloads.length > 1
           ? 'shared-texture-multi-payload'
-          : 'shared-texture-single-payload',
+          : (isBackendAtlasPayload(payloads[0])
+            ? 'shared-texture-backend-atlas-payload'
+            : 'shared-texture-single-payload'),
       resources,
       payloadCount: payloads.length,
-      mergeAttempted: !!mergeResult.attempted,
-      mergeCopyCount: mergeResult.copyCount,
-      mergeFailureReason: mergeResult.failureReason ?? 'none',
-      mergeTextureWidth: mergeResult.textureWidth ?? 0,
-      mergeTextureHeight: mergeResult.textureHeight ?? 0,
-      mergeRowCount: mergeResult.rowCount ?? totalCount,
-      mergeRowsPerColumn: mergeResult.rowsPerColumn ?? 0,
-      mergeColumnCount: mergeResult.columnCount ?? 0,
-      mergePolicySelectedPath: mergeResult.merged
-        ? 'merged-atlas'
-        : (
-          mergeResult.attempted
-            ? 'multi-payload-fallback'
-            : mergePolicy.policySelectedPath
-        ),
-      mergePolicyReason: mergeResult.merged
-        ? mergePolicy.policyReason
-        : (
-          mergeResult.attempted
-            ? `merge-policy-fallback:${mergeResult.failureReason ?? 'unknown'}`
-            : mergePolicy.policyReason
-        ),
-      mergePolicyEstimatedCopyCount: mergePolicy.estimatedCopyCount ?? payloads.length,
-      mergePolicyEstimatedDispatchSavings: mergePolicy.estimatedDispatchSavings ?? Math.max(0, payloads.length - 1),
-      mergePolicyAtlasArea: mergePolicy.atlasArea ?? 0,
-      mergePolicyOverrideMode: mergePolicy.overrideMode ?? 'none',
-      mergePolicyOverrideReason: mergePolicy.overrideReason ?? 'none',
-      mergeAtlasReused: !!mergeResult.atlasReused,
-      mergeAtlasRebuilt: !!mergeResult.atlasRebuilt,
-      mergeAtlasChurnReason: mergeResult.atlasChurnReason ?? 'none',
-      mergeAtlasCapacityWidth: mergeResult.atlasCapacityWidth ?? 0,
-      mergeAtlasCapacityHeight: mergeResult.atlasCapacityHeight ?? 0,
-      mergeAtlasAllocationBytes: mergeResult.atlasAllocationBytes ?? 0,
-      mergeAtlasSavedAllocationBytes: mergeResult.atlasSavedAllocationBytes ?? 0
+      mergeAttempted: !!atlasResult.mergeAttempted,
+      mergeCopyCount: atlasResult.mergeCopyCount,
+      mergeFailureReason: atlasResult.mergeFailureReason ?? 'none',
+      mergeTextureWidth: atlasResult.mergeTextureWidth ?? 0,
+      mergeTextureHeight: atlasResult.mergeTextureHeight ?? 0,
+      mergeRowCount: atlasResult.mergeRowCount ?? totalCount,
+      mergeRowsPerColumn: atlasResult.mergeRowsPerColumn ?? 0,
+      mergeColumnCount: atlasResult.mergeColumnCount ?? 0,
+      mergePolicySelectedPath: atlasResult.mergePolicySelectedPath ?? 'none',
+      mergePolicyReason: atlasResult.mergePolicyReason ?? 'none',
+      mergePolicyEstimatedCopyCount: atlasResult.mergePolicyEstimatedCopyCount ?? payloads.length,
+      mergePolicyEstimatedDispatchSavings: atlasResult.mergePolicyEstimatedDispatchSavings ?? Math.max(0, payloads.length - 1),
+      mergePolicyAtlasArea: atlasResult.mergePolicyAtlasArea ?? 0,
+      mergePolicyOverrideMode: atlasResult.mergePolicyOverrideMode ?? 'none',
+      mergePolicyOverrideReason: atlasResult.mergePolicyOverrideReason ?? 'none',
+      mergeAtlasReused: !!atlasResult.mergeAtlasReused,
+      mergeAtlasRebuilt: !!atlasResult.mergeAtlasRebuilt,
+      mergeAtlasChurnReason: atlasResult.mergeAtlasChurnReason ?? 'none',
+      mergeAtlasCapacityWidth: atlasResult.mergeAtlasCapacityWidth ?? 0,
+      mergeAtlasCapacityHeight: atlasResult.mergeAtlasCapacityHeight ?? 0,
+      mergeAtlasAllocationBytes: atlasResult.mergeAtlasAllocationBytes ?? 0,
+      mergeAtlasSavedAllocationBytes: atlasResult.mergeAtlasSavedAllocationBytes ?? 0
     };
   } catch (_error) {
     try {

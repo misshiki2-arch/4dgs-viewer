@@ -3,6 +3,7 @@ import { packVisibleItems } from './gpu_visible_pack_utils.js';
 import {
   createGpuScreenTransformBackendGpuContext,
   executeGpuScreenTransformBackendGpu,
+  finalizeGpuScreenTransformBackendGpuAtlas,
   resetGpuScreenTransformBackendGpuPayloads,
   summarizeGpuScreenTransformBackendGpuCapability
 } from './gpu_screen_transform_backend_gpu.js';
@@ -301,6 +302,36 @@ function combineGpuPackedPayloadBatchResults(batchResults) {
   return gpuPackedPayloads;
 }
 
+function consolidateGpuPackedPayloadBatchResults(batchResults, backendContext, options = {}) {
+  const gpuPackedPayloads = combineGpuPackedPayloadBatchResults(batchResults);
+  if (gpuPackedPayloads.length <= 1 || !backendContext) {
+    return {
+      gpuPackedPayloads,
+      backendAtlasReady: false,
+      avoidedDrawTimeMerge: false
+    };
+  }
+
+  const atlasResult = finalizeGpuScreenTransformBackendGpuAtlas(backendContext, gpuPackedPayloads, {
+    gl: options.gl ?? null,
+    drawPolicyOverride: options.drawPolicyOverride ?? null
+  });
+
+  if (atlasResult?.atlasPayload?.texture) {
+    return {
+      gpuPackedPayloads: [atlasResult.atlasPayload],
+      backendAtlasReady: !!atlasResult.usedBackendAtlas,
+      avoidedDrawTimeMerge: !!atlasResult.avoidedDrawTimeMerge
+    };
+  }
+
+  return {
+    gpuPackedPayloads,
+    backendAtlasReady: false,
+    avoidedDrawTimeMerge: false
+  };
+}
+
 function didAllBatchesPromoteToGpuPrep(requestedTransformPath, batchResults) {
   if (requestedTransformPath !== GPU_SCREEN_TRANSFORM_PATH_GPU_PREP) return false;
   if (!Array.isArray(batchResults) || batchResults.length === 0) return false;
@@ -499,6 +530,20 @@ export function createGpuScreenTransformContext() {
     transformDispatchMode: 'none',
     transformDispatchUploadBytes: 0,
     transformDispatchItemCount: 0,
+    transformBackendAtlasReady: false,
+    transformAvoidedDrawTimeMerge: false,
+    transformAtlasPayloadBuilt: false,
+    transformAtlasPayloadBatchCount: 0,
+    transformAtlasPayloadCopyCount: 0,
+    transformAtlasPayloadPolicySelectedPath: 'none',
+    transformAtlasPayloadPolicyReason: 'none',
+    transformAtlasPayloadReused: false,
+    transformAtlasPayloadRebuilt: false,
+    transformAtlasPayloadChurnReason: 'none',
+    transformAtlasPayloadCapacityWidth: 0,
+    transformAtlasPayloadCapacityHeight: 0,
+    transformAtlasPayloadAllocationBytes: 0,
+    transformAtlasPayloadSavedAllocationBytes: 0,
     transformThroughputSummary: null,
     sourceItemCount: 0,
     sourceSchemaVersion: 0,
@@ -525,7 +570,9 @@ function buildTransformSummary({
   transformStageMs,
   transformBatchSummary = null,
   transformThroughputSummary = null,
-  backendCapability = null
+  backendCapability = null,
+  backendAtlasReady = false,
+  avoidedDrawTimeMerge = false
 }) {
   const uploadSummary = buildTransformUploadSummary(packed, packedCount);
   const fallbackReason = resolveFallbackReason(requestedTransformPath, actualTransformPath);
@@ -606,6 +653,32 @@ function buildTransformSummary({
       : 0,
     transformDispatchItemCount: Number.isFinite(backendCapability?.lastDispatchItemCount)
       ? backendCapability.lastDispatchItemCount
+      : 0,
+    transformBackendAtlasReady: !!backendAtlasReady,
+    transformAvoidedDrawTimeMerge: !!avoidedDrawTimeMerge,
+    transformAtlasPayloadBuilt: !!backendCapability?.lastAtlasPayloadBuilt,
+    transformAtlasPayloadBatchCount: Number.isFinite(backendCapability?.lastAtlasPayloadBatchCount)
+      ? backendCapability.lastAtlasPayloadBatchCount
+      : 0,
+    transformAtlasPayloadCopyCount: Number.isFinite(backendCapability?.lastAtlasPayloadCopyCount)
+      ? backendCapability.lastAtlasPayloadCopyCount
+      : 0,
+    transformAtlasPayloadPolicySelectedPath: backendCapability?.lastAtlasPayloadPolicySelectedPath ?? 'none',
+    transformAtlasPayloadPolicyReason: backendCapability?.lastAtlasPayloadPolicyReason ?? 'none',
+    transformAtlasPayloadReused: !!backendCapability?.lastAtlasPayloadReused,
+    transformAtlasPayloadRebuilt: !!backendCapability?.lastAtlasPayloadRebuilt,
+    transformAtlasPayloadChurnReason: backendCapability?.lastAtlasPayloadChurnReason ?? 'none',
+    transformAtlasPayloadCapacityWidth: Number.isFinite(backendCapability?.lastAtlasPayloadCapacityWidth)
+      ? backendCapability.lastAtlasPayloadCapacityWidth
+      : 0,
+    transformAtlasPayloadCapacityHeight: Number.isFinite(backendCapability?.lastAtlasPayloadCapacityHeight)
+      ? backendCapability.lastAtlasPayloadCapacityHeight
+      : 0,
+    transformAtlasPayloadAllocationBytes: Number.isFinite(backendCapability?.lastAtlasPayloadAllocationBytes)
+      ? backendCapability.lastAtlasPayloadAllocationBytes
+      : 0,
+    transformAtlasPayloadSavedAllocationBytes: Number.isFinite(backendCapability?.lastAtlasPayloadSavedAllocationBytes)
+      ? backendCapability.lastAtlasPayloadSavedAllocationBytes
       : 0,
     ...uploadSummary
   };
@@ -688,6 +761,32 @@ function updateContext(context, summary) {
   context.transformDispatchItemCount = Number.isFinite(summary.transformDispatchItemCount)
     ? summary.transformDispatchItemCount
     : 0;
+  context.transformBackendAtlasReady = !!summary.transformBackendAtlasReady;
+  context.transformAvoidedDrawTimeMerge = !!summary.transformAvoidedDrawTimeMerge;
+  context.transformAtlasPayloadBuilt = !!summary.transformAtlasPayloadBuilt;
+  context.transformAtlasPayloadBatchCount = Number.isFinite(summary.transformAtlasPayloadBatchCount)
+    ? summary.transformAtlasPayloadBatchCount
+    : 0;
+  context.transformAtlasPayloadCopyCount = Number.isFinite(summary.transformAtlasPayloadCopyCount)
+    ? summary.transformAtlasPayloadCopyCount
+    : 0;
+  context.transformAtlasPayloadPolicySelectedPath = summary.transformAtlasPayloadPolicySelectedPath ?? 'none';
+  context.transformAtlasPayloadPolicyReason = summary.transformAtlasPayloadPolicyReason ?? 'none';
+  context.transformAtlasPayloadReused = !!summary.transformAtlasPayloadReused;
+  context.transformAtlasPayloadRebuilt = !!summary.transformAtlasPayloadRebuilt;
+  context.transformAtlasPayloadChurnReason = summary.transformAtlasPayloadChurnReason ?? 'none';
+  context.transformAtlasPayloadCapacityWidth = Number.isFinite(summary.transformAtlasPayloadCapacityWidth)
+    ? summary.transformAtlasPayloadCapacityWidth
+    : 0;
+  context.transformAtlasPayloadCapacityHeight = Number.isFinite(summary.transformAtlasPayloadCapacityHeight)
+    ? summary.transformAtlasPayloadCapacityHeight
+    : 0;
+  context.transformAtlasPayloadAllocationBytes = Number.isFinite(summary.transformAtlasPayloadAllocationBytes)
+    ? summary.transformAtlasPayloadAllocationBytes
+    : 0;
+  context.transformAtlasPayloadSavedAllocationBytes = Number.isFinite(summary.transformAtlasPayloadSavedAllocationBytes)
+    ? summary.transformAtlasPayloadSavedAllocationBytes
+    : 0;
   context.transformThroughputSummary = summary.transformThroughputSummary ?? null;
   context.lastSummary = summary;
 }
@@ -736,7 +835,15 @@ export function executeGpuScreenPackedTransform(context, sourceItemsResult, opti
     return backendDispatch.execute(batchSourceItemsResult);
   });
   const combinedBatchResult = combinePackedBatchResults(batchResults);
-  const gpuPackedPayloads = combineGpuPackedPayloadBatchResults(batchResults);
+  const payloadConsolidation = consolidateGpuPackedPayloadBatchResults(
+    batchResults,
+    backendDispatch.backendContext ?? null,
+    {
+      gl: options.gl ?? null,
+      drawPolicyOverride: options.drawPolicyOverride ?? null
+    }
+  );
+  const gpuPackedPayloads = payloadConsolidation.gpuPackedPayloads;
   const finalBackendCapability = backendDispatch.backendContext
     ? summarizeGpuScreenTransformBackendGpuCapability(backendDispatch.backendContext, options.gl ?? null)
     : null;
@@ -773,7 +880,9 @@ export function executeGpuScreenPackedTransform(context, sourceItemsResult, opti
     transformStageMs,
     transformBatchSummary,
     transformThroughputSummary,
-    backendCapability: finalBackendCapability
+    backendCapability: finalBackendCapability,
+    backendAtlasReady: payloadConsolidation.backendAtlasReady,
+    avoidedDrawTimeMerge: payloadConsolidation.avoidedDrawTimeMerge
   });
 
   if (backendCapability && backendCapability.isReady) {
@@ -822,6 +931,20 @@ export function executeGpuScreenPackedTransform(context, sourceItemsResult, opti
     transformDispatchMode: summary.transformDispatchMode,
     transformDispatchUploadBytes: summary.transformDispatchUploadBytes,
     transformDispatchItemCount: summary.transformDispatchItemCount,
+    transformBackendAtlasReady: summary.transformBackendAtlasReady,
+    transformAvoidedDrawTimeMerge: summary.transformAvoidedDrawTimeMerge,
+    transformAtlasPayloadBuilt: summary.transformAtlasPayloadBuilt,
+    transformAtlasPayloadBatchCount: summary.transformAtlasPayloadBatchCount,
+    transformAtlasPayloadCopyCount: summary.transformAtlasPayloadCopyCount,
+    transformAtlasPayloadPolicySelectedPath: summary.transformAtlasPayloadPolicySelectedPath,
+    transformAtlasPayloadPolicyReason: summary.transformAtlasPayloadPolicyReason,
+    transformAtlasPayloadReused: summary.transformAtlasPayloadReused,
+    transformAtlasPayloadRebuilt: summary.transformAtlasPayloadRebuilt,
+    transformAtlasPayloadChurnReason: summary.transformAtlasPayloadChurnReason,
+    transformAtlasPayloadCapacityWidth: summary.transformAtlasPayloadCapacityWidth,
+    transformAtlasPayloadCapacityHeight: summary.transformAtlasPayloadCapacityHeight,
+    transformAtlasPayloadAllocationBytes: summary.transformAtlasPayloadAllocationBytes,
+    transformAtlasPayloadSavedAllocationBytes: summary.transformAtlasPayloadSavedAllocationBytes,
     transformThroughputSummary: summary.transformThroughputSummary,
     sourceItems: safeSourceItems(sourceItemsResult),
     sourceItemCount: summary.sourceItemCount,
@@ -875,6 +998,20 @@ export function summarizeGpuScreenTransformResult(result) {
       transformDispatchMode: 'none',
       transformDispatchUploadBytes: 0,
       transformDispatchItemCount: 0,
+      transformBackendAtlasReady: false,
+      transformAvoidedDrawTimeMerge: false,
+      transformAtlasPayloadBuilt: false,
+      transformAtlasPayloadBatchCount: 0,
+      transformAtlasPayloadCopyCount: 0,
+      transformAtlasPayloadPolicySelectedPath: 'none',
+      transformAtlasPayloadPolicyReason: 'none',
+      transformAtlasPayloadReused: false,
+      transformAtlasPayloadRebuilt: false,
+      transformAtlasPayloadChurnReason: 'none',
+      transformAtlasPayloadCapacityWidth: 0,
+      transformAtlasPayloadCapacityHeight: 0,
+      transformAtlasPayloadAllocationBytes: 0,
+      transformAtlasPayloadSavedAllocationBytes: 0,
       transformThroughputSummary: null
     };
   }
@@ -961,6 +1098,32 @@ export function summarizeGpuScreenTransformResult(result) {
     transformDispatchItemCount: Number.isFinite(result.transformDispatchItemCount)
       ? result.transformDispatchItemCount
       : 0,
+    transformBackendAtlasReady: !!result.transformBackendAtlasReady,
+    transformAvoidedDrawTimeMerge: !!result.transformAvoidedDrawTimeMerge,
+    transformAtlasPayloadBuilt: !!result.transformAtlasPayloadBuilt,
+    transformAtlasPayloadBatchCount: Number.isFinite(result.transformAtlasPayloadBatchCount)
+      ? result.transformAtlasPayloadBatchCount
+      : 0,
+    transformAtlasPayloadCopyCount: Number.isFinite(result.transformAtlasPayloadCopyCount)
+      ? result.transformAtlasPayloadCopyCount
+      : 0,
+    transformAtlasPayloadPolicySelectedPath: result.transformAtlasPayloadPolicySelectedPath ?? 'none',
+    transformAtlasPayloadPolicyReason: result.transformAtlasPayloadPolicyReason ?? 'none',
+    transformAtlasPayloadReused: !!result.transformAtlasPayloadReused,
+    transformAtlasPayloadRebuilt: !!result.transformAtlasPayloadRebuilt,
+    transformAtlasPayloadChurnReason: result.transformAtlasPayloadChurnReason ?? 'none',
+    transformAtlasPayloadCapacityWidth: Number.isFinite(result.transformAtlasPayloadCapacityWidth)
+      ? result.transformAtlasPayloadCapacityWidth
+      : 0,
+    transformAtlasPayloadCapacityHeight: Number.isFinite(result.transformAtlasPayloadCapacityHeight)
+      ? result.transformAtlasPayloadCapacityHeight
+      : 0,
+    transformAtlasPayloadAllocationBytes: Number.isFinite(result.transformAtlasPayloadAllocationBytes)
+      ? result.transformAtlasPayloadAllocationBytes
+      : 0,
+    transformAtlasPayloadSavedAllocationBytes: Number.isFinite(result.transformAtlasPayloadSavedAllocationBytes)
+      ? result.transformAtlasPayloadSavedAllocationBytes
+      : 0,
     transformThroughputSummary: result.transformThroughputSummary ?? null
   };
 }
@@ -1009,6 +1172,20 @@ export function summarizeGpuScreenTransformContext(context) {
       transformDispatchMode: 'none',
       transformDispatchUploadBytes: 0,
       transformDispatchItemCount: 0,
+      transformBackendAtlasReady: false,
+      transformAvoidedDrawTimeMerge: false,
+      transformAtlasPayloadBuilt: false,
+      transformAtlasPayloadBatchCount: 0,
+      transformAtlasPayloadCopyCount: 0,
+      transformAtlasPayloadPolicySelectedPath: 'none',
+      transformAtlasPayloadPolicyReason: 'none',
+      transformAtlasPayloadReused: false,
+      transformAtlasPayloadRebuilt: false,
+      transformAtlasPayloadChurnReason: 'none',
+      transformAtlasPayloadCapacityWidth: 0,
+      transformAtlasPayloadCapacityHeight: 0,
+      transformAtlasPayloadAllocationBytes: 0,
+      transformAtlasPayloadSavedAllocationBytes: 0,
       lastSummary: null
     };
   }
@@ -1088,6 +1265,32 @@ export function summarizeGpuScreenTransformContext(context) {
       : 0,
     transformDispatchItemCount: Number.isFinite(context.transformDispatchItemCount)
       ? context.transformDispatchItemCount
+      : 0,
+    transformBackendAtlasReady: !!context.transformBackendAtlasReady,
+    transformAvoidedDrawTimeMerge: !!context.transformAvoidedDrawTimeMerge,
+    transformAtlasPayloadBuilt: !!context.transformAtlasPayloadBuilt,
+    transformAtlasPayloadBatchCount: Number.isFinite(context.transformAtlasPayloadBatchCount)
+      ? context.transformAtlasPayloadBatchCount
+      : 0,
+    transformAtlasPayloadCopyCount: Number.isFinite(context.transformAtlasPayloadCopyCount)
+      ? context.transformAtlasPayloadCopyCount
+      : 0,
+    transformAtlasPayloadPolicySelectedPath: context.transformAtlasPayloadPolicySelectedPath ?? 'none',
+    transformAtlasPayloadPolicyReason: context.transformAtlasPayloadPolicyReason ?? 'none',
+    transformAtlasPayloadReused: !!context.transformAtlasPayloadReused,
+    transformAtlasPayloadRebuilt: !!context.transformAtlasPayloadRebuilt,
+    transformAtlasPayloadChurnReason: context.transformAtlasPayloadChurnReason ?? 'none',
+    transformAtlasPayloadCapacityWidth: Number.isFinite(context.transformAtlasPayloadCapacityWidth)
+      ? context.transformAtlasPayloadCapacityWidth
+      : 0,
+    transformAtlasPayloadCapacityHeight: Number.isFinite(context.transformAtlasPayloadCapacityHeight)
+      ? context.transformAtlasPayloadCapacityHeight
+      : 0,
+    transformAtlasPayloadAllocationBytes: Number.isFinite(context.transformAtlasPayloadAllocationBytes)
+      ? context.transformAtlasPayloadAllocationBytes
+      : 0,
+    transformAtlasPayloadSavedAllocationBytes: Number.isFinite(context.transformAtlasPayloadSavedAllocationBytes)
+      ? context.transformAtlasPayloadSavedAllocationBytes
       : 0,
     lastSummary: context.lastSummary ?? null
   };

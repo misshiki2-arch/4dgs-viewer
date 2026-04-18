@@ -260,6 +260,20 @@ function buildTransformLifecycleLines(transformSummary) {
   pushLine(lines, 'transformDispatchMode', transformSummary.transformDispatchMode ?? 'none');
   pushLine(lines, 'transformDispatchUploadBytes', fmtInt(transformSummary.transformDispatchUploadBytes));
   pushLine(lines, 'transformDispatchItemCount', fmtInt(transformSummary.transformDispatchItemCount));
+  pushLine(lines, 'transformBackendAtlasReady', fmtBool(!!transformSummary.transformBackendAtlasReady));
+  pushLine(lines, 'transformAvoidedDrawTimeMerge', fmtBool(!!transformSummary.transformAvoidedDrawTimeMerge));
+  pushLine(lines, 'transformAtlasPayloadBuilt', fmtBool(!!transformSummary.transformAtlasPayloadBuilt));
+  pushLine(lines, 'transformAtlasPayloadBatchCount', fmtInt(transformSummary.transformAtlasPayloadBatchCount));
+  pushLine(lines, 'transformAtlasPayloadCopyCount', fmtInt(transformSummary.transformAtlasPayloadCopyCount));
+  pushLine(lines, 'transformAtlasPayloadPolicySelectedPath', transformSummary.transformAtlasPayloadPolicySelectedPath ?? 'none');
+  pushLine(lines, 'transformAtlasPayloadPolicyReason', transformSummary.transformAtlasPayloadPolicyReason ?? 'none');
+  pushLine(lines, 'transformAtlasPayloadReused', fmtBool(!!transformSummary.transformAtlasPayloadReused));
+  pushLine(lines, 'transformAtlasPayloadRebuilt', fmtBool(!!transformSummary.transformAtlasPayloadRebuilt));
+  pushLine(lines, 'transformAtlasPayloadChurnReason', transformSummary.transformAtlasPayloadChurnReason ?? 'none');
+  pushLine(lines, 'transformAtlasPayloadCapacityWidth', fmtInt(transformSummary.transformAtlasPayloadCapacityWidth));
+  pushLine(lines, 'transformAtlasPayloadCapacityHeight', fmtInt(transformSummary.transformAtlasPayloadCapacityHeight));
+  pushLine(lines, 'transformAtlasPayloadAllocationBytes', fmtInt(transformSummary.transformAtlasPayloadAllocationBytes));
+  pushLine(lines, 'transformAtlasPayloadSavedAllocationBytes', fmtInt(transformSummary.transformAtlasPayloadSavedAllocationBytes));
   return lines;
 }
 

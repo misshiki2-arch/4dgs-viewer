@@ -157,7 +157,8 @@ export function packGpuScreenSourceItems(sourceItemsResult, extra = {}) {
     gl: extra.gl ?? null,
     sourcePath: extra.path ?? sourceItemsResult?.path,
     experimental: !!extra.experimental || !!sourceItemsResult?.experimental,
-    transformPolicyOverride: extra.transformPolicyOverride ?? null
+    transformPolicyOverride: extra.transformPolicyOverride ?? null,
+    drawPolicyOverride: extra.drawPolicyOverride ?? null
   });
 }
 
