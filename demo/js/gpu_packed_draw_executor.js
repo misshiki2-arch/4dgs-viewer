@@ -100,11 +100,12 @@ export function ensurePackedDirectDrawResources(gl, gpu) {
   };
 }
 
-export function uploadAndDrawPackedDirect(gl, gpu, packedScreenSpace, canvasWidth, canvasHeight) {
+export function uploadAndDrawPackedDirect(gl, gpu, packedScreenSpace, canvasWidth, canvasHeight, options = {}) {
   const textureResources = ensurePackedDirectTextureDrawResources(gl, gpu);
   const drawResult = drawGpuPackedPayloads(gl, gpu, packedScreenSpace, canvasWidth, canvasHeight, {
     storageKey: 'packedDirectTextureDrawResources',
-    resources: textureResources
+    resources: textureResources,
+    policyOverride: options.drawPolicyOverride ?? null
   });
 
   if (drawResult) {
@@ -132,6 +133,8 @@ export function uploadAndDrawPackedDirect(gl, gpu, packedScreenSpace, canvasWidt
       packedDirectSharedMergePolicyEstimatedCopyCount: drawResult.mergePolicyEstimatedCopyCount ?? 0,
       packedDirectSharedMergePolicyEstimatedDispatchSavings: drawResult.mergePolicyEstimatedDispatchSavings ?? 0,
       packedDirectSharedMergePolicyAtlasArea: drawResult.mergePolicyAtlasArea ?? 0,
+      packedDirectSharedMergePolicyOverrideMode: drawResult.mergePolicyOverrideMode ?? 'none',
+      packedDirectSharedMergePolicyOverrideReason: drawResult.mergePolicyOverrideReason ?? 'none',
       packedDirectSharedMergeAtlasReused: !!drawResult.mergeAtlasReused,
       packedDirectSharedMergeAtlasRebuilt: !!drawResult.mergeAtlasRebuilt,
       packedDirectSharedMergeAtlasChurnReason: drawResult.mergeAtlasChurnReason ?? 'none',
@@ -199,6 +202,8 @@ export function uploadAndDrawPackedDirect(gl, gpu, packedScreenSpace, canvasWidt
     packedDirectSharedMergePolicyEstimatedCopyCount: 0,
     packedDirectSharedMergePolicyEstimatedDispatchSavings: 0,
     packedDirectSharedMergePolicyAtlasArea: 0,
+    packedDirectSharedMergePolicyOverrideMode: 'none',
+    packedDirectSharedMergePolicyOverrideReason: 'none',
     packedDirectSharedMergeAtlasReused: false,
     packedDirectSharedMergeAtlasRebuilt: false,
     packedDirectSharedMergeAtlasChurnReason: 'none',
@@ -245,6 +250,8 @@ export function summarizePackedDirectResources(gpu) {
     packedDirectSharedMergePolicyEstimatedCopyCount: 0,
     packedDirectSharedMergePolicyEstimatedDispatchSavings: 0,
     packedDirectSharedMergePolicyAtlasArea: 0,
+    packedDirectSharedMergePolicyOverrideMode: 'none',
+    packedDirectSharedMergePolicyOverrideReason: 'none',
     packedDirectSharedMergeAtlasReused: false,
     packedDirectSharedMergeAtlasRebuilt: false,
     packedDirectSharedMergeAtlasChurnReason: 'none',

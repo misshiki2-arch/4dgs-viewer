@@ -158,6 +158,8 @@ function buildGpuScreenStateLines(gpuScreenSummary) {
   pushLine(lines, 'gpuScreenSharedMergePolicyEstimatedCopyCount', fmtInt(gpuScreenSummary.gpuScreenSharedMergePolicyEstimatedCopyCount));
   pushLine(lines, 'gpuScreenSharedMergePolicyEstimatedDispatchSavings', fmtInt(gpuScreenSummary.gpuScreenSharedMergePolicyEstimatedDispatchSavings));
   pushLine(lines, 'gpuScreenSharedMergePolicyAtlasArea', fmtInt(gpuScreenSummary.gpuScreenSharedMergePolicyAtlasArea));
+  pushLine(lines, 'gpuScreenSharedMergePolicyOverrideMode', gpuScreenSummary.gpuScreenSharedMergePolicyOverrideMode ?? 'none');
+  pushLine(lines, 'gpuScreenSharedMergePolicyOverrideReason', gpuScreenSummary.gpuScreenSharedMergePolicyOverrideReason ?? 'none');
   pushLine(lines, 'gpuScreenSharedMergeAtlasReused', fmtBool(!!gpuScreenSummary.gpuScreenSharedMergeAtlasReused));
   pushLine(lines, 'gpuScreenSharedMergeAtlasRebuilt', fmtBool(!!gpuScreenSummary.gpuScreenSharedMergeAtlasRebuilt));
   pushLine(lines, 'gpuScreenSharedMergeAtlasChurnReason', gpuScreenSummary.gpuScreenSharedMergeAtlasChurnReason ?? 'none');
@@ -222,8 +224,11 @@ function buildTransformBatchLines(transformBatchSummary) {
   pushLine(lines, 'transformBatchPlanMode', transformBatchSummary.planMode);
   pushLine(lines, 'transformBatchCount', fmtInt(transformBatchSummary.batchCount));
   pushLine(lines, 'transformBatchMaxItems', fmtInt(transformBatchSummary.maxBatchItems));
+  pushLine(lines, 'transformBatchPlannedMaxItems', fmtInt(transformBatchSummary.plannedMaxBatchItems));
   pushLine(lines, 'transformBatchPreferredItems', fmtInt(transformBatchSummary.preferredBatchItems));
   pushLine(lines, 'transformBatchPreferredPolicy', transformBatchSummary.preferredBatchPolicy ?? 'preferred-batch-none');
+  pushLine(lines, 'transformBatchPolicyOverrideMode', transformBatchSummary.policyOverrideMode ?? 'none');
+  pushLine(lines, 'transformBatchPolicyOverrideReason', transformBatchSummary.policyOverrideReason ?? 'none');
   pushLine(lines, 'transformBatchLargestItemCount', fmtInt(transformBatchSummary.largestBatchItemCount));
   pushLine(lines, 'transformBatchGpuCount', fmtInt(transformBatchSummary.gpuBatchCount));
   pushLine(lines, 'transformBatchCpuFallbackCount', fmtInt(transformBatchSummary.cpuFallbackBatchCount));
@@ -301,6 +306,8 @@ function buildDrawThroughputLines(drawThroughputSummary) {
   pushLine(lines, 'drawThroughputSharedMergePolicyEstimatedCopyCount', fmtInt(drawThroughputSummary.sharedMergePolicyEstimatedCopyCount));
   pushLine(lines, 'drawThroughputSharedMergePolicyEstimatedDispatchSavings', fmtInt(drawThroughputSummary.sharedMergePolicyEstimatedDispatchSavings));
   pushLine(lines, 'drawThroughputSharedMergePolicyAtlasArea', fmtInt(drawThroughputSummary.sharedMergePolicyAtlasArea));
+  pushLine(lines, 'drawThroughputSharedMergePolicyOverrideMode', drawThroughputSummary.sharedMergePolicyOverrideMode ?? 'none');
+  pushLine(lines, 'drawThroughputSharedMergePolicyOverrideReason', drawThroughputSummary.sharedMergePolicyOverrideReason ?? 'none');
   pushLine(lines, 'drawThroughputSharedMergeAtlasReused', fmtBool(!!drawThroughputSummary.sharedMergeAtlasReused));
   pushLine(lines, 'drawThroughputSharedMergeAtlasRebuilt', fmtBool(!!drawThroughputSummary.sharedMergeAtlasRebuilt));
   pushLine(lines, 'drawThroughputSharedMergeAtlasChurnReason', drawThroughputSummary.sharedMergeAtlasChurnReason ?? 'none');
@@ -332,6 +339,14 @@ function buildFrameGpuThroughputLines(frameGpuThroughputSummary) {
   pushLine(lines, 'gpuFrameDrawMergeAtlasRebuilt', fmtBool(!!frameGpuThroughputSummary.drawMergeAtlasRebuilt));
   pushLine(lines, 'gpuFrameDrawMergeAtlasAllocationBytes', fmtInt(frameGpuThroughputSummary.drawMergeAtlasAllocationBytes));
   pushLine(lines, 'gpuFrameDrawMergeAtlasSavedAllocationBytes', fmtInt(frameGpuThroughputSummary.drawMergeAtlasSavedAllocationBytes));
+  pushLine(lines, 'gpuFramePolicyPriority', frameGpuThroughputSummary.framePolicyPriority ?? 'balanced-gpu-path');
+  pushLine(lines, 'gpuFrameTransformPolicyOverrideMode', frameGpuThroughputSummary.transformPolicyOverrideMode ?? 'none');
+  pushLine(lines, 'gpuFrameTransformPolicyOverrideReason', frameGpuThroughputSummary.transformPolicyOverrideReason ?? 'none');
+  pushLine(lines, 'gpuFrameDrawPolicyOverrideMode', frameGpuThroughputSummary.drawPolicyOverrideMode ?? 'none');
+  pushLine(lines, 'gpuFrameDrawPolicyOverrideReason', frameGpuThroughputSummary.drawPolicyOverrideReason ?? 'none');
+  pushLine(lines, 'gpuFrameDebugPolicyOverrideActive', fmtBool(!!frameGpuThroughputSummary.debugPolicyOverrideActive));
+  pushLine(lines, 'gpuFrameDebugPolicyOverrideMode', frameGpuThroughputSummary.debugPolicyOverrideMode ?? 'auto');
+  pushLine(lines, 'gpuFrameDebugPolicyOverrideReason', frameGpuThroughputSummary.debugPolicyOverrideReason ?? 'none');
   pushLine(lines, 'gpuFrameThroughputBottleneck', frameGpuThroughputSummary.bottleneckStage ?? 'balanced-gpu-path');
   return lines;
 }
@@ -398,6 +413,8 @@ export function buildPackedLines(buildStats, drawPathSelection, drawStats) {
     `packedDirectSharedMergePolicyEstimatedCopyCount=${drawStats?.packedDirectSharedMergePolicyEstimatedCopyCount ?? 0}`,
     `packedDirectSharedMergePolicyEstimatedDispatchSavings=${drawStats?.packedDirectSharedMergePolicyEstimatedDispatchSavings ?? 0}`,
     `packedDirectSharedMergePolicyAtlasArea=${drawStats?.packedDirectSharedMergePolicyAtlasArea ?? 0}`,
+    `packedDirectSharedMergePolicyOverrideMode=${drawStats?.packedDirectSharedMergePolicyOverrideMode ?? 'none'}`,
+    `packedDirectSharedMergePolicyOverrideReason=${drawStats?.packedDirectSharedMergePolicyOverrideReason ?? 'none'}`,
     `packedDirectSharedMergeAtlasReused=${!!drawStats?.packedDirectSharedMergeAtlasReused}`,
     `packedDirectSharedMergeAtlasRebuilt=${!!drawStats?.packedDirectSharedMergeAtlasRebuilt}`,
     `packedDirectSharedMergeAtlasChurnReason=${drawStats?.packedDirectSharedMergeAtlasChurnReason ?? 'none'}`,

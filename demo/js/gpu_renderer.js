@@ -364,7 +364,8 @@ function buildRendererDrawStats({
 
 function buildFrameGpuThroughputSummary({
   transformThroughputSummary,
-  drawThroughputSummary
+  drawThroughputSummary,
+  frameGpuPolicySummary = null
 }) {
   const transformDispatchCount = Number.isFinite(transformThroughputSummary?.totalDispatchCount)
     ? Math.max(0, transformThroughputSummary.totalDispatchCount | 0)
@@ -402,16 +403,143 @@ function buildFrameGpuThroughputSummary({
     drawMergeAtlasRebuilt: !!drawThroughputSummary?.sharedMergeAtlasRebuilt,
     drawMergeAtlasAllocationBytes: drawThroughputSummary?.sharedMergeAtlasAllocationBytes ?? 0,
     drawMergeAtlasSavedAllocationBytes: drawThroughputSummary?.sharedMergeAtlasSavedAllocationBytes ?? 0,
+    framePolicyPriority: frameGpuPolicySummary?.priority ?? 'balanced-gpu-path',
+    transformPolicyOverrideMode: frameGpuPolicySummary?.transformPolicyOverride?.mode ?? 'none',
+    transformPolicyOverrideReason: frameGpuPolicySummary?.transformPolicyOverride?.reason ?? 'none',
+    drawPolicyOverrideMode: frameGpuPolicySummary?.drawPolicyOverride?.mode ?? 'none',
+    drawPolicyOverrideReason: frameGpuPolicySummary?.drawPolicyOverride?.reason ?? 'none',
+    debugPolicyOverrideActive: !!frameGpuPolicySummary?.debugOverrideActive,
+    debugPolicyOverrideMode: frameGpuPolicySummary?.debugOverrideMode ?? 'auto',
+    debugPolicyOverrideReason: frameGpuPolicySummary?.debugOverrideReason ?? 'none',
     bottleneckStage
   };
 }
 
-function selectGpuScreenSourceSpace(gpu, visible, packedCpuScreenSpace) {
+function getFrameGpuPolicyDebugOverrideMode() {
+  if (typeof window === 'undefined' || !window.location?.search) return 'auto';
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const rawValue = String(
+      params.get('gpuFramePolicyOverride') ??
+      params.get('gpuFramePolicy') ??
+      'auto'
+    ).trim().toLowerCase();
+
+    if (rawValue === 'force-transform-throughput') return 'force-transform-throughput';
+    if (rawValue === 'force-draw-throughput') return 'force-draw-throughput';
+  } catch (_error) {
+    return 'auto';
+  }
+  return 'auto';
+}
+
+function buildForcedFrameGpuPolicySummary(debugOverrideMode) {
+  if (debugOverrideMode === 'force-draw-throughput') {
+    return {
+      priority: 'draw-throughput',
+      reason: 'debug-force-draw-throughput',
+      transformPolicyOverride: {
+        mode: 'favor-draw-throughput',
+        reason: 'debug-force-draw-throughput'
+      },
+      drawPolicyOverride: {
+        mode: 'favor-merged-atlas',
+        reason: 'debug-force-draw-throughput'
+      },
+      debugOverrideActive: true,
+      debugOverrideMode,
+      debugOverrideReason: 'debug-force-draw-throughput'
+    };
+  }
+
+  if (debugOverrideMode === 'force-transform-throughput') {
+    return {
+      priority: 'transform-throughput',
+      reason: 'debug-force-transform-throughput',
+      transformPolicyOverride: {
+        mode: 'favor-transform-throughput',
+        reason: 'debug-force-transform-throughput'
+      },
+      drawPolicyOverride: {
+        mode: 'favor-atlas-reuse',
+        reason: 'debug-force-transform-throughput'
+      },
+      debugOverrideActive: true,
+      debugOverrideMode,
+      debugOverrideReason: 'debug-force-transform-throughput'
+    };
+  }
+
+  return null;
+}
+
+function buildFrameGpuPolicySummary(previousFrameGpuThroughputSummary) {
+  const debugOverrideMode = getFrameGpuPolicyDebugOverrideMode();
+  const forcedSummary = buildForcedFrameGpuPolicySummary(debugOverrideMode);
+  if (forcedSummary) return forcedSummary;
+
+  const previousBottleneck = previousFrameGpuThroughputSummary?.bottleneckStage ?? 'balanced-gpu-path';
+
+  if (previousBottleneck === 'draw-throughput-pressure') {
+    return {
+      priority: 'draw-throughput',
+      reason: 'frame-bottleneck-draw-throughput',
+      transformPolicyOverride: {
+        mode: 'favor-draw-throughput',
+        reason: 'frame-bottleneck-draw-throughput'
+      },
+      drawPolicyOverride: {
+        mode: 'favor-merged-atlas',
+        reason: 'frame-bottleneck-draw-throughput'
+      },
+      debugOverrideActive: false,
+      debugOverrideMode: 'auto',
+      debugOverrideReason: 'none'
+    };
+  }
+
+  if (previousBottleneck === 'transform-throughput-pressure') {
+    return {
+      priority: 'transform-throughput',
+      reason: 'frame-bottleneck-transform-throughput',
+      transformPolicyOverride: {
+        mode: 'favor-transform-throughput',
+        reason: 'frame-bottleneck-transform-throughput'
+      },
+      drawPolicyOverride: {
+        mode: 'favor-atlas-reuse',
+        reason: 'frame-bottleneck-transform-throughput'
+      },
+      debugOverrideActive: false,
+      debugOverrideMode: 'auto',
+      debugOverrideReason: 'none'
+    };
+  }
+
+  return {
+    priority: 'balanced-gpu-path',
+    reason: 'frame-bottleneck-balanced-gpu-path',
+    transformPolicyOverride: {
+      mode: 'balanced',
+      reason: 'frame-bottleneck-balanced-gpu-path'
+    },
+    drawPolicyOverride: {
+      mode: 'balanced',
+      reason: 'frame-bottleneck-balanced-gpu-path'
+    },
+    debugOverrideActive: false,
+    debugOverrideMode: 'auto',
+    debugOverrideReason: 'none'
+  };
+}
+
+function selectGpuScreenSourceSpace(gpu, visible, packedCpuScreenSpace, frameGpuPolicySummary = null) {
   const context = ensureGpuScreenSourceContext(gpu);
 
   try {
     const experimental = buildPackedGpuPrepScreenSpaceWithContext(context, visible, {
-      gl: gpu?.gl ?? null
+      gl: gpu?.gl ?? null,
+      transformPolicyOverride: frameGpuPolicySummary?.transformPolicyOverride ?? null
     });
     if (hasGpuResidentPackedScreenSpace(experimental)) {
       return {
@@ -538,7 +666,7 @@ export async function renderGpuFrame({
     debugOverlayCanvas.height = canvas.height;
     debugCtx.clearRect(0, 0, debugOverlayCanvas.width, debugOverlayCanvas.height);
     debugOverlayCanvas.style.display = 'none';
-    const emptyInfo = 'GPU Step67 viewer\nNo scene loaded.';
+    const emptyInfo = 'GPU Step68 viewer\nNo scene loaded.';
     setInfoText(infoEl, emptyInfo);
     return {
       infoText: emptyInfo,
@@ -618,7 +746,13 @@ export async function renderGpuFrame({
     : [];
 
   const requestedPath = getRequestedDrawPath(ui);
-  const gpuScreenSourceInfo = selectGpuScreenSourceSpace(gpu, visible, packedScreenSpace);
+  const frameGpuPolicySummary = buildFrameGpuPolicySummary(gpu.lastFrameGpuThroughputSummary ?? null);
+  const gpuScreenSourceInfo = selectGpuScreenSourceSpace(
+    gpu,
+    visible,
+    packedScreenSpace,
+    frameGpuPolicySummary
+  );
 
   const drawPathSelection = summarizeDrawPathSelection(
     resolveDrawPath({
@@ -659,7 +793,8 @@ export async function renderGpuFrame({
         drawPathSelection,
         packedScreenSpace,
         gpuScreenSourceSpace: gpuScreenSourceInfo.sourceSpace,
-        legacyDrawData
+        legacyDrawData,
+        drawPolicyOverride: frameGpuPolicySummary.drawPolicyOverride
       });
 
   const {
@@ -736,8 +871,10 @@ export async function renderGpuFrame({
     null;
   const frameGpuThroughputSummary = buildFrameGpuThroughputSummary({
     transformThroughputSummary,
-    drawThroughputSummary
+    drawThroughputSummary,
+    frameGpuPolicySummary
   });
+  gpu.lastFrameGpuThroughputSummary = frameGpuThroughputSummary;
 
   const drawStats = buildRendererDrawStats({
     gpu,
@@ -829,13 +966,14 @@ export async function renderGpuFrame({
     timestamp: buildConfig.timestamp,
     splatScale: buildConfig.scalingModifier,
     elapsedMs: elapsed,
-    stepLabel: 'GPU Step67',
+    stepLabel: 'GPU Step68',
     stepNotes: [
       'transform executor owns transformBatchSummary and downstream code forwards it without reinterpretation',
       'transform truth and draw truth still flow into frame-level GPU throughput summaries so the main-path bottleneck stays readable without reinterpreting executor-owned contracts',
-      'transform backend still advertises a preferred GPU batch size based on successful single-texture-copy-pass history, and draw now reuses merged atlas capacity when possible instead of rebuilding atlas storage every frame',
-      'debug output now shows transform throughput, draw throughput, frame-level bottleneck hints, merge policy reasons, atlas shape, atlas reuse versus rebuild, and avoided allocation cost while preserving existing truth-source metrics',
-      'gpu resident payload draw still shares bind and setup work between gpu-screen and packed direct through the shared texture consumer path, and Step67 reduces merged-path churn by growing atlas capacity only when needed',
+      'transform backend still advertises a preferred GPU batch size based on successful single-texture-copy-pass history, and Step68 now feeds previous-frame bottleneck hints back into transform and draw policy overrides',
+      'debug query overrides are available via gpuFramePolicyOverride=auto|force-transform-throughput|force-draw-throughput so either side of the cooperative policy can be inspected without changing the normal UI path',
+      'debug output now shows transform throughput, draw throughput, frame-level bottleneck hints, merge policy reasons, atlas reuse versus rebuild, and which side the cooperative policy favored on the next frame while preserving existing truth-source metrics',
+      'gpu resident payload draw still shares bind and setup work between gpu-screen and packed direct through the shared texture consumer path, and Step68 lets draw favor merged-atlas or atlas-reuse while transform can favor larger batches when it is the current bottleneck',
       'gpu resident payload remains the explicit normal source contract, while cpu packed stays behind explicit compatibility-bridge contracts without changing public draw contracts',
       'packed-write backend keeps the offscreen FBO blend-disable fix while preserving existing public draw contracts'
     ],

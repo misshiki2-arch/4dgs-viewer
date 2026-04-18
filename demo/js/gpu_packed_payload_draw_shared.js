@@ -152,7 +152,7 @@ function buildMergeAtlasLayout(gl, totalCount) {
   };
 }
 
-function buildMergePolicyDecision(gl, resources, payloads, totalCount) {
+function buildMergePolicyDecision(gl, resources, payloads, totalCount, policyOverride = null) {
   const payloadCount = Array.isArray(payloads) ? payloads.length : 0;
   const dispatchSavings = Math.max(0, payloadCount - 1);
   const estimatedCopyCount = payloadCount;
@@ -163,6 +163,10 @@ function buildMergePolicyDecision(gl, resources, payloads, totalCount) {
     : estimatedCopyCount;
   const previousMergeSucceeded = !!resources?.lastMergeSucceeded;
   const previousMergeFailureReason = resources?.lastMergeFailureReason ?? 'none';
+  const canReuseExistingAtlas =
+    layout.ok &&
+    (resources?.mergeTextureCapacityWidth ?? 0) >= layout.textureWidth &&
+    (resources?.mergeTextureCapacityHeight ?? 0) >= layout.textureHeight;
 
   if (payloadCount <= 1) {
     return {
@@ -200,6 +204,49 @@ function buildMergePolicyDecision(gl, resources, payloads, totalCount) {
     };
   }
 
+  if (policyOverride?.mode === 'favor-merged-atlas') {
+    return {
+      shouldMerge: true,
+      policySelectedPath: 'merged-atlas',
+      policyReason: policyOverride?.reason ?? 'merge-policy-override-draw-throughput',
+      estimatedDispatchSavings: dispatchSavings,
+      estimatedCopyCount,
+      atlasArea,
+      layout,
+      overrideMode: policyOverride.mode,
+      overrideReason: policyOverride?.reason ?? 'merge-policy-override-draw-throughput'
+    };
+  }
+
+  if (policyOverride?.mode === 'favor-atlas-reuse') {
+    if (canReuseExistingAtlas || previousMergeSucceeded) {
+      return {
+        shouldMerge: true,
+        policySelectedPath: 'merged-atlas',
+        policyReason: policyOverride?.reason ?? 'merge-policy-override-transform-throughput-reuse',
+        estimatedDispatchSavings: dispatchSavings,
+        estimatedCopyCount,
+        atlasArea,
+        layout,
+        overrideMode: policyOverride.mode,
+        overrideReason: policyOverride?.reason ?? 'merge-policy-override-transform-throughput-reuse'
+      };
+    }
+    if (dispatchSavings <= 4) {
+      return {
+        shouldMerge: false,
+        policySelectedPath: 'multi-payload',
+        policyReason: policyOverride?.reason ?? 'merge-policy-override-transform-throughput-avoid-rebuild',
+        estimatedDispatchSavings: dispatchSavings,
+        estimatedCopyCount,
+        atlasArea,
+        layout,
+        overrideMode: policyOverride.mode,
+        overrideReason: policyOverride?.reason ?? 'merge-policy-override-transform-throughput-avoid-rebuild'
+      };
+    }
+  }
+
   if (payloadCount < GPU_MERGE_MIN_PAYLOAD_COUNT && totalCount < GPU_MERGE_MIN_TOTAL_ROWS) {
     return {
       shouldMerge: false,
@@ -208,7 +255,9 @@ function buildMergePolicyDecision(gl, resources, payloads, totalCount) {
       estimatedDispatchSavings: dispatchSavings,
       estimatedCopyCount,
       atlasArea,
-      layout
+      layout,
+      overrideMode: policyOverride?.mode ?? 'none',
+      overrideReason: policyOverride?.reason ?? 'none'
     };
   }
 
@@ -220,7 +269,9 @@ function buildMergePolicyDecision(gl, resources, payloads, totalCount) {
       estimatedDispatchSavings: dispatchSavings,
       estimatedCopyCount,
       atlasArea,
-      layout
+      layout,
+      overrideMode: policyOverride?.mode ?? 'none',
+      overrideReason: policyOverride?.reason ?? 'none'
     };
   }
 
@@ -232,7 +283,9 @@ function buildMergePolicyDecision(gl, resources, payloads, totalCount) {
       estimatedDispatchSavings: dispatchSavings,
       estimatedCopyCount,
       atlasArea,
-      layout
+      layout,
+      overrideMode: policyOverride?.mode ?? 'none',
+      overrideReason: policyOverride?.reason ?? 'none'
     };
   }
 
@@ -244,7 +297,9 @@ function buildMergePolicyDecision(gl, resources, payloads, totalCount) {
       estimatedDispatchSavings: dispatchSavings,
       estimatedCopyCount,
       atlasArea,
-      layout
+      layout,
+      overrideMode: policyOverride?.mode ?? 'none',
+      overrideReason: policyOverride?.reason ?? 'none'
     };
   }
 
@@ -257,7 +312,9 @@ function buildMergePolicyDecision(gl, resources, payloads, totalCount) {
     estimatedDispatchSavings: dispatchSavings,
     estimatedCopyCount,
     atlasArea,
-    layout
+    layout,
+    overrideMode: policyOverride?.mode ?? 'none',
+    overrideReason: policyOverride?.reason ?? 'none'
   };
 }
 
@@ -575,7 +632,13 @@ export function drawGpuPackedPayloads(gl, gpu, screenSpace, canvasWidth, canvasH
     if (!resources?.program || !resources?.vao) return null;
 
     const totalCount = getPayloadDrawCount(payloads);
-    const mergePolicy = buildMergePolicyDecision(gl, resources, payloads, totalCount);
+    const mergePolicy = buildMergePolicyDecision(
+      gl,
+      resources,
+      payloads,
+      totalCount,
+      options.policyOverride ?? null
+    );
     const mergeResult = mergePolicy.shouldMerge
       ? mergeGpuPackedPayloads(gl, resources, payloads, totalCount, mergePolicy.layout)
       : {
@@ -669,6 +732,8 @@ export function drawGpuPackedPayloads(gl, gpu, screenSpace, canvasWidth, canvasH
       mergePolicyEstimatedCopyCount: mergePolicy.estimatedCopyCount ?? payloads.length,
       mergePolicyEstimatedDispatchSavings: mergePolicy.estimatedDispatchSavings ?? Math.max(0, payloads.length - 1),
       mergePolicyAtlasArea: mergePolicy.atlasArea ?? 0,
+      mergePolicyOverrideMode: mergePolicy.overrideMode ?? 'none',
+      mergePolicyOverrideReason: mergePolicy.overrideReason ?? 'none',
       mergeAtlasReused: !!mergeResult.atlasReused,
       mergeAtlasRebuilt: !!mergeResult.atlasRebuilt,
       mergeAtlasChurnReason: mergeResult.atlasChurnReason ?? 'none',

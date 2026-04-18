@@ -331,7 +331,9 @@ function buildTransformBatchSummary({
   batchPlan,
   batchResults,
   backendCapability,
-  requestedTransformPath
+  requestedTransformPath,
+  transformPolicyOverride = null,
+  plannedMaxBatchItems = 0
 }) {
   const batches = Array.isArray(batchPlan?.batches) ? batchPlan.batches : [];
   const results = Array.isArray(batchResults) ? batchResults : [];
@@ -366,10 +368,15 @@ function buildTransformBatchSummary({
     maxBatchItems: Number.isFinite(backendCapability?.maxBatchItems)
       ? backendCapability.maxBatchItems
       : 0,
+    plannedMaxBatchItems: Number.isFinite(plannedMaxBatchItems)
+      ? Math.max(0, plannedMaxBatchItems | 0)
+      : 0,
     preferredBatchItems: Number.isFinite(backendCapability?.preferredBatchItems)
       ? backendCapability.preferredBatchItems
       : 0,
     preferredBatchPolicy: backendCapability?.preferredBatchPolicy ?? 'preferred-batch-none',
+    policyOverrideMode: transformPolicyOverride?.mode ?? 'none',
+    policyOverrideReason: transformPolicyOverride?.reason ?? 'none',
     largestBatchItemCount,
     gpuBatchCount,
     cpuFallbackBatchCount,
@@ -702,9 +709,23 @@ export function executeGpuScreenPackedTransform(context, sourceItemsResult, opti
     backendContext
   });
   const backendCapability = backendDispatch.backendCapability ?? null;
+  const transformPolicyOverride = options.transformPolicyOverride ?? null;
+  const plannedMaxBatchItems = transformPolicyOverride?.mode === 'favor-transform-throughput'
+    ? (
+      Number.isFinite(backendCapability?.maxBatchItems)
+        ? backendCapability.maxBatchItems
+        : (backendCapability?.preferredBatchItems ?? 0)
+    )
+    : transformPolicyOverride?.mode === 'favor-draw-throughput'
+      ? (
+        Number.isFinite(backendCapability?.preferredBatchItems)
+          ? backendCapability.preferredBatchItems
+          : (backendCapability?.maxBatchItems ?? 0)
+      )
+      : (backendCapability?.preferredBatchItems ?? backendCapability?.maxBatchItems ?? 0);
   const batchPlan = planGpuScreenTransformBatches({
     sourceItemCount: safeSourceItemCount(sourceItemsResult),
-    maxBatchItems: backendCapability?.preferredBatchItems ?? backendCapability?.maxBatchItems ?? 0,
+    maxBatchItems: plannedMaxBatchItems,
     requestedTransformPath: executionInputs.requestedTransformPath
   });
 
@@ -731,7 +752,9 @@ export function executeGpuScreenPackedTransform(context, sourceItemsResult, opti
     batchPlan,
     batchResults,
     backendCapability,
-    requestedTransformPath: executionInputs.requestedTransformPath
+    requestedTransformPath: executionInputs.requestedTransformPath,
+    transformPolicyOverride,
+    plannedMaxBatchItems
   });
   const transformThroughputSummary = buildTransformThroughputSummary({
     batchResults,

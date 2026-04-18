@@ -76,6 +76,8 @@ function createDefaultGpuScreenState() {
     lastSharedMergePolicyEstimatedCopyCount: 0,
     lastSharedMergePolicyEstimatedDispatchSavings: 0,
     lastSharedMergePolicyAtlasArea: 0,
+    lastSharedMergePolicyOverrideMode: 'none',
+    lastSharedMergePolicyOverrideReason: 'none',
     lastSharedMergeAtlasReused: false,
     lastSharedMergeAtlasRebuilt: false,
     lastSharedMergeAtlasChurnReason: 'none',
@@ -186,6 +188,8 @@ function resetGpuScreenSharedDrawState(state) {
   state.lastSharedMergePolicyEstimatedCopyCount = 0;
   state.lastSharedMergePolicyEstimatedDispatchSavings = 0;
   state.lastSharedMergePolicyAtlasArea = 0;
+  state.lastSharedMergePolicyOverrideMode = 'none';
+  state.lastSharedMergePolicyOverrideReason = 'none';
   state.lastSharedMergeAtlasReused = false;
   state.lastSharedMergeAtlasRebuilt = false;
   state.lastSharedMergeAtlasChurnReason = 'none';
@@ -375,11 +379,12 @@ function drawGpuScreenWithPackedUpload(gl, gpu, gpuScreenSpace, canvasWidth, can
   return drawCount;
 }
 
-function drawGpuScreenWithGpuResidentPayloads(gl, gpu, gpuScreenSpace, canvasWidth, canvasHeight, state) {
+function drawGpuScreenWithGpuResidentPayloads(gl, gpu, gpuScreenSpace, canvasWidth, canvasHeight, state, options = {}) {
   const resources = ensureGpuScreenTextureDrawResources(gl, gpu);
   const drawResult = drawGpuPackedPayloads(gl, gpu, gpuScreenSpace, canvasWidth, canvasHeight, {
     storageKey: 'gpuScreenTextureDrawResources',
-    resources
+    resources,
+    policyOverride: options.drawPolicyOverride ?? null
   });
   if (!drawResult) return null;
 
@@ -414,6 +419,8 @@ function drawGpuScreenWithGpuResidentPayloads(gl, gpu, gpuScreenSpace, canvasWid
   state.lastSharedMergePolicyEstimatedCopyCount = drawResult.mergePolicyEstimatedCopyCount ?? 0;
   state.lastSharedMergePolicyEstimatedDispatchSavings = drawResult.mergePolicyEstimatedDispatchSavings ?? 0;
   state.lastSharedMergePolicyAtlasArea = drawResult.mergePolicyAtlasArea ?? 0;
+  state.lastSharedMergePolicyOverrideMode = drawResult.mergePolicyOverrideMode ?? 'none';
+  state.lastSharedMergePolicyOverrideReason = drawResult.mergePolicyOverrideReason ?? 'none';
   state.lastSharedMergeAtlasReused = !!drawResult.mergeAtlasReused;
   state.lastSharedMergeAtlasRebuilt = !!drawResult.mergeAtlasRebuilt;
   state.lastSharedMergeAtlasChurnReason = drawResult.mergeAtlasChurnReason ?? 'none';
@@ -503,6 +510,8 @@ export function summarizeGpuScreenDrawState(gpu) {
     gpuScreenSharedMergePolicyEstimatedCopyCount: state.lastSharedMergePolicyEstimatedCopyCount ?? 0,
     gpuScreenSharedMergePolicyEstimatedDispatchSavings: state.lastSharedMergePolicyEstimatedDispatchSavings ?? 0,
     gpuScreenSharedMergePolicyAtlasArea: state.lastSharedMergePolicyAtlasArea ?? 0,
+    gpuScreenSharedMergePolicyOverrideMode: state.lastSharedMergePolicyOverrideMode ?? 'none',
+    gpuScreenSharedMergePolicyOverrideReason: state.lastSharedMergePolicyOverrideReason ?? 'none',
     gpuScreenSharedMergeAtlasReused: !!state.lastSharedMergeAtlasReused,
     gpuScreenSharedMergeAtlasRebuilt: !!state.lastSharedMergeAtlasRebuilt,
     gpuScreenSharedMergeAtlasChurnReason: state.lastSharedMergeAtlasChurnReason ?? 'none',
@@ -518,7 +527,7 @@ export function summarizeGpuScreenDrawState(gpu) {
   };
 }
 
-export function uploadAndDrawGpuScreen(gl, gpu, gpuScreenSpace, canvasWidth, canvasHeight) {
+export function uploadAndDrawGpuScreen(gl, gpu, gpuScreenSpace, canvasWidth, canvasHeight, options = {}) {
   const state = ensureGpuScreenState(gpu);
   let textureDrawResult = drawGpuScreenWithGpuResidentPayloads(
     gl,
@@ -526,7 +535,8 @@ export function uploadAndDrawGpuScreen(gl, gpu, gpuScreenSpace, canvasWidth, can
     gpuScreenSpace,
     canvasWidth,
     canvasHeight,
-    state
+    state,
+    options
   );
   let drawCount = textureDrawResult?.drawCount ?? null;
   let drawInput = gpuScreenSpace;
@@ -580,6 +590,8 @@ export function uploadAndDrawGpuScreen(gl, gpu, gpuScreenSpace, canvasWidth, can
     sharedMergePolicyEstimatedCopyCount: textureDrawResult?.mergePolicyEstimatedCopyCount ?? 0,
     sharedMergePolicyEstimatedDispatchSavings: textureDrawResult?.mergePolicyEstimatedDispatchSavings ?? 0,
     sharedMergePolicyAtlasArea: textureDrawResult?.mergePolicyAtlasArea ?? 0,
+    sharedMergePolicyOverrideMode: textureDrawResult?.mergePolicyOverrideMode ?? 'none',
+    sharedMergePolicyOverrideReason: textureDrawResult?.mergePolicyOverrideReason ?? 'none',
     sharedMergeAtlasReused: !!textureDrawResult?.mergeAtlasReused,
     sharedMergeAtlasRebuilt: !!textureDrawResult?.mergeAtlasRebuilt,
     sharedMergeAtlasChurnReason: textureDrawResult?.mergeAtlasChurnReason ?? 'none',
