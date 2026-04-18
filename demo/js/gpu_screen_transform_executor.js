@@ -406,6 +406,24 @@ function buildTransformBatchSummary({
       ? backendCapability.preferredBatchItems
       : 0,
     preferredBatchPolicy: backendCapability?.preferredBatchPolicy ?? 'preferred-batch-none',
+    atlasAwarePlanningEnabled: !!backendCapability?.atlasAwareBatchPlanningEnabled,
+    atlasAwarePlanningMode: backendCapability?.atlasAwareBatchPlanningMode ?? 'atlas-aware-disabled',
+    atlasAwarePlanningReason: backendCapability?.atlasAwareBatchPlanningReason ?? 'atlas-aware-disabled',
+    atlasAwareCapacityWidth: Number.isFinite(backendCapability?.atlasAwareBatchPlanningCapacityWidth)
+      ? backendCapability.atlasAwareBatchPlanningCapacityWidth
+      : 0,
+    atlasAwareCapacityHeight: Number.isFinite(backendCapability?.atlasAwareBatchPlanningCapacityHeight)
+      ? backendCapability.atlasAwareBatchPlanningCapacityHeight
+      : 0,
+    atlasAwareCapacityItems: Number.isFinite(backendCapability?.atlasAwareBatchPlanningCapacityItems)
+      ? backendCapability.atlasAwareBatchPlanningCapacityItems
+      : 0,
+    atlasAwarePreviousBatchCount: Number.isFinite(backendCapability?.atlasAwareBatchPlanningPreviousBatchCount)
+      ? backendCapability.atlasAwareBatchPlanningPreviousBatchCount
+      : 0,
+    atlasAwarePreferredBatchItems: Number.isFinite(backendCapability?.atlasAwarePreferredBatchItems)
+      ? backendCapability.atlasAwarePreferredBatchItems
+      : 0,
     policyOverrideMode: transformPolicyOverride?.mode ?? 'none',
     policyOverrideReason: transformPolicyOverride?.reason ?? 'none',
     largestBatchItemCount,
@@ -481,6 +499,15 @@ function buildTransformThroughputSummary({
       : 0,
     preferredBatchItems: Number.isFinite(transformBatchSummary?.preferredBatchItems)
       ? Math.max(0, transformBatchSummary.preferredBatchItems | 0)
+      : 0,
+    atlasAwarePlanningEnabled: !!transformBatchSummary?.atlasAwarePlanningEnabled,
+    atlasAwarePlanningMode: transformBatchSummary?.atlasAwarePlanningMode ?? 'atlas-aware-disabled',
+    atlasAwarePlanningReason: transformBatchSummary?.atlasAwarePlanningReason ?? 'atlas-aware-disabled',
+    atlasAwareCapacityItems: Number.isFinite(transformBatchSummary?.atlasAwareCapacityItems)
+      ? Math.max(0, transformBatchSummary.atlasAwareCapacityItems | 0)
+      : 0,
+    atlasAwarePreferredBatchItems: Number.isFinite(transformBatchSummary?.atlasAwarePreferredBatchItems)
+      ? Math.max(0, transformBatchSummary.atlasAwarePreferredBatchItems | 0)
       : 0,
     largestBatchItemCount: Number.isFinite(transformBatchSummary?.largestBatchItemCount)
       ? Math.max(0, transformBatchSummary.largestBatchItemCount | 0)
@@ -809,6 +836,10 @@ export function executeGpuScreenPackedTransform(context, sourceItemsResult, opti
   });
   const backendCapability = backendDispatch.backendCapability ?? null;
   const transformPolicyOverride = options.transformPolicyOverride ?? null;
+  const atlasAwarePreferredBatchItems = Number.isFinite(backendCapability?.atlasAwarePreferredBatchItems)
+    ? backendCapability.atlasAwarePreferredBatchItems
+    : 0;
+  const atlasAwarePlanningEnabled = !!backendCapability?.atlasAwareBatchPlanningEnabled;
   const plannedMaxBatchItems = transformPolicyOverride?.mode === 'favor-transform-throughput'
     ? (
       Number.isFinite(backendCapability?.maxBatchItems)
@@ -817,11 +848,19 @@ export function executeGpuScreenPackedTransform(context, sourceItemsResult, opti
     )
     : transformPolicyOverride?.mode === 'favor-draw-throughput'
       ? (
+        atlasAwarePlanningEnabled && atlasAwarePreferredBatchItems > 0
+          ? atlasAwarePreferredBatchItems
+          : Number.isFinite(backendCapability?.preferredBatchItems)
+            ? backendCapability.preferredBatchItems
+            : (backendCapability?.maxBatchItems ?? 0)
+      )
+      : atlasAwarePlanningEnabled && atlasAwarePreferredBatchItems > 0
+        ? atlasAwarePreferredBatchItems
+        : (
         Number.isFinite(backendCapability?.preferredBatchItems)
           ? backendCapability.preferredBatchItems
           : (backendCapability?.maxBatchItems ?? 0)
-      )
-      : (backendCapability?.preferredBatchItems ?? backendCapability?.maxBatchItems ?? 0);
+      );
   const batchPlan = planGpuScreenTransformBatches({
     sourceItemCount: safeSourceItemCount(sourceItemsResult),
     maxBatchItems: plannedMaxBatchItems,

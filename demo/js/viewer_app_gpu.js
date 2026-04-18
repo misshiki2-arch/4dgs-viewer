@@ -124,6 +124,9 @@ function updateDeterministicStateNote() {
   parts.push(`cameraPreset=${deterministicQueryState.cameraPresetName ?? 'none'}`);
   parts.push(`drawPath=${deterministicQueryState.drawPath ?? 'default'}`);
   parts.push(`gpuFramePolicyOverride=${deterministicQueryState.gpuFramePolicyOverride ?? 'auto'}`);
+  if (deterministicQueryState.deterministicQueryString) {
+    parts.push(`query=${deterministicQueryState.deterministicQueryString}`);
+  }
   ui.deterministicStateNote.textContent =
     `${parts.join('  ')}  capture=window.gpuViewerDebug.captureFrame(...)`;
 }
@@ -158,6 +161,9 @@ function buildDeterministicStateSummary() {
   return {
     ...summary,
     appliedCameraPresetName,
+    deterministicQueryString: summary.deterministicQueryString ?? '',
+    deterministicUrlSummary: summary.deterministicUrlSummary ?? '',
+    deterministicRawQueryString: summary.rawQueryString ?? '',
     snapshotApiAvailable: true,
     snapshotCaptureSource: lastSnapshotSummary.source,
     snapshotRenderWaitMode: lastSnapshotSummary.renderWaitMode,

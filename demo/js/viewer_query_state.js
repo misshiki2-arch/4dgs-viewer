@@ -49,6 +49,40 @@ function setSelectValue(el, value) {
   el.value = String(value);
 }
 
+function appendDeterministicQueryParam(params, key, value, formatter = null) {
+  if (value === null || value === undefined) return;
+  const formattedValue = typeof formatter === 'function' ? formatter(value) : String(value);
+  params.set(key, formattedValue);
+}
+
+function formatDeterministicBoolean(value) {
+  return value ? 'true' : 'false';
+}
+
+function formatDeterministicFixed(value, digits = 2) {
+  return Number(value).toFixed(digits);
+}
+
+function buildDeterministicQueryString(state) {
+  const params = new URLSearchParams();
+  appendDeterministicQueryParam(params, 'cameraPreset', state?.cameraPresetName);
+  appendDeterministicQueryParam(params, 'time', state?.time, (value) => formatDeterministicFixed(value, 2));
+  appendDeterministicQueryParam(params, 'drawPath', state?.drawPath);
+  appendDeterministicQueryParam(params, 'gpuFramePolicyOverride', state?.gpuFramePolicyOverride);
+  appendDeterministicQueryParam(params, 'stride', state?.stride);
+  appendDeterministicQueryParam(params, 'renderScale', state?.renderScale, (value) => formatDeterministicFixed(value, 2));
+  appendDeterministicQueryParam(params, 'sigmaScale', state?.sigmaScale, (value) => formatDeterministicFixed(value, 2));
+  appendDeterministicQueryParam(params, 'splatScale', state?.splatScale, (value) => formatDeterministicFixed(value, 2));
+  appendDeterministicQueryParam(params, 'prefilterVar', state?.prefilterVar, (value) => formatDeterministicFixed(value, 2));
+  appendDeterministicQueryParam(params, 'useSH', state?.useSH, formatDeterministicBoolean);
+  appendDeterministicQueryParam(params, 'useRot4d', state?.useRot4d, formatDeterministicBoolean);
+  appendDeterministicQueryParam(params, 'useNativeRot4d', state?.useNativeRot4d, formatDeterministicBoolean);
+  appendDeterministicQueryParam(params, 'useNativeMarginal', state?.useNativeMarginal, formatDeterministicBoolean);
+  appendDeterministicQueryParam(params, 'usePackedVisiblePath', state?.usePackedVisiblePath, formatDeterministicBoolean);
+  appendDeterministicQueryParam(params, 'bgGray', state?.bgGray);
+  return params.toString();
+}
+
 export function parseViewerQueryState(search = window.location.search) {
   const params = new URLSearchParams(search || '');
   const cameraPresetName = params.get('cameraPreset');
@@ -96,6 +130,12 @@ export function parseViewerQueryState(search = window.location.search) {
     'bgGray'
   ].some((key) => params.has(key));
 
+  state.rawQueryString = String(search || '').replace(/^\?/, '');
+  state.deterministicQueryString = state.active ? buildDeterministicQueryString(state) : '';
+  state.deterministicUrlSummary = state.active && typeof window !== 'undefined'
+    ? `${window.location.pathname}?${state.deterministicQueryString}`
+    : '';
+
   return state;
 }
 
@@ -106,7 +146,10 @@ export function buildViewerDeterministicSummary(queryState) {
     cameraPresetName: state.cameraPresetName ?? 'none',
     drawPath: state.drawPath ?? 'none',
     gpuFramePolicyOverride: state.gpuFramePolicyOverride ?? 'auto',
-    time: Number.isFinite(state.time) ? Number(state.time) : null
+    time: Number.isFinite(state.time) ? Number(state.time) : null,
+    rawQueryString: state.rawQueryString ?? '',
+    deterministicQueryString: state.deterministicQueryString ?? '',
+    deterministicUrlSummary: state.deterministicUrlSummary ?? ''
   };
 }
 

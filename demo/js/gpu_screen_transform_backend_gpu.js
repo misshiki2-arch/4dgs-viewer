@@ -100,6 +100,106 @@ function resolvePreferredBatchPolicy(context, preferredBatchItems, maxBatchItems
   return 'preferred-batch-hold-success';
 }
 
+function computeAtlasCapacityItemBudget(capacityWidth, capacityHeight) {
+  const width = Number.isFinite(capacityWidth) ? Math.max(0, capacityWidth | 0) : 0;
+  const height = Number.isFinite(capacityHeight) ? Math.max(0, capacityHeight | 0) : 0;
+  if (width <= 0 || height <= 0) return 0;
+  const columnCapacity = Math.max(1, Math.floor(width / GPU_PACKED_PAYLOAD_WIDTH));
+  return columnCapacity * height;
+}
+
+function roundAtlasPlanningBatchItems(value, maxBatchItems) {
+  const n = Number.isFinite(value) ? Math.max(1, value) : 1;
+  const rounded = Math.ceil(n / 32) * 32;
+  const maxItems = Number.isFinite(maxBatchItems) ? Math.max(1, maxBatchItems | 0) : rounded;
+  return Math.min(maxItems, rounded);
+}
+
+function resolveAtlasAwareBatchPlanning(context, preferredBatchItems, maxBatchItems) {
+  const maxItems = Number.isFinite(maxBatchItems) ? Math.max(0, maxBatchItems | 0) : 0;
+  const preferredItems = Number.isFinite(preferredBatchItems) ? Math.max(0, preferredBatchItems | 0) : 0;
+  const atlasCapacityWidth = Number.isFinite(context?.atlasPlanningHistoryCapacityWidth)
+    ? Math.max(0, context.atlasPlanningHistoryCapacityWidth | 0)
+    : 0;
+  const atlasCapacityHeight = Number.isFinite(context?.atlasPlanningHistoryCapacityHeight)
+    ? Math.max(0, context.atlasPlanningHistoryCapacityHeight | 0)
+    : 0;
+  const atlasCapacityItems = Number.isFinite(context?.atlasPlanningHistoryCapacityItems)
+    ? Math.max(0, context.atlasPlanningHistoryCapacityItems | 0)
+    : computeAtlasCapacityItemBudget(atlasCapacityWidth, atlasCapacityHeight);
+  const previousBatchCount = Number.isFinite(context?.atlasPlanningHistoryBatchCount)
+    ? Math.max(0, context.atlasPlanningHistoryBatchCount | 0)
+    : 0;
+  const atlasReady = !!context?.atlasPlanningHistoryValid;
+  const atlasReused = context?.atlasPlanningHistoryMode === 'atlas-aware-reuse';
+  const atlasRebuilt = context?.atlasPlanningHistoryMode === 'atlas-aware-grow';
+
+  if (!atlasReady || maxItems <= 0 || atlasCapacityItems <= 0 || previousBatchCount <= 0) {
+    return {
+      enabled: false,
+      mode: 'atlas-aware-disabled',
+      reason: atlasReady ? 'atlas-aware-no-capacity-history' : 'atlas-aware-no-backend-atlas-history',
+      capacityWidth: atlasCapacityWidth,
+      capacityHeight: atlasCapacityHeight,
+      capacityItems: atlasCapacityItems,
+      previousBatchCount,
+      preferredBatchItems: preferredItems
+    };
+  }
+
+  const averageItemsPerBatch = atlasCapacityItems / previousBatchCount;
+  const nextPreferredBatchItems = roundAtlasPlanningBatchItems(
+    Math.max(preferredItems, averageItemsPerBatch),
+    maxItems
+  );
+
+  let reason = 'atlas-aware-follow-capacity-history';
+  if (atlasReused) {
+    reason = nextPreferredBatchItems >= maxItems
+      ? 'atlas-aware-reuse-clamp-max-batch'
+      : 'atlas-aware-reuse-hold-capacity';
+  } else if (atlasRebuilt) {
+    reason = nextPreferredBatchItems >= maxItems
+      ? 'atlas-aware-grow-clamp-max-batch'
+      : 'atlas-aware-grow-follow-capacity';
+  }
+
+  return {
+    enabled: true,
+    mode: atlasReused ? 'atlas-aware-reuse' : (atlasRebuilt ? 'atlas-aware-grow' : 'atlas-aware-history'),
+    reason,
+    capacityWidth: atlasCapacityWidth,
+    capacityHeight: atlasCapacityHeight,
+    capacityItems: atlasCapacityItems,
+    previousBatchCount,
+    preferredBatchItems: nextPreferredBatchItems
+  };
+}
+
+function updateAtlasPlanningHistory(context, atlasResult, payloadCount) {
+  if (!context || !atlasResult?.atlasPayload?.texture) return;
+  const capacityWidth = Number.isFinite(atlasResult.mergeAtlasCapacityWidth)
+    ? Math.max(0, atlasResult.mergeAtlasCapacityWidth | 0)
+    : 0;
+  const capacityHeight = Number.isFinite(atlasResult.mergeAtlasCapacityHeight)
+    ? Math.max(0, atlasResult.mergeAtlasCapacityHeight | 0)
+    : 0;
+  context.atlasPlanningHistoryValid = true;
+  context.atlasPlanningHistoryMode = !!atlasResult.mergeAtlasReused
+    ? 'atlas-aware-reuse'
+    : (!!atlasResult.mergeAtlasRebuilt ? 'atlas-aware-grow' : 'atlas-aware-history');
+  context.atlasPlanningHistoryReason = atlasResult.mergePolicyReason ?? 'atlas-aware-history';
+  context.atlasPlanningHistoryCapacityWidth = capacityWidth;
+  context.atlasPlanningHistoryCapacityHeight = capacityHeight;
+  context.atlasPlanningHistoryCapacityItems = computeAtlasCapacityItemBudget(
+    capacityWidth,
+    capacityHeight
+  );
+  context.atlasPlanningHistoryBatchCount = Number.isFinite(payloadCount)
+    ? Math.max(0, payloadCount | 0)
+    : 0;
+}
+
 function buildBackendError(error) {
   if (!error) return null;
   if (typeof error === 'string') return error;
@@ -548,6 +648,8 @@ function consolidateGpuResidentPackedPayloadAtlas(context, gl, payloads, options
     };
   }
 
+  updateAtlasPlanningHistory(context, atlasResult, validPayloads.length);
+
   const atlasPayload = {
     ...atlasResult.atlasPayload,
     atlasReady: true,
@@ -922,6 +1024,13 @@ export function createGpuScreenTransformBackendGpuContext(initialState = {}) {
     lastAtlasPayloadSavedAllocationBytes: 0,
     lastAtlasPayloadWidth: 0,
     lastAtlasPayloadHeight: 0,
+    atlasPlanningHistoryValid: false,
+    atlasPlanningHistoryMode: 'atlas-aware-disabled',
+    atlasPlanningHistoryReason: 'none',
+    atlasPlanningHistoryCapacityWidth: 0,
+    atlasPlanningHistoryCapacityHeight: 0,
+    atlasPlanningHistoryCapacityItems: 0,
+    atlasPlanningHistoryBatchCount: 0,
     packedWriteResources: null,
     packedWriteResourceGl: null,
     gpuResidentPackedPayloads: [],
@@ -940,6 +1049,18 @@ export function summarizeGpuScreenTransformBackendGpuCapability(context, gl = nu
   const preferredBatchPolicy = supportsWebGL2
     ? resolvePreferredBatchPolicy(context, preferredBatchItems, maxBatchItems)
     : 'preferred-batch-none';
+  const atlasAwareBatchPlanning = supportsWebGL2
+    ? resolveAtlasAwareBatchPlanning(context, preferredBatchItems, maxBatchItems)
+    : {
+        enabled: false,
+        mode: 'atlas-aware-disabled',
+        reason: 'atlas-aware-missing-webgl2',
+        capacityWidth: 0,
+        capacityHeight: 0,
+        capacityItems: 0,
+        previousBatchCount: 0,
+        preferredBatchItems: 0
+      };
 
   return {
     backendId: context?.backendId ?? GPU_BACKEND_ID,
@@ -956,6 +1077,17 @@ export function summarizeGpuScreenTransformBackendGpuCapability(context, gl = nu
     maxBatchItems,
     preferredBatchItems,
     preferredBatchPolicy,
+    atlasAwareBatchPlanningEnabled: !!atlasAwareBatchPlanning.enabled,
+    atlasAwareBatchPlanningMode: atlasAwareBatchPlanning.mode,
+    atlasAwareBatchPlanningReason: atlasAwareBatchPlanning.reason,
+    atlasAwareBatchPlanningCapacityWidth: atlasAwareBatchPlanning.capacityWidth,
+    atlasAwareBatchPlanningCapacityHeight: atlasAwareBatchPlanning.capacityHeight,
+    atlasAwareBatchPlanningCapacityItems: atlasAwareBatchPlanning.capacityItems,
+    atlasAwareBatchPlanningPreviousBatchCount: atlasAwareBatchPlanning.previousBatchCount,
+    atlasAwarePreferredBatchItems: atlasAwareBatchPlanning.preferredBatchItems,
+    atlasPlanningHistoryValid: !!context?.atlasPlanningHistoryValid,
+    atlasPlanningHistoryMode: context?.atlasPlanningHistoryMode ?? 'atlas-aware-disabled',
+    atlasPlanningHistoryReason: context?.atlasPlanningHistoryReason ?? 'none',
     lastProbeMs: Number.isFinite(context?.lastProbeMs) ? context.lastProbeMs : 0,
     lastExecutionMs: Number.isFinite(context?.lastExecutionMs) ? context.lastExecutionMs : 0,
     lastSourceItemCount: Number.isFinite(context?.lastSourceItemCount) ? context.lastSourceItemCount : 0,

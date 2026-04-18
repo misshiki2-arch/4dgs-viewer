@@ -227,6 +227,14 @@ function buildTransformBatchLines(transformBatchSummary) {
   pushLine(lines, 'transformBatchPlannedMaxItems', fmtInt(transformBatchSummary.plannedMaxBatchItems));
   pushLine(lines, 'transformBatchPreferredItems', fmtInt(transformBatchSummary.preferredBatchItems));
   pushLine(lines, 'transformBatchPreferredPolicy', transformBatchSummary.preferredBatchPolicy ?? 'preferred-batch-none');
+  pushLine(lines, 'transformBatchAtlasAwarePlanningEnabled', fmtBool(!!transformBatchSummary.atlasAwarePlanningEnabled));
+  pushLine(lines, 'transformBatchAtlasAwarePlanningMode', transformBatchSummary.atlasAwarePlanningMode ?? 'atlas-aware-disabled');
+  pushLine(lines, 'transformBatchAtlasAwarePlanningReason', transformBatchSummary.atlasAwarePlanningReason ?? 'atlas-aware-disabled');
+  pushLine(lines, 'transformBatchAtlasAwareCapacityWidth', fmtInt(transformBatchSummary.atlasAwareCapacityWidth));
+  pushLine(lines, 'transformBatchAtlasAwareCapacityHeight', fmtInt(transformBatchSummary.atlasAwareCapacityHeight));
+  pushLine(lines, 'transformBatchAtlasAwareCapacityItems', fmtInt(transformBatchSummary.atlasAwareCapacityItems));
+  pushLine(lines, 'transformBatchAtlasAwarePreviousBatchCount', fmtInt(transformBatchSummary.atlasAwarePreviousBatchCount));
+  pushLine(lines, 'transformBatchAtlasAwarePreferredBatchItems', fmtInt(transformBatchSummary.atlasAwarePreferredBatchItems));
   pushLine(lines, 'transformBatchPolicyOverrideMode', transformBatchSummary.policyOverrideMode ?? 'none');
   pushLine(lines, 'transformBatchPolicyOverrideReason', transformBatchSummary.policyOverrideReason ?? 'none');
   pushLine(lines, 'transformBatchLargestItemCount', fmtInt(transformBatchSummary.largestBatchItemCount));
@@ -285,6 +293,11 @@ function buildTransformThroughputLines(transformThroughputSummary) {
   pushLine(lines, 'transformThroughputGpuBatchCount', fmtInt(transformThroughputSummary.gpuBatchCount));
   pushLine(lines, 'transformThroughputCpuFallbackBatchCount', fmtInt(transformThroughputSummary.cpuFallbackBatchCount));
   pushLine(lines, 'transformThroughputPreferredBatchItems', fmtInt(transformThroughputSummary.preferredBatchItems));
+  pushLine(lines, 'transformThroughputAtlasAwarePlanningEnabled', fmtBool(!!transformThroughputSummary.atlasAwarePlanningEnabled));
+  pushLine(lines, 'transformThroughputAtlasAwarePlanningMode', transformThroughputSummary.atlasAwarePlanningMode ?? 'atlas-aware-disabled');
+  pushLine(lines, 'transformThroughputAtlasAwarePlanningReason', transformThroughputSummary.atlasAwarePlanningReason ?? 'atlas-aware-disabled');
+  pushLine(lines, 'transformThroughputAtlasAwareCapacityItems', fmtInt(transformThroughputSummary.atlasAwareCapacityItems));
+  pushLine(lines, 'transformThroughputAtlasAwarePreferredBatchItems', fmtInt(transformThroughputSummary.atlasAwarePreferredBatchItems));
   pushLine(lines, 'transformThroughputLargestBatchItemCount', fmtInt(transformThroughputSummary.largestBatchItemCount));
   pushLine(lines, 'transformThroughputDispatchCount', fmtInt(transformThroughputSummary.totalDispatchCount));
   pushLine(lines, 'transformThroughputDispatchMode', transformThroughputSummary.dispatchMode ?? 'none');
@@ -341,6 +354,11 @@ function buildFrameGpuThroughputLines(frameGpuThroughputSummary) {
   pushLine(lines, 'gpuFrameTransformBatchCount', fmtInt(frameGpuThroughputSummary.transformBatchCount));
   pushLine(lines, 'gpuFrameTransformDispatchCount', fmtInt(frameGpuThroughputSummary.transformDispatchCount));
   pushLine(lines, 'gpuFrameTransformDispatchMode', frameGpuThroughputSummary.transformDispatchMode ?? 'none');
+  pushLine(lines, 'gpuFrameTransformAtlasAwarePlanningEnabled', fmtBool(!!frameGpuThroughputSummary.transformAtlasAwarePlanningEnabled));
+  pushLine(lines, 'gpuFrameTransformAtlasAwarePlanningMode', frameGpuThroughputSummary.transformAtlasAwarePlanningMode ?? 'atlas-aware-disabled');
+  pushLine(lines, 'gpuFrameTransformAtlasAwarePlanningReason', frameGpuThroughputSummary.transformAtlasAwarePlanningReason ?? 'atlas-aware-disabled');
+  pushLine(lines, 'gpuFrameTransformAtlasAwareCapacityItems', fmtInt(frameGpuThroughputSummary.transformAtlasAwareCapacityItems));
+  pushLine(lines, 'gpuFrameTransformAtlasAwarePreferredBatchItems', fmtInt(frameGpuThroughputSummary.transformAtlasAwarePreferredBatchItems));
   pushLine(lines, 'gpuFrameDrawCallCount', fmtInt(frameGpuThroughputSummary.drawCallCount));
   pushLine(lines, 'gpuFrameDrawDispatchCount', fmtInt(frameGpuThroughputSummary.drawDispatchCount));
   pushLine(lines, 'gpuFrameDrawDispatchMode', frameGpuThroughputSummary.drawDispatchMode ?? 'none');

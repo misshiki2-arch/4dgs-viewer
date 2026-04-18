@@ -391,6 +391,11 @@ function buildFrameGpuThroughputSummary({
     transformBatchCount,
     transformDispatchCount,
     transformDispatchMode: transformThroughputSummary?.dispatchMode ?? 'none',
+    transformAtlasAwarePlanningEnabled: !!transformThroughputSummary?.atlasAwarePlanningEnabled,
+    transformAtlasAwarePlanningMode: transformThroughputSummary?.atlasAwarePlanningMode ?? 'atlas-aware-disabled',
+    transformAtlasAwarePlanningReason: transformThroughputSummary?.atlasAwarePlanningReason ?? 'atlas-aware-disabled',
+    transformAtlasAwareCapacityItems: transformThroughputSummary?.atlasAwareCapacityItems ?? 0,
+    transformAtlasAwarePreferredBatchItems: transformThroughputSummary?.atlasAwarePreferredBatchItems ?? 0,
     drawCallCount,
     drawDispatchCount,
     drawDispatchMode: drawThroughputSummary?.sharedDispatchMode ?? 'none',
@@ -668,7 +673,7 @@ export async function renderGpuFrame({
     debugOverlayCanvas.height = canvas.height;
     debugCtx.clearRect(0, 0, debugOverlayCanvas.width, debugOverlayCanvas.height);
     debugOverlayCanvas.style.display = 'none';
-    const emptyInfo = 'GPU Step70 viewer\nNo scene loaded.';
+    const emptyInfo = 'GPU Step71 viewer\nNo scene loaded.';
     setInfoText(infoEl, emptyInfo);
     return {
       infoText: emptyInfo,
@@ -958,6 +963,9 @@ export async function renderGpuFrame({
     extraLines.push(
       `deterministicGpuFramePolicyOverride=${deterministicStateSummary.gpuFramePolicyOverride ?? 'auto'}`
     );
+    extraLines.push(`deterministicRawQueryString=${deterministicStateSummary.deterministicRawQueryString ?? ''}`);
+    extraLines.push(`deterministicQueryString=${deterministicStateSummary.deterministicQueryString ?? ''}`);
+    extraLines.push(`deterministicUrlSummary=${deterministicStateSummary.deterministicUrlSummary ?? ''}`);
     extraLines.push(`snapshotApiAvailable=${!!deterministicStateSummary.snapshotApiAvailable}`);
     extraLines.push(`snapshotCaptureSource=${deterministicStateSummary.snapshotCaptureSource ?? 'none'}`);
     extraLines.push(`snapshotRenderWaitMode=${deterministicStateSummary.snapshotRenderWaitMode ?? 'none'}`);
@@ -982,18 +990,20 @@ export async function renderGpuFrame({
     timestamp: buildConfig.timestamp,
     splatScale: buildConfig.scalingModifier,
     elapsedMs: elapsed,
-    stepLabel: 'GPU Step70',
+    stepLabel: 'GPU Step71',
     stepNotes: [
       'transform executor owns transformBatchSummary and downstream code forwards it without reinterpretation',
       'transform truth and draw truth still flow into frame-level GPU throughput summaries so the main-path bottleneck stays readable without reinterpreting executor-owned contracts',
-      'transform backend still advertises a preferred GPU batch size based on successful single-texture-copy-pass history, and Step69 now also forwards draw policy hints so multi-batch GPU payloads can be consolidated into a backend atlas before the full-frame draw stage',
+      'transform backend still advertises a preferred GPU batch size based on successful single-texture-copy-pass history, and Step71 now also forwards atlas-capacity-aware planning hints so batch sizing can favor backend atlas success before the full-frame draw stage',
       'debug query overrides are available via gpuFramePolicyOverride=auto|force-transform-throughput|force-draw-throughput so either side of the cooperative policy can be inspected without changing the normal UI path',
       'debug output now shows transform throughput, draw throughput, frame-level bottleneck hints, merge policy reasons, atlas reuse versus rebuild, and whether backend atlas generation avoided draw-time merge work while preserving existing truth-source metrics',
       'gpu resident payload draw still shares bind and setup work between gpu-screen and packed direct through the shared texture consumer path, but Step69 pushes regular merged-atlas work upstream so backend atlas payloads can arrive draw-ready and reduce draw-side merge copies',
       'gpu resident payload remains the explicit normal source contract, while cpu packed stays behind explicit compatibility-bridge contracts without changing public draw contracts',
       'packed-write backend keeps the offscreen FBO blend-disable fix while preserving existing public draw contracts',
       'Step70 adds deterministic camera presets and query-driven viewer state replay so the same full-frame GPU path can be reproduced across machines without changing the normal render contract',
-      'manual snapshot capture is exposed through window.gpuViewerDebug.captureFrame(...) so preset-driven full-frame GPU output can be saved without adding a new UI path'
+      'manual snapshot capture is exposed through window.gpuViewerDebug.captureFrame(...) so preset-driven full-frame GPU output can be saved without adding a new UI path',
+      'Step71 adds atlas-capacity-aware transform planning so backend atlas capacity and recent atlas reuse/grow history can bias batch sizing before atlas consolidation, reducing rebuild pressure without changing public draw contracts',
+      'deterministic query replay now forwards both a normalized deterministicQueryString and a deterministicUrlSummary so the current full-frame GPU test case can be copied back out of debug text'
     ],
     tileSummary,
     avgRefsPerVisible,
