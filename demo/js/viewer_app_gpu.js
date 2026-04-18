@@ -15,6 +15,7 @@ import {
   ensureQualityOverrideControls,
   ensurePackedPathControls,
   ensureDebugLogControls,
+  ensureDeterministicStateNote,
   setDebugLogText,
   copyDebugLogText
 } from './viewer_ui_controls.js';
@@ -27,7 +28,12 @@ import {
 import { createRenderScheduler } from './viewer_render_scheduler.js';
 import { createViewerPlayback } from './viewer_playback.js';
 import { createViewerFileIO } from './viewer_file_io.js';
-import { createViewerScene } from './viewer_scene_setup.js';
+import { createViewerScene, applyViewerCameraPresetState } from './viewer_scene_setup.js';
+import {
+  parseViewerQueryState,
+  buildViewerDeterministicSummary,
+  applyViewerQueryStateToUi
+} from './viewer_query_state.js';
 
 const canvas = document.getElementById('glCanvas');
 
@@ -69,6 +75,7 @@ ensureTemporalBucketControls(ui);
 ensureQualityOverrideControls(ui);
 ensurePackedPathControls(ui);
 ensureDebugLogControls(ui);
+ensureDeterministicStateNote(ui);
 
 applyInfoWrapStyle(ui.info);
 applyPanelResizeStyle(ui.info);
@@ -82,6 +89,16 @@ let uiUnbindPersistence = null;
 const tokenRef = { value: 0 };
 const interactionState = createGpuInteractionState();
 let playback = null;
+let latestRenderResult = null;
+const deterministicQueryState = parseViewerQueryState();
+let appliedCameraPresetName = deterministicQueryState.cameraPresetName ?? 'none';
+let lastSnapshotSummary = {
+  available: true,
+  source: 'webgl-default-framebuffer-readpixels',
+  renderWaitMode: 'direct-render-await',
+  status: 'idle',
+  reason: 'none'
+};
 
 function refreshLatestDebugText(explicitText = null) {
   const text = explicitText ?? ui.info?.textContent ?? '';
@@ -91,6 +108,24 @@ function refreshLatestDebugText(explicitText = null) {
 
 function exportLatestDebugTextToArea() {
   setDebugLogText(ui, refreshLatestDebugText());
+}
+
+function updateDeterministicStateNote() {
+  if (!ui.deterministicStateNote) return;
+
+  if (!deterministicQueryState.active) {
+    ui.deterministicStateNote.textContent =
+      'URL query can fix cameraPreset/time/drawPath/gpuFramePolicyOverride and window.gpuViewerDebug.captureFrame(...) can save the current canvas';
+    return;
+  }
+
+  const parts = [];
+  parts.push(`query active`);
+  parts.push(`cameraPreset=${deterministicQueryState.cameraPresetName ?? 'none'}`);
+  parts.push(`drawPath=${deterministicQueryState.drawPath ?? 'default'}`);
+  parts.push(`gpuFramePolicyOverride=${deterministicQueryState.gpuFramePolicyOverride ?? 'auto'}`);
+  ui.deterministicStateNote.textContent =
+    `${parts.join('  ')}  capture=window.gpuViewerDebug.captureFrame(...)`;
 }
 
 function updateStaticUiText() {
@@ -115,6 +150,194 @@ function buildRenderOverrides() {
   return {
     ...quality.effectiveConfig,
     enablePackedVisiblePath: !!ui.usePackedVisiblePathCheck?.checked
+  };
+}
+
+function buildDeterministicStateSummary() {
+  const summary = buildViewerDeterministicSummary(deterministicQueryState);
+  return {
+    ...summary,
+    appliedCameraPresetName,
+    snapshotApiAvailable: true,
+    snapshotCaptureSource: lastSnapshotSummary.source,
+    snapshotRenderWaitMode: lastSnapshotSummary.renderWaitMode,
+    snapshotLastStatus: lastSnapshotSummary.status,
+    snapshotLastReason: lastSnapshotSummary.reason
+  };
+}
+
+function applyDeterministicCameraPreset() {
+  if (!raw) return false;
+
+  const preset = deterministicQueryState.cameraPreset;
+  if (!preset || preset.name === 'fit') {
+    fitCameraToRaw(raw, controls, camera);
+    appliedCameraPresetName = preset?.name ?? 'none';
+    return !!preset;
+  }
+
+  const applied = applyViewerCameraPresetState(camera, controls, preset);
+  if (!applied) {
+    fitCameraToRaw(raw, controls, camera);
+    appliedCameraPresetName = 'fit';
+    return false;
+  }
+
+  appliedCameraPresetName = preset.name;
+  return true;
+}
+
+function applyDeterministicUiState() {
+  const appliedState = applyViewerQueryStateToUi(ui, deterministicQueryState);
+  if (deterministicQueryState.active) {
+    updateDrawPathNoteFromState(appliedState);
+  }
+  updateDeterministicStateNote();
+  return appliedState;
+}
+
+function sanitizeSnapshotFileName(name) {
+  const trimmed = typeof name === 'string' ? name.trim() : '';
+  const baseName = trimmed || `gpu-step70-${appliedCameraPresetName || 'view'}`;
+  const normalized = baseName.replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/-+/g, '-');
+  return normalized.toLowerCase().endsWith('.png') ? normalized : `${normalized}.png`;
+}
+
+function downloadBlob(blob, fileName) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function createSnapshotCanvasFromPixels(width, height, pixels) {
+  const snapshotCanvas = document.createElement('canvas');
+  snapshotCanvas.width = width;
+  snapshotCanvas.height = height;
+  const ctx = snapshotCanvas.getContext('2d', { willReadFrequently: true });
+  const imageData = ctx.createImageData(width, height);
+  const rowStride = width * 4;
+
+  for (let y = 0; y < height; y++) {
+    const srcOffset = (height - 1 - y) * rowStride;
+    const dstOffset = y * rowStride;
+    imageData.data.set(pixels.subarray(srcOffset, srcOffset + rowStride), dstOffset);
+  }
+
+  ctx.putImageData(imageData, 0, 0);
+  return snapshotCanvas;
+}
+
+async function captureBlobFromCanvas(sourceCanvas, fileName, download) {
+  return await new Promise((resolve, reject) => {
+    sourceCanvas.toBlob((blob) => {
+      if (!blob) {
+        reject(new Error('captureFrame failed: snapshot canvas toBlob returned null'));
+        return;
+      }
+
+      if (download) {
+        downloadBlob(blob, fileName);
+      }
+
+      resolve(blob);
+    }, 'image/png');
+  });
+}
+
+function captureSnapshotCanvasFromGpu(gpu) {
+  const gl = gpu?.gl;
+  if (!gl) {
+    throw new Error('captureFrame failed: WebGL renderer is not ready');
+  }
+
+  const width = gl.drawingBufferWidth | 0;
+  const height = gl.drawingBufferHeight | 0;
+  if (width <= 0 || height <= 0) {
+    throw new Error('captureFrame failed: drawing buffer is empty');
+  }
+
+  const pixels = new Uint8Array(width * height * 4);
+  gl.finish();
+  gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+  return createSnapshotCanvasFromPixels(width, height, pixels);
+}
+
+async function renderCurrentFrame() {
+  ensureGpu();
+  const renderResult = await renderGpuFrame({
+    raw,
+    gpu: getGpu(),
+    canvas,
+    camera,
+    controls,
+    ui,
+    tokenRef,
+    infoEl: ui.info,
+    interactionOverride: buildRenderOverrides(),
+    deterministicStateSummary: buildDeterministicStateSummary()
+  });
+  latestRenderResult = renderResult;
+
+  if (renderResult && typeof renderResult.infoText === 'string') {
+    refreshLatestDebugText(renderResult.infoText);
+  } else {
+    refreshLatestDebugText();
+  }
+
+  return renderResult;
+}
+
+async function captureFrame(options = {}) {
+  const download = options.download !== false;
+  const fileName = sanitizeSnapshotFileName(options.name);
+
+  try {
+    await renderCurrentFrame();
+    const snapshotCanvas = captureSnapshotCanvasFromGpu(getGpu());
+    const blob = await captureBlobFromCanvas(snapshotCanvas, fileName, download);
+    lastSnapshotSummary = {
+      available: true,
+      source: 'webgl-default-framebuffer-readpixels',
+      renderWaitMode: 'direct-render-await',
+      status: 'success',
+      reason: 'none'
+    };
+
+    return {
+      blob,
+      fileName,
+      source: lastSnapshotSummary.source,
+      renderWaitMode: lastSnapshotSummary.renderWaitMode,
+      status: lastSnapshotSummary.status,
+      reason: lastSnapshotSummary.reason,
+      deterministicState: buildDeterministicStateSummary(),
+      debugText: refreshLatestDebugText(),
+      lastRenderResult: latestRenderResult
+    };
+  } catch (error) {
+    lastSnapshotSummary = {
+      available: true,
+      source: 'webgl-default-framebuffer-readpixels',
+      renderWaitMode: 'direct-render-await',
+      status: 'failure',
+      reason: error?.message ?? 'unknown-snapshot-error'
+    };
+    throw error;
+  }
+}
+
+function installViewerDebugApi() {
+  window.gpuViewerDebug = {
+    captureFrame,
+    getDeterministicState: () => buildDeterministicStateSummary(),
+    getLatestDebugText: () => refreshLatestDebugText(),
+    getLastRenderResult: () => latestRenderResult,
+    scheduleRender: () => scheduler.scheduleRender()
   };
 }
 
@@ -174,27 +397,7 @@ function bindSliderTextUpdates() {
 }
 
 const scheduler = createRenderScheduler({
-  renderFrame: async () => {
-    ensureGpu();
-
-    const renderResult = await renderGpuFrame({
-      raw,
-      gpu: getGpu(),
-      canvas,
-      camera,
-      controls,
-      ui,
-      tokenRef,
-      infoEl: ui.info,
-      interactionOverride: buildRenderOverrides()
-    });
-
-    if (renderResult && typeof renderResult.infoText === 'string') {
-      refreshLatestDebugText(renderResult.infoText);
-    } else {
-      refreshLatestDebugText();
-    }
-  },
+  renderFrame: renderCurrentFrame,
   tokenRef,
   isPlaying: () => (playback ? playback.isPlaying() : false)
 });
@@ -216,7 +419,12 @@ const fileIO = createViewerFileIO({
   parseArrayBuffer: (buf) => parseSplat4DV2(buf),
   onSceneLoaded: async (nextRaw) => {
     raw = nextRaw;
-    fitCameraToRaw(raw, controls, camera);
+    if (!applyDeterministicCameraPreset()) {
+      fitCameraToRaw(raw, controls, camera);
+      if (!deterministicQueryState.cameraPreset) {
+        appliedCameraPresetName = 'none';
+      }
+    }
     await scheduler.scheduleRender();
   },
   scheduleRender: scheduler.scheduleRender,
@@ -276,7 +484,12 @@ function bindUiEvents() {
   ui.renderBtn.addEventListener('click', scheduler.scheduleRender);
 
   ui.resetCamBtn.addEventListener('click', () => {
-    if (raw) fitCameraToRaw(raw, controls, camera);
+    if (raw && !applyDeterministicCameraPreset()) {
+      fitCameraToRaw(raw, controls, camera);
+      if (!deterministicQueryState.cameraPreset) {
+        appliedCameraPresetName = 'none';
+      }
+    }
     scheduler.scheduleRender();
   });
 
@@ -294,8 +507,9 @@ function bindUiEvents() {
 
 function initializeUiState() {
   const appliedState = loadAndApplyUiState(ui);
+  const deterministicState = applyDeterministicUiState();
   updateStaticUiText();
-  updateDrawPathNoteFromState(appliedState);
+  updateDrawPathNoteFromState(deterministicQueryState.active ? deterministicState : appliedState);
   bindPersistentUiState();
 }
 
@@ -307,6 +521,7 @@ initializeUiState();
 initializeDebugLogArea();
 bindSliderTextUpdates();
 bindUiEvents();
+installViewerDebugApi();
 
 setCanvasSize();
 playback.startLoop();

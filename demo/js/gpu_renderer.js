@@ -645,7 +645,8 @@ export async function renderGpuFrame({
   ui,
   tokenRef,
   infoEl,
-  interactionOverride = null
+  interactionOverride = null,
+  deterministicStateSummary = null
 }) {
   const gl = gpu.gl;
   const bg255 = parseInt(ui.bgGraySlider.value, 10);
@@ -667,7 +668,7 @@ export async function renderGpuFrame({
     debugOverlayCanvas.height = canvas.height;
     debugCtx.clearRect(0, 0, debugOverlayCanvas.width, debugOverlayCanvas.height);
     debugOverlayCanvas.style.display = 'none';
-    const emptyInfo = 'GPU Step69 viewer\nNo scene loaded.';
+    const emptyInfo = 'GPU Step70 viewer\nNo scene loaded.';
     setInfoText(infoEl, emptyInfo);
     return {
       infoText: emptyInfo,
@@ -949,6 +950,20 @@ export async function renderGpuFrame({
   extraLines.push(`gpuCompatibilityBridgeStageSummary=${gpuCompatibilityBridgeSummary.stageSummary}`);
   extraLines.push(`gpuCompatibilityBridgeReasonSummary=${gpuCompatibilityBridgeSummary.reasonSummary}`);
   extraLines.push(`gpuCompatibilityBridgeGpuRetainedSummary=${gpuCompatibilityBridgeSummary.gpuRetainedSummary}`);
+  if (deterministicStateSummary) {
+    extraLines.push(`deterministicStateActive=${!!deterministicStateSummary.active}`);
+    extraLines.push(`deterministicCameraPreset=${deterministicStateSummary.cameraPresetName ?? 'none'}`);
+    extraLines.push(`deterministicAppliedCameraPreset=${deterministicStateSummary.appliedCameraPresetName ?? 'none'}`);
+    extraLines.push(`deterministicDrawPath=${deterministicStateSummary.drawPath ?? 'none'}`);
+    extraLines.push(
+      `deterministicGpuFramePolicyOverride=${deterministicStateSummary.gpuFramePolicyOverride ?? 'auto'}`
+    );
+    extraLines.push(`snapshotApiAvailable=${!!deterministicStateSummary.snapshotApiAvailable}`);
+    extraLines.push(`snapshotCaptureSource=${deterministicStateSummary.snapshotCaptureSource ?? 'none'}`);
+    extraLines.push(`snapshotRenderWaitMode=${deterministicStateSummary.snapshotRenderWaitMode ?? 'none'}`);
+    extraLines.push(`snapshotLastStatus=${deterministicStateSummary.snapshotLastStatus ?? 'idle'}`);
+    extraLines.push(`snapshotLastReason=${deterministicStateSummary.snapshotLastReason ?? 'none'}`);
+  }
 
   const infoText = formatGpuViewerInfo({
     raw,
@@ -967,7 +982,7 @@ export async function renderGpuFrame({
     timestamp: buildConfig.timestamp,
     splatScale: buildConfig.scalingModifier,
     elapsedMs: elapsed,
-    stepLabel: 'GPU Step69',
+    stepLabel: 'GPU Step70',
     stepNotes: [
       'transform executor owns transformBatchSummary and downstream code forwards it without reinterpretation',
       'transform truth and draw truth still flow into frame-level GPU throughput summaries so the main-path bottleneck stays readable without reinterpreting executor-owned contracts',
@@ -976,7 +991,9 @@ export async function renderGpuFrame({
       'debug output now shows transform throughput, draw throughput, frame-level bottleneck hints, merge policy reasons, atlas reuse versus rebuild, and whether backend atlas generation avoided draw-time merge work while preserving existing truth-source metrics',
       'gpu resident payload draw still shares bind and setup work between gpu-screen and packed direct through the shared texture consumer path, but Step69 pushes regular merged-atlas work upstream so backend atlas payloads can arrive draw-ready and reduce draw-side merge copies',
       'gpu resident payload remains the explicit normal source contract, while cpu packed stays behind explicit compatibility-bridge contracts without changing public draw contracts',
-      'packed-write backend keeps the offscreen FBO blend-disable fix while preserving existing public draw contracts'
+      'packed-write backend keeps the offscreen FBO blend-disable fix while preserving existing public draw contracts',
+      'Step70 adds deterministic camera presets and query-driven viewer state replay so the same full-frame GPU path can be reproduced across machines without changing the normal render contract',
+      'manual snapshot capture is exposed through window.gpuViewerDebug.captureFrame(...) so preset-driven full-frame GPU output can be saved without adding a new UI path'
     ],
     tileSummary,
     avgRefsPerVisible,

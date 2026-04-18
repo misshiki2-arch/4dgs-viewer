@@ -379,6 +379,19 @@ export function ensureDebugLogControls(ui) {
   ui.debugLogArea = document.getElementById('debugLogArea');
 }
 
+export function ensureDeterministicStateNote(ui) {
+  const row = ensureRow(ui, 'deterministicStateRow');
+  setRowContents(row, appendWithSpaces(
+    createLabel('deterministic', '92px'),
+    createNote(
+      'deterministicStateNote',
+      'URL query can fix cameraPreset/time/drawPath/gpuFramePolicyOverride and window.gpuViewerDebug.captureFrame(...) can save the current canvas'
+    )
+  ));
+
+  ui.deterministicStateNote = document.getElementById('deterministicStateNote');
+}
+
 export function setDebugLogText(ui, text) {
   if (!ui || !ui.debugLogArea) return;
   ui.debugLogArea.value = text ?? '';
