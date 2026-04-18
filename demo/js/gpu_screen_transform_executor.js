@@ -364,7 +364,8 @@ function buildTransformBatchSummary({
   backendCapability,
   requestedTransformPath,
   transformPolicyOverride = null,
-  plannedMaxBatchItems = 0
+  plannedMaxBatchItems = 0,
+  plannerSelection = null
 }) {
   const batches = Array.isArray(batchPlan?.batches) ? batchPlan.batches : [];
   const results = Array.isArray(batchResults) ? batchResults : [];
@@ -424,6 +425,22 @@ function buildTransformBatchSummary({
     atlasAwarePreferredBatchItems: Number.isFinite(backendCapability?.atlasAwarePreferredBatchItems)
       ? backendCapability.atlasAwarePreferredBatchItems
       : 0,
+    plannerMode: plannerSelection?.plannerMode ?? 'planner-mode-none',
+    plannerReason: plannerSelection?.plannerReason ?? 'planner-reason-none',
+    plannerCoupledToFramePolicy: !!plannerSelection?.plannerCoupledToFramePolicy,
+    policyAtlasPlanningMode: plannerSelection?.policyAtlasPlanningMode ?? 'none',
+    policyAtlasPlanningReason: plannerSelection?.policyAtlasPlanningReason ?? 'none',
+    atlasPressureMode: plannerSelection?.atlasPressureMode ?? (backendCapability?.atlasPlanningPressureMode ?? 'atlas-pressure-no-history'),
+    atlasPressureReason: plannerSelection?.atlasPressureReason ?? (backendCapability?.atlasPlanningPressureReason ?? 'atlas-pressure-no-backend-atlas-history'),
+    atlasPressureAllocationBytes: Number.isFinite(backendCapability?.atlasPlanningPressureAllocationBytes)
+      ? backendCapability.atlasPlanningPressureAllocationBytes
+      : 0,
+    atlasPressureSavedAllocationBytes: Number.isFinite(backendCapability?.atlasPlanningPressureSavedAllocationBytes)
+      ? backendCapability.atlasPlanningPressureSavedAllocationBytes
+      : 0,
+    atlasPressureChurnReason: backendCapability?.atlasPlanningPressureChurnReason ?? 'none',
+    atlasPressureReusePreferred: !!backendCapability?.atlasPlanningPressureReusePreferred,
+    atlasPressureRebuildAllowed: !!backendCapability?.atlasPlanningPressureRebuildAllowed,
     policyOverrideMode: transformPolicyOverride?.mode ?? 'none',
     policyOverrideReason: transformPolicyOverride?.reason ?? 'none',
     largestBatchItemCount,
@@ -451,6 +468,110 @@ function summarizeDispatchMode(batchResults) {
   }
 
   return mode;
+}
+
+function clampPlannerBatchItems(value, maxBatchItems, fallbackValue = 0) {
+  const maxItems = Number.isFinite(maxBatchItems) ? Math.max(1, maxBatchItems | 0) : 0;
+  const fallbackItems = Number.isFinite(fallbackValue) ? Math.max(1, fallbackValue | 0) : maxItems;
+  const candidate = Number.isFinite(value) ? Math.max(1, value | 0) : fallbackItems;
+  if (maxItems <= 0) return candidate;
+  return Math.min(maxItems, candidate);
+}
+
+function resolveTransformPlannerSelection(backendCapability, transformPolicyOverride = null) {
+  const maxBatchItems = Number.isFinite(backendCapability?.maxBatchItems)
+    ? Math.max(0, backendCapability.maxBatchItems | 0)
+    : 0;
+  const preferredBatchItems = Number.isFinite(backendCapability?.preferredBatchItems)
+    ? Math.max(0, backendCapability.preferredBatchItems | 0)
+    : 0;
+  const atlasAwarePreferredBatchItems = Number.isFinite(backendCapability?.atlasAwarePreferredBatchItems)
+    ? Math.max(0, backendCapability.atlasAwarePreferredBatchItems | 0)
+    : 0;
+  const atlasAwarePlanningEnabled = !!backendCapability?.atlasAwareBatchPlanningEnabled;
+  const atlasPressureMode = backendCapability?.atlasPlanningPressureMode ?? 'atlas-pressure-no-history';
+  const atlasPressureReason = backendCapability?.atlasPlanningPressureReason ?? 'atlas-pressure-no-backend-atlas-history';
+  const fallbackBatchItems = preferredBatchItems > 0 ? preferredBatchItems : maxBatchItems;
+  const atlasPreferredBatchItems =
+    atlasAwarePlanningEnabled && atlasAwarePreferredBatchItems > 0
+      ? atlasAwarePreferredBatchItems
+      : fallbackBatchItems;
+  const policyMode = transformPolicyOverride?.mode ?? 'balanced';
+  const policyAtlasPlanningMode = transformPolicyOverride?.atlasPlanningMode ?? 'none';
+  const policyAtlasPlanningReason = transformPolicyOverride?.atlasPlanningReason ?? 'none';
+  const prefersAtlasStability =
+    policyAtlasPlanningMode === 'stabilize-backend-atlas' ||
+    policyAtlasPlanningMode === 'stabilize-backend-atlas-avoid-allocation';
+  const usesGuardedMaxBatch =
+    policyAtlasPlanningMode === 'guarded-max-batch' ||
+    policyAtlasPlanningMode === 'guarded-max-batch-avoid-allocation';
+  const avoidsAtlasRebuild =
+    policyAtlasPlanningMode === 'balanced-avoid-atlas-rebuild' ||
+    policyAtlasPlanningMode === 'stabilize-backend-atlas-avoid-allocation' ||
+    policyAtlasPlanningMode === 'guarded-max-batch-avoid-allocation';
+
+  if (policyMode === 'favor-transform-throughput') {
+    if ((atlasPressureMode === 'atlas-pressure-rebuild-allocation' || avoidsAtlasRebuild || usesGuardedMaxBatch)
+        && atlasPreferredBatchItems > 0) {
+      return {
+        plannedMaxBatchItems: clampPlannerBatchItems(
+          Math.max(atlasPreferredBatchItems, Math.floor(maxBatchItems * 0.75)),
+          maxBatchItems,
+          fallbackBatchItems
+        ),
+        plannerMode: 'frame-policy-transform-throughput-atlas-guard',
+        plannerReason: 'transform-throughput-guard-atlas-rebuild-allocation',
+        plannerCoupledToFramePolicy: true,
+        atlasPressureMode,
+        atlasPressureReason,
+        policyAtlasPlanningMode,
+        policyAtlasPlanningReason
+      };
+    }
+
+    return {
+      plannedMaxBatchItems: clampPlannerBatchItems(maxBatchItems, maxBatchItems, fallbackBatchItems),
+      plannerMode: 'frame-policy-transform-throughput-max-batch',
+      plannerReason: 'transform-throughput-maximize-batch-items',
+      plannerCoupledToFramePolicy: true,
+      atlasPressureMode,
+      atlasPressureReason,
+      policyAtlasPlanningMode,
+      policyAtlasPlanningReason
+    };
+  }
+
+  if (policyMode === 'favor-draw-throughput') {
+    return {
+      plannedMaxBatchItems: clampPlannerBatchItems(atlasPreferredBatchItems, maxBatchItems, fallbackBatchItems),
+      plannerMode: 'frame-policy-draw-throughput-atlas-stable',
+      plannerReason: atlasAwarePlanningEnabled || prefersAtlasStability
+        ? 'draw-throughput-prefer-atlas-aware-batch'
+        : 'draw-throughput-fallback-preferred-batch',
+      plannerCoupledToFramePolicy: true,
+      atlasPressureMode,
+      atlasPressureReason,
+      policyAtlasPlanningMode,
+      policyAtlasPlanningReason
+    };
+  }
+
+  return {
+    plannedMaxBatchItems: clampPlannerBatchItems(atlasPreferredBatchItems, maxBatchItems, fallbackBatchItems),
+    plannerMode: (atlasPressureMode === 'atlas-pressure-rebuild-allocation' || avoidsAtlasRebuild)
+      ? 'frame-policy-balanced-avoid-atlas-rebuild'
+      : 'frame-policy-balanced-follow-atlas-history',
+    plannerReason: (atlasPressureMode === 'atlas-pressure-rebuild-allocation' || avoidsAtlasRebuild)
+      ? 'balanced-avoid-atlas-rebuild-allocation'
+      : (atlasAwarePlanningEnabled
+          ? 'balanced-follow-atlas-aware-history'
+          : 'balanced-fallback-preferred-batch'),
+    plannerCoupledToFramePolicy: true,
+    atlasPressureMode,
+    atlasPressureReason,
+    policyAtlasPlanningMode,
+    policyAtlasPlanningReason
+  };
 }
 
 function buildTransformThroughputSummary({
@@ -509,6 +630,22 @@ function buildTransformThroughputSummary({
     atlasAwarePreferredBatchItems: Number.isFinite(transformBatchSummary?.atlasAwarePreferredBatchItems)
       ? Math.max(0, transformBatchSummary.atlasAwarePreferredBatchItems | 0)
       : 0,
+    plannerMode: transformBatchSummary?.plannerMode ?? 'planner-mode-none',
+    plannerReason: transformBatchSummary?.plannerReason ?? 'planner-reason-none',
+    plannerCoupledToFramePolicy: !!transformBatchSummary?.plannerCoupledToFramePolicy,
+    policyAtlasPlanningMode: transformBatchSummary?.policyAtlasPlanningMode ?? 'none',
+    policyAtlasPlanningReason: transformBatchSummary?.policyAtlasPlanningReason ?? 'none',
+    atlasPressureMode: transformBatchSummary?.atlasPressureMode ?? 'atlas-pressure-no-history',
+    atlasPressureReason: transformBatchSummary?.atlasPressureReason ?? 'atlas-pressure-no-backend-atlas-history',
+    atlasPressureAllocationBytes: Number.isFinite(transformBatchSummary?.atlasPressureAllocationBytes)
+      ? Math.max(0, transformBatchSummary.atlasPressureAllocationBytes | 0)
+      : 0,
+    atlasPressureSavedAllocationBytes: Number.isFinite(transformBatchSummary?.atlasPressureSavedAllocationBytes)
+      ? Math.max(0, transformBatchSummary.atlasPressureSavedAllocationBytes | 0)
+      : 0,
+    atlasPressureChurnReason: transformBatchSummary?.atlasPressureChurnReason ?? 'none',
+    atlasPressureReusePreferred: !!transformBatchSummary?.atlasPressureReusePreferred,
+    atlasPressureRebuildAllowed: !!transformBatchSummary?.atlasPressureRebuildAllowed,
     largestBatchItemCount: Number.isFinite(transformBatchSummary?.largestBatchItemCount)
       ? Math.max(0, transformBatchSummary.largestBatchItemCount | 0)
       : 0,
@@ -836,31 +973,11 @@ export function executeGpuScreenPackedTransform(context, sourceItemsResult, opti
   });
   const backendCapability = backendDispatch.backendCapability ?? null;
   const transformPolicyOverride = options.transformPolicyOverride ?? null;
-  const atlasAwarePreferredBatchItems = Number.isFinite(backendCapability?.atlasAwarePreferredBatchItems)
-    ? backendCapability.atlasAwarePreferredBatchItems
-    : 0;
-  const atlasAwarePlanningEnabled = !!backendCapability?.atlasAwareBatchPlanningEnabled;
-  const plannedMaxBatchItems = transformPolicyOverride?.mode === 'favor-transform-throughput'
-    ? (
-      Number.isFinite(backendCapability?.maxBatchItems)
-        ? backendCapability.maxBatchItems
-        : (backendCapability?.preferredBatchItems ?? 0)
-    )
-    : transformPolicyOverride?.mode === 'favor-draw-throughput'
-      ? (
-        atlasAwarePlanningEnabled && atlasAwarePreferredBatchItems > 0
-          ? atlasAwarePreferredBatchItems
-          : Number.isFinite(backendCapability?.preferredBatchItems)
-            ? backendCapability.preferredBatchItems
-            : (backendCapability?.maxBatchItems ?? 0)
-      )
-      : atlasAwarePlanningEnabled && atlasAwarePreferredBatchItems > 0
-        ? atlasAwarePreferredBatchItems
-        : (
-        Number.isFinite(backendCapability?.preferredBatchItems)
-          ? backendCapability.preferredBatchItems
-          : (backendCapability?.maxBatchItems ?? 0)
-      );
+  const plannerSelection = resolveTransformPlannerSelection(
+    backendCapability,
+    transformPolicyOverride
+  );
+  const plannedMaxBatchItems = plannerSelection.plannedMaxBatchItems;
   const batchPlan = planGpuScreenTransformBatches({
     sourceItemCount: safeSourceItemCount(sourceItemsResult),
     maxBatchItems: plannedMaxBatchItems,
@@ -900,7 +1017,8 @@ export function executeGpuScreenPackedTransform(context, sourceItemsResult, opti
     backendCapability,
     requestedTransformPath: executionInputs.requestedTransformPath,
     transformPolicyOverride,
-    plannedMaxBatchItems
+    plannedMaxBatchItems,
+    plannerSelection
   });
   const transformThroughputSummary = buildTransformThroughputSummary({
     batchResults,

@@ -396,6 +396,14 @@ function buildFrameGpuThroughputSummary({
     transformAtlasAwarePlanningReason: transformThroughputSummary?.atlasAwarePlanningReason ?? 'atlas-aware-disabled',
     transformAtlasAwareCapacityItems: transformThroughputSummary?.atlasAwareCapacityItems ?? 0,
     transformAtlasAwarePreferredBatchItems: transformThroughputSummary?.atlasAwarePreferredBatchItems ?? 0,
+    transformPlannerMode: transformThroughputSummary?.plannerMode ?? 'planner-mode-none',
+    transformPlannerReason: transformThroughputSummary?.plannerReason ?? 'planner-reason-none',
+    transformPlannerCoupledToFramePolicy: !!transformThroughputSummary?.plannerCoupledToFramePolicy,
+    transformAtlasPressureMode: transformThroughputSummary?.atlasPressureMode ?? 'atlas-pressure-no-history',
+    transformAtlasPressureReason: transformThroughputSummary?.atlasPressureReason ?? 'atlas-pressure-no-backend-atlas-history',
+    transformAtlasPressureAllocationBytes: transformThroughputSummary?.atlasPressureAllocationBytes ?? 0,
+    transformAtlasPressureSavedAllocationBytes: transformThroughputSummary?.atlasPressureSavedAllocationBytes ?? 0,
+    transformAtlasPressureChurnReason: transformThroughputSummary?.atlasPressureChurnReason ?? 'none',
     drawCallCount,
     drawDispatchCount,
     drawDispatchMode: drawThroughputSummary?.sharedDispatchMode ?? 'none',
@@ -411,6 +419,8 @@ function buildFrameGpuThroughputSummary({
     framePolicyPriority: frameGpuPolicySummary?.priority ?? 'balanced-gpu-path',
     transformPolicyOverrideMode: frameGpuPolicySummary?.transformPolicyOverride?.mode ?? 'none',
     transformPolicyOverrideReason: frameGpuPolicySummary?.transformPolicyOverride?.reason ?? 'none',
+    transformPolicyAtlasPlanningMode: frameGpuPolicySummary?.transformPolicyOverride?.atlasPlanningMode ?? 'none',
+    transformPolicyAtlasPlanningReason: frameGpuPolicySummary?.transformPolicyOverride?.atlasPlanningReason ?? 'none',
     drawPolicyOverrideMode: frameGpuPolicySummary?.drawPolicyOverride?.mode ?? 'none',
     drawPolicyOverrideReason: frameGpuPolicySummary?.drawPolicyOverride?.reason ?? 'none',
     debugPolicyOverrideActive: !!frameGpuPolicySummary?.debugOverrideActive,
@@ -445,7 +455,9 @@ function buildForcedFrameGpuPolicySummary(debugOverrideMode) {
       reason: 'debug-force-draw-throughput',
       transformPolicyOverride: {
         mode: 'favor-draw-throughput',
-        reason: 'debug-force-draw-throughput'
+        reason: 'debug-force-draw-throughput',
+        atlasPlanningMode: 'stabilize-backend-atlas',
+        atlasPlanningReason: 'debug-force-draw-throughput'
       },
       drawPolicyOverride: {
         mode: 'favor-merged-atlas',
@@ -463,7 +475,9 @@ function buildForcedFrameGpuPolicySummary(debugOverrideMode) {
       reason: 'debug-force-transform-throughput',
       transformPolicyOverride: {
         mode: 'favor-transform-throughput',
-        reason: 'debug-force-transform-throughput'
+        reason: 'debug-force-transform-throughput',
+        atlasPlanningMode: 'guarded-max-batch',
+        atlasPlanningReason: 'debug-force-transform-throughput'
       },
       drawPolicyOverride: {
         mode: 'favor-atlas-reuse',
@@ -484,6 +498,10 @@ function buildFrameGpuPolicySummary(previousFrameGpuThroughputSummary) {
   if (forcedSummary) return forcedSummary;
 
   const previousBottleneck = previousFrameGpuThroughputSummary?.bottleneckStage ?? 'balanced-gpu-path';
+  const previousAtlasPressureMode =
+    previousFrameGpuThroughputSummary?.transformAtlasPressureMode ?? 'atlas-pressure-no-history';
+  const previousAtlasPressureReason =
+    previousFrameGpuThroughputSummary?.transformAtlasPressureReason ?? 'atlas-pressure-no-backend-atlas-history';
 
   if (previousBottleneck === 'draw-throughput-pressure') {
     return {
@@ -491,7 +509,13 @@ function buildFrameGpuPolicySummary(previousFrameGpuThroughputSummary) {
       reason: 'frame-bottleneck-draw-throughput',
       transformPolicyOverride: {
         mode: 'favor-draw-throughput',
-        reason: 'frame-bottleneck-draw-throughput'
+        reason: 'frame-bottleneck-draw-throughput',
+        atlasPlanningMode: previousAtlasPressureMode === 'atlas-pressure-rebuild-allocation'
+          ? 'stabilize-backend-atlas-avoid-allocation'
+          : 'stabilize-backend-atlas',
+        atlasPlanningReason: previousAtlasPressureMode === 'atlas-pressure-rebuild-allocation'
+          ? `frame-bottleneck-draw-throughput-${previousAtlasPressureReason}`
+          : 'frame-bottleneck-draw-throughput-stabilize-backend-atlas'
       },
       drawPolicyOverride: {
         mode: 'favor-merged-atlas',
@@ -509,7 +533,13 @@ function buildFrameGpuPolicySummary(previousFrameGpuThroughputSummary) {
       reason: 'frame-bottleneck-transform-throughput',
       transformPolicyOverride: {
         mode: 'favor-transform-throughput',
-        reason: 'frame-bottleneck-transform-throughput'
+        reason: 'frame-bottleneck-transform-throughput',
+        atlasPlanningMode: previousAtlasPressureMode === 'atlas-pressure-rebuild-allocation'
+          ? 'guarded-max-batch-avoid-allocation'
+          : 'guarded-max-batch',
+        atlasPlanningReason: previousAtlasPressureMode === 'atlas-pressure-rebuild-allocation'
+          ? `frame-bottleneck-transform-throughput-${previousAtlasPressureReason}`
+          : 'frame-bottleneck-transform-throughput-guarded-max-batch'
       },
       drawPolicyOverride: {
         mode: 'favor-atlas-reuse',
@@ -526,7 +556,13 @@ function buildFrameGpuPolicySummary(previousFrameGpuThroughputSummary) {
     reason: 'frame-bottleneck-balanced-gpu-path',
     transformPolicyOverride: {
       mode: 'balanced',
-      reason: 'frame-bottleneck-balanced-gpu-path'
+      reason: 'frame-bottleneck-balanced-gpu-path',
+      atlasPlanningMode: previousAtlasPressureMode === 'atlas-pressure-rebuild-allocation'
+        ? 'balanced-avoid-atlas-rebuild'
+        : 'balanced-atlas-reuse',
+      atlasPlanningReason: previousAtlasPressureMode === 'atlas-pressure-rebuild-allocation'
+        ? `frame-bottleneck-balanced-gpu-path-${previousAtlasPressureReason}`
+        : 'frame-bottleneck-balanced-gpu-path-follow-atlas-reuse'
     },
     drawPolicyOverride: {
       mode: 'balanced',
@@ -673,7 +709,7 @@ export async function renderGpuFrame({
     debugOverlayCanvas.height = canvas.height;
     debugCtx.clearRect(0, 0, debugOverlayCanvas.width, debugOverlayCanvas.height);
     debugOverlayCanvas.style.display = 'none';
-    const emptyInfo = 'GPU Step71 viewer\nNo scene loaded.';
+    const emptyInfo = 'GPU Step72 viewer\nNo scene loaded.';
     setInfoText(infoEl, emptyInfo);
     return {
       infoText: emptyInfo,
@@ -990,11 +1026,11 @@ export async function renderGpuFrame({
     timestamp: buildConfig.timestamp,
     splatScale: buildConfig.scalingModifier,
     elapsedMs: elapsed,
-    stepLabel: 'GPU Step71',
+    stepLabel: 'GPU Step72',
     stepNotes: [
       'transform executor owns transformBatchSummary and downstream code forwards it without reinterpretation',
       'transform truth and draw truth still flow into frame-level GPU throughput summaries so the main-path bottleneck stays readable without reinterpreting executor-owned contracts',
-      'transform backend still advertises a preferred GPU batch size based on successful single-texture-copy-pass history, and Step71 now also forwards atlas-capacity-aware planning hints so batch sizing can favor backend atlas success before the full-frame draw stage',
+      'Step72 couples frame-level bottleneck policy with atlas-aware transform planning so the next frame can bias batch sizing using both throughput pressure and backend atlas reuse or rebuild pressure',
       'debug query overrides are available via gpuFramePolicyOverride=auto|force-transform-throughput|force-draw-throughput so either side of the cooperative policy can be inspected without changing the normal UI path',
       'debug output now shows transform throughput, draw throughput, frame-level bottleneck hints, merge policy reasons, atlas reuse versus rebuild, and whether backend atlas generation avoided draw-time merge work while preserving existing truth-source metrics',
       'gpu resident payload draw still shares bind and setup work between gpu-screen and packed direct through the shared texture consumer path, but Step69 pushes regular merged-atlas work upstream so backend atlas payloads can arrive draw-ready and reduce draw-side merge copies',
@@ -1002,7 +1038,8 @@ export async function renderGpuFrame({
       'packed-write backend keeps the offscreen FBO blend-disable fix while preserving existing public draw contracts',
       'Step70 adds deterministic camera presets and query-driven viewer state replay so the same full-frame GPU path can be reproduced across machines without changing the normal render contract',
       'manual snapshot capture is exposed through window.gpuViewerDebug.captureFrame(...) so preset-driven full-frame GPU output can be saved without adding a new UI path',
-      'Step71 adds atlas-capacity-aware transform planning so backend atlas capacity and recent atlas reuse/grow history can bias batch sizing before atlas consolidation, reducing rebuild pressure without changing public draw contracts',
+      'Step71 adds atlas-capacity-aware transform planning so backend atlas capacity and recent atlas reuse or grow history can bias batch sizing before atlas consolidation, reducing rebuild pressure without changing public draw contracts',
+      'Step72 now lets frame policy priority steer planner mode and atlas pressure handling, so balanced, draw-throughput, and transform-throughput cases can be compared cleanly under deterministic URLs',
       'deterministic query replay now forwards both a normalized deterministicQueryString and a deterministicUrlSummary so the current full-frame GPU test case can be copied back out of debug text'
     ],
     tileSummary,

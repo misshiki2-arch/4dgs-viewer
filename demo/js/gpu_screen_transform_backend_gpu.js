@@ -200,6 +200,81 @@ function updateAtlasPlanningHistory(context, atlasResult, payloadCount) {
     : 0;
 }
 
+function resolveAtlasPlanningPressure(context) {
+  const atlasBuilt = !!context?.lastAtlasPayloadBuilt;
+  const atlasReused = !!context?.lastAtlasPayloadReused;
+  const atlasRebuilt = !!context?.lastAtlasPayloadRebuilt;
+  const allocationBytes = Number.isFinite(context?.lastAtlasPayloadAllocationBytes)
+    ? Math.max(0, context.lastAtlasPayloadAllocationBytes | 0)
+    : 0;
+  const savedAllocationBytes = Number.isFinite(context?.lastAtlasPayloadSavedAllocationBytes)
+    ? Math.max(0, context.lastAtlasPayloadSavedAllocationBytes | 0)
+    : 0;
+  const churnReason = context?.lastAtlasPayloadChurnReason ?? 'none';
+
+  if (!atlasBuilt) {
+    return {
+      mode: 'atlas-pressure-no-history',
+      reason: 'atlas-pressure-no-backend-atlas-history',
+      allocationBytes,
+      savedAllocationBytes,
+      churnReason,
+      reusePreferred: false,
+      rebuildAllowed: true
+    };
+  }
+
+  if (atlasReused && allocationBytes <= 0) {
+    return {
+      mode: 'atlas-pressure-reuse-stable',
+      reason: churnReason === 'none' ? 'atlas-pressure-reuse-stable' : `atlas-pressure-${churnReason}`,
+      allocationBytes,
+      savedAllocationBytes,
+      churnReason,
+      reusePreferred: true,
+      rebuildAllowed: false
+    };
+  }
+
+  if (atlasRebuilt && allocationBytes > 0) {
+    return {
+      mode: 'atlas-pressure-rebuild-allocation',
+      reason: churnReason === 'none'
+        ? 'atlas-pressure-rebuild-allocation'
+        : `atlas-pressure-${churnReason}`,
+      allocationBytes,
+      savedAllocationBytes,
+      churnReason,
+      reusePreferred: true,
+      rebuildAllowed: true
+    };
+  }
+
+  if (atlasRebuilt) {
+    return {
+      mode: 'atlas-pressure-rebuild-no-allocation',
+      reason: churnReason === 'none'
+        ? 'atlas-pressure-rebuild-no-allocation'
+        : `atlas-pressure-${churnReason}`,
+      allocationBytes,
+      savedAllocationBytes,
+      churnReason,
+      reusePreferred: false,
+      rebuildAllowed: true
+    };
+  }
+
+  return {
+    mode: 'atlas-pressure-neutral',
+    reason: churnReason === 'none' ? 'atlas-pressure-neutral' : `atlas-pressure-${churnReason}`,
+    allocationBytes,
+    savedAllocationBytes,
+    churnReason,
+    reusePreferred: allocationBytes <= 0,
+    rebuildAllowed: true
+  };
+}
+
 function buildBackendError(error) {
   if (!error) return null;
   if (typeof error === 'string') return error;
@@ -1061,6 +1136,7 @@ export function summarizeGpuScreenTransformBackendGpuCapability(context, gl = nu
         previousBatchCount: 0,
         preferredBatchItems: 0
       };
+  const atlasPlanningPressure = resolveAtlasPlanningPressure(context);
 
   return {
     backendId: context?.backendId ?? GPU_BACKEND_ID,
@@ -1085,6 +1161,13 @@ export function summarizeGpuScreenTransformBackendGpuCapability(context, gl = nu
     atlasAwareBatchPlanningCapacityItems: atlasAwareBatchPlanning.capacityItems,
     atlasAwareBatchPlanningPreviousBatchCount: atlasAwareBatchPlanning.previousBatchCount,
     atlasAwarePreferredBatchItems: atlasAwareBatchPlanning.preferredBatchItems,
+    atlasPlanningPressureMode: atlasPlanningPressure.mode,
+    atlasPlanningPressureReason: atlasPlanningPressure.reason,
+    atlasPlanningPressureAllocationBytes: atlasPlanningPressure.allocationBytes,
+    atlasPlanningPressureSavedAllocationBytes: atlasPlanningPressure.savedAllocationBytes,
+    atlasPlanningPressureChurnReason: atlasPlanningPressure.churnReason,
+    atlasPlanningPressureReusePreferred: !!atlasPlanningPressure.reusePreferred,
+    atlasPlanningPressureRebuildAllowed: !!atlasPlanningPressure.rebuildAllowed,
     atlasPlanningHistoryValid: !!context?.atlasPlanningHistoryValid,
     atlasPlanningHistoryMode: context?.atlasPlanningHistoryMode ?? 'atlas-aware-disabled',
     atlasPlanningHistoryReason: context?.atlasPlanningHistoryReason ?? 'none',
