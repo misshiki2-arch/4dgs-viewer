@@ -67,6 +67,7 @@ import {
 } from './gpu_screen_space_builder.js';
 import { executeFullFrameDrawByPath } from './gpu_draw_execution_router.js';
 import { executeSelectedTileLegacyDraw } from './gpu_selected_tile_draw_executor.js';
+import { buildTileCompositePlan } from './gpu_tile_composite_utils.js';
 
 function ensureDebugOverlayCanvas(mainCanvas) {
   let overlay = document.getElementById('gpuTileDebugOverlay');
@@ -302,6 +303,7 @@ function buildEffectiveDrawData({
   effectiveTileSummary,
   drawPathSelection,
   directPackedDrawInfo,
+  tileCompositeDrawInfo,
   packedScreenSpace,
   gpuScreenDrawInfo,
   legacyDrawData
@@ -312,7 +314,9 @@ function buildEffectiveDrawData({
 
   return {
     nDraw:
-      drawPathSelection.actualPath === GPU_DRAW_PATH_PACKED
+      Number.isFinite(tileCompositeDrawInfo?.drawCount)
+        ? tileCompositeDrawInfo.drawCount
+        : drawPathSelection.actualPath === GPU_DRAW_PATH_PACKED
         ? (directPackedDrawInfo?.drawCount ?? packedScreenSpace?.packedCount ?? 0)
         : drawPathSelection.actualPath === GPU_DRAW_PATH_GPU_SCREEN
           ? (gpuScreenDrawInfo?.drawCount ?? 0)
@@ -709,7 +713,7 @@ export async function renderGpuFrame({
     debugOverlayCanvas.height = canvas.height;
     debugCtx.clearRect(0, 0, debugOverlayCanvas.width, debugOverlayCanvas.height);
     debugOverlayCanvas.style.display = 'none';
-    const emptyInfo = 'GPU Step80 viewer\nNo scene loaded.';
+    const emptyInfo = 'GPU Step84 viewer\nNo scene loaded.';
     setInfoText(infoEl, emptyInfo);
     return {
       infoText: emptyInfo,
@@ -813,6 +817,15 @@ export async function renderGpuFrame({
   const legacyDrawData = needsLegacyExpandedArrays
     ? buildAllVisibleDrawData(visible)
     : null;
+  const tileCompositePlan = !mode.drawSelectedOnly && drawPathSelection.actualPath !== GPU_DRAW_PATH_LEGACY
+    ? buildTileCompositePlan({
+        visible,
+        tileData,
+        tileGrid,
+        canvasWidth: canvas.width,
+        canvasHeight: canvas.height
+      })
+    : null;
 
   gpu.resize(canvas.width, canvas.height);
 
@@ -836,7 +849,9 @@ export async function renderGpuFrame({
         drawPathSelection,
         packedScreenSpace,
         gpuScreenSourceSpace: gpuScreenSourceInfo.sourceSpace,
+        tileCompositePlan,
         legacyDrawData,
+        bgGray01: bg,
         drawPolicyOverride: frameGpuPolicySummary.drawPolicyOverride
       });
 
@@ -845,7 +860,8 @@ export async function renderGpuFrame({
     packedUploadSummary,
     drawThroughputSummary,
     directPackedDrawInfo,
-    gpuScreenDrawInfo
+    gpuScreenDrawInfo,
+    tileCompositeDrawInfo
   } = executionResult;
 
   debugOverlayCanvas.width = canvas.width;
@@ -893,9 +909,10 @@ export async function renderGpuFrame({
 
   const effectiveDrawData = buildEffectiveDrawData({
     mode,
-    effectiveTileSummary,
+    effectiveTileSummary: effectiveTileSummary || tileCompositePlan?.summary || null,
     drawPathSelection,
     directPackedDrawInfo,
+    tileCompositeDrawInfo,
     packedScreenSpace,
     gpuScreenDrawInfo,
     legacyDrawData
@@ -925,7 +942,7 @@ export async function renderGpuFrame({
     mode,
     focusTileId,
     focusTileIds,
-    effectiveTileSummary,
+    effectiveTileSummary: effectiveTileSummary || tileCompositePlan?.summary || null,
     executionSummary,
     packedScreenSpace,
     packedUploadSummary,
@@ -1008,6 +1025,14 @@ export async function renderGpuFrame({
     extraLines.push(`snapshotLastStatus=${deterministicStateSummary.snapshotLastStatus ?? 'idle'}`);
     extraLines.push(`snapshotLastReason=${deterministicStateSummary.snapshotLastReason ?? 'none'}`);
   }
+  if (tileCompositePlan?.summary) {
+    extraLines.push(`tileCompositeContract=${tileCompositePlan.summary.compositingContract ?? 'none'}`);
+    extraLines.push(`tileCompositeDepthOrder=${tileCompositePlan.summary.depthOrder ?? 'none'}`);
+    extraLines.push(`tileCompositeTileBatchCount=${tileCompositePlan.summary.tileBatchCount ?? 0}`);
+    extraLines.push(`tileCompositeTotalTileDrawCount=${tileCompositePlan.summary.totalTileDrawCount ?? 0}`);
+    extraLines.push(`tileCompositeDuplicateRefs=${tileCompositePlan.summary.tileCompositeDuplicateRefs ?? 0}`);
+    extraLines.push(`tileCompositeOverlapFactor=${Number(tileCompositePlan.summary.tileCompositeOverlapFactor ?? 0).toFixed(2)}`);
+  }
 
   const infoText = formatGpuViewerInfo({
     raw,
@@ -1026,8 +1051,12 @@ export async function renderGpuFrame({
     timestamp: buildConfig.timestamp,
     splatScale: buildConfig.scalingModifier,
     elapsedMs: elapsed,
-    stepLabel: 'GPU Step80',
+    stepLabel: 'GPU Step84',
     stepNotes: [
+      'Step84 keeps the Step83 tile-local sorted front-to-back contract, but moves its accumulation off the default framebuffer and into an alpha-bearing offscreen target so destination alpha, clear state, and final background resolve actually match the intended compositing math',
+      'Step84 resolves that offscreen accumulation back to the canvas after tile batching, preserving deterministic URLs, snapshots, compareSingleSplat(...), and inspectActiveSplat(...) while fixing the black-screen failure caused by relying on destination alpha in an alpha-less default framebuffer',
+      'Step83 stops treating the normal GPU path as a single global depth-sorted alpha-blend stream and instead duplicates splats into overlapping tiles, orders each tile near-to-far, and composites those tile batches with front-to-back transmittance so multi-splat overlap follows the same contract shape as the CUDA renderer',
+      'Step83 keeps deterministic URLs, snapshots, compareSingleSplat(...), and inspectActiveSplat(...) on the existing screen-space truth sources while moving only the downstream compositing contract to tile-local sorted accumulation, making before/after checks possible without rewriting the debug API surface',
       'transform executor owns transformBatchSummary and downstream code forwards it without reinterpretation',
       'transform truth and draw truth still flow into frame-level GPU throughput summaries so the main-path bottleneck stays readable without reinterpreting executor-owned contracts',
       'Step72 couples frame-level bottleneck policy with atlas-aware transform planning so the next frame can bias batch sizing using both throughput pressure and backend atlas reuse or rebuild pressure',
@@ -1039,6 +1068,8 @@ export async function renderGpuFrame({
       'Step78 established a pixel-center displacement path for fragment-side Gaussian evaluation, but the remaining evidence still points at the downstream fragment consumer rather than upstream single-splat math',
       'Step79 aligns the packed fragment consumer more closely with CUDA pixel-index semantics by placing splat centers on OpenGL pixel centers and evaluating Gaussian falloff against integer pixel indices instead of point-local coordinates',
       'Step80 takes the next fragment-focused step by evaluating non-central pixels against the conservative side of their pixel footprint, so the downstream Gaussian survives less aggressively along elongated interior directions without touching point-size clamp contracts',
+      'Step81 accepted that fragment-only nudges were insufficient and re-designed the normal GPU downstream around explicit screen-space quads, matching CUDA-style bounding-rect rasterization more directly than point sprites while keeping the same packed payload truth source',
+      'Step82 goes one level deeper by removing the remaining point-size semantics from the normal GPU resident downstream and consuming packed payloads through CUDA-style integer pixel rects plus renderCUDA-aligned per-pixel Gaussian evaluation, so the actual primitive, pixel index convention, and alpha test all move together instead of being tuned independently',
       'debug query overrides are available via gpuFramePolicyOverride=auto|force-transform-throughput|force-draw-throughput so either side of the cooperative policy can be inspected without changing the normal UI path',
       'debug output now shows transform throughput, draw throughput, frame-level bottleneck hints, merge policy reasons, atlas reuse versus rebuild, and whether backend atlas generation avoided draw-time merge work while preserving existing truth-source metrics',
       'gpu resident payload draw still shares bind and setup work between gpu-screen and packed direct through the shared texture consumer path, but Step69 pushes regular merged-atlas work upstream so backend atlas payloads can arrive draw-ready and reduce draw-side merge copies',
@@ -1056,6 +1087,10 @@ export async function renderGpuFrame({
       'Step78 kept those diagnostics live while shifting fragment Gaussian evaluation toward pixel-center displacement, reflecting the fact that upstream single-splat math now matches CUDA and the next evidence-backed stage is downstream fragment consumption',
       'Step79 moves that downstream consumer one stage closer to CUDA by matching center placement and pixel-index displacement semantics in the shared packed fragment path, while preserving deterministic URL and inspectActiveSplat(...) comparisons',
       'Step80 keeps that same deterministic inspect path live while shifting fragment evaluation to a more conservative in-pixel footprint for non-central samples, reflecting the evidence that Step78/79 did not shrink midX enough even though center and edge behaviour remained stable',
+      'Step81 keeps the same inspect and deterministic replay hooks live while replacing normal GPU resident point-sprite rasterization with explicit quad rasterization over the CUDA-style sprite bounding box, so packed and gpu-screen paths can compare against a downstream that is closer in processing meaning rather than only in fragment thresholds',
+      'Step82 keeps those same replay and inspect hooks intact while pushing the normal GPU resident downstream to CUDA-style integer pixel rect semantics end-to-end, dropping the Step80 conservative offset and evaluating alpha exactly against pixel indices inside the emitted rect rather than against inherited point-size conventions',
+      'Step83 then accepts that local fragment and primitive fixes were not the whole story, and moves the normal full-frame packed/gpu-screen draw downstream onto tile-local sorted front-to-back compositing rather than a single global standard-blend order',
+      'Step84 then makes that Step83 compositing contract operational by giving it an explicit alpha accumulation target plus final background resolve, rather than depending on destination alpha semantics from the default framebuffer',
       'deterministic query replay now forwards both a normalized deterministicQueryString and a deterministicUrlSummary so the current full-frame GPU test case can be copied back out of debug text'
     ],
     tileSummary,
@@ -1087,7 +1122,8 @@ export async function renderGpuFrame({
     gpuScreenSourceInfo,
     transformThroughputSummary,
     drawThroughputSummary,
-    frameGpuThroughputSummary
+    frameGpuThroughputSummary,
+    tileCompositePlan
   };
 
   return result;

@@ -12,13 +12,15 @@ uniform sampler2D uPackedTexture;
 uniform vec2 uViewportPx;
 uniform int uPackedRowsPerColumn;
 
-out vec4 vColorAlpha;
-out float vRadiusPx;
-out vec3 vConic;
-out vec2 vCenterPx;
+flat out vec4 vColorAlpha;
+flat out float vRadiusPx;
+flat out vec3 vConic;
+flat out vec2 vCenterPx;
 
 void main() {
-  int itemIndex = gl_VertexID;
+  int vertexIndex = gl_VertexID;
+  int itemIndex = vertexIndex / 6;
+  int cornerIndex = vertexIndex - (itemIndex * 6);
   int rowsPerColumn = max(1, uPackedRowsPerColumn);
   int columnIndex = itemIndex / rowsPerColumn;
   int rowIndex = itemIndex - (columnIndex * rowsPerColumn);
@@ -27,10 +29,27 @@ void main() {
   vec4 row1 = texelFetch(uPackedTexture, ivec2(xBase + 1, rowIndex), 0);
   vec4 row2 = texelFetch(uPackedTexture, ivec2(xBase + 2, rowIndex), 0);
 
-  float x = ((row0.x + 0.5) / uViewportPx.x) * 2.0 - 1.0;
-  float y = 1.0 - ((row0.y + 0.5) / uViewportPx.y) * 2.0;
+  vec2 quadCorner;
+  if (cornerIndex == 0) {
+    quadCorner = vec2(0.0, 0.0);
+  } else if (cornerIndex == 1) {
+    quadCorner = vec2(1.0, 0.0);
+  } else if (cornerIndex == 2) {
+    quadCorner = vec2(0.0, 1.0);
+  } else if (cornerIndex == 3) {
+    quadCorner = vec2(0.0, 1.0);
+  } else if (cornerIndex == 4) {
+    quadCorner = vec2(1.0, 0.0);
+  } else {
+    quadCorner = vec2(1.0, 1.0);
+  }
+  vec2 rectMinPx = floor(row0.xy - vec2(row0.z));
+  vec2 rectMaxPx = floor(row0.xy + vec2(row0.z)) + vec2(1.0);
+  vec2 pixelEdgePx = mix(rectMinPx, rectMaxPx, quadCorner);
+  float x = (pixelEdgePx.x / uViewportPx.x) * 2.0 - 1.0;
+  float y = 1.0 - (pixelEdgePx.y / uViewportPx.y) * 2.0;
   gl_Position = vec4(x, y, 0.0, 1.0);
-  gl_PointSize = max(1.0, row0.z * 2.0);
+  gl_PointSize = 1.0;
 
   vColorAlpha = row1;
   vRadiusPx = row0.z;
@@ -50,6 +69,25 @@ function getPayloadRowsPerColumn(payload) {
     return Math.max(1, payload.count | 0);
   }
   return 1;
+}
+
+function buildCudaRasterRect(centerPx, radiusPx) {
+  const rectMinPx = [
+    Math.floor(centerPx[0] - radiusPx),
+    Math.floor(centerPx[1] - radiusPx)
+  ];
+  const rectMaxPxExclusive = [
+    Math.floor(centerPx[0] + radiusPx) + 1,
+    Math.floor(centerPx[1] + radiusPx) + 1
+  ];
+  const rasterWidthPx = Math.max(1, rectMaxPxExclusive[0] - rectMinPx[0]);
+  const rasterHeightPx = Math.max(1, rectMaxPxExclusive[1] - rectMinPx[1]);
+  return {
+    rectMinPx,
+    rectMaxPxExclusive,
+    rasterWidthPx,
+    rasterHeightPx
+  };
 }
 
 function isBackendAtlasPayload(payload) {
@@ -153,48 +191,36 @@ function readPackedPayloadItemRows(gl, payload, localIndex) {
   }
 }
 
-function evaluatePackedFragmentSample(centerPx, radiusPx, conic, colorAlpha, pointCoord, pointSizePx) {
-  const pointSize = Math.max(1.0, pointSizePx);
+function evaluatePackedFragmentAtPixelIndex(centerPx, conic, colorAlpha, pixelIndexPx, rectInfo) {
   const localPixelIndex = [
-    Math.min(pointSize - 1.0, Math.max(0.0, Math.floor(pointCoord[0] * pointSize))),
-    Math.min(pointSize - 1.0, Math.max(0.0, Math.floor(pointCoord[1] * pointSize)))
+    pixelIndexPx[0] - rectInfo.rectMinPx[0],
+    pixelIndexPx[1] - rectInfo.rectMinPx[1]
   ];
   const localPixelCenter = [
     localPixelIndex[0] + 0.5,
     localPixelIndex[1] + 0.5
   ];
-  const spriteMinPx = [
-    Math.floor(centerPx[0] - pointSize * 0.5),
-    Math.floor(centerPx[1] - pointSize * 0.5)
-  ];
-  const pixelIndexPx = [
-    spriteMinPx[0] + localPixelIndex[0],
-    spriteMinPx[1] + localPixelIndex[1]
-  ];
   const d = [
-    pixelIndexPx[0] - centerPx[0],
-    pixelIndexPx[1] - centerPx[1]
+    centerPx[0] - pixelIndexPx[0],
+    centerPx[1] - pixelIndexPx[1]
   ];
-  const conservativeOffset = [
-    Math.abs(d[0]) >= 1.0 ? Math.sign(d[0]) * 0.5 : 0.0,
-    Math.abs(d[1]) >= 1.0 ? Math.sign(d[1]) * 0.5 : 0.0
-  ];
-  const evalD = [
-    d[0] + conservativeOffset[0],
-    d[1] + conservativeOffset[1]
-  ];
-  const dx = evalD[0];
-  const dy = evalD[1];
+  const conservativeOffset = [0.0, 0.0];
+  const evalD = [d[0], d[1]];
+  const dx = d[0];
+  const dy = d[1];
   const power =
     -0.5 * (conic[0] * dx * dx + conic[2] * dy * dy) -
     conic[1] * dx * dy;
   const packedAlpha = colorAlpha[3];
   const gaussianAlpha = packedAlpha * Math.exp(power);
-  const finalAlpha = Math.min(0.99, Math.max(0.0, gaussianAlpha));
+  const finalAlpha = Math.min(0.99, gaussianAlpha);
   const discardedByPositivePower = power > 0.0;
   const discardedByAlphaCutoff = finalAlpha < (1.0 / 255.0);
   return {
-    pointCoord,
+    pointCoord: [
+      (localPixelIndex[0] + 0.5) / rectInfo.rasterWidthPx,
+      (localPixelIndex[1] + 0.5) / rectInfo.rasterHeightPx
+    ],
     localPixelIndex,
     localPixelCenter,
     pixelIndexPx,
@@ -268,6 +294,7 @@ export function inspectGpuPackedPayloadItem(gl, screenSpace, options = {}) {
   const unclampedPointSize = payloadRadius * 2.0;
   const clampedPointSize = Math.max(1.0, unclampedPointSize);
   const clampApplied = clampedPointSize !== unclampedPointSize;
+  const rasterRect = buildCudaRasterRect(centerPx, payloadRadius);
   const spriteHalfExtentPx = clampedPointSize * 0.5;
   const drawRadiusBbox = [
     centerPx[0] - payloadRadius,
@@ -287,13 +314,28 @@ export function inspectGpuPackedPayloadItem(gl, screenSpace, options = {}) {
   const coverageOvershootRatio = gaussianEffectiveAreaEstimate > 1e-8
     ? spritePixelArea / gaussianEffectiveAreaEstimate
     : Infinity;
+  const rasterPixelArea = rasterRect.rasterWidthPx * rasterRect.rasterHeightPx;
+  const rasterCoverageOvershootEstimate = rasterPixelArea - gaussianEffectiveAreaEstimate;
+  const rasterCoverageOvershootRatio = gaussianEffectiveAreaEstimate > 1e-8
+    ? rasterPixelArea / gaussianEffectiveAreaEstimate
+    : Infinity;
 
+  const centerPixelIndexPx = [
+    Math.min(rasterRect.rectMaxPxExclusive[0] - 1, Math.max(rasterRect.rectMinPx[0], Math.floor(centerPx[0]))),
+    Math.min(rasterRect.rectMaxPxExclusive[1] - 1, Math.max(rasterRect.rectMinPx[1], Math.floor(centerPx[1])))
+  ];
+  const edgePixelIndexX = rasterRect.rectMaxPxExclusive[0] - 1;
+  const edgePixelIndexY = rasterRect.rectMaxPxExclusive[1] - 1;
+  const midPixelIndexX = Math.min(
+    edgePixelIndexX,
+    Math.max(centerPixelIndexPx[0], Math.floor((centerPixelIndexPx[0] + edgePixelIndexX) * 0.5))
+  );
   const fragmentSamples = {
-    center: evaluatePackedFragmentSample(centerPx, payloadRadius, conic, colorAlpha, [0.5, 0.5], clampedPointSize),
-    midX: evaluatePackedFragmentSample(centerPx, payloadRadius, conic, colorAlpha, [0.75, 0.5], clampedPointSize),
-    edgeX: evaluatePackedFragmentSample(centerPx, payloadRadius, conic, colorAlpha, [1.0, 0.5], clampedPointSize),
-    edgeY: evaluatePackedFragmentSample(centerPx, payloadRadius, conic, colorAlpha, [0.5, 1.0], clampedPointSize),
-    corner: evaluatePackedFragmentSample(centerPx, payloadRadius, conic, colorAlpha, [1.0, 1.0], clampedPointSize)
+    center: evaluatePackedFragmentAtPixelIndex(centerPx, conic, colorAlpha, centerPixelIndexPx, rasterRect),
+    midX: evaluatePackedFragmentAtPixelIndex(centerPx, conic, colorAlpha, [midPixelIndexX, centerPixelIndexPx[1]], rasterRect),
+    edgeX: evaluatePackedFragmentAtPixelIndex(centerPx, conic, colorAlpha, [edgePixelIndexX, centerPixelIndexPx[1]], rasterRect),
+    edgeY: evaluatePackedFragmentAtPixelIndex(centerPx, conic, colorAlpha, [centerPixelIndexPx[0], edgePixelIndexY], rasterRect),
+    corner: evaluatePackedFragmentAtPixelIndex(centerPx, conic, colorAlpha, [edgePixelIndexX, edgePixelIndexY], rasterRect)
   };
 
   return {
@@ -328,15 +370,23 @@ export function inspectGpuPackedPayloadItem(gl, screenSpace, options = {}) {
     gaussianEffectiveAreaEstimate,
     coverageOvershootEstimate,
     coverageOvershootRatio,
+    rasterRectMinPx: rasterRect.rectMinPx,
+    rasterRectMaxPxExclusive: rasterRect.rectMaxPxExclusive,
+    rasterWidthPx: rasterRect.rasterWidthPx,
+    rasterHeightPx: rasterRect.rasterHeightPx,
+    rasterPixelArea,
+    rasterCoverageOvershootEstimate,
+    rasterCoverageOvershootRatio,
     fragmentEquation: {
-      pointCoordToPixelCenter: 'localPixelIndex = clamp(floor(gl_PointCoord * pointSizePx), 0.0, pointSizePx - 1.0)',
-      spritePixelIndex: 'pixelIndexPx = floor(centerPx - pointSizePx * 0.5) + localPixelIndex',
-      displacement: 'd = pixelIndexPx - centerPx',
-      conservativeOffset: 'conservativeOffset = sign(d) * step(1.0, abs(d)) * 0.5',
-      evalDisplacement: 'evalD = d + conservativeOffset',
+      rasterizationPrimitive: 'two-triangle screen-space quad covering [floor(centerPx - radiusPx), floor(centerPx + radiusPx) + 1)',
+      pointCoordToPixelCenter: 'pixelIndexPx = vec2(gl_FragCoord.x - 0.5, viewportHeight - gl_FragCoord.y - 0.5)',
+      spritePixelIndex: 'localPixelIndex = pixelIndexPx - floor(centerPx - radiusPx)',
+      displacement: 'd = centerPx - pixelIndexPx',
+      conservativeOffset: 'vec2(0.0)',
+      evalDisplacement: 'evalD = d',
       power: '-0.5 * (conic.x * dx^2 + conic.z * dy^2) - conic.y * dx * dy',
       gaussianAlpha: 'colorAlpha.a * exp(power)',
-      finalAlpha: 'clamp(gaussianAlpha, 0.0, 0.99)',
+      finalAlpha: 'min(0.99, gaussianAlpha)',
       alphaCutoff: 'discard when finalAlpha < 1.0 / 255.0'
     },
     fragmentSamples
@@ -1111,7 +1161,7 @@ export function drawGpuPackedPayloads(gl, gpu, screenSpace, canvasWidth, canvasH
       gl.bindTexture(gl.TEXTURE_2D, atlasResult.atlasPayload.texture);
       gl.uniform1i(resources.uniformPackedRowsPerColumn, Math.max(1, getPayloadRowsPerColumn(atlasResult.atlasPayload)));
       bindCount++;
-      gl.drawArrays(gl.POINTS, 0, totalCount);
+      gl.drawArrays(gl.TRIANGLES, 0, totalCount * 6);
       drawCount = totalCount;
       drawCallCount = 1;
     } else {
@@ -1122,7 +1172,7 @@ export function drawGpuPackedPayloads(gl, gpu, screenSpace, canvasWidth, canvasH
         gl.bindTexture(gl.TEXTURE_2D, payload.texture);
         gl.uniform1i(resources.uniformPackedRowsPerColumn, getPayloadRowsPerColumn(payload));
         bindCount++;
-        gl.drawArrays(gl.POINTS, 0, count);
+        gl.drawArrays(gl.TRIANGLES, 0, count * 6);
         drawCount += count;
         drawCallCount++;
       }

@@ -6,6 +6,7 @@ import {
 import { uploadAndDrawPackedDirect } from './gpu_packed_draw_executor.js';
 import { uploadAndDrawGpuScreen } from './gpu_screen_draw_executor.js';
 import { executeFallbackFullFrameDraw } from './gpu_fallback_draw_executor.js';
+import { executeTileCompositeDraw } from './gpu_tile_composite_executor.js';
 
 function buildPackedExecutionSummary(drawPathSelection, directPackedDrawInfo) {
   return {
@@ -148,8 +149,37 @@ function executePackedFullFrameDraw({
   packedScreenSpace,
   gpuScreenSourceSpace,
   drawPathSelection,
+  tileCompositePlan = null,
+  bgGray01 = 0,
   drawPolicyOverride = null
 }) {
+  if (Array.isArray(tileCompositePlan?.batches) && tileCompositePlan.batches.length > 0) {
+    const tileCompositeResult = executeTileCompositeDraw({
+      gl,
+      gpu,
+      canvas,
+      tileCompositePlan,
+      drawPathSelection,
+      bgGray01
+    });
+
+    return {
+      executionSummary: tileCompositeResult.executionSummary,
+      packedUploadSummary: tileCompositeResult.packedUploadSummary,
+      drawThroughputSummary: buildDrawThroughputSummary({
+        drawPathSelection,
+        actualDrawPath: GPU_DRAW_PATH_PACKED,
+        drawCallCount: tileCompositeResult?.tileCompositeDrawInfo?.drawCallCount ?? 0,
+        uploadCount: tileCompositeResult?.tileCompositeDrawInfo?.uploadCount ?? 0,
+        uploadBytes: tileCompositeResult?.packedUploadSummary?.packedUploadBytes ?? 0,
+        usesGpuResidentPayload: false
+      }),
+      directPackedDrawInfo: null,
+      gpuScreenDrawInfo: null,
+      tileCompositeDrawInfo: tileCompositeResult.tileCompositeDrawInfo
+    };
+  }
+
   const packedDirectSourceSpace = Array.isArray(gpuScreenSourceSpace?.gpuPackedPayloads) &&
     gpuScreenSourceSpace.gpuPackedPayloads.length > 0
     ? gpuScreenSourceSpace
@@ -246,8 +276,37 @@ function executeGpuScreenFullFrameDraw({
   canvas,
   gpuScreenSourceSpace,
   drawPathSelection,
+  tileCompositePlan = null,
+  bgGray01 = 0,
   drawPolicyOverride = null
 }) {
+  if (Array.isArray(tileCompositePlan?.batches) && tileCompositePlan.batches.length > 0) {
+    const tileCompositeResult = executeTileCompositeDraw({
+      gl,
+      gpu,
+      canvas,
+      tileCompositePlan,
+      drawPathSelection,
+      bgGray01
+    });
+
+    return {
+      executionSummary: tileCompositeResult.executionSummary,
+      packedUploadSummary: tileCompositeResult.packedUploadSummary,
+      drawThroughputSummary: buildDrawThroughputSummary({
+        drawPathSelection,
+        actualDrawPath: GPU_DRAW_PATH_GPU_SCREEN,
+        drawCallCount: tileCompositeResult?.tileCompositeDrawInfo?.drawCallCount ?? 0,
+        uploadCount: tileCompositeResult?.tileCompositeDrawInfo?.uploadCount ?? 0,
+        uploadBytes: tileCompositeResult?.packedUploadSummary?.packedUploadBytes ?? 0,
+        usesGpuResidentPayload: false
+      }),
+      directPackedDrawInfo: null,
+      gpuScreenDrawInfo: null,
+      tileCompositeDrawInfo: tileCompositeResult.tileCompositeDrawInfo
+    };
+  }
+
   const gpuScreenDrawInfo = uploadAndDrawGpuScreen(
     gl,
     gpu,
@@ -311,7 +370,9 @@ export function executeFullFrameDrawByPath({
   drawPathSelection,
   packedScreenSpace,
   gpuScreenSourceSpace,
+  tileCompositePlan = null,
   legacyDrawData,
+  bgGray01 = 0,
   drawPolicyOverride = null
 }) {
   const actualPath = drawPathSelection?.actualPath ?? GPU_DRAW_PATH_LEGACY;
@@ -323,6 +384,8 @@ export function executeFullFrameDrawByPath({
       canvas,
       gpuScreenSourceSpace,
       drawPathSelection,
+      tileCompositePlan,
+      bgGray01,
       drawPolicyOverride
     });
   }
@@ -335,6 +398,8 @@ export function executeFullFrameDrawByPath({
       packedScreenSpace,
       gpuScreenSourceSpace,
       drawPathSelection,
+      tileCompositePlan,
+      bgGray01,
       drawPolicyOverride
     });
   }

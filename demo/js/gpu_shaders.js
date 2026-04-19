@@ -22,10 +22,10 @@ in vec3 aConic;
 
 uniform vec2 uViewportPx;
 
-out vec4 vColorAlpha;
-out float vRadiusPx;
-out vec3 vConic;
-out vec2 vCenterPx;
+flat out vec4 vColorAlpha;
+flat out float vRadiusPx;
+flat out vec3 vConic;
+flat out vec2 vCenterPx;
 
 void main() {
   // Packed centers are consumed here in the same screen-space convention used by
@@ -50,10 +50,10 @@ void main() {
 export const GPU_STEP_FRAGMENT_SHADER = `#version 300 es
 precision highp float;
 
-in vec4 vColorAlpha;
-in float vRadiusPx;
-in vec3 vConic;
-in vec2 vCenterPx;
+flat in vec4 vColorAlpha;
+flat in float vRadiusPx;
+flat in vec3 vConic;
+flat in vec2 vCenterPx;
 
 uniform vec2 uViewportPx;
 
@@ -64,21 +64,52 @@ void main() {
     gl_FragCoord.x - 0.5,
     uViewportPx.y - gl_FragCoord.y - 0.5
   );
-  vec2 d = pixelIndexPx - vCenterPx;
-  vec2 conservativeOffset = sign(d) * step(vec2(1.0), abs(d)) * 0.5;
-  vec2 evalD = d + conservativeOffset;
-  float dx = evalD.x;
-  float dy = evalD.y;
+  vec2 d = vCenterPx - pixelIndexPx;
+  float dx = d.x;
+  float dy = d.y;
 
   float power =
     -0.5 * (vConic.x * dx * dx + vConic.z * dy * dy)
     - vConic.y * dx * dy;
   if (power > 0.0) discard;
   float packedAlpha = vColorAlpha.a;
-  float gaussianAlpha = packedAlpha * exp(power);
-  float finalAlpha = clamp(gaussianAlpha, 0.0, 0.99);
-  if (finalAlpha < (1.0 / 255.0)) discard;
+  float alpha = min(0.99, packedAlpha * exp(power));
+  if (alpha < (1.0 / 255.0)) discard;
+  float finalAlpha = alpha;
 
   outColor = vec4(vColorAlpha.rgb, finalAlpha);
+}
+`;
+
+export const GPU_STEP_FRAGMENT_SHADER_FRONT_TO_BACK = `#version 300 es
+precision highp float;
+
+flat in vec4 vColorAlpha;
+flat in float vRadiusPx;
+flat in vec3 vConic;
+flat in vec2 vCenterPx;
+
+uniform vec2 uViewportPx;
+
+out vec4 outColor;
+
+void main() {
+  vec2 pixelIndexPx = vec2(
+    gl_FragCoord.x - 0.5,
+    uViewportPx.y - gl_FragCoord.y - 0.5
+  );
+  vec2 d = vCenterPx - pixelIndexPx;
+  float dx = d.x;
+  float dy = d.y;
+
+  float power =
+    -0.5 * (vConic.x * dx * dx + vConic.z * dy * dy)
+    - vConic.y * dx * dy;
+  if (power > 0.0) discard;
+  float packedAlpha = vColorAlpha.a;
+  float alpha = min(0.99, packedAlpha * exp(power));
+  if (alpha < (1.0 / 255.0)) discard;
+
+  outColor = vec4(vColorAlpha.rgb * alpha, alpha);
 }
 `;

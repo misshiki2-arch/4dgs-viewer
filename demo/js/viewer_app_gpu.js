@@ -420,6 +420,7 @@ async function inspectActiveSplat(options = {}) {
       return {
         ...inspectionWithSource,
         attemptedSources: attempts,
+        tileCompositeContract: renderResult?.tileCompositePlan?.summary?.compositingContract ?? 'none',
         deterministicState: buildDeterministicStateSummary(),
         debugText: refreshLatestDebugText(),
         lastRenderResult: renderResult
@@ -436,6 +437,7 @@ async function inspectActiveSplat(options = {}) {
       'none',
     inspectedSourceSpace: 'none',
     attemptedSources: attempts,
+    tileCompositeContract: renderResult?.tileCompositePlan?.summary?.compositingContract ?? 'none',
     deterministicState: buildDeterministicStateSummary(),
     debugText: refreshLatestDebugText(),
     lastRenderResult: renderResult

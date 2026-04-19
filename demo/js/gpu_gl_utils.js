@@ -192,6 +192,16 @@ export function enableStandardAlphaBlend(gl) {
   );
 }
 
+export function enableFrontToBackAlphaBlend(gl) {
+  gl.enable(gl.BLEND);
+  gl.blendFuncSeparate(
+    gl.ONE_MINUS_DST_ALPHA,
+    gl.ONE,
+    gl.ONE_MINUS_DST_ALPHA,
+    gl.ONE
+  );
+}
+
 export function disableDepth(gl) {
   gl.disable(gl.DEPTH_TEST);
 }
