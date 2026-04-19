@@ -709,7 +709,7 @@ export async function renderGpuFrame({
     debugOverlayCanvas.height = canvas.height;
     debugCtx.clearRect(0, 0, debugOverlayCanvas.width, debugOverlayCanvas.height);
     debugOverlayCanvas.style.display = 'none';
-    const emptyInfo = 'GPU Step79 viewer\nNo scene loaded.';
+    const emptyInfo = 'GPU Step80 viewer\nNo scene loaded.';
     setInfoText(infoEl, emptyInfo);
     return {
       infoText: emptyInfo,
@@ -1026,7 +1026,7 @@ export async function renderGpuFrame({
     timestamp: buildConfig.timestamp,
     splatScale: buildConfig.scalingModifier,
     elapsedMs: elapsed,
-    stepLabel: 'GPU Step79',
+    stepLabel: 'GPU Step80',
     stepNotes: [
       'transform executor owns transformBatchSummary and downstream code forwards it without reinterpretation',
       'transform truth and draw truth still flow into frame-level GPU throughput summaries so the main-path bottleneck stays readable without reinterpreting executor-owned contracts',
@@ -1038,6 +1038,7 @@ export async function renderGpuFrame({
       'Step77 fixes the inspect helper so it follows the actual-frame payload truth source used by the normal GPU path, making downstream observation JSON reliable before any point-size or fragment changes land',
       'Step78 established a pixel-center displacement path for fragment-side Gaussian evaluation, but the remaining evidence still points at the downstream fragment consumer rather than upstream single-splat math',
       'Step79 aligns the packed fragment consumer more closely with CUDA pixel-index semantics by placing splat centers on OpenGL pixel centers and evaluating Gaussian falloff against integer pixel indices instead of point-local coordinates',
+      'Step80 takes the next fragment-focused step by evaluating non-central pixels against the conservative side of their pixel footprint, so the downstream Gaussian survives less aggressively along elongated interior directions without touching point-size clamp contracts',
       'debug query overrides are available via gpuFramePolicyOverride=auto|force-transform-throughput|force-draw-throughput so either side of the cooperative policy can be inspected without changing the normal UI path',
       'debug output now shows transform throughput, draw throughput, frame-level bottleneck hints, merge policy reasons, atlas reuse versus rebuild, and whether backend atlas generation avoided draw-time merge work while preserving existing truth-source metrics',
       'gpu resident payload draw still shares bind and setup work between gpu-screen and packed direct through the shared texture consumer path, but Step69 pushes regular merged-atlas work upstream so backend atlas payloads can arrive draw-ready and reduce draw-side merge copies',
@@ -1054,6 +1055,7 @@ export async function renderGpuFrame({
       'Step77 keeps compareSingleSplat(...) unchanged while making inspectActiveSplat(...) retry the actual packed or gpu-screen source payloads used for drawing, so saved JSON now carries real downstream payload and fragment diagnostics instead of an empty failure shell',
       'Step78 kept those diagnostics live while shifting fragment Gaussian evaluation toward pixel-center displacement, reflecting the fact that upstream single-splat math now matches CUDA and the next evidence-backed stage is downstream fragment consumption',
       'Step79 moves that downstream consumer one stage closer to CUDA by matching center placement and pixel-index displacement semantics in the shared packed fragment path, while preserving deterministic URL and inspectActiveSplat(...) comparisons',
+      'Step80 keeps that same deterministic inspect path live while shifting fragment evaluation to a more conservative in-pixel footprint for non-central samples, reflecting the evidence that Step78/79 did not shrink midX enough even though center and edge behaviour remained stable',
       'deterministic query replay now forwards both a normalized deterministicQueryString and a deterministicUrlSummary so the current full-frame GPU test case can be copied back out of debug text'
     ],
     tileSummary,

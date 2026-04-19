@@ -65,8 +65,10 @@ void main() {
     uViewportPx.y - gl_FragCoord.y - 0.5
   );
   vec2 d = pixelIndexPx - vCenterPx;
-  float dx = d.x;
-  float dy = d.y;
+  vec2 conservativeOffset = sign(d) * step(vec2(1.0), abs(d)) * 0.5;
+  vec2 evalD = d + conservativeOffset;
+  float dx = evalD.x;
+  float dy = evalD.y;
 
   float power =
     -0.5 * (vConic.x * dx * dx + vConic.z * dy * dy)

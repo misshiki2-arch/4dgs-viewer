@@ -104,7 +104,7 @@
     <div class="row"><label>force SH 3D</label><input id="forceSh3d" type="checkbox"><span>4D SH無効</span></div>
     <div class="row"><label>time duration</label><input id="timeDuration" type="range" min="1" max="100" step="0.1" value="33"><span id="timeDurationVal">33.0</span></div>
     <div class="row"><button id="play">再生</button><button id="renderBtn">再描画</button><button id="resetCam">視点リセット</button></div>
-    <div id="info">GPU 版 Step79: upstream single-splat math は CUDA と一致した前提を維持したまま、draw downstream の fragment Gaussian evaluation を CUDA の pixel-index semantics にさらに寄せ、deterministic URL と inspectActiveSplat(...) で midX/edge/corner の alpha falloff を比較しやすくした viewer です。</div>
+    <div id="info">GPU 版 Step80: upstream single-splat math は CUDA と一致した前提を維持したまま、Step79 までで切り分けた fragment downstream をさらに詰めるため、non-central pixel の Gaussian evaluation をより保守的な pixel-footprint 側で評価し、deterministic URL と inspectActiveSplat(...) で midX/edge/corner の alpha falloff を比較しやすくした viewer です。</div>
   </div>
 
   <div id="drop">ここに .splat4d をドロップ</div>

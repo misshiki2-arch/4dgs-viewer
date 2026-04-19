@@ -175,8 +175,16 @@ function evaluatePackedFragmentSample(centerPx, radiusPx, conic, colorAlpha, poi
     pixelIndexPx[0] - centerPx[0],
     pixelIndexPx[1] - centerPx[1]
   ];
-  const dx = d[0];
-  const dy = d[1];
+  const conservativeOffset = [
+    Math.abs(d[0]) >= 1.0 ? Math.sign(d[0]) * 0.5 : 0.0,
+    Math.abs(d[1]) >= 1.0 ? Math.sign(d[1]) * 0.5 : 0.0
+  ];
+  const evalD = [
+    d[0] + conservativeOffset[0],
+    d[1] + conservativeOffset[1]
+  ];
+  const dx = evalD[0];
+  const dy = evalD[1];
   const power =
     -0.5 * (conic[0] * dx * dx + conic[2] * dy * dy) -
     conic[1] * dx * dy;
@@ -191,6 +199,8 @@ function evaluatePackedFragmentSample(centerPx, radiusPx, conic, colorAlpha, poi
     localPixelCenter,
     pixelIndexPx,
     d,
+    conservativeOffset,
+    evalD,
     power,
     packedAlpha,
     gaussianAlpha,
@@ -322,6 +332,8 @@ export function inspectGpuPackedPayloadItem(gl, screenSpace, options = {}) {
       pointCoordToPixelCenter: 'localPixelIndex = clamp(floor(gl_PointCoord * pointSizePx), 0.0, pointSizePx - 1.0)',
       spritePixelIndex: 'pixelIndexPx = floor(centerPx - pointSizePx * 0.5) + localPixelIndex',
       displacement: 'd = pixelIndexPx - centerPx',
+      conservativeOffset: 'conservativeOffset = sign(d) * step(1.0, abs(d)) * 0.5',
+      evalDisplacement: 'evalD = d + conservativeOffset',
       power: '-0.5 * (conic.x * dx^2 + conic.z * dy^2) - conic.y * dx * dy',
       gaussianAlpha: 'colorAlpha.a * exp(power)',
       finalAlpha: 'clamp(gaussianAlpha, 0.0, 0.99)',
