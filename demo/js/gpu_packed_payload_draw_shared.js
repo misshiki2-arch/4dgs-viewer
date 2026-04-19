@@ -15,6 +15,7 @@ uniform int uPackedRowsPerColumn;
 out vec4 vColorAlpha;
 out float vRadiusPx;
 out vec3 vConic;
+out vec2 vCenterPx;
 
 void main() {
   int itemIndex = gl_VertexID;
@@ -26,14 +27,15 @@ void main() {
   vec4 row1 = texelFetch(uPackedTexture, ivec2(xBase + 1, rowIndex), 0);
   vec4 row2 = texelFetch(uPackedTexture, ivec2(xBase + 2, rowIndex), 0);
 
-  float x = (row0.x / uViewportPx.x) * 2.0 - 1.0;
-  float y = 1.0 - (row0.y / uViewportPx.y) * 2.0;
+  float x = ((row0.x + 0.5) / uViewportPx.x) * 2.0 - 1.0;
+  float y = 1.0 - ((row0.y + 0.5) / uViewportPx.y) * 2.0;
   gl_Position = vec4(x, y, 0.0, 1.0);
   gl_PointSize = max(1.0, row0.z * 2.0);
 
   vColorAlpha = row1;
   vRadiusPx = row0.z;
   vConic = row2.xyz;
+  vCenterPx = row0.xy;
 }
 `;
 
@@ -58,6 +60,275 @@ function isBackendAtlasPayload(payload) {
 export function getValidGpuPackedPayloads(gl, screenSpace) {
   const payloads = Array.isArray(screenSpace?.gpuPackedPayloads) ? screenSpace.gpuPackedPayloads : [];
   return payloads.filter((payload) => payload?.texture && payload?.gl === gl);
+}
+
+function buildPackedPayloadInspectionCandidates(gl, screenSpace) {
+  const payloads = Array.isArray(screenSpace?.gpuPackedPayloads) ? screenSpace.gpuPackedPayloads : [];
+  return payloads.map((payload, index) => {
+    const hasTexture = !!payload?.texture;
+    const hasGl = !!payload?.gl;
+    const glMatches = !gl || !hasGl ? false : payload.gl === gl;
+    const usable = hasTexture;
+    return {
+      index,
+      payload,
+      hasTexture,
+      hasGl,
+      glMatches,
+      usable,
+      kind: payload?.kind ?? 'gpu-packed-texture',
+      count: Number.isFinite(payload?.count) ? Math.max(0, payload.count | 0) : 0,
+      width: Number.isFinite(payload?.width) ? Math.max(0, payload.width | 0) : 0,
+      height: Number.isFinite(payload?.height) ? Math.max(0, payload.height | 0) : 0
+    };
+  });
+}
+
+function resolvePayloadSelection(payloads, requestedIndex) {
+  const absoluteIndex = Number.isFinite(requestedIndex) ? Math.max(0, requestedIndex | 0) : 0;
+  let runningCount = 0;
+  for (const payload of payloads) {
+    const count = Number.isFinite(payload?.count) ? Math.max(0, payload.count | 0) : 0;
+    if (absoluteIndex < runningCount + count) {
+      return {
+        ok: true,
+        absoluteIndex,
+        payload,
+        payloadIndex: payloads.indexOf(payload),
+        localIndex: absoluteIndex - runningCount,
+        count
+      };
+    }
+    runningCount += count;
+  }
+  return {
+    ok: false,
+    absoluteIndex,
+    failureReason: runningCount <= 0 ? 'inspect-no-payload-items' : 'inspect-item-index-out-of-range',
+    availableCount: runningCount
+  };
+}
+
+function readPackedPayloadItemRows(gl, payload, localIndex) {
+  const rowsPerColumn = getPayloadRowsPerColumn(payload);
+  const columnIndex = Math.floor(localIndex / rowsPerColumn);
+  const rowIndex = localIndex - (columnIndex * rowsPerColumn);
+  const xBase = columnIndex * GPU_PACKED_PAYLOAD_WIDTH;
+  const previousFramebuffer = gl.getParameter(gl.FRAMEBUFFER_BINDING);
+  const framebuffer = gl.createFramebuffer();
+  if (!framebuffer) {
+    throw new Error('inspectActiveSplat failed: could not create framebuffer');
+  }
+
+  try {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+    gl.framebufferTexture2D(
+      gl.FRAMEBUFFER,
+      gl.COLOR_ATTACHMENT0,
+      gl.TEXTURE_2D,
+      payload.texture,
+      0
+    );
+    const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+    if (status !== gl.FRAMEBUFFER_COMPLETE) {
+      throw new Error(`inspectActiveSplat failed: framebuffer incomplete (${status})`);
+    }
+    const values = new Float32Array(GPU_PACKED_PAYLOAD_WIDTH * 4);
+    gl.readPixels(xBase, rowIndex, GPU_PACKED_PAYLOAD_WIDTH, 1, gl.RGBA, gl.FLOAT, values);
+    return {
+      localIndex,
+      rowIndex,
+      columnIndex,
+      xBase,
+      rowsPerColumn,
+      values,
+      row0: Array.from(values.subarray(0, 4)),
+      row1: Array.from(values.subarray(4, 8)),
+      row2: Array.from(values.subarray(8, 12)),
+      row3: Array.from(values.subarray(12, 16))
+    };
+  } finally {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, previousFramebuffer);
+    gl.deleteFramebuffer(framebuffer);
+  }
+}
+
+function evaluatePackedFragmentSample(centerPx, radiusPx, conic, colorAlpha, pointCoord, pointSizePx) {
+  const pointSize = Math.max(1.0, pointSizePx);
+  const localPixelIndex = [
+    Math.min(pointSize - 1.0, Math.max(0.0, Math.floor(pointCoord[0] * pointSize))),
+    Math.min(pointSize - 1.0, Math.max(0.0, Math.floor(pointCoord[1] * pointSize)))
+  ];
+  const localPixelCenter = [
+    localPixelIndex[0] + 0.5,
+    localPixelIndex[1] + 0.5
+  ];
+  const spriteMinPx = [
+    Math.floor(centerPx[0] - pointSize * 0.5),
+    Math.floor(centerPx[1] - pointSize * 0.5)
+  ];
+  const pixelIndexPx = [
+    spriteMinPx[0] + localPixelIndex[0],
+    spriteMinPx[1] + localPixelIndex[1]
+  ];
+  const d = [
+    pixelIndexPx[0] - centerPx[0],
+    pixelIndexPx[1] - centerPx[1]
+  ];
+  const dx = d[0];
+  const dy = d[1];
+  const power =
+    -0.5 * (conic[0] * dx * dx + conic[2] * dy * dy) -
+    conic[1] * dx * dy;
+  const packedAlpha = colorAlpha[3];
+  const gaussianAlpha = packedAlpha * Math.exp(power);
+  const finalAlpha = Math.min(0.99, Math.max(0.0, gaussianAlpha));
+  const discardedByPositivePower = power > 0.0;
+  const discardedByAlphaCutoff = finalAlpha < (1.0 / 255.0);
+  return {
+    pointCoord,
+    localPixelIndex,
+    localPixelCenter,
+    pixelIndexPx,
+    d,
+    power,
+    packedAlpha,
+    gaussianAlpha,
+    finalAlpha,
+    discardedByPositivePower,
+    discardedByAlphaCutoff,
+    survivesFragment:
+      !discardedByPositivePower &&
+      !discardedByAlphaCutoff
+  };
+}
+
+export function inspectGpuPackedPayloadItem(gl, screenSpace, options = {}) {
+  const payloadCandidates = buildPackedPayloadInspectionCandidates(gl, screenSpace);
+  const payloads = payloadCandidates.filter((candidate) => candidate.usable).map((candidate) => candidate.payload);
+  if (payloads.length <= 0) {
+    return {
+      ok: false,
+      failureReason: 'inspect-no-valid-gpu-packed-payloads',
+      payloadCandidateCount: payloadCandidates.length,
+      payloadCandidates: payloadCandidates.map((candidate) => ({
+        index: candidate.index,
+        kind: candidate.kind,
+        count: candidate.count,
+        width: candidate.width,
+        height: candidate.height,
+        hasTexture: candidate.hasTexture,
+        hasGl: candidate.hasGl,
+        glMatches: candidate.glMatches,
+        usable: candidate.usable
+      }))
+    };
+  }
+
+  const selection = resolvePayloadSelection(payloads, options.index ?? 0);
+  if (!selection.ok) {
+    return {
+      ok: false,
+      failureReason: selection.failureReason,
+      requestedIndex: selection.absoluteIndex,
+      availableCount: selection.availableCount ?? 0,
+      payloadCandidateCount: payloadCandidates.length,
+      payloadCandidates: payloadCandidates.map((candidate) => ({
+        index: candidate.index,
+        kind: candidate.kind,
+        count: candidate.count,
+        width: candidate.width,
+        height: candidate.height,
+        hasTexture: candidate.hasTexture,
+        hasGl: candidate.hasGl,
+        glMatches: candidate.glMatches,
+        usable: candidate.usable
+      }))
+    };
+  }
+
+  const rows = readPackedPayloadItemRows(gl, selection.payload, selection.localIndex);
+  const centerPx = [rows.row0[0], rows.row0[1]];
+  const payloadRadius = rows.row0[2];
+  const depth = rows.row0[3];
+  const colorAlpha = rows.row1.slice(0, 4);
+  const conic = rows.row2.slice(0, 3);
+  const reserved = rows.row2[3];
+  const misc = rows.row3.slice(0, 4);
+  const unclampedPointSize = payloadRadius * 2.0;
+  const clampedPointSize = Math.max(1.0, unclampedPointSize);
+  const clampApplied = clampedPointSize !== unclampedPointSize;
+  const spriteHalfExtentPx = clampedPointSize * 0.5;
+  const drawRadiusBbox = [
+    centerPx[0] - payloadRadius,
+    centerPx[1] - payloadRadius,
+    centerPx[0] + payloadRadius,
+    centerPx[1] + payloadRadius
+  ];
+  const spriteBbox = [
+    centerPx[0] - spriteHalfExtentPx,
+    centerPx[1] - spriteHalfExtentPx,
+    centerPx[0] + spriteHalfExtentPx,
+    centerPx[1] + spriteHalfExtentPx
+  ];
+  const spritePixelArea = clampedPointSize * clampedPointSize;
+  const gaussianEffectiveAreaEstimate = Math.PI * payloadRadius * payloadRadius;
+  const coverageOvershootEstimate = spritePixelArea - gaussianEffectiveAreaEstimate;
+  const coverageOvershootRatio = gaussianEffectiveAreaEstimate > 1e-8
+    ? spritePixelArea / gaussianEffectiveAreaEstimate
+    : Infinity;
+
+  const fragmentSamples = {
+    center: evaluatePackedFragmentSample(centerPx, payloadRadius, conic, colorAlpha, [0.5, 0.5], clampedPointSize),
+    midX: evaluatePackedFragmentSample(centerPx, payloadRadius, conic, colorAlpha, [0.75, 0.5], clampedPointSize),
+    edgeX: evaluatePackedFragmentSample(centerPx, payloadRadius, conic, colorAlpha, [1.0, 0.5], clampedPointSize),
+    edgeY: evaluatePackedFragmentSample(centerPx, payloadRadius, conic, colorAlpha, [0.5, 1.0], clampedPointSize),
+    corner: evaluatePackedFragmentSample(centerPx, payloadRadius, conic, colorAlpha, [1.0, 1.0], clampedPointSize)
+  };
+
+  return {
+    ok: true,
+    requestedIndex: selection.absoluteIndex,
+    payloadIndex: selection.payloadIndex,
+    localIndex: selection.localIndex,
+    payloadCandidateCount: payloadCandidates.length,
+    payloadKind: selection.payload?.kind ?? 'gpu-packed-texture',
+    payloadCount: selection.payload?.count ?? 0,
+    payloadWidth: selection.payload?.width ?? 0,
+    payloadHeight: selection.payload?.height ?? 0,
+    rowsPerColumn: rows.rowsPerColumn,
+    columnCount: selection.payload?.columnCount ?? 1,
+    textureColumnIndex: rows.columnIndex,
+    textureRowIndex: rows.rowIndex,
+    textureXBase: rows.xBase,
+    centerPx,
+    depth,
+    payloadRadius,
+    colorAlpha,
+    conic,
+    reserved,
+    misc,
+    unclampedPointSize,
+    clampedPointSize,
+    clampApplied,
+    drawRadiusBbox,
+    spriteBbox,
+    spriteHalfExtentPx,
+    spritePixelArea,
+    gaussianEffectiveAreaEstimate,
+    coverageOvershootEstimate,
+    coverageOvershootRatio,
+    fragmentEquation: {
+      pointCoordToPixelCenter: 'localPixelIndex = clamp(floor(gl_PointCoord * pointSizePx), 0.0, pointSizePx - 1.0)',
+      spritePixelIndex: 'pixelIndexPx = floor(centerPx - pointSizePx * 0.5) + localPixelIndex',
+      displacement: 'd = pixelIndexPx - centerPx',
+      power: '-0.5 * (conic.x * dx^2 + conic.z * dy^2) - conic.y * dx * dy',
+      gaussianAlpha: 'colorAlpha.a * exp(power)',
+      finalAlpha: 'clamp(gaussianAlpha, 0.0, 0.99)',
+      alphaCutoff: 'discard when finalAlpha < 1.0 / 255.0'
+    },
+    fragmentSamples
+  };
 }
 
 export function ensureGpuPackedPayloadTextureDrawResources(gl, gpu, storageKey) {

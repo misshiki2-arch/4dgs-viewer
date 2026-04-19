@@ -709,7 +709,7 @@ export async function renderGpuFrame({
     debugOverlayCanvas.height = canvas.height;
     debugCtx.clearRect(0, 0, debugOverlayCanvas.width, debugOverlayCanvas.height);
     debugOverlayCanvas.style.display = 'none';
-    const emptyInfo = 'GPU Step72 viewer\nNo scene loaded.';
+    const emptyInfo = 'GPU Step79 viewer\nNo scene loaded.';
     setInfoText(infoEl, emptyInfo);
     return {
       infoText: emptyInfo,
@@ -1026,11 +1026,18 @@ export async function renderGpuFrame({
     timestamp: buildConfig.timestamp,
     splatScale: buildConfig.scalingModifier,
     elapsedMs: elapsed,
-    stepLabel: 'GPU Step72',
+    stepLabel: 'GPU Step79',
     stepNotes: [
       'transform executor owns transformBatchSummary and downstream code forwards it without reinterpretation',
       'transform truth and draw truth still flow into frame-level GPU throughput summaries so the main-path bottleneck stays readable without reinterpreting executor-owned contracts',
       'Step72 couples frame-level bottleneck policy with atlas-aware transform planning so the next frame can bias batch sizing using both throughput pressure and backend atlas reuse or rebuild pressure',
+      'Step73 separates draw radius from coverage radius in visible building so draw payloads can avoid an unconditional 1px minimum while AABB and tile coverage stay conservatively clamped for the normal GPU path',
+      'Step74 adds a single-splat comparison helper so 4D rotation, temporal marginal, conditional covariance, projected covariance, conic, and radius can be checked numerically before further visual fixes land',
+      'Step75 aligns the viewer 4D conditional covariance path with the CUDA covariance assembly order so cov_t, cov12, mean offset, and conditional_cov3x3 can be compared against the same reference math before any further footprint tuning',
+      'Step76 keeps the upstream single-splat math checks and adds a draw-downstream inspection helper so payload radius, point-size clamp, fragment power, alpha cutoff, and square sprite coverage can be examined on an actual-frame splat before changing the normal GPU path',
+      'Step77 fixes the inspect helper so it follows the actual-frame payload truth source used by the normal GPU path, making downstream observation JSON reliable before any point-size or fragment changes land',
+      'Step78 established a pixel-center displacement path for fragment-side Gaussian evaluation, but the remaining evidence still points at the downstream fragment consumer rather than upstream single-splat math',
+      'Step79 aligns the packed fragment consumer more closely with CUDA pixel-index semantics by placing splat centers on OpenGL pixel centers and evaluating Gaussian falloff against integer pixel indices instead of point-local coordinates',
       'debug query overrides are available via gpuFramePolicyOverride=auto|force-transform-throughput|force-draw-throughput so either side of the cooperative policy can be inspected without changing the normal UI path',
       'debug output now shows transform throughput, draw throughput, frame-level bottleneck hints, merge policy reasons, atlas reuse versus rebuild, and whether backend atlas generation avoided draw-time merge work while preserving existing truth-source metrics',
       'gpu resident payload draw still shares bind and setup work between gpu-screen and packed direct through the shared texture consumer path, but Step69 pushes regular merged-atlas work upstream so backend atlas payloads can arrive draw-ready and reduce draw-side merge copies',
@@ -1040,6 +1047,13 @@ export async function renderGpuFrame({
       'manual snapshot capture is exposed through window.gpuViewerDebug.captureFrame(...) so preset-driven full-frame GPU output can be saved without adding a new UI path',
       'Step71 adds atlas-capacity-aware transform planning so backend atlas capacity and recent atlas reuse or grow history can bias batch sizing before atlas consolidation, reducing rebuild pressure without changing public draw contracts',
       'Step72 now lets frame policy priority steer planner mode and atlas pressure handling, so balanced, draw-throughput, and transform-throughput cases can be compared cleanly under deterministic URLs',
+      'Step73 keeps 1px coverage for AABB and tile bookkeeping but forwards unclamped draw radius downstream so packed and gpu-screen paths can reduce over-persistent thin splats without changing public contracts',
+      'Step74 works with deterministic URLs and window.gpuViewerDebug.compareSingleSplat(...) so fixed synthetic inputs and repeatable full-frame cases can be compared against CUDA-side reference math under the same test notes',
+      'Step75 keeps that comparison path intact while moving the viewer 4D conditional covariance implementation closer to the CUDA reference, making follow-up JSON diffs meaningful without changing public contracts',
+      'Step76 extends that deterministic workflow with window.gpuViewerDebug.inspectActiveSplat(...) so packed and gpu-screen paths can inspect the same shared downstream payload decode, point-size clamp, and fragment alpha behavior under a fixed full-frame test case',
+      'Step77 keeps compareSingleSplat(...) unchanged while making inspectActiveSplat(...) retry the actual packed or gpu-screen source payloads used for drawing, so saved JSON now carries real downstream payload and fragment diagnostics instead of an empty failure shell',
+      'Step78 kept those diagnostics live while shifting fragment Gaussian evaluation toward pixel-center displacement, reflecting the fact that upstream single-splat math now matches CUDA and the next evidence-backed stage is downstream fragment consumption',
+      'Step79 moves that downstream consumer one stage closer to CUDA by matching center placement and pixel-index displacement semantics in the shared packed fragment path, while preserving deterministic URL and inspectActiveSplat(...) comparisons',
       'deterministic query replay now forwards both a normalized deterministicQueryString and a deterministicUrlSummary so the current full-frame GPU test case can be copied back out of debug text'
     ],
     tileSummary,

@@ -1,6 +1,7 @@
 import { parseSplat4DV2 } from './splat4d_parser_v2.js';
-import { fitCameraToRaw } from './rot4d_math.js';
+import { fitCameraToRaw, computeGaussianDebugState, DEFAULT_SINGLE_SPLAT_COMPARE_INPUT } from './rot4d_math.js';
 import { renderGpuFrame } from './gpu_renderer.js';
+import { inspectGpuPackedPayloadItem } from './gpu_packed_payload_draw_shared.js';
 import {
   createGpuInteractionState,
   bindGpuDragInteraction
@@ -337,9 +338,116 @@ async function captureFrame(options = {}) {
   }
 }
 
+function selectInspectableScreenSpaceCandidates(renderResult) {
+  const actualDrawPath =
+    renderResult?.drawThroughputSummary?.actualDrawPath ??
+    renderResult?.drawPathSummary?.actualPath ??
+    'none';
+  const candidates = [];
+
+  if (actualDrawPath === 'gpu-screen') {
+    candidates.push({
+      screenSpace: renderResult?.gpuScreenSourceInfo?.sourceSpace ?? null,
+      source: 'gpu-screen-source-space',
+      actualDrawPath
+    });
+    candidates.push({
+      screenSpace: renderResult?.packedScreenSpace ?? null,
+      source: 'packed-screen-space-fallback',
+      actualDrawPath
+    });
+  } else if (actualDrawPath === 'packed') {
+    candidates.push({
+      screenSpace: renderResult?.packedScreenSpace ?? null,
+      source: 'packed-screen-space',
+      actualDrawPath
+    });
+    candidates.push({
+      screenSpace: renderResult?.gpuScreenSourceInfo?.sourceSpace ?? null,
+      source: 'gpu-screen-source-space-fallback',
+      actualDrawPath
+    });
+  } else {
+    candidates.push({
+      screenSpace: renderResult?.packedScreenSpace ?? null,
+      source: 'packed-screen-space',
+      actualDrawPath
+    });
+    candidates.push({
+      screenSpace: renderResult?.gpuScreenSourceInfo?.sourceSpace ?? null,
+      source: 'gpu-screen-source-space',
+      actualDrawPath
+    });
+  }
+
+  return candidates.filter((candidate) => candidate.screenSpace);
+}
+
+async function inspectActiveSplat(options = {}) {
+  const ensureCurrentFrame = options.ensureCurrentFrame !== false;
+  const renderResult = ensureCurrentFrame || !latestRenderResult
+    ? await renderCurrentFrame()
+    : latestRenderResult;
+
+  const gpu = getGpu();
+  const gl = gpu?.gl;
+  if (!gl) {
+    throw new Error('inspectActiveSplat failed: WebGL renderer is not ready');
+  }
+
+  const candidates = selectInspectableScreenSpaceCandidates(renderResult);
+  if (candidates.length <= 0) {
+    throw new Error('inspectActiveSplat failed: no inspectable screen-space payloads available');
+  }
+
+  const attempts = [];
+  for (const candidate of candidates) {
+    const inspection = inspectGpuPackedPayloadItem(gl, candidate.screenSpace, options);
+    const inspectionWithSource = {
+      ...inspection,
+      drawPath: candidate.actualDrawPath,
+      inspectedSourceSpace: candidate.source
+    };
+    attempts.push({
+      source: candidate.source,
+      drawPath: candidate.actualDrawPath,
+      ok: !!inspection.ok,
+      failureReason: inspection.failureReason ?? 'none',
+      payloadCandidateCount: inspection.payloadCandidateCount ?? 0,
+      payloadCandidates: inspection.payloadCandidates ?? []
+    });
+    if (inspection.ok) {
+      return {
+        ...inspectionWithSource,
+        attemptedSources: attempts,
+        deterministicState: buildDeterministicStateSummary(),
+        debugText: refreshLatestDebugText(),
+        lastRenderResult: renderResult
+      };
+    }
+  }
+
+  return {
+    ok: false,
+    failureReason: 'inspect-no-usable-payload-source',
+    drawPath:
+      renderResult?.drawThroughputSummary?.actualDrawPath ??
+      renderResult?.drawPathSummary?.actualPath ??
+      'none',
+    inspectedSourceSpace: 'none',
+    attemptedSources: attempts,
+    deterministicState: buildDeterministicStateSummary(),
+    debugText: refreshLatestDebugText(),
+    lastRenderResult: renderResult
+  };
+}
+
 function installViewerDebugApi() {
   window.gpuViewerDebug = {
     captureFrame,
+    compareSingleSplat: (input = {}) => computeGaussianDebugState(input),
+    inspectActiveSplat,
+    getDefaultSingleSplatCompareInput: () => structuredClone(DEFAULT_SINGLE_SPLAT_COMPARE_INPUT),
     getDeterministicState: () => buildDeterministicStateSummary(),
     getLatestDebugText: () => refreshLatestDebugText(),
     getLastRenderResult: () => latestRenderResult,

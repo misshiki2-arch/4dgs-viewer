@@ -25,13 +25,15 @@ uniform vec2 uViewportPx;
 out vec4 vColorAlpha;
 out float vRadiusPx;
 out vec3 vConic;
+out vec2 vCenterPx;
 
 void main() {
   // Packed centers are consumed here in the same screen-space convention used by
   // the legacy/tile-debug overlays: pixel coordinates from a top-left origin.
-  // So pixel->NDC conversion must flip Y in the shader.
-  float x = (aCenterPx.x / uViewportPx.x) * 2.0 - 1.0;
-  float y = 1.0 - (aCenterPx.y / uViewportPx.y) * 2.0;
+  // CUDA-style point centers live on integer pixel indices, so the GL point
+  // must be placed at the corresponding pixel center (+0.5 in OpenGL space).
+  float x = ((aCenterPx.x + 0.5) / uViewportPx.x) * 2.0 - 1.0;
+  float y = 1.0 - ((aCenterPx.y + 0.5) / uViewportPx.y) * 2.0;
   gl_Position = vec4(x, y, 0.0, 1.0);
   gl_PointSize = max(1.0, aRadiusPx * 2.0);
 
@@ -41,6 +43,7 @@ void main() {
   vColorAlpha = aColorAlpha;
   vRadiusPx = aRadiusPx;
   vConic = aConic;
+  vCenterPx = aCenterPx;
 }
 `;
 
@@ -50,12 +53,18 @@ precision highp float;
 in vec4 vColorAlpha;
 in float vRadiusPx;
 in vec3 vConic;
+in vec2 vCenterPx;
+
+uniform vec2 uViewportPx;
 
 out vec4 outColor;
 
 void main() {
-  vec2 uv = gl_PointCoord * 2.0 - 1.0;
-  vec2 d = uv * vRadiusPx;
+  vec2 pixelIndexPx = vec2(
+    gl_FragCoord.x - 0.5,
+    uViewportPx.y - gl_FragCoord.y - 0.5
+  );
+  vec2 d = pixelIndexPx - vCenterPx;
   float dx = d.x;
   float dy = d.y;
 
@@ -66,6 +75,7 @@ void main() {
   float packedAlpha = vColorAlpha.a;
   float gaussianAlpha = packedAlpha * exp(power);
   float finalAlpha = clamp(gaussianAlpha, 0.0, 0.99);
+  if (finalAlpha < (1.0 / 255.0)) discard;
 
   outColor = vec4(vColorAlpha.rgb, finalAlpha);
 }
