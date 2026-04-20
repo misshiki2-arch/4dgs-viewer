@@ -54,7 +54,13 @@ in vec3 vConic;
 out vec4 outColor;
 
 void main() {
-  vec2 uv = gl_PointCoord * 2.0 - 1.0;
+  // CUDA / CPU compositors evaluate the conic with d = centerPx - pixelPx.
+  // gl_PointCoord.y is top-origin in our draw path, so we must flip the local
+  // Y axis here to preserve the same mixed-term sign as the reference path.
+  vec2 uv = vec2(
+    gl_PointCoord.x * 2.0 - 1.0,
+    1.0 - gl_PointCoord.y * 2.0
+  );
   vec2 d = uv * vRadiusPx;
   float dx = d.x;
   float dy = d.y;
@@ -65,6 +71,7 @@ void main() {
   if (power > 0.0) discard;
   float packedAlpha = vColorAlpha.a;
   float gaussianAlpha = packedAlpha * exp(power);
+  if (gaussianAlpha < (1.0 / 255.0)) discard;
   float finalAlpha = clamp(gaussianAlpha, 0.0, 0.99);
 
   outColor = vec4(vColorAlpha.rgb, finalAlpha);
