@@ -2,6 +2,9 @@ import { normalizeUiState } from './viewer_ui_state.js';
 import { resolveViewerCameraPreset } from './viewer_camera_presets.js';
 
 const QUERY_DRAW_PATH_VALUES = new Set(['packed', 'gpu-screen', 'legacy']);
+const QUERY_TILE_COMPOSITE_PRIMITIVE_VALUES = new Set(['point', 'quad']);
+const QUERY_INSPECT_SOURCE_VALUES = new Set(['auto', 'actual-draw', 'packed', 'gpu-screen-fallback']);
+const QUERY_INSPECT_JSON_MODE_VALUES = new Set(['slim', 'full']);
 const QUERY_FRAME_POLICY_VALUES = new Set([
   'auto',
   'force-transform-throughput',
@@ -68,6 +71,9 @@ function buildDeterministicQueryString(state) {
   appendDeterministicQueryParam(params, 'cameraPreset', state?.cameraPresetName);
   appendDeterministicQueryParam(params, 'time', state?.time, (value) => formatDeterministicFixed(value, 2));
   appendDeterministicQueryParam(params, 'drawPath', state?.drawPath);
+  appendDeterministicQueryParam(params, 'tileCompositePrimitive', state?.tileCompositePrimitive);
+  appendDeterministicQueryParam(params, 'inspectSource', state?.inspectSource);
+  appendDeterministicQueryParam(params, 'inspectJsonMode', state?.inspectJsonMode);
   appendDeterministicQueryParam(params, 'gpuFramePolicyOverride', state?.gpuFramePolicyOverride);
   appendDeterministicQueryParam(params, 'stride', state?.stride);
   appendDeterministicQueryParam(params, 'renderScale', state?.renderScale, (value) => formatDeterministicFixed(value, 2));
@@ -88,6 +94,9 @@ export function parseViewerQueryState(search = window.location.search) {
   const cameraPresetName = params.get('cameraPreset');
   const cameraPreset = resolveViewerCameraPreset(cameraPresetName);
   const drawPath = params.get('drawPath');
+  const tileCompositePrimitive = params.get('tileCompositePrimitive');
+  const inspectSource = params.get('inspectSource');
+  const inspectJsonMode = params.get('inspectJsonMode');
   const gpuFramePolicyOverride = params.get('gpuFramePolicyOverride');
 
   const state = {
@@ -96,6 +105,15 @@ export function parseViewerQueryState(search = window.location.search) {
     cameraPreset,
     time: parseNumber(params.get('time'), null),
     drawPath: QUERY_DRAW_PATH_VALUES.has(drawPath) ? drawPath : null,
+    tileCompositePrimitive: QUERY_TILE_COMPOSITE_PRIMITIVE_VALUES.has(tileCompositePrimitive)
+      ? tileCompositePrimitive
+      : null,
+    inspectSource: QUERY_INSPECT_SOURCE_VALUES.has(inspectSource)
+      ? inspectSource
+      : null,
+    inspectJsonMode: QUERY_INSPECT_JSON_MODE_VALUES.has(inspectJsonMode)
+      ? inspectJsonMode
+      : null,
     gpuFramePolicyOverride: QUERY_FRAME_POLICY_VALUES.has(gpuFramePolicyOverride)
       ? gpuFramePolicyOverride
       : null,
@@ -116,6 +134,9 @@ export function parseViewerQueryState(search = window.location.search) {
     'cameraPreset',
     'time',
     'drawPath',
+    'tileCompositePrimitive',
+    'inspectSource',
+    'inspectJsonMode',
     'gpuFramePolicyOverride',
     'stride',
     'renderScale',
@@ -145,6 +166,9 @@ export function buildViewerDeterministicSummary(queryState) {
     active: !!state.active,
     cameraPresetName: state.cameraPresetName ?? 'none',
     drawPath: state.drawPath ?? 'none',
+    tileCompositePrimitive: state.tileCompositePrimitive ?? 'point',
+    inspectSource: state.inspectSource ?? 'auto',
+    inspectJsonMode: state.inspectJsonMode ?? 'slim',
     gpuFramePolicyOverride: state.gpuFramePolicyOverride ?? 'auto',
     time: Number.isFinite(state.time) ? Number(state.time) : null,
     rawQueryString: state.rawQueryString ?? '',
@@ -172,9 +196,11 @@ export function applyViewerQueryStateToUi(ui, queryState) {
   setCheckboxValue(ui.useNativeMarginalCheck, queryState.useNativeMarginal);
   setCheckboxValue(ui.usePackedVisiblePathCheck, queryState.usePackedVisiblePath);
   setSelectValue(ui.drawPathSelect, queryState.drawPath);
+  setSelectValue(ui.tileCompositePrimitiveSelect, queryState.tileCompositePrimitive);
 
   const normalizedState = normalizeUiState({
     drawPath: ui.drawPathSelect?.value ?? 'packed',
+    tileCompositePrimitive: ui.tileCompositePrimitiveSelect?.value ?? 'point',
     usePackedVisiblePath: ui.usePackedVisiblePathCheck?.checked ?? true,
     bgGray: ui.bgGraySlider?.value ?? 32
   });

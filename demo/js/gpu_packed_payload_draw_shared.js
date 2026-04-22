@@ -4,6 +4,9 @@ import { GPU_STEP_FRAGMENT_SHADER } from './gpu_shaders.js';
 const GPU_PACKED_PAYLOAD_WIDTH = 4;
 const GPU_MERGE_MIN_PAYLOAD_COUNT = 4;
 const GPU_MERGE_MIN_TOTAL_ROWS = 128;
+const GPU_PACKED_FLOATS_PER_ITEM = 16;
+const TILE_COMPOSITE_OVERLAP_TOP_K = 3;
+const TILE_COMPOSITE_ACCUMULATION_LOG_LIMIT = 5;
 
 const GPU_PACKED_TEXTURE_VERTEX_SHADER = `#version 300 es
 precision highp float;
@@ -122,6 +125,36 @@ function buildPackedPayloadInspectionCandidates(gl, screenSpace) {
   });
 }
 
+function summarizePackedPayloadCandidates(screenSpace, payloadCandidates) {
+  const candidates = Array.isArray(payloadCandidates) ? payloadCandidates : [];
+  const failureCounts = {
+    noPayloadArray: Array.isArray(screenSpace?.gpuPackedPayloads) ? 0 : 1,
+    noTexture: 0,
+    noGl: 0,
+    glMismatch: 0,
+    unusable: 0
+  };
+
+  for (const candidate of candidates) {
+    if (!candidate?.hasTexture) failureCounts.noTexture++;
+    if (!candidate?.hasGl) failureCounts.noGl++;
+    if (candidate?.hasGl && !candidate?.glMatches) failureCounts.glMismatch++;
+    if (!candidate?.usable) failureCounts.unusable++;
+  }
+
+  return {
+    screenSpacePresent: !!screenSpace,
+    payloadArrayPresent: Array.isArray(screenSpace?.gpuPackedPayloads),
+    payloadArrayLength: Array.isArray(screenSpace?.gpuPackedPayloads) ? screenSpace.gpuPackedPayloads.length : 0,
+    candidateCount: candidates.length,
+    usableCandidateCount: candidates.filter((candidate) => candidate?.usable).length,
+    glMatchCandidateCount: candidates.filter((candidate) => candidate?.glMatches).length,
+    textureCandidateCount: candidates.filter((candidate) => candidate?.hasTexture).length,
+    distinctKinds: Array.from(new Set(candidates.map((candidate) => candidate?.kind ?? 'unknown'))),
+    failureCounts
+  };
+}
+
 function resolvePayloadSelection(payloads, requestedIndex) {
   const absoluteIndex = Number.isFinite(requestedIndex) ? Math.max(0, requestedIndex | 0) : 0;
   let runningCount = 0;
@@ -191,6 +224,672 @@ function readPackedPayloadItemRows(gl, payload, localIndex) {
   }
 }
 
+function readPackedInterleavedItemRows(packed, localIndex, floatsPerItem = GPU_PACKED_FLOATS_PER_ITEM) {
+  const safeFloatsPerItem = Number.isFinite(floatsPerItem)
+    ? Math.max(GPU_PACKED_FLOATS_PER_ITEM, floatsPerItem | 0)
+    : GPU_PACKED_FLOATS_PER_ITEM;
+  const base = localIndex * safeFloatsPerItem;
+  if (!(packed instanceof Float32Array) || base < 0 || (base + GPU_PACKED_FLOATS_PER_ITEM) > packed.length) {
+    throw new Error('inspectActiveSplat failed: packed interleaved item is out of range');
+  }
+
+  return {
+    localIndex,
+    rowIndex: localIndex,
+    columnIndex: 0,
+    xBase: 0,
+    rowsPerColumn: Number.MAX_SAFE_INTEGER,
+    values: packed.subarray(base, base + GPU_PACKED_FLOATS_PER_ITEM),
+    row0: Array.from(packed.subarray(base + 0, base + 4)),
+    row1: Array.from(packed.subarray(base + 4, base + 8)),
+    row2: Array.from(packed.subarray(base + 8, base + 12)),
+    row3: Array.from(packed.subarray(base + 12, base + 16))
+  };
+}
+
+function buildInspectionResultFromRows(rows, selectionMeta = {}) {
+  const centerPx = [rows.row0[0], rows.row0[1]];
+  const payloadRadius = rows.row0[2];
+  const depth = rows.row0[3];
+  const colorAlpha = rows.row1.slice(0, 4);
+  const conic = rows.row2.slice(0, 3);
+  const reserved = rows.row2[3];
+  const misc = rows.row3.slice(0, 4);
+  const unclampedPointSize = payloadRadius * 2.0;
+  const clampedPointSize = Math.max(1.0, unclampedPointSize);
+  const clampApplied = clampedPointSize !== unclampedPointSize;
+  const rasterRect = buildCudaRasterRect(centerPx, payloadRadius);
+  const spriteHalfExtentPx = clampedPointSize * 0.5;
+  const drawRadiusBbox = [
+    centerPx[0] - payloadRadius,
+    centerPx[1] - payloadRadius,
+    centerPx[0] + payloadRadius,
+    centerPx[1] + payloadRadius
+  ];
+  const spriteBbox = [
+    centerPx[0] - spriteHalfExtentPx,
+    centerPx[1] - spriteHalfExtentPx,
+    centerPx[0] + spriteHalfExtentPx,
+    centerPx[1] + spriteHalfExtentPx
+  ];
+  const spritePixelArea = clampedPointSize * clampedPointSize;
+  const gaussianEffectiveAreaEstimate = Math.PI * payloadRadius * payloadRadius;
+  const coverageOvershootEstimate = spritePixelArea - gaussianEffectiveAreaEstimate;
+  const coverageOvershootRatio = gaussianEffectiveAreaEstimate > 1e-8
+    ? spritePixelArea / gaussianEffectiveAreaEstimate
+    : Infinity;
+  const rasterPixelArea = rasterRect.rasterWidthPx * rasterRect.rasterHeightPx;
+  const rasterCoverageOvershootEstimate = rasterPixelArea - gaussianEffectiveAreaEstimate;
+  const rasterCoverageOvershootRatio = gaussianEffectiveAreaEstimate > 1e-8
+    ? rasterPixelArea / gaussianEffectiveAreaEstimate
+    : Infinity;
+
+  const samplePixelIndices = buildInspectionSamplePixelIndices(centerPx, rasterRect);
+  const centerPixelIndexPx = samplePixelIndices.center;
+  const edgePixelIndexX = rasterRect.rectMaxPxExclusive[0] - 1;
+  const edgePixelIndexY = rasterRect.rectMaxPxExclusive[1] - 1;
+  const midPixelIndexX = samplePixelIndices.midX[0];
+  const fragmentSamples = {
+    center: evaluatePackedFragmentAtPixelIndex(centerPx, conic, colorAlpha, centerPixelIndexPx, rasterRect),
+    midX: evaluatePackedFragmentAtPixelIndex(centerPx, conic, colorAlpha, [midPixelIndexX, centerPixelIndexPx[1]], rasterRect),
+    edgeX: evaluatePackedFragmentAtPixelIndex(centerPx, conic, colorAlpha, [edgePixelIndexX, centerPixelIndexPx[1]], rasterRect),
+    edgeY: evaluatePackedFragmentAtPixelIndex(centerPx, conic, colorAlpha, [centerPixelIndexPx[0], edgePixelIndexY], rasterRect),
+    corner: evaluatePackedFragmentAtPixelIndex(centerPx, conic, colorAlpha, [edgePixelIndexX, edgePixelIndexY], rasterRect)
+  };
+
+  return {
+    ok: true,
+    requestedIndex: selectionMeta.requestedIndex ?? 0,
+    payloadIndex: selectionMeta.payloadIndex ?? 0,
+    localIndex: selectionMeta.localIndex ?? 0,
+    payloadSourceSummary: selectionMeta.payloadSourceSummary ?? null,
+    payloadCandidateCount: selectionMeta.payloadCandidateCount ?? 1,
+    payloadKind: selectionMeta.payloadKind ?? 'gpu-packed-texture',
+    payloadCount: selectionMeta.payloadCount ?? 0,
+    payloadWidth: selectionMeta.payloadWidth ?? 0,
+    payloadHeight: selectionMeta.payloadHeight ?? 0,
+    rowsPerColumn: rows.rowsPerColumn,
+    columnCount: selectionMeta.columnCount ?? 1,
+    textureColumnIndex: rows.columnIndex,
+    textureRowIndex: rows.rowIndex,
+    textureXBase: rows.xBase,
+    centerPx,
+    depth,
+    payloadRadius,
+    colorAlpha,
+    conic,
+    reserved,
+    misc,
+    unclampedPointSize,
+    clampedPointSize,
+    clampApplied,
+    drawRadiusBbox,
+    spriteBbox,
+    spriteHalfExtentPx,
+    spritePixelArea,
+    gaussianEffectiveAreaEstimate,
+    coverageOvershootEstimate,
+    coverageOvershootRatio,
+    rasterRectMinPx: rasterRect.rectMinPx,
+    rasterRectMaxPxExclusive: rasterRect.rectMaxPxExclusive,
+    rasterWidthPx: rasterRect.rasterWidthPx,
+    rasterHeightPx: rasterRect.rasterHeightPx,
+    rasterPixelArea,
+    rasterCoverageOvershootEstimate,
+    rasterCoverageOvershootRatio,
+    fragmentEquation: {
+      rasterizationPrimitive: 'two-triangle screen-space quad covering [floor(centerPx - radiusPx), floor(centerPx + radiusPx) + 1)',
+      pointCoordToPixelCenter: 'pixelIndexPx = vec2(gl_FragCoord.x - 0.5, viewportHeight - gl_FragCoord.y - 0.5)',
+      spritePixelIndex: 'localPixelIndex = pixelIndexPx - floor(centerPx - radiusPx)',
+      displacement: 'd = centerPx - pixelIndexPx',
+      conservativeOffset: 'vec2(0.0)',
+      evalDisplacement: 'evalD = d',
+      power: '-0.5 * (conic.x * dx^2 + conic.z * dy^2) - conic.y * dx * dy',
+      gaussianAlpha: 'colorAlpha.a * exp(power)',
+      finalAlpha: 'min(0.99, gaussianAlpha)',
+      alphaCutoff: 'discard when finalAlpha < 1.0 / 255.0'
+    },
+    fragmentSamples,
+    ...selectionMeta.extraFields
+  };
+}
+
+function summarizePackedInterleavedBatches(tileCompositePlan) {
+  const batches = Array.isArray(tileCompositePlan?.batches) ? tileCompositePlan.batches : [];
+  let totalItems = 0;
+  let usableBatchCount = 0;
+  let usableItemCount = 0;
+  let emptyBatchCount = 0;
+  for (const batch of batches) {
+    const packedCount = Number.isFinite(batch?.packedCount) ? Math.max(0, batch.packedCount | 0) : 0;
+    totalItems += packedCount;
+    if (batch?.packed instanceof Float32Array && packedCount > 0) {
+      usableBatchCount++;
+      usableItemCount += packedCount;
+    } else {
+      emptyBatchCount++;
+    }
+  }
+  return {
+    batchCount: batches.length,
+    usableBatchCount,
+    usableItemCount,
+    totalPackedItemCount: totalItems,
+    emptyBatchCount
+  };
+}
+
+function buildRectFromPackedItem(packed, itemIndex, floatsPerItem = GPU_PACKED_FLOATS_PER_ITEM) {
+  const stride = Number.isFinite(floatsPerItem)
+    ? Math.max(GPU_PACKED_FLOATS_PER_ITEM, floatsPerItem | 0)
+    : GPU_PACKED_FLOATS_PER_ITEM;
+  const base = itemIndex * stride;
+  if (!(packed instanceof Float32Array) || base < 0 || (base + GPU_PACKED_FLOATS_PER_ITEM) > packed.length) {
+    return null;
+  }
+
+  const miscOffset = base + 12;
+  const miscMinX = packed[miscOffset + 0];
+  const miscMinY = packed[miscOffset + 1];
+  const miscMaxX = packed[miscOffset + 2];
+  const miscMaxY = packed[miscOffset + 3];
+  if (
+    Number.isFinite(miscMinX) &&
+    Number.isFinite(miscMinY) &&
+    Number.isFinite(miscMaxX) &&
+    Number.isFinite(miscMaxY) &&
+    miscMaxX >= miscMinX &&
+    miscMaxY >= miscMinY
+  ) {
+    return {
+      minPx: [miscMinX, miscMinY],
+      maxPxExclusive: [miscMaxX + 1, miscMaxY + 1]
+    };
+  }
+
+  const centerX = packed[base + 0];
+  const centerY = packed[base + 1];
+  const radius = packed[base + 2];
+  if (Number.isFinite(centerX) && Number.isFinite(centerY) && Number.isFinite(radius)) {
+    const rasterRect = buildCudaRasterRect([centerX, centerY], radius);
+    return {
+      minPx: rasterRect.rectMinPx,
+      maxPxExclusive: rasterRect.rectMaxPxExclusive
+    };
+  }
+
+  return null;
+}
+
+function rectsOverlapExclusive(a, b) {
+  if (!a || !b) return false;
+  return (
+    a.minPx[0] < b.maxPxExclusive[0] &&
+    a.maxPxExclusive[0] > b.minPx[0] &&
+    a.minPx[1] < b.maxPxExclusive[1] &&
+    a.maxPxExclusive[1] > b.minPx[1]
+  );
+}
+
+function computeRectOverlapArea(a, b) {
+  if (!a || !b) return 0;
+  const overlapWidth = Math.max(0, Math.min(a.maxPxExclusive[0], b.maxPxExclusive[0]) - Math.max(a.minPx[0], b.minPx[0]));
+  const overlapHeight = Math.max(0, Math.min(a.maxPxExclusive[1], b.maxPxExclusive[1]) - Math.max(a.minPx[1], b.minPx[1]));
+  return overlapWidth * overlapHeight;
+}
+
+function computeRectArea(rect) {
+  if (!rect) return 0;
+  return Math.max(0, rect.maxPxExclusive[0] - rect.minPx[0]) * Math.max(0, rect.maxPxExclusive[1] - rect.minPx[1]);
+}
+
+function readPackedItemSummary(packed, itemIndex, floatsPerItem = GPU_PACKED_FLOATS_PER_ITEM) {
+  const stride = Number.isFinite(floatsPerItem)
+    ? Math.max(GPU_PACKED_FLOATS_PER_ITEM, floatsPerItem | 0)
+    : GPU_PACKED_FLOATS_PER_ITEM;
+  const base = itemIndex * stride;
+  if (!(packed instanceof Float32Array) || base < 0 || (base + GPU_PACKED_FLOATS_PER_ITEM) > packed.length) {
+    return null;
+  }
+
+  return {
+    centerPx: [packed[base + 0], packed[base + 1]],
+    radiusPx: packed[base + 2],
+    depth: packed[base + 3],
+    colorAlpha: [
+      packed[base + 4],
+      packed[base + 5],
+      packed[base + 6],
+      packed[base + 7]
+    ],
+    conic: [
+      packed[base + 8],
+      packed[base + 9],
+      packed[base + 10]
+    ],
+    alpha: packed[base + 7],
+    rect: buildRectFromPackedItem(packed, itemIndex, stride)
+  };
+}
+
+function pixelInsideRectExclusive(pixelIndexPx, rect) {
+  if (!Array.isArray(pixelIndexPx) || pixelIndexPx.length < 2 || !rect) return false;
+  return (
+    pixelIndexPx[0] >= rect.minPx[0] &&
+    pixelIndexPx[0] < rect.maxPxExclusive[0] &&
+    pixelIndexPx[1] >= rect.minPx[1] &&
+    pixelIndexPx[1] < rect.maxPxExclusive[1]
+  );
+}
+
+function buildRectInfoFromRect(rect) {
+  if (!rect) return null;
+  const rasterWidthPx = Math.max(0, rect.maxPxExclusive[0] - rect.minPx[0]);
+  const rasterHeightPx = Math.max(0, rect.maxPxExclusive[1] - rect.minPx[1]);
+  if (rasterWidthPx <= 0 || rasterHeightPx <= 0) return null;
+  return {
+    rectMinPx: rect.minPx,
+    rectMaxPxExclusive: rect.maxPxExclusive,
+    rasterWidthPx,
+    rasterHeightPx
+  };
+}
+
+function buildCenterSamplePixelIndex(centerPx, rasterRect) {
+  return [
+    Math.min(rasterRect.rectMaxPxExclusive[0] - 1, Math.max(rasterRect.rectMinPx[0], Math.floor(centerPx[0]))),
+    Math.min(rasterRect.rectMaxPxExclusive[1] - 1, Math.max(rasterRect.rectMinPx[1], Math.floor(centerPx[1])))
+  ];
+}
+
+function buildInspectionSamplePixelIndices(centerPx, rasterRect) {
+  const center = buildCenterSamplePixelIndex(centerPx, rasterRect);
+  const edgePixelIndexX = rasterRect.rectMaxPxExclusive[0] - 1;
+  const edgePixelIndexY = rasterRect.rectMaxPxExclusive[1] - 1;
+  const midPixelIndexX = Math.min(
+    edgePixelIndexX,
+    Math.max(center[0], Math.floor((center[0] + edgePixelIndexX) * 0.5))
+  );
+  return {
+    center,
+    midX: [midPixelIndexX, center[1]],
+    edgeY: [center[0], edgePixelIndexY]
+  };
+}
+
+function summarizeSampleContributors(contributors, targetDepth) {
+  const safeContributors = Array.isArray(contributors) ? contributors : [];
+  const sortedByAlpha = [...safeContributors].sort((a, b) => {
+    if ((b.alphaAtSample ?? 0) !== (a.alphaAtSample ?? 0)) return (b.alphaAtSample ?? 0) - (a.alphaAtSample ?? 0);
+    return (b.overlapArea ?? 0) - (a.overlapArea ?? 0);
+  });
+  const topK = sortedByAlpha.slice(0, TILE_COMPOSITE_OVERLAP_TOP_K).map((contributor) => ({
+    sourceVisibleIndex: contributor.sourceVisibleIndex,
+    sourceSplatIndex: contributor.sourceSplatIndex,
+    alphaAtSample: contributor.alphaAtSample,
+    localOrder: contributor.localOrder,
+    depth: contributor.depth,
+    depthDeltaFromTarget: Number.isFinite(targetDepth) && Number.isFinite(contributor.depth)
+      ? contributor.depth - targetDepth
+      : null,
+    overlapArea: contributor.overlapArea,
+    overlapRatioToTarget: contributor.overlapRatioToTarget
+  }));
+  return {
+    contributorCount: safeContributors.length,
+    alphaSum: safeContributors.reduce((sum, contributor) => (
+      sum + (Number.isFinite(contributor.alphaAtSample) ? contributor.alphaAtSample : 0)
+    ), 0),
+    topK
+  };
+}
+
+function buildContributorAccumulationLog(contributors, targetDepth, maxEntries = TILE_COMPOSITE_ACCUMULATION_LOG_LIMIT) {
+  const safeMaxEntries = Number.isFinite(maxEntries) ? Math.max(1, maxEntries | 0) : TILE_COMPOSITE_ACCUMULATION_LOG_LIMIT;
+  const sortedByOrder = (Array.isArray(contributors) ? contributors : [])
+    .filter((contributor) => Number.isFinite(contributor?.alphaAtSample) && contributor.alphaAtSample > 0.0)
+    .slice()
+    .sort((a, b) => (a.localOrder ?? 0) - (b.localOrder ?? 0));
+  const log = [];
+  let transmittance = 1.0;
+
+  for (const contributor of sortedByOrder) {
+    const transmittanceBefore = transmittance;
+    const alphaAtSample = Math.min(0.999999, Math.max(0.0, contributor.alphaAtSample));
+    transmittance *= (1.0 - alphaAtSample);
+    if (log.length >= safeMaxEntries) continue;
+    log.push({
+      sourceVisibleIndex: contributor.sourceVisibleIndex,
+      sourceSplatIndex: contributor.sourceSplatIndex,
+      localOrder: contributor.localOrder,
+      alphaAtSample,
+      transmittanceBefore,
+      transmittanceAfter: transmittance,
+      depth: contributor.depth,
+      depthDeltaFromTarget: Number.isFinite(targetDepth) && Number.isFinite(contributor.depth)
+        ? contributor.depth - targetDepth
+        : null
+    });
+  }
+
+  return {
+    log,
+    truncated: sortedByOrder.length > safeMaxEntries,
+    estimatedTransmittance: transmittance,
+    estimatedAlphaComposite: 1.0 - transmittance
+  };
+}
+
+function summarizeTopOverlapNeighbors(neighbors, targetRect, targetDepth, directionLabel) {
+  const targetArea = Math.max(1, computeRectArea(targetRect));
+  const safeNeighbors = Array.isArray(neighbors) ? neighbors : [];
+  const sortedByAlpha = [...safeNeighbors].sort((a, b) => {
+    if ((b.alpha ?? 0) !== (a.alpha ?? 0)) return (b.alpha ?? 0) - (a.alpha ?? 0);
+    return (b.overlapArea ?? 0) - (a.overlapArea ?? 0);
+  });
+  const topK = sortedByAlpha.slice(0, TILE_COMPOSITE_OVERLAP_TOP_K).map((neighbor) => ({
+    sourceVisibleIndex: neighbor.sourceVisibleIndex,
+    sourceSplatIndex: neighbor.sourceSplatIndex,
+    alpha: neighbor.alpha,
+    radius: neighbor.radius,
+    localOrder: neighbor.localOrder,
+    depth: neighbor.depth,
+    depthDeltaFromTarget: Number.isFinite(targetDepth) && Number.isFinite(neighbor.depth)
+      ? neighbor.depth - targetDepth
+      : null,
+    overlapArea: neighbor.overlapArea,
+    overlapRatioToTarget: neighbor.overlapArea / targetArea
+  }));
+
+  const alphaSum = safeNeighbors.reduce((sum, neighbor) => sum + (Number.isFinite(neighbor.alpha) ? neighbor.alpha : 0), 0);
+  const overlapAreaSum = safeNeighbors.reduce((sum, neighbor) => sum + (Number.isFinite(neighbor.overlapArea) ? neighbor.overlapArea : 0), 0);
+  const depthValues = safeNeighbors
+    .map((neighbor) => neighbor.depth)
+    .filter((value) => Number.isFinite(value));
+  const depthMin = depthValues.length > 0 ? Math.min(...depthValues) : null;
+  const depthMax = depthValues.length > 0 ? Math.max(...depthValues) : null;
+
+  return {
+    [`overlapping${directionLabel}AlphaSum`]: alphaSum,
+    [`overlapping${directionLabel}CountAboveThreshold`]: safeNeighbors.filter((neighbor) => (neighbor.alpha ?? 0) >= 0.25).length,
+    [`overlapping${directionLabel}RectOverlapAreaSum`]: overlapAreaSum,
+    [`overlapping${directionLabel}RectOverlapRatioToTargetSum`]: overlapAreaSum / targetArea,
+    [`overlapping${directionLabel}DepthSpread`]: depthValues.length > 0 ? (depthMax - depthMin) : 0,
+    [`overlapping${directionLabel}TopKSummary`]: topK
+  };
+}
+
+function summarizeTileCompositeContext(batch, localIndex, rows) {
+  const packedCount = Number.isFinite(batch?.packedCount) ? Math.max(0, batch.packedCount | 0) : 0;
+  const safeLocalIndex = Math.max(0, Math.min(packedCount - 1, localIndex | 0));
+  const targetRect = {
+    minPx: [rows.row3[0], rows.row3[1]],
+    maxPxExclusive: [rows.row3[2] + 1, rows.row3[3] + 1]
+  };
+  const tileRect = Array.isArray(batch?.rect) && batch.rect.length >= 4
+    ? {
+        minPx: [batch.rect[0], batch.rect[1]],
+        maxPxExclusive: [batch.rect[2], batch.rect[3]]
+      }
+    : null;
+  const targetDepth = rows.row0[3];
+  const targetCenterPx = [rows.row0[0], rows.row0[1]];
+  const targetConic = rows.row2.slice(0, 3);
+  const targetColorAlpha = rows.row1.slice(0, 4);
+  const targetScreenRasterRect = buildCudaRasterRect(targetCenterPx, rows.row0[2]);
+  const samplePixelIndices = buildInspectionSamplePixelIndices(targetCenterPx, targetScreenRasterRect);
+  const sampleContexts = {
+    center: {
+      samplePixelIndexPx: [...samplePixelIndices.center],
+      targetPixelIndexPx: [...samplePixelIndices.center],
+      sampleCoordinateSpace: 'screen-space-raster-rect',
+      targetPixelIndexSpace: 'screen-space-raster-rect',
+      sampleAlignmentOk: true,
+      sampleAlignmentReason: 'aligned-to-fragmentSamples-center-pixel',
+      targetSample: evaluatePackedFragmentAtPixelIndex(
+        targetCenterPx,
+        targetConic,
+        targetColorAlpha,
+        samplePixelIndices.center,
+        targetScreenRasterRect
+      ),
+      nearerContributors: [],
+      fartherContributors: []
+    },
+    midX: {
+      samplePixelIndexPx: [...samplePixelIndices.midX],
+      targetPixelIndexPx: [...samplePixelIndices.midX],
+      sampleCoordinateSpace: 'screen-space-raster-rect',
+      targetPixelIndexSpace: 'screen-space-raster-rect',
+      sampleAlignmentOk: true,
+      sampleAlignmentReason: 'aligned-to-fragmentSamples-midX-pixel',
+      targetSample: evaluatePackedFragmentAtPixelIndex(
+        targetCenterPx,
+        targetConic,
+        targetColorAlpha,
+        samplePixelIndices.midX,
+        targetScreenRasterRect
+      ),
+      nearerContributors: [],
+      fartherContributors: []
+    },
+    edgeY: {
+      samplePixelIndexPx: [...samplePixelIndices.edgeY],
+      targetPixelIndexPx: [...samplePixelIndices.edgeY],
+      sampleCoordinateSpace: 'screen-space-raster-rect',
+      targetPixelIndexSpace: 'screen-space-raster-rect',
+      sampleAlignmentOk: true,
+      sampleAlignmentReason: 'aligned-to-fragmentSamples-edgeY-pixel',
+      targetSample: evaluatePackedFragmentAtPixelIndex(
+        targetCenterPx,
+        targetConic,
+        targetColorAlpha,
+        samplePixelIndices.edgeY,
+        targetScreenRasterRect
+      ),
+      nearerContributors: [],
+      fartherContributors: []
+    }
+  };
+  const nearerOverlappingNeighbors = [];
+  const fartherOverlappingNeighbors = [];
+
+  let overlappingNeighborCount = 0;
+  let overlappingNearerNeighborCount = 0;
+  let overlappingFartherNeighborCount = 0;
+
+  for (let i = 0; i < packedCount; i++) {
+    if (i === safeLocalIndex) continue;
+    const itemSummary = readPackedItemSummary(batch?.packed, i, batch?.floatsPerItem);
+    const rect = itemSummary?.rect;
+    if (!rectsOverlapExclusive(targetRect, rect)) continue;
+    const overlapArea = computeRectOverlapArea(targetRect, rect);
+    const overlapRatioToTarget = overlapArea / Math.max(1, computeRectArea(targetRect));
+    overlappingNeighborCount++;
+    const neighborSummary = {
+      sourceVisibleIndex: batch?.orderedIndices instanceof Uint32Array
+        ? (batch.orderedIndices[i] ?? -1)
+        : -1,
+      sourceSplatIndex: batch?.sourceIndices instanceof Uint32Array
+        ? (batch.sourceIndices[i] ?? -1)
+        : -1,
+      alpha: Number.isFinite(itemSummary?.alpha) ? itemSummary.alpha : 0,
+      radius: Number.isFinite(itemSummary?.radiusPx) ? itemSummary.radiusPx : 0,
+      localOrder: i,
+      depth: Number.isFinite(itemSummary?.depth) ? itemSummary.depth : null,
+      overlapArea,
+      overlapRatioToTarget
+    };
+    const centerRectInfo = buildCudaRasterRect(itemSummary.centerPx, itemSummary.radiusPx);
+    const centerRectForContainment = {
+      minPx: centerRectInfo.rectMinPx,
+      maxPxExclusive: centerRectInfo.rectMaxPxExclusive
+    };
+    const sampleOverlapArea = computeRectOverlapArea(
+      {
+        minPx: targetScreenRasterRect.rectMinPx,
+        maxPxExclusive: targetScreenRasterRect.rectMaxPxExclusive
+      },
+      centerRectForContainment
+    );
+    const sampleOverlapRatioToTarget = sampleOverlapArea / Math.max(1, targetScreenRasterRect.rasterWidthPx * targetScreenRasterRect.rasterHeightPx);
+    if (
+      centerRectInfo &&
+      Array.isArray(itemSummary?.centerPx) &&
+      Array.isArray(itemSummary?.conic) &&
+      Array.isArray(itemSummary?.colorAlpha)
+    ) {
+      for (const sampleKey of ['center', 'midX', 'edgeY']) {
+        const sampleContext = sampleContexts[sampleKey];
+        const samplePixelIndexPx = sampleContext.samplePixelIndexPx;
+        if (!pixelInsideRectExclusive(samplePixelIndexPx, centerRectForContainment)) continue;
+        const sampleEvaluation = evaluatePackedFragmentAtPixelIndex(
+          itemSummary.centerPx,
+          itemSummary.conic,
+          itemSummary.colorAlpha,
+          samplePixelIndexPx,
+          centerRectInfo
+        );
+        if (!sampleEvaluation.survivesFragment) continue;
+        const sampleContributor = {
+          sourceVisibleIndex: neighborSummary.sourceVisibleIndex,
+          sourceSplatIndex: neighborSummary.sourceSplatIndex,
+          localOrder: i,
+          depth: neighborSummary.depth,
+          alphaAtSample: sampleEvaluation.finalAlpha,
+          overlapArea: sampleOverlapArea,
+          overlapRatioToTarget: sampleOverlapRatioToTarget
+        };
+        if (i < safeLocalIndex) sampleContext.nearerContributors.push(sampleContributor);
+        else sampleContext.fartherContributors.push(sampleContributor);
+      }
+    }
+    if (i < safeLocalIndex) {
+      overlappingNearerNeighborCount++;
+      nearerOverlappingNeighbors.push(neighborSummary);
+    } else {
+      overlappingFartherNeighborCount++;
+      fartherOverlappingNeighbors.push(neighborSummary);
+    }
+  }
+
+  const nearerNeighborCount = safeLocalIndex;
+  const fartherNeighborCount = Math.max(0, packedCount - safeLocalIndex - 1);
+  const localOrderFraction = packedCount > 1 ? safeLocalIndex / (packedCount - 1) : 0;
+  const orderBucket = localOrderFraction < 0.33
+    ? 'front-third'
+    : (localOrderFraction > 0.66 ? 'back-third' : 'middle-third');
+  const nearerCumulative = summarizeTopOverlapNeighbors(
+    nearerOverlappingNeighbors,
+    targetRect,
+    targetDepth,
+    'Nearer'
+  );
+  const fartherCumulative = summarizeTopOverlapNeighbors(
+    fartherOverlappingNeighbors,
+    targetRect,
+    targetDepth,
+    'Farther'
+  );
+  const sampleContextsSummary = {};
+  for (const sampleKey of ['center', 'midX', 'edgeY']) {
+    const sampleContext = sampleContexts[sampleKey];
+    const nearerSummary = summarizeSampleContributors(sampleContext.nearerContributors, targetDepth);
+    const fartherSummary = summarizeSampleContributors(sampleContext.fartherContributors, targetDepth);
+    const nearerAccumulation = buildContributorAccumulationLog(sampleContext.nearerContributors, targetDepth);
+    const fartherAccumulation = buildContributorAccumulationLog(sampleContext.fartherContributors, targetDepth);
+    sampleContextsSummary[sampleKey] = {
+      samplePixelIndexPx: sampleContext.samplePixelIndexPx,
+      sampleCoordinateSpace: sampleContext.sampleCoordinateSpace,
+      sampleAlignmentOk: sampleContext.sampleAlignmentOk,
+      targetSamplePixelIndexPx: sampleContext.targetPixelIndexPx,
+      targetSamplePixelIndexSpace: sampleContext.targetPixelIndexSpace,
+      targetSampleAlignmentReason: sampleContext.sampleAlignmentReason,
+      targetSampleFinalAlpha: sampleContext.targetSample.finalAlpha,
+      estimatedNearerTransmittance: nearerAccumulation.estimatedTransmittance,
+      estimatedNearerAlphaComposite: nearerAccumulation.estimatedAlphaComposite,
+      sampleNearerAlphaSum: nearerSummary.alphaSum,
+      sampleFartherAlphaSum: fartherSummary.alphaSum,
+      sampleNearerContributorCount: nearerSummary.contributorCount,
+      sampleFartherContributorCount: fartherSummary.contributorCount,
+      nearerContributorsTopK: nearerSummary.topK,
+      fartherContributorsTopK: fartherSummary.topK,
+      nearerAccumulationLog: nearerAccumulation.log,
+      fartherAccumulationLog: fartherAccumulation.log,
+      nearerAccumulationLogTruncated: nearerAccumulation.truncated,
+      fartherAccumulationLogTruncated: fartherAccumulation.truncated,
+      estimatedNearerTransmittanceFromLog: nearerAccumulation.estimatedTransmittance,
+      estimatedNearerAlphaCompositeFromLog: nearerAccumulation.estimatedAlphaComposite
+    };
+  }
+  const centerSampleSummary = sampleContextsSummary.center;
+
+  return {
+    tileCompositeLocalOrder: safeLocalIndex,
+    tileCompositeTileSplatCount: packedCount,
+    tileCompositeNearerNeighborCount: nearerNeighborCount,
+    tileCompositeFartherNeighborCount: fartherNeighborCount,
+    tileCompositeOverlappingNeighborCount: overlappingNeighborCount,
+    tileCompositeOverlappingNearerNeighborCount: overlappingNearerNeighborCount,
+    tileCompositeOverlappingFartherNeighborCount: overlappingFartherNeighborCount,
+    tileCompositeLocalOrderFraction: localOrderFraction,
+    tileCompositeOrderBucket: orderBucket,
+    ...nearerCumulative,
+    ...fartherCumulative,
+    sampleContexts: sampleContextsSummary,
+    estimatedNearerTransmittanceAtCenter: centerSampleSummary.estimatedNearerTransmittance,
+    estimatedNearerAlphaCompositeAtCenter: centerSampleSummary.estimatedNearerAlphaComposite,
+    centerSampleNearerAlphaSum: centerSampleSummary.sampleNearerAlphaSum,
+    centerSampleFartherAlphaSum: centerSampleSummary.sampleFartherAlphaSum,
+    centerSampleNearerContributorCount: centerSampleSummary.sampleNearerContributorCount,
+    centerSampleFartherContributorCount: centerSampleSummary.sampleFartherContributorCount,
+    nearerContributorsAtCenterTopK: centerSampleSummary.nearerContributorsTopK,
+    fartherContributorsAtCenterTopK: centerSampleSummary.fartherContributorsTopK,
+    centerSamplePixelIndexPx: centerSampleSummary.samplePixelIndexPx,
+    centerSampleCoordinateSpace: centerSampleSummary.sampleCoordinateSpace,
+    centerSampleAlignmentOk: centerSampleSummary.sampleAlignmentOk,
+    targetCenterPixelIndexPx: centerSampleSummary.targetSamplePixelIndexPx,
+    targetCenterPixelIndexSpace: centerSampleSummary.targetSamplePixelIndexSpace,
+    targetCenterPixelAlignmentReason: centerSampleSummary.targetSampleAlignmentReason,
+    tileCompositeOverlapContext: {
+      tileRectMinPx: tileRect?.minPx ?? null,
+      tileRectMaxPxExclusive: tileRect?.maxPxExclusive ?? null,
+      targetRectMinPx: targetRect.minPx,
+      targetRectMaxPxExclusive: targetRect.maxPxExclusive,
+      targetCenterPixelIndexPx: centerSampleSummary.targetSamplePixelIndexPx,
+      targetCenterPixelIndexSpace: centerSampleSummary.targetSamplePixelIndexSpace,
+      centerSamplePixelIndexPx: centerSampleSummary.samplePixelIndexPx,
+      centerSampleCoordinateSpace: centerSampleSummary.sampleCoordinateSpace,
+      centerSampleAlignmentOk: centerSampleSummary.sampleAlignmentOk,
+      targetCenterPixelAlignmentReason: centerSampleSummary.targetSampleAlignmentReason,
+      targetCenterSampleFinalAlpha: centerSampleSummary.targetSampleFinalAlpha,
+      overlappingNeighborCount,
+      overlappingNearerNeighborCount,
+      overlappingFartherNeighborCount,
+      overlapDensity: packedCount > 1 ? overlappingNeighborCount / (packedCount - 1) : 0,
+      overlappingNearerAlphaSum: nearerCumulative.overlappingNearerAlphaSum,
+      overlappingFartherAlphaSum: fartherCumulative.overlappingFartherAlphaSum,
+      overlappingNearerRectOverlapAreaSum: nearerCumulative.overlappingNearerRectOverlapAreaSum,
+      overlappingFartherRectOverlapAreaSum: fartherCumulative.overlappingFartherRectOverlapAreaSum
+    },
+    tileCompositeDepthOrderSummary: {
+      ordering: 'ascending-near-to-far',
+      localOrder: safeLocalIndex,
+      tileSplatCount: packedCount,
+      nearerNeighborCount,
+      fartherNeighborCount,
+      orderBucket
+    },
+    tileCompositeTileSummary: {
+      tileId: Number.isFinite(batch?.tileId) ? (batch.tileId | 0) : -1,
+      tileSplatCount: packedCount,
+      tileRectMinPx: tileRect?.minPx ?? null,
+      tileRectMaxPxExclusive: tileRect?.maxPxExclusive ?? null,
+      heavyOverlap: overlappingNeighborCount >= 16
+    }
+  };
+}
+
 function evaluatePackedFragmentAtPixelIndex(centerPx, conic, colorAlpha, pixelIndexPx, rectInfo) {
   const localPixelIndex = [
     pixelIndexPx[0] - rectInfo.rectMinPx[0],
@@ -241,11 +940,13 @@ function evaluatePackedFragmentAtPixelIndex(centerPx, conic, colorAlpha, pixelIn
 
 export function inspectGpuPackedPayloadItem(gl, screenSpace, options = {}) {
   const payloadCandidates = buildPackedPayloadInspectionCandidates(gl, screenSpace);
+  const payloadSourceSummary = summarizePackedPayloadCandidates(screenSpace, payloadCandidates);
   const payloads = payloadCandidates.filter((candidate) => candidate.usable).map((candidate) => candidate.payload);
   if (payloads.length <= 0) {
     return {
       ok: false,
       failureReason: 'inspect-no-valid-gpu-packed-payloads',
+      payloadSourceSummary,
       payloadCandidateCount: payloadCandidates.length,
       payloadCandidates: payloadCandidates.map((candidate) => ({
         index: candidate.index,
@@ -266,6 +967,7 @@ export function inspectGpuPackedPayloadItem(gl, screenSpace, options = {}) {
     return {
       ok: false,
       failureReason: selection.failureReason,
+      payloadSourceSummary,
       requestedIndex: selection.absoluteIndex,
       availableCount: selection.availableCount ?? 0,
       payloadCandidateCount: payloadCandidates.length,
@@ -284,112 +986,83 @@ export function inspectGpuPackedPayloadItem(gl, screenSpace, options = {}) {
   }
 
   const rows = readPackedPayloadItemRows(gl, selection.payload, selection.localIndex);
-  const centerPx = [rows.row0[0], rows.row0[1]];
-  const payloadRadius = rows.row0[2];
-  const depth = rows.row0[3];
-  const colorAlpha = rows.row1.slice(0, 4);
-  const conic = rows.row2.slice(0, 3);
-  const reserved = rows.row2[3];
-  const misc = rows.row3.slice(0, 4);
-  const unclampedPointSize = payloadRadius * 2.0;
-  const clampedPointSize = Math.max(1.0, unclampedPointSize);
-  const clampApplied = clampedPointSize !== unclampedPointSize;
-  const rasterRect = buildCudaRasterRect(centerPx, payloadRadius);
-  const spriteHalfExtentPx = clampedPointSize * 0.5;
-  const drawRadiusBbox = [
-    centerPx[0] - payloadRadius,
-    centerPx[1] - payloadRadius,
-    centerPx[0] + payloadRadius,
-    centerPx[1] + payloadRadius
-  ];
-  const spriteBbox = [
-    centerPx[0] - spriteHalfExtentPx,
-    centerPx[1] - spriteHalfExtentPx,
-    centerPx[0] + spriteHalfExtentPx,
-    centerPx[1] + spriteHalfExtentPx
-  ];
-  const spritePixelArea = clampedPointSize * clampedPointSize;
-  const gaussianEffectiveAreaEstimate = Math.PI * payloadRadius * payloadRadius;
-  const coverageOvershootEstimate = spritePixelArea - gaussianEffectiveAreaEstimate;
-  const coverageOvershootRatio = gaussianEffectiveAreaEstimate > 1e-8
-    ? spritePixelArea / gaussianEffectiveAreaEstimate
-    : Infinity;
-  const rasterPixelArea = rasterRect.rasterWidthPx * rasterRect.rasterHeightPx;
-  const rasterCoverageOvershootEstimate = rasterPixelArea - gaussianEffectiveAreaEstimate;
-  const rasterCoverageOvershootRatio = gaussianEffectiveAreaEstimate > 1e-8
-    ? rasterPixelArea / gaussianEffectiveAreaEstimate
-    : Infinity;
-
-  const centerPixelIndexPx = [
-    Math.min(rasterRect.rectMaxPxExclusive[0] - 1, Math.max(rasterRect.rectMinPx[0], Math.floor(centerPx[0]))),
-    Math.min(rasterRect.rectMaxPxExclusive[1] - 1, Math.max(rasterRect.rectMinPx[1], Math.floor(centerPx[1])))
-  ];
-  const edgePixelIndexX = rasterRect.rectMaxPxExclusive[0] - 1;
-  const edgePixelIndexY = rasterRect.rectMaxPxExclusive[1] - 1;
-  const midPixelIndexX = Math.min(
-    edgePixelIndexX,
-    Math.max(centerPixelIndexPx[0], Math.floor((centerPixelIndexPx[0] + edgePixelIndexX) * 0.5))
-  );
-  const fragmentSamples = {
-    center: evaluatePackedFragmentAtPixelIndex(centerPx, conic, colorAlpha, centerPixelIndexPx, rasterRect),
-    midX: evaluatePackedFragmentAtPixelIndex(centerPx, conic, colorAlpha, [midPixelIndexX, centerPixelIndexPx[1]], rasterRect),
-    edgeX: evaluatePackedFragmentAtPixelIndex(centerPx, conic, colorAlpha, [edgePixelIndexX, centerPixelIndexPx[1]], rasterRect),
-    edgeY: evaluatePackedFragmentAtPixelIndex(centerPx, conic, colorAlpha, [centerPixelIndexPx[0], edgePixelIndexY], rasterRect),
-    corner: evaluatePackedFragmentAtPixelIndex(centerPx, conic, colorAlpha, [edgePixelIndexX, edgePixelIndexY], rasterRect)
-  };
-
-  return {
-    ok: true,
+  return buildInspectionResultFromRows(rows, {
     requestedIndex: selection.absoluteIndex,
     payloadIndex: selection.payloadIndex,
     localIndex: selection.localIndex,
+    payloadSourceSummary,
     payloadCandidateCount: payloadCandidates.length,
     payloadKind: selection.payload?.kind ?? 'gpu-packed-texture',
     payloadCount: selection.payload?.count ?? 0,
     payloadWidth: selection.payload?.width ?? 0,
     payloadHeight: selection.payload?.height ?? 0,
-    rowsPerColumn: rows.rowsPerColumn,
-    columnCount: selection.payload?.columnCount ?? 1,
-    textureColumnIndex: rows.columnIndex,
-    textureRowIndex: rows.rowIndex,
-    textureXBase: rows.xBase,
-    centerPx,
-    depth,
-    payloadRadius,
-    colorAlpha,
-    conic,
-    reserved,
-    misc,
-    unclampedPointSize,
-    clampedPointSize,
-    clampApplied,
-    drawRadiusBbox,
-    spriteBbox,
-    spriteHalfExtentPx,
-    spritePixelArea,
-    gaussianEffectiveAreaEstimate,
-    coverageOvershootEstimate,
-    coverageOvershootRatio,
-    rasterRectMinPx: rasterRect.rectMinPx,
-    rasterRectMaxPxExclusive: rasterRect.rectMaxPxExclusive,
-    rasterWidthPx: rasterRect.rasterWidthPx,
-    rasterHeightPx: rasterRect.rasterHeightPx,
-    rasterPixelArea,
-    rasterCoverageOvershootEstimate,
-    rasterCoverageOvershootRatio,
-    fragmentEquation: {
-      rasterizationPrimitive: 'two-triangle screen-space quad covering [floor(centerPx - radiusPx), floor(centerPx + radiusPx) + 1)',
-      pointCoordToPixelCenter: 'pixelIndexPx = vec2(gl_FragCoord.x - 0.5, viewportHeight - gl_FragCoord.y - 0.5)',
-      spritePixelIndex: 'localPixelIndex = pixelIndexPx - floor(centerPx - radiusPx)',
-      displacement: 'd = centerPx - pixelIndexPx',
-      conservativeOffset: 'vec2(0.0)',
-      evalDisplacement: 'evalD = d',
-      power: '-0.5 * (conic.x * dx^2 + conic.z * dy^2) - conic.y * dx * dy',
-      gaussianAlpha: 'colorAlpha.a * exp(power)',
-      finalAlpha: 'min(0.99, gaussianAlpha)',
-      alphaCutoff: 'discard when finalAlpha < 1.0 / 255.0'
-    },
-    fragmentSamples
+    columnCount: selection.payload?.columnCount ?? 1
+  });
+}
+
+export function inspectPackedInterleavedTileCompositeItem(tileCompositePlan, options = {}) {
+  const batches = Array.isArray(tileCompositePlan?.batches) ? tileCompositePlan.batches : [];
+  const payloadSourceSummary = summarizePackedInterleavedBatches(tileCompositePlan);
+  const absoluteIndex = Number.isFinite(options.index) ? Math.max(0, options.index | 0) : 0;
+  if (batches.length <= 0) {
+    return {
+      ok: false,
+      failureReason: 'inspect-no-tile-composite-batches',
+      requestedIndex: absoluteIndex,
+      payloadSourceSummary
+    };
+  }
+
+  let runningCount = 0;
+  for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+    const batch = batches[batchIndex];
+    const packedCount = Number.isFinite(batch?.packedCount) ? Math.max(0, batch.packedCount | 0) : 0;
+    if (!(batch?.packed instanceof Float32Array) || packedCount <= 0) {
+      continue;
+    }
+    if (absoluteIndex < runningCount + packedCount) {
+      const localIndex = absoluteIndex - runningCount;
+      const rows = readPackedInterleavedItemRows(
+        batch.packed,
+        localIndex,
+        Number.isFinite(batch?.floatsPerItem) ? batch.floatsPerItem : GPU_PACKED_FLOATS_PER_ITEM
+      );
+      return buildInspectionResultFromRows(rows, {
+        requestedIndex: absoluteIndex,
+        payloadIndex: batchIndex,
+        localIndex,
+        payloadSourceSummary,
+        payloadCandidateCount: batches.length,
+        payloadKind: 'tile-composite-packed-interleaved-batch',
+        payloadCount: packedCount,
+        payloadWidth: Number.isFinite(batch?.floatsPerItem) ? Math.max(0, batch.floatsPerItem | 0) : GPU_PACKED_FLOATS_PER_ITEM,
+        payloadHeight: packedCount,
+        columnCount: 1,
+        extraFields: {
+          tileCompositeBatchIndex: batchIndex,
+          tileCompositeTileId: Number.isFinite(batch?.tileId) ? (batch.tileId | 0) : -1,
+          tileCompositeSourceVisibleIndex: batch?.orderedIndices instanceof Uint32Array
+            ? (batch.orderedIndices[localIndex] ?? -1)
+            : -1,
+          tileCompositeSourceSplatIndex: batch?.sourceIndices instanceof Uint32Array
+            ? (batch.sourceIndices[localIndex] ?? -1)
+            : -1
+          ,
+          ...summarizeTileCompositeContext(batch, localIndex, rows)
+        }
+      });
+    }
+    runningCount += packedCount;
+  }
+
+  return {
+    ok: false,
+    failureReason: runningCount <= 0
+      ? 'inspect-no-valid-tile-composite-items'
+      : 'inspect-tile-composite-index-out-of-range',
+    requestedIndex: absoluteIndex,
+    availableCount: runningCount,
+    payloadSourceSummary
   };
 }
 

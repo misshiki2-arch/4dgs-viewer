@@ -150,6 +150,7 @@ function executePackedFullFrameDraw({
   gpuScreenSourceSpace,
   drawPathSelection,
   tileCompositePlan = null,
+  tileCompositePrimitive = 'point',
   bgGray01 = 0,
   drawPolicyOverride = null
 }) {
@@ -160,6 +161,7 @@ function executePackedFullFrameDraw({
       canvas,
       tileCompositePlan,
       drawPathSelection,
+      primitive: tileCompositePrimitive,
       bgGray01
     });
 
@@ -277,6 +279,7 @@ function executeGpuScreenFullFrameDraw({
   gpuScreenSourceSpace,
   drawPathSelection,
   tileCompositePlan = null,
+  tileCompositePrimitive = 'point',
   bgGray01 = 0,
   drawPolicyOverride = null
 }) {
@@ -287,6 +290,7 @@ function executeGpuScreenFullFrameDraw({
       canvas,
       tileCompositePlan,
       drawPathSelection,
+      primitive: tileCompositePrimitive,
       bgGray01
     });
 
@@ -371,6 +375,7 @@ export function executeFullFrameDrawByPath({
   packedScreenSpace,
   gpuScreenSourceSpace,
   tileCompositePlan = null,
+  tileCompositePrimitive = 'point',
   legacyDrawData,
   bgGray01 = 0,
   drawPolicyOverride = null
@@ -385,6 +390,7 @@ export function executeFullFrameDrawByPath({
       gpuScreenSourceSpace,
       drawPathSelection,
       tileCompositePlan,
+      tileCompositePrimitive,
       bgGray01,
       drawPolicyOverride
     });
@@ -399,6 +405,7 @@ export function executeFullFrameDrawByPath({
       gpuScreenSourceSpace,
       drawPathSelection,
       tileCompositePlan,
+      tileCompositePrimitive,
       bgGray01,
       drawPolicyOverride
     });

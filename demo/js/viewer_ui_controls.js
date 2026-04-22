@@ -345,6 +345,27 @@ export function ensurePackedPathControls(ui) {
   ui.usePackedVisiblePathNote = document.getElementById('usePackedVisiblePathNote');
   ui.drawPathSelect = document.getElementById('drawPathSelect');
   ui.drawPathSelectNote = document.getElementById('drawPathSelectNote');
+
+  const row3 = ensureRow(ui, 'packedPathRow3');
+  setRowContents(row3, appendWithSpaces(
+    createLabel('tile primitive', '92px'),
+    createSelect(
+      'tileCompositePrimitiveSelect',
+      [
+        { value: 'point', label: 'point (Step84 baseline)' },
+        { value: 'quad', label: 'quad (Step85 stage1)' }
+      ],
+      'point',
+      '230px'
+    ),
+    createNote(
+      'tileCompositePrimitiveNote',
+      'tile composite only; compare point sprite vs exact rect quad'
+    )
+  ));
+
+  ui.tileCompositePrimitiveSelect = document.getElementById('tileCompositePrimitiveSelect');
+  ui.tileCompositePrimitiveNote = document.getElementById('tileCompositePrimitiveNote');
 }
 
 export function ensureDebugLogControls(ui) {

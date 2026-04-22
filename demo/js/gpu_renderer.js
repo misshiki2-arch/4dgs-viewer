@@ -99,6 +99,7 @@ function getDrawTileMode(ui) {
   const useMaxTileCheck = getLiveEl(ui?.useMaxTileCheck, 'useMaxTile');
   const selectedTileIdInput = getLiveEl(ui?.selectedTileIdInput, 'selectedTileId');
   const tileRadiusInput = getLiveEl(ui?.tileRadiusInput, 'tileRadius');
+  const tileCompositePrimitiveSelect = getLiveEl(ui?.tileCompositePrimitiveSelect, 'tileCompositePrimitiveSelect');
 
   return {
     showOverlay: !!showTileDebugCheck?.checked,
@@ -109,7 +110,8 @@ function getDrawTileMode(ui) {
       : -1,
     tileRadius: Number.isFinite(Number(tileRadiusInput?.value))
       ? Math.max(0, Number(tileRadiusInput.value) | 0)
-      : 0
+      : 0,
+    tileCompositePrimitive: tileCompositePrimitiveSelect?.value === 'quad' ? 'quad' : 'point'
   };
 }
 
@@ -850,6 +852,7 @@ export async function renderGpuFrame({
         packedScreenSpace,
         gpuScreenSourceSpace: gpuScreenSourceInfo.sourceSpace,
         tileCompositePlan,
+        tileCompositePrimitive: mode.tileCompositePrimitive,
         legacyDrawData,
         bgGray01: bg,
         drawPolicyOverride: frameGpuPolicySummary.drawPolicyOverride
@@ -1013,6 +1016,7 @@ export async function renderGpuFrame({
     extraLines.push(`deterministicCameraPreset=${deterministicStateSummary.cameraPresetName ?? 'none'}`);
     extraLines.push(`deterministicAppliedCameraPreset=${deterministicStateSummary.appliedCameraPresetName ?? 'none'}`);
     extraLines.push(`deterministicDrawPath=${deterministicStateSummary.drawPath ?? 'none'}`);
+    extraLines.push(`deterministicTileCompositePrimitive=${deterministicStateSummary.tileCompositePrimitive ?? 'point'}`);
     extraLines.push(
       `deterministicGpuFramePolicyOverride=${deterministicStateSummary.gpuFramePolicyOverride ?? 'auto'}`
     );
@@ -1032,6 +1036,11 @@ export async function renderGpuFrame({
     extraLines.push(`tileCompositeTotalTileDrawCount=${tileCompositePlan.summary.totalTileDrawCount ?? 0}`);
     extraLines.push(`tileCompositeDuplicateRefs=${tileCompositePlan.summary.tileCompositeDuplicateRefs ?? 0}`);
     extraLines.push(`tileCompositeOverlapFactor=${Number(tileCompositePlan.summary.tileCompositeOverlapFactor ?? 0).toFixed(2)}`);
+  }
+  if (executionSummary) {
+    extraLines.push(`tileCompositePrimitiveRequested=${mode.tileCompositePrimitive}`);
+    extraLines.push(`tileCompositePrimitiveActual=${executionSummary.tileCompositePrimitive ?? 'none'}`);
+    extraLines.push(`tileCompositeRectContract=${executionSummary.tileCompositeRectContract ?? 'none'}`);
   }
 
   const infoText = formatGpuViewerInfo({
@@ -1123,7 +1132,9 @@ export async function renderGpuFrame({
     transformThroughputSummary,
     drawThroughputSummary,
     frameGpuThroughputSummary,
-    tileCompositePlan
+    tileCompositePlan,
+    executionSummary,
+    packedUploadSummary
   };
 
   return result;

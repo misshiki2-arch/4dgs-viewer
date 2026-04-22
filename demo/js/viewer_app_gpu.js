@@ -1,7 +1,10 @@
 import { parseSplat4DV2 } from './splat4d_parser_v2.js';
 import { fitCameraToRaw, computeGaussianDebugState, DEFAULT_SINGLE_SPLAT_COMPARE_INPUT } from './rot4d_math.js';
 import { renderGpuFrame } from './gpu_renderer.js';
-import { inspectGpuPackedPayloadItem } from './gpu_packed_payload_draw_shared.js';
+import {
+  inspectGpuPackedPayloadItem,
+  inspectPackedInterleavedTileCompositeItem
+} from './gpu_packed_payload_draw_shared.js';
 import {
   createGpuInteractionState,
   bindGpuDragInteraction
@@ -101,6 +104,9 @@ let lastSnapshotSummary = {
   reason: 'none'
 };
 
+const INSPECT_SOURCE_VALUES = new Set(['auto', 'actual-draw', 'packed', 'gpu-screen-fallback']);
+const INSPECT_JSON_MODE_VALUES = new Set(['slim', 'full']);
+
 function refreshLatestDebugText(explicitText = null) {
   const text = explicitText ?? ui.info?.textContent ?? '';
   lastDebugText = text;
@@ -124,6 +130,9 @@ function updateDeterministicStateNote() {
   parts.push(`query active`);
   parts.push(`cameraPreset=${deterministicQueryState.cameraPresetName ?? 'none'}`);
   parts.push(`drawPath=${deterministicQueryState.drawPath ?? 'default'}`);
+  parts.push(`tileCompositePrimitive=${deterministicQueryState.tileCompositePrimitive ?? 'point'}`);
+  parts.push(`inspectSource=${deterministicQueryState.inspectSource ?? 'auto'}`);
+  parts.push(`inspectJsonMode=${deterministicQueryState.inspectJsonMode ?? 'slim'}`);
   parts.push(`gpuFramePolicyOverride=${deterministicQueryState.gpuFramePolicyOverride ?? 'auto'}`);
   if (deterministicQueryState.deterministicQueryString) {
     parts.push(`query=${deterministicQueryState.deterministicQueryString}`);
@@ -170,6 +179,438 @@ function buildDeterministicStateSummary() {
     snapshotRenderWaitMode: lastSnapshotSummary.renderWaitMode,
     snapshotLastStatus: lastSnapshotSummary.status,
     snapshotLastReason: lastSnapshotSummary.reason
+  };
+}
+
+function normalizeInspectSource(value, fallback = 'auto') {
+  return INSPECT_SOURCE_VALUES.has(value) ? value : fallback;
+}
+
+function normalizeInspectJsonMode(value, fallback = 'slim') {
+  return INSPECT_JSON_MODE_VALUES.has(value) ? value : fallback;
+}
+
+function getRequestedTileCompositePrimitive() {
+  return ui.tileCompositePrimitiveSelect?.value === 'quad' ? 'quad' : 'point';
+}
+
+function buildSlimDeterministicStateSummary(summary) {
+  return {
+    active: !!summary?.active,
+    cameraPresetName: summary?.cameraPresetName ?? 'none',
+    appliedCameraPresetName: summary?.appliedCameraPresetName ?? 'none',
+    drawPath: summary?.drawPath ?? 'none',
+    tileCompositePrimitive: summary?.tileCompositePrimitive ?? 'point',
+    inspectSource: summary?.inspectSource ?? 'auto',
+    inspectJsonMode: summary?.inspectJsonMode ?? 'slim',
+    gpuFramePolicyOverride: summary?.gpuFramePolicyOverride ?? 'auto',
+    time: Number.isFinite(summary?.time) ? Number(summary.time) : null,
+    deterministicQueryString: summary?.deterministicQueryString ?? '',
+    deterministicUrlSummary: summary?.deterministicUrlSummary ?? ''
+  };
+}
+
+function buildRenderResultInspectionSummary(renderResult) {
+  const executionSummary = renderResult?.executionSummary ?? null;
+  const tileCompositeSummary = renderResult?.tileCompositePlan?.summary ?? null;
+  return {
+    actualDrawPath:
+      renderResult?.drawThroughputSummary?.actualDrawPath ??
+      renderResult?.drawPathSummary?.actualPath ??
+      'none',
+    drawPathSummary: renderResult?.drawPathSummary ?? null,
+    drawThroughputSummary: renderResult?.drawThroughputSummary ?? null,
+    gpuFallbackSummary: renderResult?.gpuFallbackSummary ?? null,
+    gpuCompatibilityBridgeSummary: renderResult?.gpuCompatibilityBridgeSummary ?? null,
+    executionSummary: executionSummary
+      ? {
+          requestedDrawPath: executionSummary.requestedDrawPath ?? 'none',
+          actualDrawPath: executionSummary.actualDrawPath ?? 'none',
+          drawPathFallbackReason: executionSummary.drawPathFallbackReason ?? 'none',
+          compositingContract: executionSummary.compositingContract ?? 'none',
+          tileCompositePrimitive: executionSummary.tileCompositePrimitive ?? 'none',
+          tileCompositeRectContract: executionSummary.tileCompositeRectContract ?? 'none',
+          tileBatchCount: executionSummary.tileBatchCount ?? 0,
+          nonEmptyTileBatchCount: executionSummary.nonEmptyTileBatchCount ?? 0,
+          totalTileDrawCount: executionSummary.totalTileDrawCount ?? 0,
+          drawCallCount: executionSummary.drawCallCount ?? 0,
+          uploadCount: executionSummary.uploadCount ?? 0
+        }
+      : null,
+    tileCompositeSummary: tileCompositeSummary
+      ? {
+          compositingContract: tileCompositeSummary.compositingContract ?? 'none',
+          depthOrder: tileCompositeSummary.depthOrder ?? 'none',
+          tileBatchCount: tileCompositeSummary.tileBatchCount ?? 0,
+          nonEmptyTileBatchCount: tileCompositeSummary.nonEmptyTileBatchCount ?? 0,
+          totalTileDrawCount: tileCompositeSummary.totalTileDrawCount ?? 0,
+          maxTileDrawCount: tileCompositeSummary.maxTileDrawCount ?? 0,
+          tileCompositeDuplicateRefs: tileCompositeSummary.tileCompositeDuplicateRefs ?? 0,
+          tileCompositeOverlapFactor: tileCompositeSummary.tileCompositeOverlapFactor ?? 0
+        }
+      : null,
+    packedSummary: renderResult?.packedSummary
+      ? {
+          path: renderResult.packedSummary.path ?? 'none',
+          packedContract: renderResult.packedSummary.packedContract ?? 'none',
+          transformPath: renderResult.packedSummary.transformPath ?? 'none',
+          transformFallbackReason: renderResult.packedSummary.transformFallbackReason ?? 'none',
+          transformFallbackContract: renderResult.packedSummary.transformFallbackContract ?? 'none',
+          sourceItemCount: renderResult.packedSummary.sourceItemCount ?? 0,
+          packedCount: renderResult.packedSummary.packedCount ?? 0,
+          floatsPerItem: renderResult.packedSummary.floatsPerItem ?? 0
+        }
+      : null,
+    gpuScreenSourceSummary: renderResult?.gpuScreenSourceInfo
+      ? {
+          sourceFallbackReason: renderResult.gpuScreenSourceInfo.sourceFallbackReason ?? 'none',
+          sourceContract: renderResult.gpuScreenSourceInfo.sourceContract ?? 'none',
+          sourceFallbackContract: renderResult.gpuScreenSourceInfo.sourceFallbackContract ?? 'none'
+        }
+      : null,
+    gpuScreenExecutionSummary: renderResult?.gpuScreenExecutionSummary ?? null
+  };
+}
+
+function buildEmptyPayloadSourceSummary(candidate) {
+  const payloadArray = candidate?.screenSpace?.gpuPackedPayloads;
+  return {
+    screenSpacePresent: !!candidate?.screenSpace,
+    inspectDataPresent: !!candidate?.inspectData,
+    payloadArrayPresent: Array.isArray(payloadArray),
+    payloadArrayLength: Array.isArray(payloadArray) ? payloadArray.length : 0,
+    candidateCount: 0,
+    usableCandidateCount: 0,
+    glMatchCandidateCount: 0,
+    textureCandidateCount: 0,
+    distinctKinds: [],
+    failureCounts: {
+      noPayloadArray: Array.isArray(payloadArray) ? 0 : 1,
+      noTexture: 0,
+      noGl: 0,
+      glMismatch: 0,
+      unusable: 0
+    }
+  };
+}
+
+function buildInspectAttemptRecord(candidate, inspection = null) {
+  const successful = !!inspection?.ok;
+  return {
+    requestedSource: candidate?.requestedSource ?? 'auto',
+    source: candidate?.source ?? 'none',
+    sourceReason: candidate?.reason ?? 'none',
+    drawPath: candidate?.actualDrawPath ?? 'none',
+    screenSpacePresent: !!candidate?.screenSpace,
+    inspectDataPresent: !!candidate?.inspectData,
+    ok: successful,
+    failureReason: successful
+      ? 'none'
+      : (inspection?.failureReason ?? ((candidate?.screenSpace || candidate?.inspectData)
+        ? 'inspect-not-attempted'
+        : 'inspect-source-unavailable')),
+    payloadCandidateCount: inspection?.payloadCandidateCount ?? 0,
+    payloadSourceSummary: inspection?.payloadSourceSummary ?? buildEmptyPayloadSourceSummary(candidate)
+  };
+}
+
+function buildActualDrawInspectCandidate(renderResult, actualDrawPath, requestedSource) {
+  if (actualDrawPath === 'packed') {
+    if (Array.isArray(renderResult?.tileCompositePlan?.batches) && renderResult.tileCompositePlan.batches.length > 0) {
+      return {
+        requestedSource,
+        source: 'tile-composite-packed-batches',
+        inspectMethod: 'tile-composite-packed-batches',
+        inspectData: renderResult.tileCompositePlan,
+        actualDrawPath,
+        reason: 'actual-draw-uses-tile-composite-packed-batches'
+      };
+    }
+    return {
+      requestedSource,
+      source: 'packed-screen-space',
+      inspectMethod: 'gpu-packed-texture',
+      screenSpace: renderResult?.packedScreenSpace ?? null,
+      actualDrawPath,
+      reason: 'actual-draw-uses-packed-screen-space'
+    };
+  }
+
+  if (actualDrawPath === 'gpu-screen') {
+    return {
+      requestedSource,
+      source: 'gpu-screen-source-space',
+      inspectMethod: 'gpu-packed-texture',
+      screenSpace: renderResult?.gpuScreenSourceInfo?.sourceSpace ?? null,
+      actualDrawPath,
+      reason: 'actual-draw-uses-gpu-screen-source-space'
+    };
+  }
+
+  return {
+    requestedSource,
+    source: 'none',
+    inspectMethod: 'unsupported',
+    screenSpace: null,
+    actualDrawPath,
+    reason: `actual-draw-path-${actualDrawPath}-is-not-inspectable`
+  };
+}
+
+function buildInspectableScreenSpaceCandidates(renderResult, requestedSource = 'auto') {
+  const actualDrawPath =
+    renderResult?.drawThroughputSummary?.actualDrawPath ??
+    renderResult?.drawPathSummary?.actualPath ??
+    'none';
+  const packedCandidate = {
+    requestedSource,
+    source: 'packed-screen-space',
+    screenSpace: renderResult?.packedScreenSpace ?? null,
+    actualDrawPath
+  };
+  const gpuScreenFallbackCandidate = {
+    requestedSource,
+    source: actualDrawPath === 'gpu-screen'
+      ? 'gpu-screen-source-space'
+      : 'gpu-screen-source-space-fallback',
+    screenSpace: renderResult?.gpuScreenSourceInfo?.sourceSpace ?? null,
+    actualDrawPath
+  };
+
+  if (requestedSource === 'packed') {
+    return [{
+      ...packedCandidate,
+      reason: actualDrawPath === 'packed'
+        ? 'explicit-packed-source-matches-actual-draw'
+        : 'explicit-packed-source'
+    }];
+  }
+
+  if (requestedSource === 'gpu-screen-fallback') {
+    return [{
+      ...gpuScreenFallbackCandidate,
+      reason: actualDrawPath === 'gpu-screen'
+        ? 'explicit-gpu-screen-source-matches-actual-draw'
+        : 'explicit-gpu-screen-fallback-source'
+    }];
+  }
+
+  if (requestedSource === 'actual-draw') {
+    return [buildActualDrawInspectCandidate(renderResult, actualDrawPath, requestedSource)];
+  }
+
+  if (actualDrawPath === 'gpu-screen') {
+    return [
+      {
+        ...gpuScreenFallbackCandidate,
+        reason: 'auto-prefers-actual-gpu-screen-source-space'
+      },
+      {
+        ...packedCandidate,
+        reason: 'auto-fallback-to-packed-screen-space'
+      }
+    ];
+  }
+
+  if (actualDrawPath === 'packed') {
+    return [
+      {
+        ...packedCandidate,
+        reason: 'auto-prefers-actual-packed-screen-space'
+      },
+      {
+        ...gpuScreenFallbackCandidate,
+        reason: 'auto-fallback-to-gpu-screen-source-space'
+      }
+    ];
+  }
+
+  return [
+    {
+      ...packedCandidate,
+      reason: 'auto-packed-screen-space'
+    },
+    {
+      ...gpuScreenFallbackCandidate,
+      reason: 'auto-gpu-screen-source-space'
+    }
+  ];
+}
+
+function buildInspectResultBase({
+  inspection,
+  renderResult,
+  attempts,
+  requestedSource,
+  outputMode,
+  inspectedCandidate
+}) {
+  const deterministicState = buildDeterministicStateSummary();
+  const renderResultSummary = buildRenderResultInspectionSummary(renderResult);
+  const actualDrawPath = renderResultSummary.actualDrawPath ?? 'none';
+  const executionSummary = renderResultSummary.executionSummary ?? null;
+  const gpuFallbackSummary = renderResultSummary.gpuFallbackSummary ?? null;
+  const gpuCompatibilityBridgeSummary = renderResultSummary.gpuCompatibilityBridgeSummary ?? null;
+  const actualDrawCandidate = buildActualDrawInspectCandidate(renderResult, actualDrawPath, 'actual-draw');
+  const actualDrawInspectSupported = actualDrawCandidate?.inspectMethod === 'tile-composite-packed-batches' ||
+    actualDrawCandidate?.inspectMethod === 'gpu-packed-texture';
+  const actualDrawAttempt = attempts.find((attempt) => attempt?.requestedSource === 'actual-draw') ?? null;
+  const actualDrawInspectFailureReason = actualDrawInspectSupported
+    ? (actualDrawAttempt?.failureReason ?? (inspection?.ok ? 'none' : inspection?.failureReason ?? 'none'))
+    : (actualDrawCandidate?.reason ?? 'actual-draw-inspect-unsupported');
+
+  return {
+    ok: !!inspection?.ok,
+    failureReason: inspection?.failureReason ?? 'none',
+    inspectSourceRequested: requestedSource,
+    inspectJsonMode: outputMode,
+    actualDrawPath,
+    drawPath:
+      inspection?.drawPath ??
+      actualDrawPath,
+    inspectedSourceSpace: inspectedCandidate?.source ?? 'none',
+    inspectedSourceReason: inspectedCandidate?.reason ?? 'none',
+    tileCompositePrimitiveRequested: getRequestedTileCompositePrimitive(),
+    tileCompositePrimitiveActual: executionSummary?.tileCompositePrimitive ?? 'none',
+    tileCompositeRectContract: executionSummary?.tileCompositeRectContract ?? 'none',
+    tileCompositeContract:
+      renderResultSummary.tileCompositeSummary?.compositingContract ??
+      renderResult?.tileCompositePlan?.summary?.compositingContract ??
+      'none',
+    actualDrawInspectSupported,
+    actualDrawInspectDataSource: actualDrawCandidate?.source ?? 'none',
+    actualDrawInspectFailureReason,
+    gpuFallbackActive: !!gpuFallbackSummary?.active,
+    gpuCompatibilityBridgeActive: !!gpuCompatibilityBridgeSummary?.active,
+    drawPathSummary: renderResultSummary.drawPathSummary,
+    drawThroughputSummary: renderResultSummary.drawThroughputSummary,
+    deterministicState: buildSlimDeterministicStateSummary(deterministicState),
+    attemptedSources: attempts,
+    lastRenderResultSummary: renderResultSummary
+  };
+}
+
+function buildSlimInspectResult({
+  inspection,
+  renderResult,
+  attempts,
+  requestedSource,
+  outputMode,
+  inspectedCandidate
+}) {
+  const base = buildInspectResultBase({
+    inspection,
+    renderResult,
+    attempts,
+    requestedSource,
+    outputMode,
+    inspectedCandidate
+  });
+
+  if (!inspection?.ok) {
+    return base;
+  }
+
+  return {
+    ...base,
+    requestedIndex: inspection.requestedIndex,
+    payloadIndex: inspection.payloadIndex,
+    localIndex: inspection.localIndex,
+    payloadKind: inspection.payloadKind,
+    payloadCount: inspection.payloadCount,
+    payloadWidth: inspection.payloadWidth,
+    payloadHeight: inspection.payloadHeight,
+    rowsPerColumn: inspection.rowsPerColumn,
+    columnCount: inspection.columnCount,
+    tileCompositeBatchIndex: inspection.tileCompositeBatchIndex,
+    tileCompositeTileId: inspection.tileCompositeTileId,
+    tileCompositeSourceVisibleIndex: inspection.tileCompositeSourceVisibleIndex,
+    tileCompositeSourceSplatIndex: inspection.tileCompositeSourceSplatIndex,
+    tileCompositeLocalOrder: inspection.tileCompositeLocalOrder,
+    tileCompositeTileSplatCount: inspection.tileCompositeTileSplatCount,
+    tileCompositeNearerNeighborCount: inspection.tileCompositeNearerNeighborCount,
+    tileCompositeFartherNeighborCount: inspection.tileCompositeFartherNeighborCount,
+    tileCompositeOverlappingNeighborCount: inspection.tileCompositeOverlappingNeighborCount,
+    tileCompositeOverlappingNearerNeighborCount: inspection.tileCompositeOverlappingNearerNeighborCount,
+    tileCompositeOverlappingFartherNeighborCount: inspection.tileCompositeOverlappingFartherNeighborCount,
+    overlappingNearerAlphaSum: inspection.overlappingNearerAlphaSum,
+    overlappingFartherAlphaSum: inspection.overlappingFartherAlphaSum,
+    overlappingNearerCountAboveThreshold: inspection.overlappingNearerCountAboveThreshold,
+    overlappingFartherCountAboveThreshold: inspection.overlappingFartherCountAboveThreshold,
+    overlappingNearerRectOverlapAreaSum: inspection.overlappingNearerRectOverlapAreaSum,
+    overlappingFartherRectOverlapAreaSum: inspection.overlappingFartherRectOverlapAreaSum,
+    overlappingNearerRectOverlapRatioToTargetSum: inspection.overlappingNearerRectOverlapRatioToTargetSum,
+    overlappingFartherRectOverlapRatioToTargetSum: inspection.overlappingFartherRectOverlapRatioToTargetSum,
+    overlappingNearerDepthSpread: inspection.overlappingNearerDepthSpread,
+    overlappingFartherDepthSpread: inspection.overlappingFartherDepthSpread,
+    estimatedNearerTransmittanceAtCenter: inspection.estimatedNearerTransmittanceAtCenter,
+    estimatedNearerAlphaCompositeAtCenter: inspection.estimatedNearerAlphaCompositeAtCenter,
+    centerSamplePixelIndexPx: inspection.centerSamplePixelIndexPx,
+    centerSampleCoordinateSpace: inspection.centerSampleCoordinateSpace,
+    centerSampleAlignmentOk: inspection.centerSampleAlignmentOk,
+    targetCenterPixelIndexPx: inspection.targetCenterPixelIndexPx,
+    targetCenterPixelIndexSpace: inspection.targetCenterPixelIndexSpace,
+    targetCenterPixelAlignmentReason: inspection.targetCenterPixelAlignmentReason,
+    centerSampleNearerAlphaSum: inspection.centerSampleNearerAlphaSum,
+    centerSampleFartherAlphaSum: inspection.centerSampleFartherAlphaSum,
+    centerSampleOverlappingNearerAlphaSum: inspection.centerSampleNearerAlphaSum,
+    centerSampleOverlappingFartherAlphaSum: inspection.centerSampleFartherAlphaSum,
+    centerSampleNearerContributorCount: inspection.centerSampleNearerContributorCount,
+    centerSampleFartherContributorCount: inspection.centerSampleFartherContributorCount,
+    nearerContributorsAtCenterTopK: inspection.nearerContributorsAtCenterTopK,
+    fartherContributorsAtCenterTopK: inspection.fartherContributorsAtCenterTopK,
+    sampleContexts: inspection.sampleContexts,
+    overlappingNearerTopKSummary: inspection.overlappingNearerTopKSummary,
+    overlappingFartherTopKSummary: inspection.overlappingFartherTopKSummary,
+    tileCompositeLocalOrderFraction: inspection.tileCompositeLocalOrderFraction,
+    tileCompositeOrderBucket: inspection.tileCompositeOrderBucket,
+    tileCompositeOverlapContext: inspection.tileCompositeOverlapContext,
+    tileCompositeDepthOrderSummary: inspection.tileCompositeDepthOrderSummary,
+    tileCompositeTileSummary: inspection.tileCompositeTileSummary,
+    textureColumnIndex: inspection.textureColumnIndex,
+    textureRowIndex: inspection.textureRowIndex,
+    textureXBase: inspection.textureXBase,
+    centerPx: inspection.centerPx,
+    depth: inspection.depth,
+    payloadRadius: inspection.payloadRadius,
+    colorAlpha: inspection.colorAlpha,
+    conic: inspection.conic,
+    unclampedPointSize: inspection.unclampedPointSize,
+    clampedPointSize: inspection.clampedPointSize,
+    clampApplied: inspection.clampApplied,
+    rasterRectMinPx: inspection.rasterRectMinPx,
+    rasterRectMaxPxExclusive: inspection.rasterRectMaxPxExclusive,
+    rasterWidthPx: inspection.rasterWidthPx,
+    rasterHeightPx: inspection.rasterHeightPx,
+    rasterPixelArea: inspection.rasterPixelArea,
+    rasterCoverageOvershootEstimate: inspection.rasterCoverageOvershootEstimate,
+    rasterCoverageOvershootRatio: inspection.rasterCoverageOvershootRatio,
+    fragmentSamples: inspection.fragmentSamples
+  };
+}
+
+function buildFullInspectResult({
+  inspection,
+  renderResult,
+  attempts,
+  requestedSource,
+  outputMode,
+  inspectedCandidate
+}) {
+  const base = buildInspectResultBase({
+    inspection,
+    renderResult,
+    attempts,
+    requestedSource,
+    outputMode,
+    inspectedCandidate
+  });
+
+  return {
+    ...inspection,
+    ...base,
+    debugText: refreshLatestDebugText(),
+    lastRenderResult: renderResult
   };
 }
 
@@ -323,6 +764,7 @@ async function captureFrame(options = {}) {
       status: lastSnapshotSummary.status,
       reason: lastSnapshotSummary.reason,
       deterministicState: buildDeterministicStateSummary(),
+      lastRenderResultSummary: buildRenderResultInspectionSummary(latestRenderResult),
       debugText: refreshLatestDebugText(),
       lastRenderResult: latestRenderResult
     };
@@ -338,51 +780,6 @@ async function captureFrame(options = {}) {
   }
 }
 
-function selectInspectableScreenSpaceCandidates(renderResult) {
-  const actualDrawPath =
-    renderResult?.drawThroughputSummary?.actualDrawPath ??
-    renderResult?.drawPathSummary?.actualPath ??
-    'none';
-  const candidates = [];
-
-  if (actualDrawPath === 'gpu-screen') {
-    candidates.push({
-      screenSpace: renderResult?.gpuScreenSourceInfo?.sourceSpace ?? null,
-      source: 'gpu-screen-source-space',
-      actualDrawPath
-    });
-    candidates.push({
-      screenSpace: renderResult?.packedScreenSpace ?? null,
-      source: 'packed-screen-space-fallback',
-      actualDrawPath
-    });
-  } else if (actualDrawPath === 'packed') {
-    candidates.push({
-      screenSpace: renderResult?.packedScreenSpace ?? null,
-      source: 'packed-screen-space',
-      actualDrawPath
-    });
-    candidates.push({
-      screenSpace: renderResult?.gpuScreenSourceInfo?.sourceSpace ?? null,
-      source: 'gpu-screen-source-space-fallback',
-      actualDrawPath
-    });
-  } else {
-    candidates.push({
-      screenSpace: renderResult?.packedScreenSpace ?? null,
-      source: 'packed-screen-space',
-      actualDrawPath
-    });
-    candidates.push({
-      screenSpace: renderResult?.gpuScreenSourceInfo?.sourceSpace ?? null,
-      source: 'gpu-screen-source-space',
-      actualDrawPath
-    });
-  }
-
-  return candidates.filter((candidate) => candidate.screenSpace);
-}
-
 async function inspectActiveSplat(options = {}) {
   const ensureCurrentFrame = options.ensureCurrentFrame !== false;
   const renderResult = ensureCurrentFrame || !latestRenderResult
@@ -395,53 +792,81 @@ async function inspectActiveSplat(options = {}) {
     throw new Error('inspectActiveSplat failed: WebGL renderer is not ready');
   }
 
-  const candidates = selectInspectableScreenSpaceCandidates(renderResult);
+  const inspectSource = normalizeInspectSource(
+    options.inspectSource ?? deterministicQueryState.inspectSource,
+    'auto'
+  );
+  const outputMode = normalizeInspectJsonMode(
+    options.outputMode ?? options.inspectJsonMode ?? deterministicQueryState.inspectJsonMode,
+    'slim'
+  );
+  const candidates = buildInspectableScreenSpaceCandidates(renderResult, inspectSource);
   if (candidates.length <= 0) {
     throw new Error('inspectActiveSplat failed: no inspectable screen-space payloads available');
   }
 
   const attempts = [];
   for (const candidate of candidates) {
-    const inspection = inspectGpuPackedPayloadItem(gl, candidate.screenSpace, options);
+    if (!candidate.screenSpace && !candidate.inspectData) {
+      attempts.push(buildInspectAttemptRecord(candidate));
+      continue;
+    }
+
+    let inspection;
+    if (candidate.inspectMethod === 'tile-composite-packed-batches') {
+      inspection = inspectPackedInterleavedTileCompositeItem(candidate.inspectData, options);
+    } else {
+      inspection = inspectGpuPackedPayloadItem(gl, candidate.screenSpace, options);
+    }
     const inspectionWithSource = {
       ...inspection,
       drawPath: candidate.actualDrawPath,
-      inspectedSourceSpace: candidate.source
+      inspectedSourceSpace: candidate.source,
+      inspectedSourceReason: candidate.reason
     };
-    attempts.push({
-      source: candidate.source,
-      drawPath: candidate.actualDrawPath,
-      ok: !!inspection.ok,
-      failureReason: inspection.failureReason ?? 'none',
-      payloadCandidateCount: inspection.payloadCandidateCount ?? 0,
-      payloadCandidates: inspection.payloadCandidates ?? []
-    });
+    attempts.push(buildInspectAttemptRecord(candidate, inspection));
     if (inspection.ok) {
-      return {
-        ...inspectionWithSource,
-        attemptedSources: attempts,
-        tileCompositeContract: renderResult?.tileCompositePlan?.summary?.compositingContract ?? 'none',
-        deterministicState: buildDeterministicStateSummary(),
-        debugText: refreshLatestDebugText(),
-        lastRenderResult: renderResult
-      };
+      return outputMode === 'full'
+        ? buildFullInspectResult({
+            inspection: inspectionWithSource,
+            renderResult,
+            attempts,
+            requestedSource: inspectSource,
+            outputMode,
+            inspectedCandidate: candidate
+          })
+        : buildSlimInspectResult({
+            inspection: inspectionWithSource,
+            renderResult,
+            attempts,
+            requestedSource: inspectSource,
+            outputMode,
+            inspectedCandidate: candidate
+          });
     }
   }
 
-  return {
+  const failedInspection = {
     ok: false,
-    failureReason: 'inspect-no-usable-payload-source',
-    drawPath:
-      renderResult?.drawThroughputSummary?.actualDrawPath ??
-      renderResult?.drawPathSummary?.actualPath ??
-      'none',
-    inspectedSourceSpace: 'none',
-    attemptedSources: attempts,
-    tileCompositeContract: renderResult?.tileCompositePlan?.summary?.compositingContract ?? 'none',
-    deterministicState: buildDeterministicStateSummary(),
-    debugText: refreshLatestDebugText(),
-    lastRenderResult: renderResult
+    failureReason: 'inspect-no-usable-payload-source'
   };
+  return outputMode === 'full'
+    ? buildFullInspectResult({
+        inspection: failedInspection,
+        renderResult,
+        attempts,
+        requestedSource: inspectSource,
+        outputMode,
+        inspectedCandidate: null
+      })
+    : buildSlimInspectResult({
+        inspection: failedInspection,
+        renderResult,
+        attempts,
+        requestedSource: inspectSource,
+        outputMode,
+        inspectedCandidate: null
+      });
 }
 
 function installViewerDebugApi() {
@@ -449,6 +874,14 @@ function installViewerDebugApi() {
     captureFrame,
     compareSingleSplat: (input = {}) => computeGaussianDebugState(input),
     inspectActiveSplat,
+    inspectActiveSplatSlim: (options = {}) => inspectActiveSplat({
+      ...options,
+      outputMode: 'slim'
+    }),
+    inspectActiveSplatFull: (options = {}) => inspectActiveSplat({
+      ...options,
+      outputMode: 'full'
+    }),
     getDefaultSingleSplatCompareInput: () => structuredClone(DEFAULT_SINGLE_SPLAT_COMPARE_INPUT),
     getDeterministicState: () => buildDeterministicStateSummary(),
     getLatestDebugText: () => refreshLatestDebugText(),
@@ -469,16 +902,18 @@ function updateDrawPathNoteFromState(stateLike) {
 
   if (summary.drawPath === 'gpu-screen') {
     ui.drawPathSelectNote.textContent =
-      'full-frame only; gpu-screen debug distinguishes actual, source, and reference';
+      `full-frame only; gpu-screen debug distinguishes actual, source, and reference; tile primitive=${summary.tileCompositePrimitive}`;
     return;
   }
 
   if (summary.drawPath === 'packed') {
-    ui.drawPathSelectNote.textContent = 'full-frame only; packed is the formal reference path';
+    ui.drawPathSelectNote.textContent =
+      `full-frame only; packed is the formal reference path; tile primitive=${summary.tileCompositePrimitive}`;
     return;
   }
 
-  ui.drawPathSelectNote.textContent = 'full-frame only; legacy is the fallback path';
+  ui.drawPathSelectNote.textContent =
+    `full-frame only; legacy is the fallback path; tile primitive=${summary.tileCompositePrimitive}`;
 }
 
 function bindSliderTextUpdates() {

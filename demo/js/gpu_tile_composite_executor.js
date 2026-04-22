@@ -9,6 +9,50 @@ import {
   GPU_STEP_FRAGMENT_SHADER_FRONT_TO_BACK
 } from './gpu_shaders.js';
 
+const TILE_COMPOSITE_QUAD_VERTEX_SHADER = `#version 300 es
+precision highp float;
+
+in vec2 aCenterPx;
+in float aRadiusPx;
+in vec4 aColorAlpha;
+in vec3 aConic;
+
+uniform vec2 uViewportPx;
+
+flat out vec4 vColorAlpha;
+flat out vec3 vConic;
+flat out vec2 vCenterPx;
+
+void main() {
+  int cornerIndex = gl_VertexID;
+  vec2 quadCorner;
+  if (cornerIndex == 0) {
+    quadCorner = vec2(0.0, 0.0);
+  } else if (cornerIndex == 1) {
+    quadCorner = vec2(1.0, 0.0);
+  } else if (cornerIndex == 2) {
+    quadCorner = vec2(0.0, 1.0);
+  } else if (cornerIndex == 3) {
+    quadCorner = vec2(0.0, 1.0);
+  } else if (cornerIndex == 4) {
+    quadCorner = vec2(1.0, 0.0);
+  } else {
+    quadCorner = vec2(1.0, 1.0);
+  }
+
+  vec2 rectMinPx = floor(aCenterPx - vec2(aRadiusPx));
+  vec2 rectMaxPxExclusive = floor(aCenterPx + vec2(aRadiusPx)) + vec2(1.0);
+  vec2 pixelEdgePx = mix(rectMinPx, rectMaxPxExclusive, quadCorner);
+  float x = (pixelEdgePx.x / uViewportPx.x) * 2.0 - 1.0;
+  float y = 1.0 - (pixelEdgePx.y / uViewportPx.y) * 2.0;
+  gl_Position = vec4(x, y, 0.0, 1.0);
+
+  vColorAlpha = aColorAlpha;
+  vConic = aConic;
+  vCenterPx = aCenterPx;
+}
+`;
+
 const TILE_COMPOSITE_RESOLVE_VERTEX_SHADER = `#version 300 es
 precision highp float;
 
@@ -63,6 +107,27 @@ function ensureTileCompositeState(gl, gpu) {
     uniformViewportPx
   };
   return gpu.tileCompositeDrawState;
+}
+
+function ensureTileCompositeQuadState(gl, gpu) {
+  if (gpu.tileCompositeQuadState?.program && gpu.tileCompositeQuadState?.vao && gpu.tileCompositeQuadState?.uploadState) {
+    return gpu.tileCompositeQuadState;
+  }
+
+  const program = createProgram(gl, TILE_COMPOSITE_QUAD_VERTEX_SHADER, GPU_STEP_FRAGMENT_SHADER_FRONT_TO_BACK);
+  const vao = gl.createVertexArray();
+  const uploadState = createPackedUploadState(gl);
+  const layout = getPackedInterleavedAttribDescriptors();
+  const uniformViewportPx = gl.getUniformLocation(program, 'uViewportPx');
+
+  gpu.tileCompositeQuadState = {
+    program,
+    vao,
+    uploadState,
+    layout,
+    uniformViewportPx
+  };
+  return gpu.tileCompositeQuadState;
 }
 
 function ensureTileCompositeResolveState(gl, gpu) {
@@ -159,6 +224,24 @@ function configureTileCompositeVao(gl, state) {
   });
 }
 
+function configureTileCompositeQuadVao(gl, state) {
+  bindInterleavedFloatAttribs(gl, {
+    vao: state.vao,
+    program: state.program,
+    buffer: state.uploadState.interleaved.buffer,
+    attributes: state.layout.attributes
+  });
+
+  gl.bindVertexArray(state.vao);
+  for (const attr of state.layout.attributes || []) {
+    const loc = gl.getAttribLocation(state.program, attr.name);
+    if (loc >= 0) {
+      gl.vertexAttribDivisor(loc, 1);
+    }
+  }
+  gl.bindVertexArray(null);
+}
+
 function enableTileScissor(gl, canvasHeight, rect) {
   const [x0, y0, x1, y1] = rect;
   const width = Math.max(0, x1 - x0);
@@ -217,7 +300,9 @@ function buildUploadSummary(state, aggregate) {
       : '',
     packedInterleavedBound: true,
     packedDirectTileComposite: true,
-    packedDirectCompositingContract: 'tile-local-front-to-back'
+    packedDirectCompositingContract: 'tile-local-front-to-back',
+    tileCompositePrimitive: aggregate.primitive ?? 'point',
+    tileCompositeRectContract: aggregate.rectContract ?? 'point-sprite-radius'
   };
 }
 
@@ -227,10 +312,14 @@ export function executeTileCompositeDraw({
   canvas,
   tileCompositePlan,
   drawPathSelection,
+  primitive = 'point',
   bgGray01 = 0
 }) {
   const batches = Array.isArray(tileCompositePlan?.batches) ? tileCompositePlan.batches : [];
-  const state = ensureTileCompositeState(gl, gpu);
+  const useQuadPrimitive = primitive === 'quad';
+  const state = useQuadPrimitive
+    ? ensureTileCompositeQuadState(gl, gpu)
+    : ensureTileCompositeState(gl, gpu);
   const accumulationTarget = ensureTileCompositeAccumulationTarget(gl, gpu, canvas.width, canvas.height);
   const previousScissorEnabled = gl.isEnabled(gl.SCISSOR_TEST);
   const previousBlendEnabled = gl.isEnabled(gl.BLEND);
@@ -239,7 +328,11 @@ export function executeTileCompositeDraw({
     uploadBytes: 0,
     uploadCountItems: 0,
     uploadFloatLength: 0,
-    reusedCapacity: false
+    reusedCapacity: false,
+    primitive: useQuadPrimitive ? 'quad' : 'point',
+    rectContract: useQuadPrimitive
+      ? 'cuda-floor-min-max-exclusive-quad'
+      : 'point-sprite-radius'
   };
 
   let drawCallCount = 0;
@@ -256,14 +349,19 @@ export function executeTileCompositeDraw({
       if (!(batch?.packed instanceof Float32Array) || packedCount <= 0) continue;
 
       uploadPackedInterleaved(gl, state.uploadState, batch.packed, packedCount);
-      configureTileCompositeVao(gl, state);
+      if (useQuadPrimitive) configureTileCompositeQuadVao(gl, state);
+      else configureTileCompositeVao(gl, state);
 
       gl.useProgram(state.program);
       gl.bindVertexArray(state.vao);
       gl.bindBuffer(gl.ARRAY_BUFFER, state.uploadState.interleaved.buffer);
       gl.uniform2f(state.uniformViewportPx, canvas.width, canvas.height);
       enableTileScissor(gl, canvas.height, batch.rect);
-      gl.drawArrays(gl.POINTS, 0, packedCount);
+      if (useQuadPrimitive) {
+        gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, packedCount);
+      } else {
+        gl.drawArrays(gl.POINTS, 0, packedCount);
+      }
 
       aggregate.uploadBytes += batch.packed.byteLength;
       aggregate.uploadCountItems += packedCount;
@@ -297,13 +395,17 @@ export function executeTileCompositeDraw({
       requestedDrawPath: drawPathSelection?.requestedPath ?? 'packed',
       actualDrawPath: drawPathSelection?.actualPath ?? 'packed',
       drawPathFallbackReason: drawPathSelection?.fallbackReason ?? 'none',
-      compositingContract: 'tile-local-front-to-back'
+      compositingContract: 'tile-local-front-to-back',
+      tileCompositePrimitive: aggregate.primitive,
+      tileCompositeRectContract: aggregate.rectContract
     },
     packedUploadSummary: uploadSummary,
     tileCompositeDrawInfo: {
       drawCount: totalTileDrawCount,
       drawCallCount,
-      uploadCount: nonEmptyTileBatchCount
+      uploadCount: nonEmptyTileBatchCount,
+      primitive: aggregate.primitive,
+      rectContract: aggregate.rectContract
     }
   };
 }

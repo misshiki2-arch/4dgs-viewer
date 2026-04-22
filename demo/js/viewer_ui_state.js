@@ -39,6 +39,14 @@ function normalizeDrawPath(value, fallback = 'packed') {
   return isAllowedDrawPath(value) ? value : fallback;
 }
 
+function isAllowedTileCompositePrimitive(value) {
+  return value === 'point' || value === 'quad';
+}
+
+function normalizeTileCompositePrimitive(value, fallback = 'point') {
+  return isAllowedTileCompositePrimitive(value) ? value : fallback;
+}
+
 function readChecked(el, fallback = false) {
   return el ? !!el.checked : fallback;
 }
@@ -91,6 +99,7 @@ export function createDefaultUiState() {
     interactionRenderScale: 1.0,
     usePackedVisiblePath: true,
     drawPath: 'packed',
+    tileCompositePrimitive: 'point',
     bgGray: 32
   };
 }
@@ -121,6 +130,10 @@ export function normalizeUiState(input = {}) {
     interactionRenderScale: Math.max(0.05, toFloat(input.interactionRenderScale, defaults.interactionRenderScale)),
     usePackedVisiblePath: toBool(input.usePackedVisiblePath, defaults.usePackedVisiblePath),
     drawPath: normalizeDrawPath(input.drawPath, defaults.drawPath),
+    tileCompositePrimitive: normalizeTileCompositePrimitive(
+      toStringValue(input.tileCompositePrimitive, defaults.tileCompositePrimitive),
+      defaults.tileCompositePrimitive
+    ),
     bgGray: Math.min(255, Math.max(0, toInt(input.bgGray, defaults.bgGray)))
   };
 }
@@ -137,6 +150,7 @@ export function summarizeUiState(state) {
     drawPathReference,
     drawPathShowsComparison: s.drawPath === 'gpu-screen',
     drawPathActualRole: drawPathRole,
+    tileCompositePrimitive: s.tileCompositePrimitive,
     drawSelectedOnly: s.drawSelectedTileOnly,
     bgGray: s.bgGray
   };
@@ -189,6 +203,7 @@ export function readUiStateFromControls(ui) {
     interactionRenderScale: readValue(ui.interactionRenderScaleInput, '1.0'),
     usePackedVisiblePath: readChecked(ui.usePackedVisiblePathCheck, true),
     drawPath: readValue(ui.drawPathSelect, 'packed'),
+    tileCompositePrimitive: readValue(ui.tileCompositePrimitiveSelect, 'point'),
     bgGray: readValue(ui.bgGraySlider, '32')
   });
 }
@@ -219,6 +234,7 @@ export function applyUiStateToControls(ui, state) {
   writeValue(ui.interactionRenderScaleInput, s.interactionRenderScale);
   writeChecked(ui.usePackedVisiblePathCheck, s.usePackedVisiblePath);
   writeValue(ui.drawPathSelect, s.drawPath);
+  writeValue(ui.tileCompositePrimitiveSelect, s.tileCompositePrimitive);
   writeValue(ui.bgGraySlider, s.bgGray);
 
   if (ui.usePackedVisiblePathNote) {
@@ -267,6 +283,7 @@ export function bindUiStatePersistence(ui, options = {}) {
     ui.interactionRenderScaleInput,
     ui.usePackedVisiblePathCheck,
     ui.drawPathSelect,
+    ui.tileCompositePrimitiveSelect,
     ui.bgGraySlider
   ].filter(Boolean);
 
