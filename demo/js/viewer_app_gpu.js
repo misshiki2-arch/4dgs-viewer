@@ -108,7 +108,7 @@ const INSPECT_SOURCE_VALUES = new Set(['auto', 'actual-draw', 'packed', 'gpu-scr
 const INSPECT_JSON_MODE_VALUES = new Set(['slim', 'full']);
 
 function refreshLatestDebugText(explicitText = null) {
-  const text = explicitText ?? ui.info?.textContent ?? '';
+  const text = explicitText ?? lastDebugText ?? ui.info?.textContent ?? '';
   lastDebugText = text;
   return text;
 }
@@ -731,7 +731,9 @@ async function renderCurrentFrame() {
   });
   latestRenderResult = renderResult;
 
-  if (renderResult && typeof renderResult.infoText === 'string') {
+  if (renderResult && typeof renderResult.debugText === 'string') {
+    refreshLatestDebugText(renderResult.debugText);
+  } else if (renderResult && typeof renderResult.infoText === 'string') {
     refreshLatestDebugText(renderResult.infoText);
   } else {
     refreshLatestDebugText();

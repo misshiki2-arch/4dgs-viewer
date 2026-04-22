@@ -160,6 +160,45 @@ export function formatGpuViewerInfo({
   return lines.join('\n');
 }
 
+export function formatGpuViewerCompactInfo({
+  stepLabel = 'GPU',
+  elapsedMs = 0,
+  rawCount = 0,
+  visibleCount = 0,
+  drawCount = 0,
+  stride = 1,
+  actualDrawPath = 'none',
+  requestedDrawPath = 'none',
+  tileCompositePrimitiveRequested = 'point',
+  tileCompositePrimitiveActual = 'none',
+  tileCompositeRectContract = 'none',
+  gpuFallbackActive = false,
+  gpuCompatibilityBridgeActive = false,
+  deterministicUrlSummary = '',
+  timestamp = 0,
+  canvasWidth = 0,
+  canvasHeight = 0
+}) {
+  const lines = [];
+  lines.push(`${stepLabel}  render=${Number(elapsedMs).toFixed(1)} ms`);
+  lines.push(
+    `drawPath=${actualDrawPath}  requested=${requestedDrawPath}  primitive=${tileCompositePrimitiveActual}  rect=${tileCompositeRectContract}`
+  );
+  lines.push(
+    `fallback=${gpuFallbackActive}  bridge=${gpuCompatibilityBridgeActive}  time=${Number(timestamp).toFixed(2)}  canvas=${canvasWidth}x${canvasHeight}`
+  );
+  lines.push(
+    `N=${Number(rawCount || 0).toLocaleString()}  visible=${Number(visibleCount || 0).toLocaleString()}  draw=${Number(drawCount || 0).toLocaleString()}  stride=${stride}`
+  );
+  if (tileCompositePrimitiveRequested !== tileCompositePrimitiveActual) {
+    lines.push(`primitiveRequested=${tileCompositePrimitiveRequested}`);
+  }
+  if (deterministicUrlSummary) {
+    lines.push(`deterministic=${deterministicUrlSummary}`);
+  }
+  return lines.join('\n');
+}
+
 export function setInfoText(infoEl, text) {
   if (!infoEl) return;
   infoEl.textContent = text;

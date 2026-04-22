@@ -352,8 +352,8 @@ export function ensurePackedPathControls(ui) {
     createSelect(
       'tileCompositePrimitiveSelect',
       [
-        { value: 'point', label: 'point (Step84 baseline)' },
-        { value: 'quad', label: 'quad (Step85 stage1)' }
+        { value: 'point', label: 'point (baseline)' },
+        { value: 'quad', label: 'quad (exact rect)' }
       ],
       'point',
       '230px'
