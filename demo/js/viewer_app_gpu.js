@@ -110,6 +110,9 @@ const SHARED_REPRESENTATIVE_PIXEL_STORAGE_KEY = 'step86.sharedRepresentativePixe
 const SHARED_REPRESENTATIVE_ACCUMULATION_COLOR_STORAGE_KEY = 'step86.sharedRepresentativeAccumulationColor';
 const SHARED_REPRESENTATIVE_DEFAULT_PIXEL = [2949, 688];
 const SHARED_REPRESENTATIVE_COLOR_MATCH_TOLERANCE = 2.0 / 255.0;
+const MAPPED_PROBE_PATCH_SIZES = [7, 21, 31];
+const MAPPED_PROBE_PATCH_REFERENCE_STORAGE_PREFIX = 'step87.mappedProbePatchReference.';
+const MAPPED_PROBE_PATCH_TOLERANCE = 2.0 / 255.0;
 
 function refreshLatestDebugText(explicitText = null) {
   const text = explicitText ?? lastDebugText ?? ui.info?.textContent ?? '';
@@ -139,6 +142,10 @@ function updateDeterministicStateNote() {
   parts.push(`inspectSource=${deterministicQueryState.inspectSource ?? 'auto'}`);
   parts.push(`inspectJsonMode=${deterministicQueryState.inspectJsonMode ?? 'slim'}`);
   parts.push(`gpuFramePolicyOverride=${deterministicQueryState.gpuFramePolicyOverride ?? 'auto'}`);
+  if (Number.isFinite(deterministicQueryState.fixedCanvasWidth) &&
+      Number.isFinite(deterministicQueryState.fixedCanvasHeight)) {
+    parts.push(`fixedCanvas=${deterministicQueryState.fixedCanvasWidth}x${deterministicQueryState.fixedCanvasHeight}`);
+  }
   if (deterministicQueryState.deterministicQueryString) {
     parts.push(`query=${deterministicQueryState.deterministicQueryString}`);
   }
@@ -187,6 +194,776 @@ function buildDeterministicStateSummary() {
   };
 }
 
+function getFixedCanvasSizeOverride() {
+  const fixedCanvasWidth = Number.isFinite(deterministicQueryState.fixedCanvasWidth)
+    ? Math.max(1, deterministicQueryState.fixedCanvasWidth | 0)
+    : null;
+  const fixedCanvasHeight = Number.isFinite(deterministicQueryState.fixedCanvasHeight)
+    ? Math.max(1, deterministicQueryState.fixedCanvasHeight | 0)
+    : null;
+  if (fixedCanvasWidth === null || fixedCanvasHeight === null) {
+    return null;
+  }
+  return { fixedCanvasWidth, fixedCanvasHeight };
+}
+
+function applyCanvasSize() {
+  const fixedSize = getFixedCanvasSizeOverride();
+  setCanvasSize(fixedSize ?? {});
+}
+
+function buildCanvasSizeSummary() {
+  const gpu = getGpu();
+  const gl = gpu?.gl ?? null;
+  const fixedSize = getFixedCanvasSizeOverride();
+  const renderScale = Number(ui.renderScaleSlider?.value);
+  return {
+    clientWidth: Number.isFinite(canvas?.clientWidth) ? canvas.clientWidth : 0,
+    clientHeight: Number.isFinite(canvas?.clientHeight) ? canvas.clientHeight : 0,
+    windowInnerWidth: typeof window !== 'undefined' ? window.innerWidth : 0,
+    windowInnerHeight: typeof window !== 'undefined' ? window.innerHeight : 0,
+    canvasWidth: Number.isFinite(canvas?.width) ? canvas.width : 0,
+    canvasHeight: Number.isFinite(canvas?.height) ? canvas.height : 0,
+    framebufferWidth: gl ? (gl.drawingBufferWidth | 0) : (Number.isFinite(canvas?.width) ? canvas.width : 0),
+    framebufferHeight: gl ? (gl.drawingBufferHeight | 0) : (Number.isFinite(canvas?.height) ? canvas.height : 0),
+    devicePixelRatio: typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1,
+    renderScale: Number.isFinite(renderScale) ? renderScale : 1,
+    fixedCanvasWidth: fixedSize?.fixedCanvasWidth ?? null,
+    fixedCanvasHeight: fixedSize?.fixedCanvasHeight ?? null,
+    fixedCanvasActive: !!fixedSize,
+    coordinateSpaceForReadPixels: 'webgl-default-framebuffer-pixels',
+    probeCoordinateWidth: gl ? (gl.drawingBufferWidth | 0) : (Number.isFinite(canvas?.width) ? canvas.width : 0),
+    probeCoordinateHeight: gl ? (gl.drawingBufferHeight | 0) : (Number.isFinite(canvas?.height) ? canvas.height : 0)
+  };
+}
+
+function parseScreenshotProbeList(rawProbeList) {
+  if (rawProbeList === null || rawProbeList === undefined || rawProbeList === '') {
+    return [];
+  }
+
+  return String(rawProbeList)
+    .split(';')
+    .map((entry, index) => {
+      const trimmed = String(entry ?? '').trim();
+      if (!trimmed) return null;
+
+      const labelMatch = trimmed.match(/^([^:@]+)[:@](.+)$/);
+      const label = labelMatch ? labelMatch[1].trim() : null;
+      const coordsText = (labelMatch ? labelMatch[2] : trimmed).trim();
+      const coords = coordsText.split(',').map((value) => value.trim()).filter(Boolean);
+      if (coords.length < 2) {
+        return {
+          valid: false,
+          reason: 'invalid-screenshot-probe-format',
+          probeId: label ?? `probe-${index + 1}`,
+          screenshotProbeX: null,
+          screenshotProbeY: null,
+          screenshotProbePixel: [null, null]
+        };
+      }
+
+      const screenshotProbeX = Number(coords[0]);
+      const screenshotProbeY = Number(coords[1]);
+      const probeId = label ?? `probe-${index + 1}`;
+      if (!Number.isFinite(screenshotProbeX) || !Number.isFinite(screenshotProbeY)) {
+        return {
+          valid: false,
+          reason: 'invalid-screenshot-probe-coordinate',
+          probeId,
+          screenshotProbeX: Number.isFinite(screenshotProbeX) ? screenshotProbeX : null,
+          screenshotProbeY: Number.isFinite(screenshotProbeY) ? screenshotProbeY : null,
+          screenshotProbePixel: [
+            Number.isFinite(screenshotProbeX) ? screenshotProbeX : null,
+            Number.isFinite(screenshotProbeY) ? screenshotProbeY : null
+          ]
+        };
+      }
+
+      return {
+        valid: true,
+        reason: 'probe-list-item-ok',
+        probeId,
+        screenshotProbeLabel: label ?? probeId,
+        screenshotProbeX,
+        screenshotProbeY,
+        screenshotProbePixel: [screenshotProbeX, screenshotProbeY]
+      };
+    })
+    .filter(Boolean);
+}
+
+function buildDefaultScreenshotProbeInput() {
+  const screenshotProbeX = Number.isFinite(deterministicQueryState.screenshotProbeX)
+    ? Number(deterministicQueryState.screenshotProbeX)
+    : null;
+  const screenshotProbeY = Number.isFinite(deterministicQueryState.screenshotProbeY)
+    ? Number(deterministicQueryState.screenshotProbeY)
+    : null;
+  if (!Number.isFinite(screenshotProbeX) || !Number.isFinite(screenshotProbeY)) {
+    return null;
+  }
+  return {
+    valid: true,
+    reason: 'single-screenshot-probe',
+    probeId: 'probe-1',
+    screenshotProbeLabel: 'probe-1',
+    screenshotProbeX,
+    screenshotProbeY,
+    screenshotProbePixel: [screenshotProbeX, screenshotProbeY]
+  };
+}
+
+function buildScreenshotProbeInputList() {
+  const parsed = parseScreenshotProbeList(deterministicQueryState.screenshotProbeList);
+  const screenshotImageWidth = Number.isFinite(deterministicQueryState.screenshotImageWidth)
+    ? Math.max(1, deterministicQueryState.screenshotImageWidth | 0)
+    : null;
+  const screenshotImageHeight = Number.isFinite(deterministicQueryState.screenshotImageHeight)
+    ? Math.max(1, deterministicQueryState.screenshotImageHeight | 0)
+    : null;
+  if (parsed.length > 0) {
+    return parsed.map((entry) => ({
+      ...entry,
+      screenshotImageWidth,
+      screenshotImageHeight
+    }));
+  }
+  const single = buildDefaultScreenshotProbeInput();
+  return single ? [{
+    ...single,
+    screenshotImageWidth,
+    screenshotImageHeight
+  }] : [];
+}
+
+function buildMappedScreenshotProbeSummaryFromInput(probeInput, canvasSizeSummary = buildCanvasSizeSummary()) {
+  const screenshotProbeX = Number.isFinite(probeInput?.screenshotProbeX)
+    ? Number(probeInput.screenshotProbeX)
+    : null;
+  const screenshotProbeY = Number.isFinite(probeInput?.screenshotProbeY)
+    ? Number(probeInput.screenshotProbeY)
+    : null;
+  const screenshotImageWidth = Number.isFinite(probeInput?.screenshotImageWidth)
+    ? Math.max(1, probeInput.screenshotImageWidth | 0)
+    : (Number.isFinite(deterministicQueryState.screenshotImageWidth)
+      ? Math.max(1, deterministicQueryState.screenshotImageWidth | 0)
+      : null);
+  const screenshotImageHeight = Number.isFinite(probeInput?.screenshotImageHeight)
+    ? Math.max(1, probeInput.screenshotImageHeight | 0)
+    : (Number.isFinite(deterministicQueryState.screenshotImageHeight)
+      ? Math.max(1, deterministicQueryState.screenshotImageHeight | 0)
+      : null);
+  const targetWidth = Number.isFinite(canvasSizeSummary?.probeCoordinateWidth)
+    ? Math.max(1, canvasSizeSummary.probeCoordinateWidth | 0)
+    : 0;
+  const targetHeight = Number.isFinite(canvasSizeSummary?.probeCoordinateHeight)
+    ? Math.max(1, canvasSizeSummary.probeCoordinateHeight | 0)
+    : 0;
+  const usesFixedCanvas = !!canvasSizeSummary?.fixedCanvasActive;
+  const coordinateSpace = canvasSizeSummary?.coordinateSpaceForReadPixels ?? 'webgl-default-framebuffer-pixels';
+
+  const sourceSummary = {
+    source: 'screenshot-query',
+    probeId: probeInput?.probeId ?? 'probe-1',
+    screenshotProbeLabel: probeInput?.screenshotProbeLabel ?? probeInput?.probeId ?? 'probe-1',
+    screenshotProbePixel: [screenshotProbeX, screenshotProbeY],
+    screenshotImageSize: [screenshotImageWidth, screenshotImageHeight],
+    targetFramebufferSize: [targetWidth, targetHeight],
+    scale: null,
+    rounding: 'round-to-nearest-pixel',
+    clamped: false,
+    targetCoordinateSpace: coordinateSpace,
+    fixedCanvasTarget: usesFixedCanvas ? [canvasSizeSummary.fixedCanvasWidth, canvasSizeSummary.fixedCanvasHeight] : null
+  };
+
+  if (!Number.isFinite(screenshotProbeX) ||
+      !Number.isFinite(screenshotProbeY)) {
+    return {
+      screenshotProbeX: screenshotProbeX ?? null,
+      screenshotProbeY: screenshotProbeY ?? null,
+      screenshotProbePixel: [screenshotProbeX ?? null, screenshotProbeY ?? null],
+      screenshotImageWidth: screenshotImageWidth ?? null,
+      screenshotImageHeight: screenshotImageHeight ?? null,
+      screenshotImageSize: [screenshotImageWidth ?? null, screenshotImageHeight ?? null],
+      probeId: probeInput?.probeId ?? 'probe-1',
+      screenshotProbeLabel: probeInput?.screenshotProbeLabel ?? probeInput?.probeId ?? 'probe-1',
+      mappedProbeX: null,
+      mappedProbeY: null,
+      mappedProbeValid: false,
+      mappedProbeReason: 'missing-screenshot-probe-coordinate',
+      mappedProbeCoordinateSpace: coordinateSpace,
+      mappedProbeUsesFixedCanvas: usesFixedCanvas,
+      mappedProbeSourceSummary: sourceSummary
+    };
+  }
+
+  if (!Number.isFinite(screenshotImageWidth) || !Number.isFinite(screenshotImageHeight)) {
+    return {
+      screenshotProbeX,
+      screenshotProbeY,
+      screenshotProbePixel: [screenshotProbeX, screenshotProbeY],
+      screenshotImageWidth: screenshotImageWidth ?? null,
+      screenshotImageHeight: screenshotImageHeight ?? null,
+      screenshotImageSize: [screenshotImageWidth ?? null, screenshotImageHeight ?? null],
+      probeId: probeInput?.probeId ?? 'probe-1',
+      screenshotProbeLabel: probeInput?.screenshotProbeLabel ?? probeInput?.probeId ?? 'probe-1',
+      mappedProbeX: null,
+      mappedProbeY: null,
+      mappedProbeValid: false,
+      mappedProbeReason: 'missing-screenshot-image-size',
+      mappedProbeCoordinateSpace: coordinateSpace,
+      mappedProbeUsesFixedCanvas: usesFixedCanvas,
+      mappedProbeSourceSummary: sourceSummary
+    };
+  }
+
+  if (!(targetWidth > 0) || !(targetHeight > 0)) {
+    return {
+      screenshotProbeX,
+      screenshotProbeY,
+      screenshotProbePixel: [screenshotProbeX, screenshotProbeY],
+      screenshotImageWidth,
+      screenshotImageHeight,
+      screenshotImageSize: [screenshotImageWidth, screenshotImageHeight],
+      probeId: probeInput?.probeId ?? 'probe-1',
+      screenshotProbeLabel: probeInput?.screenshotProbeLabel ?? probeInput?.probeId ?? 'probe-1',
+      mappedProbeX: null,
+      mappedProbeY: null,
+      mappedProbeValid: false,
+      mappedProbeReason: 'invalid-target-framebuffer-size',
+      mappedProbeCoordinateSpace: coordinateSpace,
+      mappedProbeUsesFixedCanvas: usesFixedCanvas,
+      mappedProbeSourceSummary: sourceSummary
+    };
+  }
+
+  const scaleX = targetWidth / screenshotImageWidth;
+  const scaleY = targetHeight / screenshotImageHeight;
+  const rawMappedX = screenshotProbeX * scaleX;
+  const rawMappedY = screenshotProbeY * scaleY;
+  const mappedProbeX = Math.min(targetWidth - 1, Math.max(0, Math.round(rawMappedX)));
+  const mappedProbeY = Math.min(targetHeight - 1, Math.max(0, Math.round(rawMappedY)));
+  const clamped = mappedProbeX !== Math.round(rawMappedX) || mappedProbeY !== Math.round(rawMappedY);
+
+  return {
+    screenshotProbeX,
+    screenshotProbeY,
+    screenshotProbePixel: [screenshotProbeX, screenshotProbeY],
+    screenshotImageWidth,
+    screenshotImageHeight,
+    screenshotImageSize: [screenshotImageWidth, screenshotImageHeight],
+    probeId: probeInput?.probeId ?? 'probe-1',
+    screenshotProbeLabel: probeInput?.screenshotProbeLabel ?? probeInput?.probeId ?? 'probe-1',
+    mappedProbeX,
+    mappedProbeY,
+    mappedProbeValid: true,
+    mappedProbeReason: 'mapped-screenshot-to-viewer-framebuffer',
+    mappedProbeCoordinateSpace: coordinateSpace,
+    mappedProbeUsesFixedCanvas: usesFixedCanvas,
+    mappedProbeSourceSummary: {
+      ...sourceSummary,
+      scale: [scaleX, scaleY],
+      clamped
+    }
+  };
+}
+
+function readFramebufferPatchAtTopLeftPixel(gl, centerPixel, patchSize) {
+  const normalizedCenter = normalizeSharedRepresentativePixel(centerPixel);
+  const size = Number.isFinite(patchSize) ? Math.max(1, patchSize | 0) : 0;
+  if (!normalizedCenter) {
+    return {
+      valid: false,
+      reason: 'invalid-mapped-probe-center',
+      patchSize: size,
+      centerPixel: [0, 0],
+      topLeft: [0, 0],
+      bottomRight: [0, 0],
+      pixelCount: 0,
+      centerRgba8: [0, 0, 0, 0],
+      meanRgb: [0, 0, 0],
+      minRgb: [0, 0, 0],
+      maxRgb: [0, 0, 0],
+      rawRgba8: []
+    };
+  }
+
+  const width = Number.isFinite(canvas?.width) ? (canvas.width | 0) : 0;
+  const height = Number.isFinite(canvas?.height) ? (canvas.height | 0) : 0;
+  if (!(size > 0) || (size % 2) === 0) {
+    return {
+      valid: false,
+      reason: 'invalid-patch-size',
+      patchSize: size,
+      centerPixel: normalizedCenter,
+      topLeft: [0, 0],
+      bottomRight: [0, 0],
+      pixelCount: 0,
+      centerRgba8: [0, 0, 0, 0],
+      meanRgb: [0, 0, 0],
+      minRgb: [0, 0, 0],
+      maxRgb: [0, 0, 0],
+      rawRgba8: []
+    };
+  }
+  if (width <= 0 || height <= 0) {
+    return {
+      valid: false,
+      reason: 'invalid-canvas-size',
+      patchSize: size,
+      centerPixel: normalizedCenter,
+      topLeft: [0, 0],
+      bottomRight: [0, 0],
+      pixelCount: 0,
+      centerRgba8: [0, 0, 0, 0],
+      meanRgb: [0, 0, 0],
+      minRgb: [0, 0, 0],
+      maxRgb: [0, 0, 0],
+      rawRgba8: []
+    };
+  }
+
+  const half = (size - 1) >> 1;
+  const topLeftX = normalizedCenter[0] - half;
+  const topLeftY = normalizedCenter[1] - half;
+  const bottomRightX = topLeftX + size - 1;
+  const bottomRightY = topLeftY + size - 1;
+  if (topLeftX < 0 || topLeftY < 0 || bottomRightX >= width || bottomRightY >= height) {
+    return {
+      valid: false,
+      reason: 'patch-out-of-bounds',
+      patchSize: size,
+      centerPixel: normalizedCenter,
+      topLeft: [topLeftX, topLeftY],
+      bottomRight: [bottomRightX, bottomRightY],
+      pixelCount: 0,
+      centerRgba8: [0, 0, 0, 0],
+      meanRgb: [0, 0, 0],
+      minRgb: [0, 0, 0],
+      maxRgb: [0, 0, 0],
+      rawRgba8: []
+    };
+  }
+
+  const glX = topLeftX;
+  const glY = height - topLeftY - size;
+  const rgba = new Uint8Array(size * size * 4);
+  const previousFramebuffer = gl.getParameter(gl.FRAMEBUFFER_BINDING);
+  try {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.readPixels(glX, glY, size, size, gl.RGBA, gl.UNSIGNED_BYTE, rgba);
+  } catch (error) {
+    return {
+      valid: false,
+      reason: `readpixels-failed:${error?.message ?? 'unknown'}`,
+      patchSize: size,
+      centerPixel: normalizedCenter,
+      topLeft: [topLeftX, topLeftY],
+      bottomRight: [bottomRightX, bottomRightY],
+      pixelCount: 0,
+      centerRgba8: [0, 0, 0, 0],
+      meanRgb: [0, 0, 0],
+      minRgb: [0, 0, 0],
+      maxRgb: [0, 0, 0],
+      rawRgba8: []
+    };
+  } finally {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, previousFramebuffer);
+  }
+
+  const rawRgba8 = new Array(size * size * 4);
+  let pixelIndex = 0;
+  let minR = 1;
+  let minG = 1;
+  let minB = 1;
+  let maxR = 0;
+  let maxG = 0;
+  let maxB = 0;
+  let sumR = 0;
+  let sumG = 0;
+  let sumB = 0;
+  for (let row = 0; row < size; row += 1) {
+    const sourceRow = size - 1 - row;
+    for (let col = 0; col < size; col += 1) {
+      const srcIndex = (sourceRow * size + col) * 4;
+      const r8 = rgba[srcIndex];
+      const g8 = rgba[srcIndex + 1];
+      const b8 = rgba[srcIndex + 2];
+      const a8 = rgba[srcIndex + 3];
+      rawRgba8[pixelIndex++] = r8;
+      rawRgba8[pixelIndex++] = g8;
+      rawRgba8[pixelIndex++] = b8;
+      rawRgba8[pixelIndex++] = a8;
+      const r = r8 / 255.0;
+      const g = g8 / 255.0;
+      const b = b8 / 255.0;
+      sumR += r;
+      sumG += g;
+      sumB += b;
+      minR = Math.min(minR, r);
+      minG = Math.min(minG, g);
+      minB = Math.min(minB, b);
+      maxR = Math.max(maxR, r);
+      maxG = Math.max(maxG, g);
+      maxB = Math.max(maxB, b);
+    }
+  }
+
+  const centerIndex = half * size + half;
+  const centerBase = centerIndex * 4;
+  return {
+    valid: true,
+    reason: 'readback-ok',
+    patchSize: size,
+    centerPixel: normalizedCenter,
+    topLeft: [topLeftX, topLeftY],
+    bottomRight: [bottomRightX, bottomRightY],
+    pixelCount: size * size,
+    centerRgba8: [
+      rgba[centerBase],
+      rgba[centerBase + 1],
+      rgba[centerBase + 2],
+      rgba[centerBase + 3]
+    ],
+    meanRgb: [
+      sumR / (size * size),
+      sumG / (size * size),
+      sumB / (size * size)
+    ],
+    minRgb: [minR, minG, minB],
+    maxRgb: [maxR, maxG, maxB],
+    rawRgba8
+  };
+}
+
+function getMappedProbePatchStorageKey(centerPixel, patchSize, probeKey = null) {
+  const normalizedCenter = normalizeSharedRepresentativePixel(centerPixel);
+  const size = Number.isFinite(patchSize) ? Math.max(1, patchSize | 0) : 0;
+  if (!normalizedCenter || !(size > 0)) return null;
+  const keyPrefix = probeKey ? `${probeKey}.` : '';
+  return `${MAPPED_PROBE_PATCH_REFERENCE_STORAGE_PREFIX}${keyPrefix}${normalizedCenter[0]}x${normalizedCenter[1]}.${size}`;
+}
+
+function readMappedProbePatchReference(centerPixel, patchSize, probeKey = null) {
+  const storageKey = getMappedProbePatchStorageKey(centerPixel, patchSize, probeKey);
+  if (!storageKey) return null;
+  const stored = readStoredJson(storageKey);
+  if (!stored || !Array.isArray(stored.rawRgba8)) return null;
+  return {
+    ...stored,
+    valid: stored.valid !== false,
+    referenceSource: stored.referenceSource ?? 'stored-accumulation-patch-reference'
+  };
+}
+
+function writeMappedProbePatchReference(centerPixel, patchSize, patchResult, probeKey = null) {
+  const storageKey = getMappedProbePatchStorageKey(centerPixel, patchSize, probeKey);
+  if (!storageKey || !patchResult?.valid || !Array.isArray(patchResult.rawRgba8)) return;
+  writeStoredJson(storageKey, {
+    valid: true,
+    patchSize: patchResult.patchSize,
+    centerPixel: patchResult.centerPixel,
+    topLeft: patchResult.topLeft,
+    bottomRight: patchResult.bottomRight,
+    pixelCount: patchResult.pixelCount,
+    rawRgba8: patchResult.rawRgba8,
+    referenceSource: 'stored-accumulation-patch-reference'
+  });
+}
+
+function buildPatchDeltaSummary(actualPatch, referencePatch) {
+  if (!actualPatch?.valid) {
+    return {
+      valid: false,
+      reason: actualPatch?.reason ?? 'patch-readback-invalid',
+      comparedAgainstAccumulation: false,
+      referenceSource: 'none',
+      maxDelta: 0,
+      meanDelta: 0,
+      mismatchCountAboveTolerance: 0,
+      worstPixelOffset: [0, 0],
+      worstPixelDelta: [0, 0, 0]
+    };
+  }
+
+  if (!referencePatch || !Array.isArray(referencePatch.rawRgba8)) {
+    return {
+      valid: false,
+      reason: 'accumulation-reference-unavailable',
+      comparedAgainstAccumulation: false,
+      referenceSource: 'none',
+      maxDelta: 0,
+      meanDelta: 0,
+      mismatchCountAboveTolerance: 0,
+      worstPixelOffset: [0, 0],
+      worstPixelDelta: [0, 0, 0]
+    };
+  }
+
+  const actual = actualPatch.rawRgba8;
+  const reference = referencePatch.rawRgba8;
+  const pixelCount = Math.min(actual.length, reference.length) / 4;
+  const size = actualPatch.patchSize;
+  const half = (size - 1) >> 1;
+  let maxDelta = 0;
+  let sumDelta = 0;
+  let mismatchCountAboveTolerance = 0;
+  let worstPixelOffset = [0, 0];
+  let worstPixelDelta = [0, 0, 0];
+
+  for (let i = 0; i < pixelCount; i += 1) {
+    const base = i * 4;
+    const dr = actual[base] / 255.0 - reference[base] / 255.0;
+    const dg = actual[base + 1] / 255.0 - reference[base + 1] / 255.0;
+    const db = actual[base + 2] / 255.0 - reference[base + 2] / 255.0;
+    const deltaAbsMax = Math.max(Math.abs(dr), Math.abs(dg), Math.abs(db));
+    sumDelta += deltaAbsMax;
+    if (deltaAbsMax > maxDelta) {
+      maxDelta = deltaAbsMax;
+      const row = Math.floor(i / size);
+      const col = i - row * size;
+      worstPixelOffset = [col - half, row - half];
+      worstPixelDelta = [dr, dg, db];
+    }
+    if (deltaAbsMax > MAPPED_PROBE_PATCH_TOLERANCE) {
+      mismatchCountAboveTolerance += 1;
+    }
+  }
+
+  return {
+    valid: true,
+    reason: 'patch-delta-ok',
+    comparedAgainstAccumulation: true,
+    referenceSource: referencePatch.referenceSource ?? 'stored-accumulation-patch-reference',
+    maxDelta,
+    meanDelta: pixelCount > 0 ? sumDelta / pixelCount : 0,
+    mismatchCountAboveTolerance,
+    worstPixelOffset,
+    worstPixelDelta
+  };
+}
+
+function buildMappedProbePatchSummary(renderResultSummary, canvasSizeSummary = buildCanvasSizeSummary(), mappedProbeSummary = buildMappedScreenshotProbeSummary(canvasSizeSummary), probeKey = null) {
+  const gl = getGpu()?.gl ?? null;
+  const tileCompositePath = renderResultSummary?.drawThroughputSummary?.tileCompositePath ?? 'none';
+  const mappedProbeX = Number.isFinite(mappedProbeSummary?.mappedProbeX)
+    ? Number(mappedProbeSummary.mappedProbeX)
+    : null;
+  const mappedProbeY = Number.isFinite(mappedProbeSummary?.mappedProbeY)
+    ? Number(mappedProbeSummary.mappedProbeY)
+    : null;
+  const centerPixel = mappedProbeSummary?.mappedProbeValid
+    ? (normalizeSharedRepresentativePixel([mappedProbeX, mappedProbeY]) ?? [0, 0])
+    : null;
+
+  if (!mappedProbeSummary?.mappedProbeValid || !centerPixel) {
+    const patchSizes = [...MAPPED_PROBE_PATCH_SIZES];
+    const summaries = {};
+    const deltaSummaries = {};
+    for (const size of patchSizes) {
+      const key = `${size}x${size}`;
+      summaries[key] = {
+        patchSize: [size, size],
+        valid: false,
+        reason: mappedProbeSummary?.mappedProbeReason ?? 'mapped-probe-invalid',
+        centerPixel: centerPixel ?? [0, 0],
+        topLeft: [0, 0],
+        bottomRight: [0, 0],
+        pixelCount: 0,
+        rgba8: [0, 0, 0, 0],
+        meanRgb: [0, 0, 0],
+        minRgb: [0, 0, 0],
+        maxRgb: [0, 0, 0],
+        referenceSource: 'none'
+      };
+      deltaSummaries[key] = {
+        valid: false,
+        reason: mappedProbeSummary?.mappedProbeReason ?? 'mapped-probe-invalid',
+        referenceSource: 'none',
+        comparedAgainstAccumulation: false,
+        maxDelta: 0,
+        meanDelta: 0,
+        mismatchCountAboveTolerance: 0,
+        worstPixelOffset: [0, 0],
+        worstPixelDelta: [0, 0, 0]
+      };
+    }
+    return {
+      mappedProbePatchSizes: patchSizes,
+      mappedProbePatchReadbackValid: false,
+      mappedProbePatchReadbackReason: mappedProbeSummary?.mappedProbeReason ?? 'mapped-probe-invalid',
+      mappedProbePatchCenter: centerPixel ?? [0, 0],
+      mappedProbePatchSummaries: summaries,
+      mappedProbePatchComparedAgainstAccumulation: false,
+      mappedProbePatchDeltaSummaries: deltaSummaries
+    };
+  }
+
+  const patchSizes = [...MAPPED_PROBE_PATCH_SIZES];
+  const summaries = {};
+  const deltaSummaries = {};
+  let allValid = true;
+  let firstFailureReason = 'patch-readback-ok';
+  let comparedAgainstAccumulation = false;
+
+  for (const size of patchSizes) {
+    const key = `${size}x${size}`;
+    const actualPatch = gl ? readFramebufferPatchAtTopLeftPixel(gl, centerPixel, size) : {
+      valid: false,
+      reason: 'webgl-unavailable',
+      patchSize: size,
+      centerPixel,
+      topLeft: [0, 0],
+      bottomRight: [0, 0],
+      pixelCount: 0,
+      centerRgba8: [0, 0, 0, 0],
+      meanRgb: [0, 0, 0],
+      minRgb: [0, 0, 0],
+      maxRgb: [0, 0, 0],
+      rawRgba8: []
+    };
+    if (!actualPatch.valid) {
+      allValid = false;
+      if (firstFailureReason === 'patch-readback-ok') {
+        firstFailureReason = actualPatch.reason;
+      }
+    }
+
+    let referencePatch = readMappedProbePatchReference(centerPixel, size, probeKey);
+    let referenceSource = referencePatch ? 'stored-accumulation-patch-reference' : 'none';
+    if (!referencePatch && tileCompositePath === 'accumulation' && actualPatch.valid) {
+      referencePatch = {
+        valid: true,
+        rawRgba8: actualPatch.rawRgba8,
+        referenceSource: 'current-accumulation-patch-reference'
+      };
+      referenceSource = 'current-accumulation-patch-reference';
+      writeMappedProbePatchReference(centerPixel, size, actualPatch, probeKey);
+    }
+
+    const delta = buildPatchDeltaSummary(actualPatch, referencePatch);
+    if (delta.comparedAgainstAccumulation) {
+      comparedAgainstAccumulation = true;
+    }
+    if (tileCompositePath === 'accumulation' && actualPatch.valid) {
+      writeMappedProbePatchReference(centerPixel, size, actualPatch);
+    }
+
+    summaries[key] = {
+      patchSize: [size, size],
+      valid: !!actualPatch.valid,
+      reason: actualPatch.reason ?? 'none',
+      centerPixel: actualPatch.centerPixel ?? centerPixel,
+      topLeft: actualPatch.topLeft ?? [0, 0],
+      bottomRight: actualPatch.bottomRight ?? [0, 0],
+      pixelCount: actualPatch.pixelCount ?? 0,
+      rgba8: actualPatch.centerRgba8 ?? [0, 0, 0, 0],
+      meanRgb: actualPatch.meanRgb ?? [0, 0, 0],
+      minRgb: actualPatch.minRgb ?? [0, 0, 0],
+      maxRgb: actualPatch.maxRgb ?? [0, 0, 0],
+      referenceSource
+    };
+
+    deltaSummaries[key] = {
+      valid: delta.valid,
+      reason: delta.reason,
+      referenceSource: delta.referenceSource,
+      comparedAgainstAccumulation: delta.comparedAgainstAccumulation,
+      maxDelta: delta.maxDelta,
+      meanDelta: delta.meanDelta,
+      mismatchCountAboveTolerance: delta.mismatchCountAboveTolerance,
+      worstPixelOffset: delta.worstPixelOffset,
+      worstPixelDelta: delta.worstPixelDelta
+    };
+  }
+
+  if (tileCompositePath === 'accumulation' && allValid) {
+    for (const size of patchSizes) {
+      const key = `${size}x${size}`;
+      const actualPatch = summaries[key];
+      if (actualPatch?.valid) {
+        writeMappedProbePatchReference(centerPixel, size, {
+          valid: true,
+          patchSize: actualPatch.patchSize?.[0] ?? size,
+          centerPixel: actualPatch.centerPixel,
+          topLeft: actualPatch.topLeft,
+          bottomRight: actualPatch.bottomRight,
+          pixelCount: actualPatch.pixelCount,
+          rawRgba8: readFramebufferPatchAtTopLeftPixel(
+            gl,
+            centerPixel,
+            size
+          ).rawRgba8
+        }, probeKey);
+      }
+    }
+  }
+
+  return {
+    mappedProbePatchSizes: patchSizes,
+    mappedProbePatchReadbackValid: allValid,
+    mappedProbePatchReadbackReason: firstFailureReason,
+    mappedProbePatchCenter: centerPixel,
+    mappedProbePatchSummaries: summaries,
+    mappedProbePatchComparedAgainstAccumulation: comparedAgainstAccumulation,
+    mappedProbePatchDeltaSummaries: deltaSummaries
+  };
+}
+
+function buildMappedProbeCollectionsSummary(renderResultSummary, canvasSizeSummary = buildCanvasSizeSummary()) {
+  const probeInputs = buildScreenshotProbeInputList();
+  const useProbeKeyPrefix = !!deterministicQueryState.screenshotProbeList;
+  const fallbackProbeInputs = probeInputs.length > 0
+    ? probeInputs
+    : [{
+      valid: false,
+      reason: 'missing-screenshot-probe-coordinate',
+      probeId: 'probe-1',
+      screenshotProbeLabel: 'probe-1',
+      screenshotProbeX: null,
+      screenshotProbeY: null,
+      screenshotProbePixel: [null, null]
+    }];
+
+  const mappedProbeList = fallbackProbeInputs.map((probeInput, index) => {
+    const mappedProbeSummary = buildMappedScreenshotProbeSummaryFromInput(probeInput, canvasSizeSummary);
+    const probeKey = useProbeKeyPrefix
+      ? (mappedProbeSummary?.probeId ?? probeInput?.probeId ?? `probe-${index + 1}`)
+      : null;
+    const mappedProbePatchSummary = buildMappedProbePatchSummary(
+      renderResultSummary,
+      canvasSizeSummary,
+      mappedProbeSummary,
+      probeKey
+    );
+    return {
+      ...mappedProbeSummary,
+      ...mappedProbePatchSummary
+    };
+  });
+  const primaryMappedProbe = mappedProbeList[0] ?? null;
+
+  return {
+    screenshotProbeList: fallbackProbeInputs,
+    mappedProbeList,
+    collectionSummary: {
+      source: deterministicQueryState.screenshotProbeList ? 'explicit-screenshotProbeList' : 'single-screenshotProbe',
+      probeCount: mappedProbeList.length,
+      probeIds: mappedProbeList.map((probe) => probe?.probeId ?? 'probe-unknown'),
+      probeLabels: mappedProbeList.map((probe) => probe?.screenshotProbeLabel ?? probe?.probeId ?? 'probe-unknown'),
+      primaryProbeId: primaryMappedProbe?.probeId ?? 'probe-1',
+      primaryProbeLabel: primaryMappedProbe?.screenshotProbeLabel ?? primaryMappedProbe?.probeId ?? 'probe-1',
+      primaryProbeSource: primaryMappedProbe?.mappedProbeSourceSummary?.source ?? 'screenshot-query',
+      primaryProbeValid: !!primaryMappedProbe?.mappedProbeValid,
+      usesFixedCanvas: !!canvasSizeSummary?.fixedCanvasActive,
+      coordinateSpaceForReadPixels: canvasSizeSummary?.coordinateSpaceForReadPixels ?? 'webgl-default-framebuffer-pixels'
+    },
+    firstMappedProbeSummary: primaryMappedProbe,
+    firstMappedProbePatchSummary: primaryMappedProbe
+  };
+}
+
 function normalizeInspectSource(value, fallback = 'auto') {
   return INSPECT_SOURCE_VALUES.has(value) ? value : fallback;
 }
@@ -228,6 +1005,26 @@ function writeStoredNumberTuple(key, values) {
   if (typeof window === 'undefined' || !window.localStorage || !Array.isArray(values)) return;
   try {
     window.localStorage.setItem(key, values.join(','));
+  } catch {
+    // Storage is best-effort diagnostics only.
+  }
+}
+
+function readStoredJson(key) {
+  if (typeof window === 'undefined' || !window.localStorage) return null;
+  try {
+    const value = window.localStorage.getItem(key);
+    if (!value) return null;
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredJson(key, value) {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
   } catch {
     // Storage is best-effort diagnostics only.
   }
@@ -467,7 +1264,8 @@ function buildSlimDeterministicStateSummary(summary) {
 function buildRenderResultInspectionSummary(renderResult) {
   const executionSummary = renderResult?.executionSummary ?? null;
   const tileCompositeSummary = renderResult?.tileCompositePlan?.summary ?? null;
-  return {
+  const summary = {
+    canvasSizeSummary: buildCanvasSizeSummary(),
     actualDrawPath:
       renderResult?.drawThroughputSummary?.actualDrawPath ??
       renderResult?.drawPathSummary?.actualPath ??
@@ -638,6 +1436,17 @@ function buildRenderResultInspectionSummary(renderResult) {
         }
       : null
   };
+  const mappedProbeCollectionsSummary = buildMappedProbeCollectionsSummary(summary, summary.canvasSizeSummary);
+  summary.mappedProbeCollectionsSummary = mappedProbeCollectionsSummary;
+  summary.mappedProbeCollectionSummary = mappedProbeCollectionsSummary.collectionSummary ?? null;
+  summary.screenshotProbeList = mappedProbeCollectionsSummary.screenshotProbeList;
+  summary.mappedProbeList = mappedProbeCollectionsSummary.mappedProbeList;
+  summary.mappedProbePatchSummary = mappedProbeCollectionsSummary.firstMappedProbePatchSummary;
+  if (mappedProbeCollectionsSummary.firstMappedProbeSummary) {
+    Object.assign(summary, mappedProbeCollectionsSummary.firstMappedProbeSummary);
+  }
+  summary.mappedProbeSummaryNote = 'top-level mappedProbe* fields reflect the first probe in mappedProbeList; use mappedProbeList for the full multi-probe comparison';
+  return summary;
 }
 
 function buildEmptyPayloadSourceSummary(candidate) {
@@ -827,6 +1636,25 @@ function buildInspectResultBase({
     ? (actualDrawAttempt?.failureReason ?? (inspection?.ok ? 'none' : inspection?.failureReason ?? 'none'))
     : (actualDrawCandidate?.reason ?? 'actual-draw-inspect-unsupported');
   const sharedRepresentativeProbe = buildSharedRepresentativeFramebufferProbe(renderResultSummary);
+  const canvasSizeSummary = buildCanvasSizeSummary();
+  const mappedProbeCollectionsSummary = renderResultSummary.mappedProbeCollectionsSummary ??
+    buildMappedProbeCollectionsSummary(renderResultSummary, canvasSizeSummary);
+  renderResultSummary.mappedProbeCollectionsSummary = mappedProbeCollectionsSummary;
+  renderResultSummary.mappedProbeCollectionSummary = mappedProbeCollectionsSummary.collectionSummary ?? null;
+  if (renderResultSummary.executionSummary) {
+    renderResultSummary.executionSummary.mappedProbeCollectionSummary = mappedProbeCollectionsSummary.collectionSummary ?? null;
+    renderResultSummary.executionSummary.screenshotProbeList = mappedProbeCollectionsSummary.screenshotProbeList;
+    renderResultSummary.executionSummary.mappedProbeList = mappedProbeCollectionsSummary.mappedProbeList;
+  }
+  const firstMappedProbeSummary = mappedProbeCollectionsSummary.firstMappedProbeSummary ?? null;
+  const firstMappedProbePatchSummary = mappedProbeCollectionsSummary.firstMappedProbePatchSummary ?? null;
+  if (firstMappedProbeSummary) {
+    Object.assign(renderResultSummary, firstMappedProbeSummary);
+  }
+  if (firstMappedProbePatchSummary) {
+    renderResultSummary.mappedProbePatchSummary = firstMappedProbePatchSummary;
+    Object.assign(renderResultSummary, firstMappedProbePatchSummary);
+  }
 
   return {
     ok: !!inspection?.ok,
@@ -856,6 +1684,13 @@ function buildInspectResultBase({
     gpuCompatibilityBridgeActive: !!gpuCompatibilityBridgeSummary?.active,
     drawPathSummary: renderResultSummary.drawPathSummary,
     drawThroughputSummary: renderResultSummary.drawThroughputSummary,
+    canvasSizeSummary,
+    mappedProbeCollectionsSummary,
+    mappedProbeCollectionSummary: mappedProbeCollectionsSummary.collectionSummary ?? null,
+    screenshotProbeList: mappedProbeCollectionsSummary.screenshotProbeList,
+    mappedProbeList: mappedProbeCollectionsSummary.mappedProbeList,
+    ...firstMappedProbeSummary,
+    ...firstMappedProbePatchSummary,
     deterministicState: buildSlimDeterministicStateSummary(deterministicState),
     attemptedSources: attempts,
     ...sharedRepresentativeProbe,
@@ -1532,7 +2367,7 @@ function bindUiEvents() {
   });
 
   window.addEventListener('resize', () => {
-    setCanvasSize();
+    applyCanvasSize();
     scheduler.scheduleRender();
   });
 }
@@ -1555,7 +2390,7 @@ bindSliderTextUpdates();
 bindUiEvents();
 installViewerDebugApi();
 
-setCanvasSize();
+applyCanvasSize();
 playback.startLoop();
 fileIO.bindFileInput();
 fileIO.bindDragAndDrop(document);

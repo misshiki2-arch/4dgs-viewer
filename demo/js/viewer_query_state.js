@@ -79,6 +79,13 @@ function buildDeterministicQueryString(state) {
   appendDeterministicQueryParam(params, 'gpuFramePolicyOverride', state?.gpuFramePolicyOverride);
   appendDeterministicQueryParam(params, 'stride', state?.stride);
   appendDeterministicQueryParam(params, 'renderScale', state?.renderScale, (value) => formatDeterministicFixed(value, 2));
+  appendDeterministicQueryParam(params, 'fixedCanvasWidth', state?.fixedCanvasWidth);
+  appendDeterministicQueryParam(params, 'fixedCanvasHeight', state?.fixedCanvasHeight);
+  appendDeterministicQueryParam(params, 'screenshotProbeX', state?.screenshotProbeX);
+  appendDeterministicQueryParam(params, 'screenshotProbeY', state?.screenshotProbeY);
+  appendDeterministicQueryParam(params, 'screenshotImageWidth', state?.screenshotImageWidth);
+  appendDeterministicQueryParam(params, 'screenshotImageHeight', state?.screenshotImageHeight);
+  appendDeterministicQueryParam(params, 'screenshotProbeList', state?.screenshotProbeList);
   appendDeterministicQueryParam(params, 'sigmaScale', state?.sigmaScale, (value) => formatDeterministicFixed(value, 2));
   appendDeterministicQueryParam(params, 'splatScale', state?.splatScale, (value) => formatDeterministicFixed(value, 2));
   appendDeterministicQueryParam(params, 'prefilterVar', state?.prefilterVar, (value) => formatDeterministicFixed(value, 2));
@@ -125,6 +132,13 @@ export function parseViewerQueryState(search = window.location.search) {
       : null,
     stride: parseInteger(params.get('stride'), null),
     renderScale: parseNumber(params.get('renderScale'), null),
+    fixedCanvasWidth: parseInteger(params.get('fixedCanvasWidth'), null),
+    fixedCanvasHeight: parseInteger(params.get('fixedCanvasHeight'), null),
+    screenshotProbeX: parseNumber(params.get('screenshotProbeX'), null),
+    screenshotProbeY: parseNumber(params.get('screenshotProbeY'), null),
+    screenshotImageWidth: parseInteger(params.get('screenshotImageWidth'), null),
+    screenshotImageHeight: parseInteger(params.get('screenshotImageHeight'), null),
+    screenshotProbeList: params.get('screenshotProbeList') ?? null,
     sigmaScale: parseNumber(params.get('sigmaScale'), null),
     splatScale: parseNumber(params.get('splatScale'), null),
     prefilterVar: parseNumber(params.get('prefilterVar'), null),
@@ -147,6 +161,13 @@ export function parseViewerQueryState(search = window.location.search) {
     'gpuFramePolicyOverride',
     'stride',
     'renderScale',
+    'fixedCanvasWidth',
+    'fixedCanvasHeight',
+    'screenshotProbeX',
+    'screenshotProbeY',
+    'screenshotImageWidth',
+    'screenshotImageHeight',
+    'screenshotProbeList',
     'sigmaScale',
     'splatScale',
     'prefilterVar',
@@ -178,6 +199,13 @@ export function buildViewerDeterministicSummary(queryState) {
     inspectSource: state.inspectSource ?? 'auto',
     inspectJsonMode: state.inspectJsonMode ?? 'slim',
     gpuFramePolicyOverride: state.gpuFramePolicyOverride ?? 'auto',
+    fixedCanvasWidth: Number.isFinite(state.fixedCanvasWidth) ? Number(state.fixedCanvasWidth) : null,
+    fixedCanvasHeight: Number.isFinite(state.fixedCanvasHeight) ? Number(state.fixedCanvasHeight) : null,
+    screenshotProbeX: Number.isFinite(state.screenshotProbeX) ? Number(state.screenshotProbeX) : null,
+    screenshotProbeY: Number.isFinite(state.screenshotProbeY) ? Number(state.screenshotProbeY) : null,
+    screenshotImageWidth: Number.isFinite(state.screenshotImageWidth) ? Number(state.screenshotImageWidth) : null,
+    screenshotImageHeight: Number.isFinite(state.screenshotImageHeight) ? Number(state.screenshotImageHeight) : null,
+    screenshotProbeList: state.screenshotProbeList ?? null,
     time: Number.isFinite(state.time) ? Number(state.time) : null,
     rawQueryString: state.rawQueryString ?? '',
     deterministicQueryString: state.deterministicQueryString ?? '',

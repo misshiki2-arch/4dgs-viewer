@@ -42,10 +42,21 @@ export function createViewerScene(canvas) {
     return gpu;
   }
 
-  function setCanvasSize() {
+  function setCanvasSize(options = {}) {
     const dpr = window.devicePixelRatio || 1;
-    canvas.width = Math.max(1, Math.round(window.innerWidth * dpr));
-    canvas.height = Math.max(1, Math.round(window.innerHeight * dpr));
+    const fixedWidth = Number.isFinite(options?.fixedCanvasWidth)
+      ? Math.max(1, Math.round(options.fixedCanvasWidth))
+      : null;
+    const fixedHeight = Number.isFinite(options?.fixedCanvasHeight)
+      ? Math.max(1, Math.round(options.fixedCanvasHeight))
+      : null;
+    const fixedResolutionActive = fixedWidth !== null && fixedHeight !== null;
+    canvas.width = fixedResolutionActive
+      ? fixedWidth
+      : Math.max(1, Math.round(window.innerWidth * dpr));
+    canvas.height = fixedResolutionActive
+      ? fixedHeight
+      : Math.max(1, Math.round(window.innerHeight * dpr));
     canvas.style.width = window.innerWidth + 'px';
     canvas.style.height = window.innerHeight + 'px';
 
