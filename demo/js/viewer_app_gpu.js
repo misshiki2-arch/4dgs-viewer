@@ -106,6 +106,10 @@ let lastSnapshotSummary = {
 
 const INSPECT_SOURCE_VALUES = new Set(['auto', 'actual-draw', 'packed', 'gpu-screen-fallback']);
 const INSPECT_JSON_MODE_VALUES = new Set(['slim', 'full']);
+const SHARED_REPRESENTATIVE_PIXEL_STORAGE_KEY = 'step86.sharedRepresentativePixel';
+const SHARED_REPRESENTATIVE_ACCUMULATION_COLOR_STORAGE_KEY = 'step86.sharedRepresentativeAccumulationColor';
+const SHARED_REPRESENTATIVE_DEFAULT_PIXEL = [2949, 688];
+const SHARED_REPRESENTATIVE_COLOR_MATCH_TOLERANCE = 2.0 / 255.0;
 
 function refreshLatestDebugText(explicitText = null) {
   const text = explicitText ?? lastDebugText ?? ui.info?.textContent ?? '';
@@ -130,6 +134,7 @@ function updateDeterministicStateNote() {
   parts.push(`query active`);
   parts.push(`cameraPreset=${deterministicQueryState.cameraPresetName ?? 'none'}`);
   parts.push(`drawPath=${deterministicQueryState.drawPath ?? 'default'}`);
+  parts.push(`tileCompositePath=${deterministicQueryState.tileCompositePath ?? 'baseline'}`);
   parts.push(`tileCompositePrimitive=${deterministicQueryState.tileCompositePrimitive ?? 'point'}`);
   parts.push(`inspectSource=${deterministicQueryState.inspectSource ?? 'auto'}`);
   parts.push(`inspectJsonMode=${deterministicQueryState.inspectJsonMode ?? 'slim'}`);
@@ -194,12 +199,261 @@ function getRequestedTileCompositePrimitive() {
   return ui.tileCompositePrimitiveSelect?.value === 'quad' ? 'quad' : 'point';
 }
 
+function getRequestedTileCompositePath() {
+  return ui.tileCompositePathSelect?.value === 'accumulation' ? 'accumulation' : 'baseline';
+}
+
+function parseNumberTuple(value, expectedLength) {
+  if (value === null || value === undefined || value === '') return null;
+  const parts = String(value).split(',').map((part) => Number(part.trim()));
+  if (parts.length !== expectedLength || parts.some((part) => !Number.isFinite(part))) return null;
+  return parts;
+}
+
+function getQueryNumberTuple(name, expectedLength) {
+  if (typeof window === 'undefined') return null;
+  return parseNumberTuple(new URLSearchParams(window.location.search || '').get(name), expectedLength);
+}
+
+function readStoredNumberTuple(key, expectedLength) {
+  if (typeof window === 'undefined' || !window.localStorage) return null;
+  try {
+    return parseNumberTuple(window.localStorage.getItem(key), expectedLength);
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredNumberTuple(key, values) {
+  if (typeof window === 'undefined' || !window.localStorage || !Array.isArray(values)) return;
+  try {
+    window.localStorage.setItem(key, values.join(','));
+  } catch {
+    // Storage is best-effort diagnostics only.
+  }
+}
+
+function normalizeSharedRepresentativePixel(pixel) {
+  if (!Array.isArray(pixel) || pixel.length < 2) return null;
+  const x = Number.isFinite(pixel[0]) ? Math.floor(pixel[0]) : -1;
+  const y = Number.isFinite(pixel[1]) ? Math.floor(pixel[1]) : -1;
+  return x >= 0 && y >= 0 ? [x, y] : null;
+}
+
+function clampColor01ForSummary(rgb) {
+  const safe = Array.isArray(rgb) ? rgb : [0, 0, 0];
+  return [
+    Number.isFinite(safe[0]) ? Number(safe[0]) : 0,
+    Number.isFinite(safe[1]) ? Number(safe[1]) : 0,
+    Number.isFinite(safe[2]) ? Number(safe[2]) : 0
+  ];
+}
+
+function buildColorDeltaForSummary(referenceColor, color) {
+  const reference = clampColor01ForSummary(referenceColor);
+  const actual = clampColor01ForSummary(color);
+  const delta = [
+    actual[0] - reference[0],
+    actual[1] - reference[1],
+    actual[2] - reference[2]
+  ];
+  return {
+    delta,
+    deltaAbsMax: Math.max(Math.abs(delta[0]), Math.abs(delta[1]), Math.abs(delta[2]))
+  };
+}
+
+function readFramebufferColorAtTopLeftPixel(gl, pixel) {
+  const normalizedPixel = normalizeSharedRepresentativePixel(pixel);
+  if (!normalizedPixel) {
+    return {
+      color: [0, 0, 0],
+      rgba8: [0, 0, 0, 0],
+      valid: false,
+      reason: 'invalid-shared-representative-pixel',
+      pixel: [0, 0],
+      glPixel: [0, 0]
+    };
+  }
+  const width = Number.isFinite(canvas?.width) ? (canvas.width | 0) : 0;
+  const height = Number.isFinite(canvas?.height) ? (canvas.height | 0) : 0;
+  const [x, yTop] = normalizedPixel;
+  if (width <= 0 || height <= 0) {
+    return {
+      color: [0, 0, 0],
+      rgba8: [0, 0, 0, 0],
+      valid: false,
+      reason: 'invalid-canvas-size',
+      pixel: normalizedPixel,
+      glPixel: [0, 0]
+    };
+  }
+  if (x >= width || yTop >= height) {
+    return {
+      color: [0, 0, 0],
+      rgba8: [0, 0, 0, 0],
+      valid: false,
+      reason: 'shared-representative-pixel-out-of-bounds',
+      pixel: normalizedPixel,
+      glPixel: [0, 0]
+    };
+  }
+
+  const yGl = height - 1 - yTop;
+  const rgba = new Uint8Array(4);
+  const previousFramebuffer = gl.getParameter(gl.FRAMEBUFFER_BINDING);
+  try {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.readPixels(x, yGl, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, rgba);
+  } catch (error) {
+    return {
+      color: [0, 0, 0],
+      rgba8: Array.from(rgba),
+      valid: false,
+      reason: `readpixels-failed:${error?.message ?? 'unknown'}`,
+      pixel: normalizedPixel,
+      glPixel: [x, yGl]
+    };
+  } finally {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, previousFramebuffer);
+  }
+
+  return {
+    color: [rgba[0] / 255.0, rgba[1] / 255.0, rgba[2] / 255.0],
+    rgba8: Array.from(rgba),
+    valid: true,
+    reason: 'readback-ok',
+    pixel: normalizedPixel,
+    glPixel: [x, yGl]
+  };
+}
+
+function resolveSharedRepresentativePixel(executionSummary) {
+  const queryPixel = normalizeSharedRepresentativePixel(getQueryNumberTuple('sharedRepresentativePixel', 2));
+  if (queryPixel) return { pixel: queryPixel, source: 'query-sharedRepresentativePixel' };
+
+  const accumulationPixel = normalizeSharedRepresentativePixel(
+    executionSummary?.tileAccumulationRepresentativeSamplePixel
+  );
+  if (accumulationPixel) {
+    writeStoredNumberTuple(SHARED_REPRESENTATIVE_PIXEL_STORAGE_KEY, accumulationPixel);
+    return { pixel: accumulationPixel, source: 'accumulation-representative-sample' };
+  }
+
+  const storedPixel = normalizeSharedRepresentativePixel(
+    readStoredNumberTuple(SHARED_REPRESENTATIVE_PIXEL_STORAGE_KEY, 2)
+  );
+  if (storedPixel) return { pixel: storedPixel, source: 'stored-accumulation-representative-sample' };
+
+  return {
+    pixel: SHARED_REPRESENTATIVE_DEFAULT_PIXEL,
+    source: 'step86-default-representative-pixel'
+  };
+}
+
+function resolveSharedRepresentativeAccumulationReference(executionSummary, sharedPixel) {
+  const currentColor = executionSummary?.tileAccumulationRepresentativeSampleFramebufferReadbackValid
+    ? clampColor01ForSummary(executionSummary.tileAccumulationRepresentativeSampleFramebufferColor)
+    : null;
+  const currentPixel = normalizeSharedRepresentativePixel(
+    executionSummary?.tileAccumulationRepresentativeSampleFramebufferReadbackPixel ??
+    executionSummary?.tileAccumulationRepresentativeSamplePixel
+  );
+  if (currentColor && currentPixel && currentPixel[0] === sharedPixel[0] && currentPixel[1] === sharedPixel[1]) {
+    writeStoredNumberTuple(SHARED_REPRESENTATIVE_ACCUMULATION_COLOR_STORAGE_KEY, currentColor);
+    return {
+      color: currentColor,
+      source: 'current-accumulation-framebuffer-readback',
+      pixel: currentPixel
+    };
+  }
+
+  const queryColor = getQueryNumberTuple('sharedRepresentativeAccumulationColor', 3);
+  if (queryColor) {
+    return {
+      color: clampColor01ForSummary(queryColor),
+      source: 'query-sharedRepresentativeAccumulationColor',
+      pixel: sharedPixel
+    };
+  }
+
+  const storedColor = readStoredNumberTuple(SHARED_REPRESENTATIVE_ACCUMULATION_COLOR_STORAGE_KEY, 3);
+  if (storedColor) {
+    return {
+      color: clampColor01ForSummary(storedColor),
+      source: 'stored-accumulation-framebuffer-readback',
+      pixel: sharedPixel
+    };
+  }
+
+  return {
+    color: null,
+    source: 'accumulation-reference-unavailable',
+    pixel: sharedPixel
+  };
+}
+
+function buildSharedRepresentativeFramebufferProbe(renderResultSummary) {
+  const gpu = getGpu();
+  const gl = gpu?.gl;
+  const executionSummary = renderResultSummary?.executionSummary ?? null;
+  const { pixel, source } = resolveSharedRepresentativePixel(executionSummary);
+  if (!gl) {
+    return {
+      sharedRepresentativePixel: pixel,
+      sharedRepresentativePixelSource: source,
+      sharedRepresentativeFramebufferColor: [0, 0, 0],
+      sharedRepresentativeFramebufferReadbackValid: false,
+      sharedRepresentativeFramebufferReadbackReason: 'webgl-unavailable',
+      sharedRepresentativeFramebufferRgba8: [0, 0, 0, 0],
+      sharedRepresentativeComparedAgainstAccumulationPixel: false,
+      sharedRepresentativeAccumulationReferenceColor: [0, 0, 0],
+      sharedRepresentativeAccumulationReferenceSource: 'accumulation-reference-unavailable',
+      sharedRepresentativeColorDeltaVsAccumulation: [0, 0, 0],
+      sharedRepresentativeColorDeltaVsAccumulationAbsMax: 0,
+      sharedRepresentativeColorMatchesAccumulation: false,
+      sharedRepresentativeColorMatchTolerance: SHARED_REPRESENTATIVE_COLOR_MATCH_TOLERANCE
+    };
+  }
+
+  const readback = readFramebufferColorAtTopLeftPixel(gl, pixel);
+  const reference = resolveSharedRepresentativeAccumulationReference(executionSummary, readback.pixel);
+  const hasReference = Array.isArray(reference.color);
+  const { delta, deltaAbsMax } = hasReference
+    ? buildColorDeltaForSummary(reference.color, readback.color)
+    : { delta: [0, 0, 0], deltaAbsMax: 0 };
+  const comparedAgainstAccumulationPixel = hasReference &&
+    Array.isArray(reference.pixel) &&
+    reference.pixel[0] === readback.pixel[0] &&
+    reference.pixel[1] === readback.pixel[1];
+
+  return {
+    sharedRepresentativePixel: readback.pixel,
+    sharedRepresentativePixelSource: source,
+    sharedRepresentativeFramebufferColor: readback.color,
+    sharedRepresentativeFramebufferReadbackValid: readback.valid,
+    sharedRepresentativeFramebufferReadbackReason: readback.reason,
+    sharedRepresentativeFramebufferRgba8: readback.rgba8,
+    sharedRepresentativeFramebufferReadbackGlPixel: readback.glPixel,
+    sharedRepresentativeComparedAgainstAccumulationPixel: comparedAgainstAccumulationPixel,
+    sharedRepresentativeAccumulationReferenceColor: hasReference ? reference.color : [0, 0, 0],
+    sharedRepresentativeAccumulationReferenceSource: reference.source,
+    sharedRepresentativeColorDeltaVsAccumulation: delta,
+    sharedRepresentativeColorDeltaVsAccumulationAbsMax: deltaAbsMax,
+    sharedRepresentativeColorMatchesAccumulation: readback.valid &&
+      comparedAgainstAccumulationPixel &&
+      deltaAbsMax <= SHARED_REPRESENTATIVE_COLOR_MATCH_TOLERANCE,
+    sharedRepresentativeColorMatchTolerance: SHARED_REPRESENTATIVE_COLOR_MATCH_TOLERANCE
+  };
+}
+
 function buildSlimDeterministicStateSummary(summary) {
   return {
     active: !!summary?.active,
     cameraPresetName: summary?.cameraPresetName ?? 'none',
     appliedCameraPresetName: summary?.appliedCameraPresetName ?? 'none',
     drawPath: summary?.drawPath ?? 'none',
+    tileCompositePath: summary?.tileCompositePath ?? 'baseline',
     tileCompositePrimitive: summary?.tileCompositePrimitive ?? 'point',
     inspectSource: summary?.inspectSource ?? 'auto',
     inspectJsonMode: summary?.inspectJsonMode ?? 'slim',
@@ -228,13 +482,110 @@ function buildRenderResultInspectionSummary(renderResult) {
           actualDrawPath: executionSummary.actualDrawPath ?? 'none',
           drawPathFallbackReason: executionSummary.drawPathFallbackReason ?? 'none',
           compositingContract: executionSummary.compositingContract ?? 'none',
+          tileCompositePath: executionSummary.tileCompositePath ?? 'none',
           tileCompositePrimitive: executionSummary.tileCompositePrimitive ?? 'none',
           tileCompositeRectContract: executionSummary.tileCompositeRectContract ?? 'none',
           tileBatchCount: executionSummary.tileBatchCount ?? 0,
           nonEmptyTileBatchCount: executionSummary.nonEmptyTileBatchCount ?? 0,
           totalTileDrawCount: executionSummary.totalTileDrawCount ?? 0,
           drawCallCount: executionSummary.drawCallCount ?? 0,
-          uploadCount: executionSummary.uploadCount ?? 0
+          uploadCount: executionSummary.uploadCount ?? 0,
+          requestedTextureWidth: executionSummary.requestedTextureWidth ?? 0,
+          requestedTextureHeight: executionSummary.requestedTextureHeight ?? 0,
+          validatedTextureWidth: executionSummary.validatedTextureWidth ?? 0,
+          validatedTextureHeight: executionSummary.validatedTextureHeight ?? 0,
+          textureAllocationValid: !!executionSummary.textureAllocationValid,
+          textureAllocationFailureReason: executionSummary.textureAllocationFailureReason ?? 'none',
+          accumulationMaxItemsPerTile: executionSummary.accumulationMaxItemsPerTile ?? 0,
+          accumulationTruncatedBatchCount: executionSummary.accumulationTruncatedBatchCount ?? 0,
+          tileAccumulationTruncatedTileCount: executionSummary.tileAccumulationTruncatedTileCount ?? 0,
+          tileAccumulationMaxObservedTileItems: executionSummary.tileAccumulationMaxObservedTileItems ?? 0,
+          tileAccumulationTotalSkippedItems: executionSummary.tileAccumulationTotalSkippedItems ?? 0,
+          tileAccumulationWorstTileId: executionSummary.tileAccumulationWorstTileId ?? -1,
+          tileAccumulationWorstTileItemCount: executionSummary.tileAccumulationWorstTileItemCount ?? 0,
+          tileAccumulationWorstTileSkippedCount: executionSummary.tileAccumulationWorstTileSkippedCount ?? 0,
+          tileAccumulationEarlyOutEnabled: !!executionSummary.tileAccumulationEarlyOutEnabled,
+          tileAccumulationEarlyOutThreshold: Number.isFinite(executionSummary.tileAccumulationEarlyOutThreshold)
+            ? Number(executionSummary.tileAccumulationEarlyOutThreshold)
+            : 0,
+          tileAccumulationEarlyOutTriggeredTileCount: executionSummary.tileAccumulationEarlyOutTriggeredTileCount ?? 0,
+          tileAccumulationEarlyOutTriggeredPixelEstimate: executionSummary.tileAccumulationEarlyOutTriggeredPixelEstimate ?? 0,
+          tileAccumulationWorstEarlyOutTileId: executionSummary.tileAccumulationWorstEarlyOutTileId ?? -1,
+          tileAccumulationWorstEarlyOutCount: executionSummary.tileAccumulationWorstEarlyOutCount ?? 0,
+          tileAccumulationAverageVisitedItemsPerTile: Number.isFinite(executionSummary.tileAccumulationAverageVisitedItemsPerTile)
+            ? Number(executionSummary.tileAccumulationAverageVisitedItemsPerTile)
+            : 0,
+          tileAccumulationMaxVisitedItemsPerTile: executionSummary.tileAccumulationMaxVisitedItemsPerTile ?? 0,
+          tileAccumulationAverageVisitedItemsPerPixelEstimate: Number.isFinite(executionSummary.tileAccumulationAverageVisitedItemsPerPixelEstimate)
+            ? Number(executionSummary.tileAccumulationAverageVisitedItemsPerPixelEstimate)
+            : 0,
+          tileAccumulationVisitedRatioSummary: executionSummary.tileAccumulationVisitedRatioSummary ?? null,
+          tileAccumulationObservedTileSummaries: executionSummary.tileAccumulationObservedTileSummaries ?? [],
+          tileAccumulationOrderingSummary: executionSummary.tileAccumulationOrderingSummary ?? null,
+          tileAccumulationBatchBoundarySummary: executionSummary.tileAccumulationBatchBoundarySummary ?? null,
+          tileAccumulationObservedOrderingMismatches: executionSummary.tileAccumulationObservedOrderingMismatches ?? [],
+          tileAccumulationHeavyTileSummaries: executionSummary.tileAccumulationHeavyTileSummaries ?? [],
+          tileAccumulationRepresentativeTileId: executionSummary.tileAccumulationRepresentativeTileId ?? -1,
+          tileAccumulationRepresentativeTileItemCount: executionSummary.tileAccumulationRepresentativeTileItemCount ?? 0,
+          tileAccumulationRepresentativeTileOrderPreview: executionSummary.tileAccumulationRepresentativeTileOrderPreview ?? null,
+          tileAccumulationRepresentativeTileDepthPreview: executionSummary.tileAccumulationRepresentativeTileDepthPreview ?? null,
+          tileAccumulationRepresentativeTileBatchSpan: executionSummary.tileAccumulationRepresentativeTileBatchSpan ?? 1,
+          tileAccumulationRepresentativeTileSequenceConsistent: !!executionSummary.tileAccumulationRepresentativeTileSequenceConsistent,
+          tileAccumulationContributionSummary: executionSummary.tileAccumulationContributionSummary ?? null,
+          tileAccumulationRepresentativeSampleMode: executionSummary.tileAccumulationRepresentativeSampleMode ?? 'none',
+          tileAccumulationRepresentativeSampleSelectionMode: executionSummary.tileAccumulationRepresentativeSampleSelectionMode ?? 'none',
+          tileAccumulationRepresentativeSampleSelectionReason: executionSummary.tileAccumulationRepresentativeSampleSelectionReason ?? 'none',
+          tileAccumulationRepresentativeSamplePixel: executionSummary.tileAccumulationRepresentativeSamplePixel ?? [0, 0],
+          tileAccumulationRepresentativeSampleHasContribution: !!executionSummary.tileAccumulationRepresentativeSampleHasContribution,
+          tileAccumulationRepresentativeSampleCandidateCount: executionSummary.tileAccumulationRepresentativeSampleCandidateCount ?? 0,
+          tileAccumulationRepresentativeSampleEvaluatedCandidateCount: executionSummary.tileAccumulationRepresentativeSampleEvaluatedCandidateCount ?? 0,
+          tileAccumulationRepresentativeSampleUsableItemSource: executionSummary.tileAccumulationRepresentativeSampleUsableItemSource ?? 'none',
+          tileAccumulationRepresentativeSampleItemReadMode: executionSummary.tileAccumulationRepresentativeSampleItemReadMode ?? 'none',
+          tileAccumulationRepresentativeSampleEvaluatedItemCount: executionSummary.tileAccumulationRepresentativeSampleEvaluatedItemCount ?? 0,
+          tileAccumulationRepresentativeSampleContributionLog: executionSummary.tileAccumulationRepresentativeSampleContributionLog ?? [],
+          tileAccumulationRepresentativeSampleFinalT: Number.isFinite(executionSummary.tileAccumulationRepresentativeSampleFinalT)
+            ? Number(executionSummary.tileAccumulationRepresentativeSampleFinalT)
+            : 1,
+          tileAccumulationRepresentativeSampleAccumColor: executionSummary.tileAccumulationRepresentativeSampleAccumColor ?? [0, 0, 0],
+          tileAccumulationRepresentativeSampleResolvedColor: executionSummary.tileAccumulationRepresentativeSampleResolvedColor ?? [0, 0, 0],
+          tileAccumulationRepresentativeSampleContributionCount: executionSummary.tileAccumulationRepresentativeSampleContributionCount ?? 0,
+          tileAccumulationRepresentativeSampleAlphaSum: Number.isFinite(executionSummary.tileAccumulationRepresentativeSampleAlphaSum)
+            ? Number(executionSummary.tileAccumulationRepresentativeSampleAlphaSum)
+            : 0,
+          tileAccumulationRepresentativeSampleContributionSum: executionSummary.tileAccumulationRepresentativeSampleContributionSum ?? [0, 0, 0],
+          tileAccumulationRepresentativeSampleLastContributedLocalOrder: executionSummary.tileAccumulationRepresentativeSampleLastContributedLocalOrder ?? -1,
+          tileAccumulationRepresentativeSampleThresholdCrossingCount: executionSummary.tileAccumulationRepresentativeSampleThresholdCrossingCount ?? 0,
+          tileAccumulationRepresentativeSampleThresholdSkippedCount: executionSummary.tileAccumulationRepresentativeSampleThresholdSkippedCount ?? 0,
+          tileAccumulationRepresentativeSampleFirstThresholdSkipLocalOrder: executionSummary.tileAccumulationRepresentativeSampleFirstThresholdSkipLocalOrder ?? -1,
+          tileAccumulationRepresentativeSampleFirstThresholdSkipAlpha: Number.isFinite(executionSummary.tileAccumulationRepresentativeSampleFirstThresholdSkipAlpha)
+            ? Number(executionSummary.tileAccumulationRepresentativeSampleFirstThresholdSkipAlpha)
+            : 0,
+          tileAccumulationRepresentativeSampleFirstThresholdSkipTransmittanceBefore: Number.isFinite(executionSummary.tileAccumulationRepresentativeSampleFirstThresholdSkipTransmittanceBefore)
+            ? Number(executionSummary.tileAccumulationRepresentativeSampleFirstThresholdSkipTransmittanceBefore)
+            : 1,
+          tileAccumulationRepresentativeSampleFirstThresholdSkipTransmittanceAfter: Number.isFinite(executionSummary.tileAccumulationRepresentativeSampleFirstThresholdSkipTransmittanceAfter)
+            ? Number(executionSummary.tileAccumulationRepresentativeSampleFirstThresholdSkipTransmittanceAfter)
+            : 1,
+          tileAccumulationRepresentativeSampleThresholdSkipPreview: executionSummary.tileAccumulationRepresentativeSampleThresholdSkipPreview ?? [],
+          tileAccumulationRepresentativeSampleThresholdSemantics: executionSummary.tileAccumulationRepresentativeSampleThresholdSemantics ?? null,
+          tileAccumulationRepresentativeSampleFramebufferColor: executionSummary.tileAccumulationRepresentativeSampleFramebufferColor ?? [0, 0, 0],
+          tileAccumulationRepresentativeSampleFramebufferReadbackValid: !!executionSummary.tileAccumulationRepresentativeSampleFramebufferReadbackValid,
+          tileAccumulationRepresentativeSampleFramebufferReadbackReason: executionSummary.tileAccumulationRepresentativeSampleFramebufferReadbackReason ?? 'not-attempted',
+          tileAccumulationRepresentativeSampleFramebufferReadbackPixel: executionSummary.tileAccumulationRepresentativeSampleFramebufferReadbackPixel ?? [0, 0],
+          tileAccumulationRepresentativeSampleFramebufferReadbackGlPixel: executionSummary.tileAccumulationRepresentativeSampleFramebufferReadbackGlPixel ?? [0, 0],
+          tileAccumulationRepresentativeSampleFramebufferReadbackRgba8: executionSummary.tileAccumulationRepresentativeSampleFramebufferReadbackRgba8 ?? [0, 0, 0, 0],
+          tileAccumulationRepresentativeSampleResolvedColorDelta: executionSummary.tileAccumulationRepresentativeSampleResolvedColorDelta ?? [0, 0, 0],
+          tileAccumulationRepresentativeSampleResolvedColorDeltaAbsMax: Number.isFinite(executionSummary.tileAccumulationRepresentativeSampleResolvedColorDeltaAbsMax)
+            ? Number(executionSummary.tileAccumulationRepresentativeSampleResolvedColorDeltaAbsMax)
+            : 0,
+          tileAccumulationRepresentativeSampleResolvedColorMatchesFramebuffer: !!executionSummary.tileAccumulationRepresentativeSampleResolvedColorMatchesFramebuffer,
+          tileAccumulationRepresentativeSampleResolvedColorMatchTolerance: Number.isFinite(executionSummary.tileAccumulationRepresentativeSampleResolvedColorMatchTolerance)
+            ? Number(executionSummary.tileAccumulationRepresentativeSampleResolvedColorMatchTolerance)
+            : 0,
+          tileAccumulationContractVersion: executionSummary.tileAccumulationContractVersion ?? 'none',
+          tileAccumulationTruncationRatio: Number.isFinite(executionSummary.tileAccumulationTruncationRatio)
+            ? Number(executionSummary.tileAccumulationTruncationRatio)
+            : 0
         }
       : null,
     tileCompositeSummary: tileCompositeSummary
@@ -268,7 +619,24 @@ function buildRenderResultInspectionSummary(renderResult) {
           sourceFallbackContract: renderResult.gpuScreenSourceInfo.sourceFallbackContract ?? 'none'
         }
       : null,
-    gpuScreenExecutionSummary: renderResult?.gpuScreenExecutionSummary ?? null
+    gpuScreenExecutionSummary: renderResult?.gpuScreenExecutionSummary ?? null,
+    tileAccumulationPayloadSummary: renderResult?.tileAccumulationPayloadSummary
+      ? {
+          payloadContract: renderResult.tileAccumulationPayloadSummary.payloadContract ?? 'none',
+          batchCount: renderResult.tileAccumulationPayloadSummary.batchCount ?? 0,
+          totalItemCount: renderResult.tileAccumulationPayloadSummary.totalItemCount ?? 0,
+          maxBatchItemCount: renderResult.tileAccumulationPayloadSummary.maxBatchItemCount ?? 0,
+          payloadFloatCount: renderResult.tileAccumulationPayloadSummary.payloadFloatCount ?? 0,
+          payloadTextureWidth: renderResult.tileAccumulationPayloadSummary.payloadTextureWidth ?? 0,
+          payloadTextureHeight: renderResult.tileAccumulationPayloadSummary.payloadTextureHeight ?? 0,
+          payloadRowsPerColumn: renderResult.tileAccumulationPayloadSummary.payloadRowsPerColumn ?? 0,
+          payloadColumnCount: renderResult.tileAccumulationPayloadSummary.payloadColumnCount ?? 0,
+          payloadLayoutReason: renderResult.tileAccumulationPayloadSummary.payloadLayoutReason ?? 'none',
+          payloadLayoutValid: !!renderResult.tileAccumulationPayloadSummary.payloadLayoutValid,
+          payloadLayoutFailureReason: renderResult.tileAccumulationPayloadSummary.payloadLayoutFailureReason ?? 'none',
+          maxTextureSize: renderResult.tileAccumulationPayloadSummary.maxTextureSize ?? 0
+        }
+      : null
   };
 }
 
@@ -458,6 +826,7 @@ function buildInspectResultBase({
   const actualDrawInspectFailureReason = actualDrawInspectSupported
     ? (actualDrawAttempt?.failureReason ?? (inspection?.ok ? 'none' : inspection?.failureReason ?? 'none'))
     : (actualDrawCandidate?.reason ?? 'actual-draw-inspect-unsupported');
+  const sharedRepresentativeProbe = buildSharedRepresentativeFramebufferProbe(renderResultSummary);
 
   return {
     ok: !!inspection?.ok,
@@ -470,10 +839,13 @@ function buildInspectResultBase({
       actualDrawPath,
     inspectedSourceSpace: inspectedCandidate?.source ?? 'none',
     inspectedSourceReason: inspectedCandidate?.reason ?? 'none',
+    tileCompositePathRequested: getRequestedTileCompositePath(),
+    tileCompositePathActual: executionSummary?.tileCompositePath ?? 'none',
     tileCompositePrimitiveRequested: getRequestedTileCompositePrimitive(),
     tileCompositePrimitiveActual: executionSummary?.tileCompositePrimitive ?? 'none',
     tileCompositeRectContract: executionSummary?.tileCompositeRectContract ?? 'none',
     tileCompositeContract:
+      executionSummary?.compositingContract ??
       renderResultSummary.tileCompositeSummary?.compositingContract ??
       renderResult?.tileCompositePlan?.summary?.compositingContract ??
       'none',
@@ -486,6 +858,7 @@ function buildInspectResultBase({
     drawThroughputSummary: renderResultSummary.drawThroughputSummary,
     deterministicState: buildSlimDeterministicStateSummary(deterministicState),
     attemptedSources: attempts,
+    ...sharedRepresentativeProbe,
     lastRenderResultSummary: renderResultSummary
   };
 }
@@ -510,6 +883,29 @@ function buildSlimInspectResult({
   if (!inspection?.ok) {
     return base;
   }
+
+  const executionSummary = base?.lastRenderResultSummary?.executionSummary ?? null;
+  const accumulationMaxItems = Number.isFinite(executionSummary?.accumulationMaxItemsPerTile)
+    ? Math.max(0, executionSummary.accumulationMaxItemsPerTile | 0)
+    : 0;
+  const targetTileSplatCount = Number.isFinite(inspection.tileCompositeTileSplatCount)
+    ? Math.max(0, inspection.tileCompositeTileSplatCount | 0)
+    : 0;
+  const targetLocalOrder = Number.isFinite(inspection.tileCompositeLocalOrder)
+    ? Math.max(0, inspection.tileCompositeLocalOrder | 0)
+    : 0;
+  const centerSampleContext = inspection?.sampleContexts?.center ?? null;
+  const targetVisitedItems = Number.isFinite(centerSampleContext?.accumulationVisitedItems)
+    ? Math.max(0, centerSampleContext.accumulationVisitedItems | 0)
+    : (accumulationMaxItems > 0 ? Math.min(targetTileSplatCount, accumulationMaxItems) : 0);
+  const targetSkippedItems = Math.max(0, targetTileSplatCount - targetVisitedItems);
+  const targetTileTruncated = targetSkippedItems > 0;
+  const targetIncludedInLoopWindow = typeof centerSampleContext?.accumulationTargetReached === 'boolean'
+    ? !!centerSampleContext.accumulationTargetReached
+    : targetLocalOrder < targetVisitedItems;
+  const targetSkippedNearerCount = Number.isFinite(centerSampleContext?.accumulationTargetSkippedByEarlyOutCount)
+    ? Math.max(0, centerSampleContext.accumulationTargetSkippedByEarlyOutCount | 0)
+    : (targetIncludedInLoopWindow ? 0 : Math.max(0, targetLocalOrder + 1 - targetVisitedItems));
 
   return {
     ...base,
@@ -567,6 +963,89 @@ function buildSlimInspectResult({
     tileCompositeOverlapContext: inspection.tileCompositeOverlapContext,
     tileCompositeDepthOrderSummary: inspection.tileCompositeDepthOrderSummary,
     tileCompositeTileSummary: inspection.tileCompositeTileSummary,
+    tileAccumulationMaxItems: accumulationMaxItems,
+    tileAccumulationTruncatedTileCount: executionSummary?.tileAccumulationTruncatedTileCount ?? 0,
+    tileAccumulationMaxObservedTileItems: executionSummary?.tileAccumulationMaxObservedTileItems ?? 0,
+    tileAccumulationTotalSkippedItems: executionSummary?.tileAccumulationTotalSkippedItems ?? 0,
+    tileAccumulationWorstTileId: executionSummary?.tileAccumulationWorstTileId ?? -1,
+    tileAccumulationWorstTileItemCount: executionSummary?.tileAccumulationWorstTileItemCount ?? 0,
+    tileAccumulationWorstTileSkippedCount: executionSummary?.tileAccumulationWorstTileSkippedCount ?? 0,
+    tileAccumulationEarlyOutEnabled: !!executionSummary?.tileAccumulationEarlyOutEnabled,
+    tileAccumulationEarlyOutThreshold: executionSummary?.tileAccumulationEarlyOutThreshold ?? 0,
+    tileAccumulationEarlyOutTriggeredTileCount: executionSummary?.tileAccumulationEarlyOutTriggeredTileCount ?? 0,
+    tileAccumulationEarlyOutTriggeredPixelEstimate: executionSummary?.tileAccumulationEarlyOutTriggeredPixelEstimate ?? 0,
+    tileAccumulationWorstEarlyOutTileId: executionSummary?.tileAccumulationWorstEarlyOutTileId ?? -1,
+    tileAccumulationWorstEarlyOutCount: executionSummary?.tileAccumulationWorstEarlyOutCount ?? 0,
+    tileAccumulationAverageVisitedItemsPerTile: executionSummary?.tileAccumulationAverageVisitedItemsPerTile ?? 0,
+    tileAccumulationMaxVisitedItemsPerTile: executionSummary?.tileAccumulationMaxVisitedItemsPerTile ?? 0,
+    tileAccumulationAverageVisitedItemsPerPixelEstimate: executionSummary?.tileAccumulationAverageVisitedItemsPerPixelEstimate ?? 0,
+    tileAccumulationVisitedRatioSummary: executionSummary?.tileAccumulationVisitedRatioSummary ?? null,
+    tileAccumulationObservedTileSummaries: executionSummary?.tileAccumulationObservedTileSummaries ?? [],
+    tileAccumulationOrderingSummary: executionSummary?.tileAccumulationOrderingSummary ?? null,
+    tileAccumulationBatchBoundarySummary: executionSummary?.tileAccumulationBatchBoundarySummary ?? null,
+    tileAccumulationObservedOrderingMismatches: executionSummary?.tileAccumulationObservedOrderingMismatches ?? [],
+    tileAccumulationHeavyTileSummaries: executionSummary?.tileAccumulationHeavyTileSummaries ?? [],
+    tileAccumulationRepresentativeTileId: executionSummary?.tileAccumulationRepresentativeTileId ?? -1,
+    tileAccumulationRepresentativeTileItemCount: executionSummary?.tileAccumulationRepresentativeTileItemCount ?? 0,
+    tileAccumulationRepresentativeTileOrderPreview: executionSummary?.tileAccumulationRepresentativeTileOrderPreview ?? null,
+    tileAccumulationRepresentativeTileDepthPreview: executionSummary?.tileAccumulationRepresentativeTileDepthPreview ?? null,
+    tileAccumulationRepresentativeTileBatchSpan: executionSummary?.tileAccumulationRepresentativeTileBatchSpan ?? 1,
+    tileAccumulationRepresentativeTileSequenceConsistent: !!executionSummary?.tileAccumulationRepresentativeTileSequenceConsistent,
+    tileAccumulationContributionSummary: executionSummary?.tileAccumulationContributionSummary ?? null,
+    tileAccumulationRepresentativeSampleMode: executionSummary?.tileAccumulationRepresentativeSampleMode ?? 'none',
+    tileAccumulationRepresentativeSampleSelectionMode: executionSummary?.tileAccumulationRepresentativeSampleSelectionMode ?? 'none',
+    tileAccumulationRepresentativeSampleSelectionReason: executionSummary?.tileAccumulationRepresentativeSampleSelectionReason ?? 'none',
+    tileAccumulationRepresentativeSamplePixel: executionSummary?.tileAccumulationRepresentativeSamplePixel ?? [0, 0],
+    tileAccumulationRepresentativeSampleHasContribution: !!executionSummary?.tileAccumulationRepresentativeSampleHasContribution,
+    tileAccumulationRepresentativeSampleCandidateCount: executionSummary?.tileAccumulationRepresentativeSampleCandidateCount ?? 0,
+    tileAccumulationRepresentativeSampleEvaluatedCandidateCount: executionSummary?.tileAccumulationRepresentativeSampleEvaluatedCandidateCount ?? 0,
+    tileAccumulationRepresentativeSampleUsableItemSource: executionSummary?.tileAccumulationRepresentativeSampleUsableItemSource ?? 'none',
+    tileAccumulationRepresentativeSampleItemReadMode: executionSummary?.tileAccumulationRepresentativeSampleItemReadMode ?? 'none',
+    tileAccumulationRepresentativeSampleEvaluatedItemCount: executionSummary?.tileAccumulationRepresentativeSampleEvaluatedItemCount ?? 0,
+    tileAccumulationRepresentativeSampleContributionLog: executionSummary?.tileAccumulationRepresentativeSampleContributionLog ?? [],
+    tileAccumulationRepresentativeSampleFinalT: executionSummary?.tileAccumulationRepresentativeSampleFinalT ?? 1,
+    tileAccumulationRepresentativeSampleAccumColor: executionSummary?.tileAccumulationRepresentativeSampleAccumColor ?? [0, 0, 0],
+    tileAccumulationRepresentativeSampleResolvedColor: executionSummary?.tileAccumulationRepresentativeSampleResolvedColor ?? [0, 0, 0],
+    tileAccumulationRepresentativeSampleContributionCount: executionSummary?.tileAccumulationRepresentativeSampleContributionCount ?? 0,
+    tileAccumulationRepresentativeSampleAlphaSum: executionSummary?.tileAccumulationRepresentativeSampleAlphaSum ?? 0,
+    tileAccumulationRepresentativeSampleContributionSum: executionSummary?.tileAccumulationRepresentativeSampleContributionSum ?? [0, 0, 0],
+    tileAccumulationRepresentativeSampleLastContributedLocalOrder: executionSummary?.tileAccumulationRepresentativeSampleLastContributedLocalOrder ?? -1,
+    tileAccumulationRepresentativeSampleThresholdCrossingCount: executionSummary?.tileAccumulationRepresentativeSampleThresholdCrossingCount ?? 0,
+    tileAccumulationRepresentativeSampleThresholdSkippedCount: executionSummary?.tileAccumulationRepresentativeSampleThresholdSkippedCount ?? 0,
+    tileAccumulationRepresentativeSampleFirstThresholdSkipLocalOrder: executionSummary?.tileAccumulationRepresentativeSampleFirstThresholdSkipLocalOrder ?? -1,
+    tileAccumulationRepresentativeSampleFirstThresholdSkipAlpha: executionSummary?.tileAccumulationRepresentativeSampleFirstThresholdSkipAlpha ?? 0,
+    tileAccumulationRepresentativeSampleFirstThresholdSkipTransmittanceBefore: executionSummary?.tileAccumulationRepresentativeSampleFirstThresholdSkipTransmittanceBefore ?? 1,
+    tileAccumulationRepresentativeSampleFirstThresholdSkipTransmittanceAfter: executionSummary?.tileAccumulationRepresentativeSampleFirstThresholdSkipTransmittanceAfter ?? 1,
+    tileAccumulationRepresentativeSampleThresholdSkipPreview: executionSummary?.tileAccumulationRepresentativeSampleThresholdSkipPreview ?? [],
+    tileAccumulationRepresentativeSampleThresholdSemantics: executionSummary?.tileAccumulationRepresentativeSampleThresholdSemantics ?? null,
+    tileAccumulationRepresentativeSampleFramebufferColor: executionSummary?.tileAccumulationRepresentativeSampleFramebufferColor ?? [0, 0, 0],
+    tileAccumulationRepresentativeSampleFramebufferReadbackValid: !!executionSummary?.tileAccumulationRepresentativeSampleFramebufferReadbackValid,
+    tileAccumulationRepresentativeSampleFramebufferReadbackReason: executionSummary?.tileAccumulationRepresentativeSampleFramebufferReadbackReason ?? 'not-attempted',
+    tileAccumulationRepresentativeSampleFramebufferReadbackPixel: executionSummary?.tileAccumulationRepresentativeSampleFramebufferReadbackPixel ?? [0, 0],
+    tileAccumulationRepresentativeSampleFramebufferReadbackGlPixel: executionSummary?.tileAccumulationRepresentativeSampleFramebufferReadbackGlPixel ?? [0, 0],
+    tileAccumulationRepresentativeSampleFramebufferReadbackRgba8: executionSummary?.tileAccumulationRepresentativeSampleFramebufferReadbackRgba8 ?? [0, 0, 0, 0],
+    tileAccumulationRepresentativeSampleResolvedColorDelta: executionSummary?.tileAccumulationRepresentativeSampleResolvedColorDelta ?? [0, 0, 0],
+    tileAccumulationRepresentativeSampleResolvedColorDeltaAbsMax: executionSummary?.tileAccumulationRepresentativeSampleResolvedColorDeltaAbsMax ?? 0,
+    tileAccumulationRepresentativeSampleResolvedColorMatchesFramebuffer: !!executionSummary?.tileAccumulationRepresentativeSampleResolvedColorMatchesFramebuffer,
+    tileAccumulationRepresentativeSampleResolvedColorMatchTolerance: executionSummary?.tileAccumulationRepresentativeSampleResolvedColorMatchTolerance ?? 0,
+    tileAccumulationContractVersion: executionSummary?.tileAccumulationContractVersion ?? 'none',
+    tileAccumulationTruncationRatio: executionSummary?.tileAccumulationTruncationRatio ?? 0,
+    tileAccumulationTargetTileTruncated: targetTileTruncated,
+    tileAccumulationTargetTileVisitedItems: targetVisitedItems,
+    tileAccumulationTargetTileSkippedItems: targetSkippedItems,
+    tileAccumulationTargetIncludedInLoopWindow: targetIncludedInLoopWindow,
+    tileAccumulationTargetSkippedNearerCount: targetSkippedNearerCount,
+    tileAccumulationTargetTileEarlyOutTriggered: !!centerSampleContext?.accumulationEarlyOutTriggered,
+    tileAccumulationTargetTileEarlyOutAtItem: centerSampleContext?.accumulationEarlyOutAtItem ?? -1,
+    tileAccumulationTargetTileEarlyOutAtTransmittance: centerSampleContext?.accumulationEarlyOutAtTransmittance ?? 1,
+    tileAccumulationTargetTileEarlyOutBeforeTarget: !!centerSampleContext?.accumulationEarlyOutBeforeTarget,
+    tileAccumulationTargetTileContributingItems: centerSampleContext?.accumulationContributingItems ?? 0,
+    tileCompositeTargetTileHeavy: !!inspection.tileCompositeTargetTileHeavy,
+    tileCompositeTargetTileBatchSpan: inspection.tileCompositeTargetTileBatchSpan ?? 1,
+    tileCompositeTargetSequenceConsistent: !!inspection.tileCompositeTargetSequenceConsistent,
+    tileCompositeTargetOrderingMismatchCount: inspection.tileCompositeTargetOrderingMismatchCount ?? 0,
+    tileCompositeTargetOrderingFirstMismatch: inspection.tileCompositeTargetOrderingFirstMismatch ?? null,
+    tileCompositeTargetSequencePreview: inspection.tileCompositeTargetSequencePreview ?? [],
     textureColumnIndex: inspection.textureColumnIndex,
     textureRowIndex: inspection.textureRowIndex,
     textureXBase: inspection.textureXBase,
@@ -904,18 +1383,18 @@ function updateDrawPathNoteFromState(stateLike) {
 
   if (summary.drawPath === 'gpu-screen') {
     ui.drawPathSelectNote.textContent =
-      `full-frame only; gpu-screen debug distinguishes actual, source, and reference; tile primitive=${summary.tileCompositePrimitive}`;
+      `full-frame only; gpu-screen debug distinguishes actual, source, and reference; tile path=${summary.tileCompositePath}; tile primitive=${summary.tileCompositePrimitive}`;
     return;
   }
 
   if (summary.drawPath === 'packed') {
     ui.drawPathSelectNote.textContent =
-      `full-frame only; packed is the formal reference path; tile primitive=${summary.tileCompositePrimitive}`;
+      `full-frame only; packed is the formal reference path; tile path=${summary.tileCompositePath}; tile primitive=${summary.tileCompositePrimitive}`;
     return;
   }
 
   ui.drawPathSelectNote.textContent =
-    `full-frame only; legacy is the fallback path; tile primitive=${summary.tileCompositePrimitive}`;
+    `full-frame only; legacy is the fallback path; tile path=${summary.tileCompositePath}; tile primitive=${summary.tileCompositePrimitive}`;
 }
 
 function bindSliderTextUpdates() {

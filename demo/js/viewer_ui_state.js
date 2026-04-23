@@ -47,6 +47,14 @@ function normalizeTileCompositePrimitive(value, fallback = 'point') {
   return isAllowedTileCompositePrimitive(value) ? value : fallback;
 }
 
+function isAllowedTileCompositePath(value) {
+  return value === 'baseline' || value === 'accumulation';
+}
+
+function normalizeTileCompositePath(value, fallback = 'baseline') {
+  return isAllowedTileCompositePath(value) ? value : fallback;
+}
+
 function readChecked(el, fallback = false) {
   return el ? !!el.checked : fallback;
 }
@@ -99,6 +107,7 @@ export function createDefaultUiState() {
     interactionRenderScale: 1.0,
     usePackedVisiblePath: true,
     drawPath: 'packed',
+    tileCompositePath: 'baseline',
     tileCompositePrimitive: 'point',
     bgGray: 32
   };
@@ -130,6 +139,10 @@ export function normalizeUiState(input = {}) {
     interactionRenderScale: Math.max(0.05, toFloat(input.interactionRenderScale, defaults.interactionRenderScale)),
     usePackedVisiblePath: toBool(input.usePackedVisiblePath, defaults.usePackedVisiblePath),
     drawPath: normalizeDrawPath(input.drawPath, defaults.drawPath),
+    tileCompositePath: normalizeTileCompositePath(
+      toStringValue(input.tileCompositePath, defaults.tileCompositePath),
+      defaults.tileCompositePath
+    ),
     tileCompositePrimitive: normalizeTileCompositePrimitive(
       toStringValue(input.tileCompositePrimitive, defaults.tileCompositePrimitive),
       defaults.tileCompositePrimitive
@@ -150,6 +163,7 @@ export function summarizeUiState(state) {
     drawPathReference,
     drawPathShowsComparison: s.drawPath === 'gpu-screen',
     drawPathActualRole: drawPathRole,
+    tileCompositePath: s.tileCompositePath,
     tileCompositePrimitive: s.tileCompositePrimitive,
     drawSelectedOnly: s.drawSelectedTileOnly,
     bgGray: s.bgGray
@@ -203,6 +217,7 @@ export function readUiStateFromControls(ui) {
     interactionRenderScale: readValue(ui.interactionRenderScaleInput, '1.0'),
     usePackedVisiblePath: readChecked(ui.usePackedVisiblePathCheck, true),
     drawPath: readValue(ui.drawPathSelect, 'packed'),
+    tileCompositePath: readValue(ui.tileCompositePathSelect, 'baseline'),
     tileCompositePrimitive: readValue(ui.tileCompositePrimitiveSelect, 'point'),
     bgGray: readValue(ui.bgGraySlider, '32')
   });
@@ -234,6 +249,7 @@ export function applyUiStateToControls(ui, state) {
   writeValue(ui.interactionRenderScaleInput, s.interactionRenderScale);
   writeChecked(ui.usePackedVisiblePathCheck, s.usePackedVisiblePath);
   writeValue(ui.drawPathSelect, s.drawPath);
+  writeValue(ui.tileCompositePathSelect, s.tileCompositePath);
   writeValue(ui.tileCompositePrimitiveSelect, s.tileCompositePrimitive);
   writeValue(ui.bgGraySlider, s.bgGray);
 
@@ -242,6 +258,10 @@ export function applyUiStateToControls(ui, state) {
   }
   if (ui.drawPathSelectNote) {
     ui.drawPathSelectNote.textContent = 'full-frame only; gpu-screen debug distinguishes actual, source, and reference';
+  }
+  if (ui.tileCompositePathNote) {
+    ui.tileCompositePathNote.textContent =
+      'tile composite only; baseline compare path vs step86 CUDA-like accumulation path';
   }
 
   return s;
@@ -283,6 +303,7 @@ export function bindUiStatePersistence(ui, options = {}) {
     ui.interactionRenderScaleInput,
     ui.usePackedVisiblePathCheck,
     ui.drawPathSelect,
+    ui.tileCompositePathSelect,
     ui.tileCompositePrimitiveSelect,
     ui.bgGraySlider
   ].filter(Boolean);

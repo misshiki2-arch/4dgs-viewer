@@ -7,6 +7,12 @@ import { uploadAndDrawPackedDirect } from './gpu_packed_draw_executor.js';
 import { uploadAndDrawGpuScreen } from './gpu_screen_draw_executor.js';
 import { executeFallbackFullFrameDraw } from './gpu_fallback_draw_executor.js';
 import { executeTileCompositeDraw } from './gpu_tile_composite_executor.js';
+import { buildTileAccumulationPayload } from './gpu_tile_accumulation_payload.js';
+import { executeTileAccumulationDraw } from './gpu_tile_accumulation_executor.js';
+
+function normalizeTileCompositePath(value) {
+  return value === 'accumulation' ? 'accumulation' : 'baseline';
+}
 
 function buildPackedExecutionSummary(drawPathSelection, directPackedDrawInfo) {
   return {
@@ -95,7 +101,9 @@ function buildDrawThroughputSummary({
   sharedMergeAtlasCapacityHeight = 0,
   sharedMergeAtlasAllocationBytes = 0,
   sharedMergeAtlasSavedAllocationBytes = 0,
-  usesGpuResidentPayload = false
+  usesGpuResidentPayload = false,
+  tileCompositePath = 'none',
+  compositingContract = 'none'
 }) {
   const dispatchPressure = sharedDispatchCount > 0
     ? 'shared-dispatch-bound'
@@ -138,7 +146,52 @@ function buildDrawThroughputSummary({
     sharedMergeAtlasAllocationBytes: Number.isFinite(sharedMergeAtlasAllocationBytes) ? Math.max(0, sharedMergeAtlasAllocationBytes | 0) : 0,
     sharedMergeAtlasSavedAllocationBytes: Number.isFinite(sharedMergeAtlasSavedAllocationBytes) ? Math.max(0, sharedMergeAtlasSavedAllocationBytes | 0) : 0,
     usesGpuResidentPayload: !!usesGpuResidentPayload,
+    tileCompositePath: tileCompositePath ?? 'none',
+    compositingContract: compositingContract ?? 'none',
     throughputPressure: dispatchPressure
+  };
+}
+
+function executeTileDrawPath({
+  gl,
+  gpu,
+  canvas,
+  tileCompositePlan,
+  drawPathSelection,
+  tileCompositePath = 'baseline',
+  primitive = 'point',
+  bgGray01 = 0
+}) {
+  const normalizedPath = normalizeTileCompositePath(tileCompositePath);
+  if (normalizedPath === 'accumulation') {
+    const accumulationPayload = buildTileAccumulationPayload(tileCompositePlan, {
+      maxTextureSize: Number(gl.getParameter(gl.MAX_TEXTURE_SIZE)) | 0
+    });
+    const result = executeTileAccumulationDraw({
+      gl,
+      gpu,
+      canvas,
+      accumulationPayload,
+      drawPathSelection,
+      bgGray01
+    });
+    return {
+      ...result,
+      tileAccumulationPayloadSummary: accumulationPayload?.summary ?? null
+    };
+  }
+
+  return {
+    ...executeTileCompositeDraw({
+      gl,
+      gpu,
+      canvas,
+      tileCompositePlan,
+      drawPathSelection,
+      primitive,
+      bgGray01
+    }),
+    tileAccumulationPayloadSummary: null
   };
 }
 
@@ -150,17 +203,19 @@ function executePackedFullFrameDraw({
   gpuScreenSourceSpace,
   drawPathSelection,
   tileCompositePlan = null,
+  tileCompositePath = 'baseline',
   tileCompositePrimitive = 'point',
   bgGray01 = 0,
   drawPolicyOverride = null
 }) {
   if (Array.isArray(tileCompositePlan?.batches) && tileCompositePlan.batches.length > 0) {
-    const tileCompositeResult = executeTileCompositeDraw({
+    const tileCompositeResult = executeTileDrawPath({
       gl,
       gpu,
       canvas,
       tileCompositePlan,
       drawPathSelection,
+      tileCompositePath,
       primitive: tileCompositePrimitive,
       bgGray01
     });
@@ -174,11 +229,14 @@ function executePackedFullFrameDraw({
         drawCallCount: tileCompositeResult?.tileCompositeDrawInfo?.drawCallCount ?? 0,
         uploadCount: tileCompositeResult?.tileCompositeDrawInfo?.uploadCount ?? 0,
         uploadBytes: tileCompositeResult?.packedUploadSummary?.packedUploadBytes ?? 0,
-        usesGpuResidentPayload: false
+        usesGpuResidentPayload: false,
+        tileCompositePath: tileCompositeResult?.executionSummary?.tileCompositePath ?? normalizeTileCompositePath(tileCompositePath),
+        compositingContract: tileCompositeResult?.executionSummary?.compositingContract ?? 'none'
       }),
       directPackedDrawInfo: null,
       gpuScreenDrawInfo: null,
-      tileCompositeDrawInfo: tileCompositeResult.tileCompositeDrawInfo
+      tileCompositeDrawInfo: tileCompositeResult.tileCompositeDrawInfo,
+      tileAccumulationPayloadSummary: tileCompositeResult.tileAccumulationPayloadSummary ?? null
     };
   }
 
@@ -235,10 +293,13 @@ function executePackedFullFrameDraw({
       sharedMergeAtlasCapacityHeight: directPackedDrawInfo?.packedDirectSharedMergeAtlasCapacityHeight ?? 0,
       sharedMergeAtlasAllocationBytes: directPackedDrawInfo?.packedDirectSharedMergeAtlasAllocationBytes ?? 0,
       sharedMergeAtlasSavedAllocationBytes: directPackedDrawInfo?.packedDirectSharedMergeAtlasSavedAllocationBytes ?? 0,
-      usesGpuResidentPayload: !!directPackedDrawInfo?.packedDirectUsesGpuResidentPayload
+      usesGpuResidentPayload: !!directPackedDrawInfo?.packedDirectUsesGpuResidentPayload,
+      tileCompositePath: 'none',
+      compositingContract: 'full-frame-direct'
     }),
     directPackedDrawInfo,
-    gpuScreenDrawInfo: null
+    gpuScreenDrawInfo: null,
+    tileAccumulationPayloadSummary: null
   };
 }
 
@@ -279,17 +340,19 @@ function executeGpuScreenFullFrameDraw({
   gpuScreenSourceSpace,
   drawPathSelection,
   tileCompositePlan = null,
+  tileCompositePath = 'baseline',
   tileCompositePrimitive = 'point',
   bgGray01 = 0,
   drawPolicyOverride = null
 }) {
   if (Array.isArray(tileCompositePlan?.batches) && tileCompositePlan.batches.length > 0) {
-    const tileCompositeResult = executeTileCompositeDraw({
+    const tileCompositeResult = executeTileDrawPath({
       gl,
       gpu,
       canvas,
       tileCompositePlan,
       drawPathSelection,
+      tileCompositePath,
       primitive: tileCompositePrimitive,
       bgGray01
     });
@@ -303,11 +366,14 @@ function executeGpuScreenFullFrameDraw({
         drawCallCount: tileCompositeResult?.tileCompositeDrawInfo?.drawCallCount ?? 0,
         uploadCount: tileCompositeResult?.tileCompositeDrawInfo?.uploadCount ?? 0,
         uploadBytes: tileCompositeResult?.packedUploadSummary?.packedUploadBytes ?? 0,
-        usesGpuResidentPayload: false
+        usesGpuResidentPayload: false,
+        tileCompositePath: tileCompositeResult?.executionSummary?.tileCompositePath ?? normalizeTileCompositePath(tileCompositePath),
+        compositingContract: tileCompositeResult?.executionSummary?.compositingContract ?? 'none'
       }),
       directPackedDrawInfo: null,
       gpuScreenDrawInfo: null,
-      tileCompositeDrawInfo: tileCompositeResult.tileCompositeDrawInfo
+      tileCompositeDrawInfo: tileCompositeResult.tileCompositeDrawInfo,
+      tileAccumulationPayloadSummary: tileCompositeResult.tileAccumulationPayloadSummary ?? null
     };
   }
 
@@ -360,10 +426,13 @@ function executeGpuScreenFullFrameDraw({
       sharedMergeAtlasSavedAllocationBytes: gpuScreenDrawInfo?.sharedMergeAtlasSavedAllocationBytes ?? 0,
       usesGpuResidentPayload: !!(
         gpuScreenDrawInfo?.gpuScreenSummary?.gpuScreenUsesGpuResidentPayload
-      )
+      ),
+      tileCompositePath: 'none',
+      compositingContract: 'full-frame-direct'
     }),
     directPackedDrawInfo: null,
-    gpuScreenDrawInfo
+    gpuScreenDrawInfo,
+    tileAccumulationPayloadSummary: null
   };
 }
 
@@ -375,6 +444,7 @@ export function executeFullFrameDrawByPath({
   packedScreenSpace,
   gpuScreenSourceSpace,
   tileCompositePlan = null,
+  tileCompositePath = 'baseline',
   tileCompositePrimitive = 'point',
   legacyDrawData,
   bgGray01 = 0,
@@ -390,6 +460,7 @@ export function executeFullFrameDrawByPath({
       gpuScreenSourceSpace,
       drawPathSelection,
       tileCompositePlan,
+      tileCompositePath,
       tileCompositePrimitive,
       bgGray01,
       drawPolicyOverride
@@ -405,6 +476,7 @@ export function executeFullFrameDrawByPath({
       gpuScreenSourceSpace,
       drawPathSelection,
       tileCompositePlan,
+      tileCompositePath,
       tileCompositePrimitive,
       bgGray01,
       drawPolicyOverride
@@ -433,7 +505,9 @@ export function executeFullFrameDrawByPath({
         sharedDispatchMode: 'none',
         sharedPayloadCount: 0,
         sharedMergeCopyCount: 0,
-        usesGpuResidentPayload: false
+        usesGpuResidentPayload: false,
+        tileCompositePath: 'none',
+        compositingContract: 'legacy-direct'
       })
     };
   }

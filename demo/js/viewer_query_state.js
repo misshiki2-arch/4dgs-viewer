@@ -2,6 +2,7 @@ import { normalizeUiState } from './viewer_ui_state.js';
 import { resolveViewerCameraPreset } from './viewer_camera_presets.js';
 
 const QUERY_DRAW_PATH_VALUES = new Set(['packed', 'gpu-screen', 'legacy']);
+const QUERY_TILE_COMPOSITE_PATH_VALUES = new Set(['baseline', 'accumulation']);
 const QUERY_TILE_COMPOSITE_PRIMITIVE_VALUES = new Set(['point', 'quad']);
 const QUERY_INSPECT_SOURCE_VALUES = new Set(['auto', 'actual-draw', 'packed', 'gpu-screen-fallback']);
 const QUERY_INSPECT_JSON_MODE_VALUES = new Set(['slim', 'full']);
@@ -71,6 +72,7 @@ function buildDeterministicQueryString(state) {
   appendDeterministicQueryParam(params, 'cameraPreset', state?.cameraPresetName);
   appendDeterministicQueryParam(params, 'time', state?.time, (value) => formatDeterministicFixed(value, 2));
   appendDeterministicQueryParam(params, 'drawPath', state?.drawPath);
+  appendDeterministicQueryParam(params, 'tileCompositePath', state?.tileCompositePath);
   appendDeterministicQueryParam(params, 'tileCompositePrimitive', state?.tileCompositePrimitive);
   appendDeterministicQueryParam(params, 'inspectSource', state?.inspectSource);
   appendDeterministicQueryParam(params, 'inspectJsonMode', state?.inspectJsonMode);
@@ -94,6 +96,7 @@ export function parseViewerQueryState(search = window.location.search) {
   const cameraPresetName = params.get('cameraPreset');
   const cameraPreset = resolveViewerCameraPreset(cameraPresetName);
   const drawPath = params.get('drawPath');
+  const tileCompositePath = params.get('tileCompositePath');
   const tileCompositePrimitive = params.get('tileCompositePrimitive');
   const inspectSource = params.get('inspectSource');
   const inspectJsonMode = params.get('inspectJsonMode');
@@ -105,6 +108,9 @@ export function parseViewerQueryState(search = window.location.search) {
     cameraPreset,
     time: parseNumber(params.get('time'), null),
     drawPath: QUERY_DRAW_PATH_VALUES.has(drawPath) ? drawPath : null,
+    tileCompositePath: QUERY_TILE_COMPOSITE_PATH_VALUES.has(tileCompositePath)
+      ? tileCompositePath
+      : null,
     tileCompositePrimitive: QUERY_TILE_COMPOSITE_PRIMITIVE_VALUES.has(tileCompositePrimitive)
       ? tileCompositePrimitive
       : null,
@@ -134,6 +140,7 @@ export function parseViewerQueryState(search = window.location.search) {
     'cameraPreset',
     'time',
     'drawPath',
+    'tileCompositePath',
     'tileCompositePrimitive',
     'inspectSource',
     'inspectJsonMode',
@@ -166,6 +173,7 @@ export function buildViewerDeterministicSummary(queryState) {
     active: !!state.active,
     cameraPresetName: state.cameraPresetName ?? 'none',
     drawPath: state.drawPath ?? 'none',
+    tileCompositePath: state.tileCompositePath ?? 'baseline',
     tileCompositePrimitive: state.tileCompositePrimitive ?? 'point',
     inspectSource: state.inspectSource ?? 'auto',
     inspectJsonMode: state.inspectJsonMode ?? 'slim',
@@ -196,10 +204,12 @@ export function applyViewerQueryStateToUi(ui, queryState) {
   setCheckboxValue(ui.useNativeMarginalCheck, queryState.useNativeMarginal);
   setCheckboxValue(ui.usePackedVisiblePathCheck, queryState.usePackedVisiblePath);
   setSelectValue(ui.drawPathSelect, queryState.drawPath);
+  setSelectValue(ui.tileCompositePathSelect, queryState.tileCompositePath);
   setSelectValue(ui.tileCompositePrimitiveSelect, queryState.tileCompositePrimitive);
 
   const normalizedState = normalizeUiState({
     drawPath: ui.drawPathSelect?.value ?? 'packed',
+    tileCompositePath: ui.tileCompositePathSelect?.value ?? 'baseline',
     tileCompositePrimitive: ui.tileCompositePrimitiveSelect?.value ?? 'point',
     usePackedVisiblePath: ui.usePackedVisiblePathCheck?.checked ?? true,
     bgGray: ui.bgGraySlider?.value ?? 32

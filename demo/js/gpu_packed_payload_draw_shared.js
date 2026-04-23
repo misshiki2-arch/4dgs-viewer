@@ -7,6 +7,9 @@ const GPU_MERGE_MIN_TOTAL_ROWS = 128;
 const GPU_PACKED_FLOATS_PER_ITEM = 16;
 const TILE_COMPOSITE_OVERLAP_TOP_K = 3;
 const TILE_COMPOSITE_ACCUMULATION_LOG_LIMIT = 5;
+const TILE_COMPOSITE_SEQUENCE_PREVIEW_RADIUS = 2;
+const TILE_ACCUMULATION_MAX_ITEMS_ESTIMATE = 2048;
+const TILE_ACCUMULATION_EARLY_OUT_THRESHOLD_ESTIMATE = 0.0001;
 
 const GPU_PACKED_TEXTURE_VERTEX_SHADER = `#version 300 es
 precision highp float;
@@ -472,6 +475,56 @@ function readPackedItemSummary(packed, itemIndex, floatsPerItem = GPU_PACKED_FLO
   };
 }
 
+function buildTargetSequencePreview(batch, targetLocalIndex, previewRadius = TILE_COMPOSITE_SEQUENCE_PREVIEW_RADIUS) {
+  const packedCount = Number.isFinite(batch?.packedCount) ? Math.max(0, batch.packedCount | 0) : 0;
+  const safeTargetLocalIndex = Number.isFinite(targetLocalIndex)
+    ? Math.min(Math.max(0, targetLocalIndex | 0), Math.max(0, packedCount - 1))
+    : 0;
+  const start = Math.max(0, safeTargetLocalIndex - previewRadius);
+  const end = Math.min(packedCount, safeTargetLocalIndex + previewRadius + 1);
+  const preview = [];
+  let mismatchCount = 0;
+  let firstMismatch = null;
+  let previousDepth = null;
+
+  for (let i = 0; i < packedCount; i++) {
+    const itemSummary = readPackedItemSummary(batch?.packed, i, batch?.floatsPerItem);
+    const depth = Number.isFinite(itemSummary?.depth) ? itemSummary.depth : null;
+    if (
+      Number.isFinite(previousDepth) &&
+      Number.isFinite(depth) &&
+      depth < previousDepth
+    ) {
+      mismatchCount++;
+      if (!firstMismatch) {
+        firstMismatch = {
+          localOrder: i,
+          previousDepth,
+          currentDepth: depth
+        };
+      }
+    }
+    if (Number.isFinite(depth)) previousDepth = depth;
+    if (i < start || i >= end) continue;
+    preview.push({
+      localOrder: i,
+      isTarget: i === safeTargetLocalIndex,
+      sourceVisibleIndex: batch?.orderedIndices instanceof Uint32Array ? (batch.orderedIndices[i] ?? -1) : -1,
+      sourceSplatIndex: batch?.sourceIndices instanceof Uint32Array ? (batch.sourceIndices[i] ?? -1) : -1,
+      depth
+    });
+  }
+
+  return {
+    tileCompositeTargetTileHeavy: packedCount >= 16,
+    tileCompositeTargetTileBatchSpan: 1,
+    tileCompositeTargetSequenceConsistent: mismatchCount === 0,
+    tileCompositeTargetOrderingMismatchCount: mismatchCount,
+    tileCompositeTargetOrderingFirstMismatch: firstMismatch,
+    tileCompositeTargetSequencePreview: preview
+  };
+}
+
 function pixelInsideRectExclusive(pixelIndexPx, rect) {
   if (!Array.isArray(pixelIndexPx) || pixelIndexPx.length < 2 || !rect) return false;
   return (
@@ -577,6 +630,67 @@ function buildContributorAccumulationLog(contributors, targetDepth, maxEntries =
     truncated: sortedByOrder.length > safeMaxEntries,
     estimatedTransmittance: transmittance,
     estimatedAlphaComposite: 1.0 - transmittance
+  };
+}
+
+function simulateAccumulationAtSample(batch, samplePixelIndexPx, targetLocalIndex) {
+  const packedCount = Number.isFinite(batch?.packedCount) ? Math.max(0, batch.packedCount | 0) : 0;
+  const clampedCount = Math.min(packedCount, TILE_ACCUMULATION_MAX_ITEMS_ESTIMATE);
+  let visitedItems = 0;
+  let contributingItems = 0;
+  let transmittance = 1.0;
+  let earlyOutTriggered = false;
+  let earlyOutAtItem = -1;
+  let earlyOutAtTransmittance = 1.0;
+  let targetReached = false;
+  let targetEvaluated = false;
+  let targetReachedItem = -1;
+
+  for (let i = 0; i < clampedCount; i++) {
+    visitedItems++;
+    if (i === targetLocalIndex) {
+      targetReached = true;
+      targetReachedItem = i;
+    }
+    const itemSummary = readPackedItemSummary(batch?.packed, i, batch?.floatsPerItem);
+    if (!itemSummary?.rect || !pixelInsideRectExclusive(samplePixelIndexPx, itemSummary.rect)) {
+      continue;
+    }
+    const rectInfo = buildRectInfoFromRect(itemSummary.rect);
+    if (!rectInfo) continue;
+    const sampleEvaluation = evaluatePackedFragmentAtPixelIndex(
+      itemSummary.centerPx,
+      itemSummary.conic,
+      itemSummary.colorAlpha,
+      samplePixelIndexPx,
+      rectInfo
+    );
+    if (!sampleEvaluation.survivesFragment) continue;
+    contributingItems++;
+    if (i === targetLocalIndex) targetEvaluated = true;
+    transmittance *= (1.0 - sampleEvaluation.finalAlpha);
+    if (transmittance < TILE_ACCUMULATION_EARLY_OUT_THRESHOLD_ESTIMATE) {
+      earlyOutTriggered = true;
+      earlyOutAtItem = i;
+      earlyOutAtTransmittance = transmittance;
+      break;
+    }
+  }
+
+  return {
+    accumulationVisitedItems: visitedItems,
+    accumulationContributingItems: contributingItems,
+    accumulationVisitedRatio: packedCount > 0 ? visitedItems / packedCount : 0,
+    accumulationEarlyOutTriggered: earlyOutTriggered,
+    accumulationEarlyOutAtItem: earlyOutAtItem,
+    accumulationEarlyOutAtTransmittance: earlyOutAtTransmittance,
+    accumulationTargetReached: targetReached,
+    accumulationTargetEvaluated: targetEvaluated,
+    accumulationTargetReachedItem: targetReachedItem,
+    accumulationEarlyOutBeforeTarget: earlyOutTriggered && (!targetReached || earlyOutAtItem < targetLocalIndex),
+    accumulationTargetSkippedByEarlyOutCount: earlyOutTriggered && earlyOutAtItem < targetLocalIndex
+      ? Math.max(0, targetLocalIndex - earlyOutAtItem)
+      : 0
   };
 }
 
@@ -798,6 +912,7 @@ function summarizeTileCompositeContext(batch, localIndex, rows) {
     const fartherSummary = summarizeSampleContributors(sampleContext.fartherContributors, targetDepth);
     const nearerAccumulation = buildContributorAccumulationLog(sampleContext.nearerContributors, targetDepth);
     const fartherAccumulation = buildContributorAccumulationLog(sampleContext.fartherContributors, targetDepth);
+    const accumulationVisitSummary = simulateAccumulationAtSample(batch, sampleContext.samplePixelIndexPx, safeLocalIndex);
     sampleContextsSummary[sampleKey] = {
       samplePixelIndexPx: sampleContext.samplePixelIndexPx,
       sampleCoordinateSpace: sampleContext.sampleCoordinateSpace,
@@ -819,10 +934,12 @@ function summarizeTileCompositeContext(batch, localIndex, rows) {
       nearerAccumulationLogTruncated: nearerAccumulation.truncated,
       fartherAccumulationLogTruncated: fartherAccumulation.truncated,
       estimatedNearerTransmittanceFromLog: nearerAccumulation.estimatedTransmittance,
-      estimatedNearerAlphaCompositeFromLog: nearerAccumulation.estimatedAlphaComposite
+      estimatedNearerAlphaCompositeFromLog: nearerAccumulation.estimatedAlphaComposite,
+      ...accumulationVisitSummary
     };
   }
   const centerSampleSummary = sampleContextsSummary.center;
+  const targetSequencePreview = buildTargetSequencePreview(batch, safeLocalIndex);
 
   return {
     tileCompositeLocalOrder: safeLocalIndex,
@@ -886,7 +1003,8 @@ function summarizeTileCompositeContext(batch, localIndex, rows) {
       tileRectMinPx: tileRect?.minPx ?? null,
       tileRectMaxPxExclusive: tileRect?.maxPxExclusive ?? null,
       heavyOverlap: overlappingNeighborCount >= 16
-    }
+    },
+    ...targetSequencePreview
   };
 }
 

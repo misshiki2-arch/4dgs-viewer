@@ -169,6 +169,8 @@ export function formatGpuViewerCompactInfo({
   stride = 1,
   actualDrawPath = 'none',
   requestedDrawPath = 'none',
+  tileCompositePathRequested = 'baseline',
+  tileCompositePathActual = 'none',
   tileCompositePrimitiveRequested = 'point',
   tileCompositePrimitiveActual = 'none',
   tileCompositeRectContract = 'none',
@@ -182,7 +184,7 @@ export function formatGpuViewerCompactInfo({
   const lines = [];
   lines.push(`${stepLabel}  render=${Number(elapsedMs).toFixed(1)} ms`);
   lines.push(
-    `drawPath=${actualDrawPath}  requested=${requestedDrawPath}  primitive=${tileCompositePrimitiveActual}  rect=${tileCompositeRectContract}`
+    `drawPath=${actualDrawPath}  requested=${requestedDrawPath}  tilePath=${tileCompositePathActual}  primitive=${tileCompositePrimitiveActual}  rect=${tileCompositeRectContract}`
   );
   lines.push(
     `fallback=${gpuFallbackActive}  bridge=${gpuCompatibilityBridgeActive}  time=${Number(timestamp).toFixed(2)}  canvas=${canvasWidth}x${canvasHeight}`
@@ -192,6 +194,9 @@ export function formatGpuViewerCompactInfo({
   );
   if (tileCompositePrimitiveRequested !== tileCompositePrimitiveActual) {
     lines.push(`primitiveRequested=${tileCompositePrimitiveRequested}`);
+  }
+  if (tileCompositePathRequested !== tileCompositePathActual) {
+    lines.push(`tilePathRequested=${tileCompositePathRequested}`);
   }
   if (deterministicUrlSummary) {
     lines.push(`deterministic=${deterministicUrlSummary}`);

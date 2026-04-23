@@ -348,6 +348,24 @@ export function ensurePackedPathControls(ui) {
 
   const row3 = ensureRow(ui, 'packedPathRow3');
   setRowContents(row3, appendWithSpaces(
+    createLabel('tile path', '92px'),
+    createSelect(
+      'tileCompositePathSelect',
+      [
+        { value: 'baseline', label: 'baseline blend' },
+        { value: 'accumulation', label: 'accumulation (step86)' }
+      ],
+      'baseline',
+      '230px'
+    ),
+    createNote(
+      'tileCompositePathNote',
+      'tile composite only; baseline compare path vs step86 CUDA-like accumulation path'
+    )
+  ));
+
+  const row4 = ensureRow(ui, 'packedPathRow4');
+  setRowContents(row4, appendWithSpaces(
     createLabel('tile primitive', '92px'),
     createSelect(
       'tileCompositePrimitiveSelect',
@@ -360,9 +378,12 @@ export function ensurePackedPathControls(ui) {
     ),
     createNote(
       'tileCompositePrimitiveNote',
-      'tile composite only; compare point sprite vs exact rect quad'
+      'baseline tile composite only; compare point sprite vs exact rect quad'
     )
   ));
+
+  ui.tileCompositePathSelect = document.getElementById('tileCompositePathSelect');
+  ui.tileCompositePathNote = document.getElementById('tileCompositePathNote');
 
   ui.tileCompositePrimitiveSelect = document.getElementById('tileCompositePrimitiveSelect');
   ui.tileCompositePrimitiveNote = document.getElementById('tileCompositePrimitiveNote');

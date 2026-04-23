@@ -99,6 +99,7 @@ function getDrawTileMode(ui) {
   const useMaxTileCheck = getLiveEl(ui?.useMaxTileCheck, 'useMaxTile');
   const selectedTileIdInput = getLiveEl(ui?.selectedTileIdInput, 'selectedTileId');
   const tileRadiusInput = getLiveEl(ui?.tileRadiusInput, 'tileRadius');
+  const tileCompositePathSelect = getLiveEl(ui?.tileCompositePathSelect, 'tileCompositePathSelect');
   const tileCompositePrimitiveSelect = getLiveEl(ui?.tileCompositePrimitiveSelect, 'tileCompositePrimitiveSelect');
 
   return {
@@ -111,6 +112,9 @@ function getDrawTileMode(ui) {
     tileRadius: Number.isFinite(Number(tileRadiusInput?.value))
       ? Math.max(0, Number(tileRadiusInput.value) | 0)
       : 0,
+    tileCompositePath: tileCompositePathSelect?.value === 'accumulation'
+      ? 'accumulation'
+      : 'baseline',
     tileCompositePrimitive: tileCompositePrimitiveSelect?.value === 'quad' ? 'quad' : 'point'
   };
 }
@@ -853,6 +857,7 @@ export async function renderGpuFrame({
         packedScreenSpace,
         gpuScreenSourceSpace: gpuScreenSourceInfo.sourceSpace,
         tileCompositePlan,
+        tileCompositePath: mode.tileCompositePath,
         tileCompositePrimitive: mode.tileCompositePrimitive,
         legacyDrawData,
         bgGray01: bg,
@@ -865,7 +870,8 @@ export async function renderGpuFrame({
     drawThroughputSummary,
     directPackedDrawInfo,
     gpuScreenDrawInfo,
-    tileCompositeDrawInfo
+    tileCompositeDrawInfo,
+    tileAccumulationPayloadSummary
   } = executionResult;
 
   debugOverlayCanvas.width = canvas.width;
@@ -1017,6 +1023,7 @@ export async function renderGpuFrame({
     extraLines.push(`deterministicCameraPreset=${deterministicStateSummary.cameraPresetName ?? 'none'}`);
     extraLines.push(`deterministicAppliedCameraPreset=${deterministicStateSummary.appliedCameraPresetName ?? 'none'}`);
     extraLines.push(`deterministicDrawPath=${deterministicStateSummary.drawPath ?? 'none'}`);
+    extraLines.push(`deterministicTileCompositePath=${deterministicStateSummary.tileCompositePath ?? 'baseline'}`);
     extraLines.push(`deterministicTileCompositePrimitive=${deterministicStateSummary.tileCompositePrimitive ?? 'point'}`);
     extraLines.push(
       `deterministicGpuFramePolicyOverride=${deterministicStateSummary.gpuFramePolicyOverride ?? 'auto'}`
@@ -1039,9 +1046,25 @@ export async function renderGpuFrame({
     extraLines.push(`tileCompositeOverlapFactor=${Number(tileCompositePlan.summary.tileCompositeOverlapFactor ?? 0).toFixed(2)}`);
   }
   if (executionSummary) {
+    extraLines.push(`tileCompositePathRequested=${mode.tileCompositePath}`);
+    extraLines.push(`tileCompositePathActual=${executionSummary.tileCompositePath ?? 'none'}`);
     extraLines.push(`tileCompositePrimitiveRequested=${mode.tileCompositePrimitive}`);
     extraLines.push(`tileCompositePrimitiveActual=${executionSummary.tileCompositePrimitive ?? 'none'}`);
     extraLines.push(`tileCompositeRectContract=${executionSummary.tileCompositeRectContract ?? 'none'}`);
+    extraLines.push(`tileAccumulationTextureAllocationValid=${!!executionSummary.textureAllocationValid}`);
+    extraLines.push(`tileAccumulationTextureAllocationFailureReason=${executionSummary.textureAllocationFailureReason ?? 'none'}`);
+    extraLines.push(`tileAccumulationRequestedTexture=${executionSummary.requestedTextureWidth ?? 0}x${executionSummary.requestedTextureHeight ?? 0}`);
+    extraLines.push(`tileAccumulationValidatedTexture=${executionSummary.validatedTextureWidth ?? 0}x${executionSummary.validatedTextureHeight ?? 0}`);
+  }
+  if (tileAccumulationPayloadSummary) {
+    extraLines.push(`tileAccumulationPayloadContract=${tileAccumulationPayloadSummary.payloadContract ?? 'none'}`);
+    extraLines.push(`tileAccumulationPayloadItems=${tileAccumulationPayloadSummary.totalItemCount ?? 0}`);
+    extraLines.push(`tileAccumulationPayloadMaxBatchItems=${tileAccumulationPayloadSummary.maxBatchItemCount ?? 0}`);
+    extraLines.push(`tileAccumulationPayloadTexture=${tileAccumulationPayloadSummary.payloadTextureWidth ?? 0}x${tileAccumulationPayloadSummary.payloadTextureHeight ?? 0}`);
+    extraLines.push(`tileAccumulationPayloadRowsPerColumn=${tileAccumulationPayloadSummary.payloadRowsPerColumn ?? 0}`);
+    extraLines.push(`tileAccumulationPayloadColumnCount=${tileAccumulationPayloadSummary.payloadColumnCount ?? 0}`);
+    extraLines.push(`tileAccumulationPayloadLayoutValid=${!!tileAccumulationPayloadSummary.payloadLayoutValid}`);
+    extraLines.push(`tileAccumulationPayloadLayoutFailureReason=${tileAccumulationPayloadSummary.payloadLayoutFailureReason ?? 'none'}`);
   }
 
   const debugText = formatGpuViewerInfo({
@@ -1100,6 +1123,8 @@ export async function renderGpuFrame({
       drawPathSelection?.actualPath ??
       'none',
     requestedDrawPath: drawPathSelection?.requestedPath ?? 'none',
+    tileCompositePathRequested: mode.tileCompositePath,
+    tileCompositePathActual: executionSummary?.tileCompositePath ?? 'none',
     tileCompositePrimitiveRequested: mode.tileCompositePrimitive,
     tileCompositePrimitiveActual: executionSummary?.tileCompositePrimitive ?? 'none',
     tileCompositeRectContract: executionSummary?.tileCompositeRectContract ?? 'none',
@@ -1133,6 +1158,7 @@ export async function renderGpuFrame({
     drawThroughputSummary,
     frameGpuThroughputSummary,
     tileCompositePlan,
+    tileAccumulationPayloadSummary,
     executionSummary,
     packedUploadSummary
   };

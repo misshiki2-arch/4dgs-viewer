@@ -396,6 +396,7 @@ export function executeTileCompositeDraw({
       actualDrawPath: drawPathSelection?.actualPath ?? 'packed',
       drawPathFallbackReason: drawPathSelection?.fallbackReason ?? 'none',
       compositingContract: 'tile-local-front-to-back',
+      tileCompositePath: 'baseline',
       tileCompositePrimitive: aggregate.primitive,
       tileCompositeRectContract: aggregate.rectContract
     },
