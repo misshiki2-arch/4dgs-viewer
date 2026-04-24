@@ -151,26 +151,44 @@ function ensureTileCompositeResolveState(gl, gpu) {
   return gpu.tileCompositeResolveState;
 }
 
-function ensureTileCompositeAccumulationTarget(gl, gpu, width, height) {
-  const safeWidth = Math.max(1, width | 0);
-  const safeHeight = Math.max(1, height | 0);
-  const current = gpu.tileCompositeAccumulationTarget;
-
-  if (
-    current?.framebuffer &&
-    current?.texture &&
-    current.width === safeWidth &&
-    current.height === safeHeight
-  ) {
-    return current;
+function getTileCompositeAccumulationTargetCandidates(gl, gpu) {
+  if (!gpu.tileCompositeAccumulationTargetCandidates) {
+    const hasFloatColorSupport = typeof gl.getExtension === 'function'
+      ? !!gl.getExtension('EXT_color_buffer_float')
+      : false;
+    const candidates = [];
+    if (hasFloatColorSupport) {
+      candidates.push({
+        internalFormat: gl.RGBA16F,
+        format: gl.RGBA,
+        type: gl.HALF_FLOAT,
+        formatLabel: 'RGBA16F',
+        typeLabel: 'HALF_FLOAT',
+        precisionContract: 'float16-front-to-back-intermediate'
+      });
+      candidates.push({
+        internalFormat: gl.RGBA32F,
+        format: gl.RGBA,
+        type: gl.FLOAT,
+        formatLabel: 'RGBA32F',
+        typeLabel: 'FLOAT',
+        precisionContract: 'float32-front-to-back-intermediate'
+      });
+    }
+    candidates.push({
+      internalFormat: gl.RGBA,
+      format: gl.RGBA,
+      type: gl.UNSIGNED_BYTE,
+      formatLabel: 'RGBA8',
+      typeLabel: 'UNSIGNED_BYTE',
+      precisionContract: 'rgba8-front-to-back-intermediate'
+    });
+    gpu.tileCompositeAccumulationTargetCandidates = candidates;
   }
+  return gpu.tileCompositeAccumulationTargetCandidates;
+}
 
-  if (current?.framebuffer) gl.deleteFramebuffer(current.framebuffer);
-  if (current?.texture) gl.deleteTexture(current.texture);
-
-  const texture = gl.createTexture();
-  const framebuffer = gl.createFramebuffer();
-
+function tryAllocateTileCompositeAccumulationTarget(gl, texture, framebuffer, width, height, candidate) {
   gl.bindTexture(gl.TEXTURE_2D, texture);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
@@ -179,12 +197,12 @@ function ensureTileCompositeAccumulationTarget(gl, gpu, width, height) {
   gl.texImage2D(
     gl.TEXTURE_2D,
     0,
-    gl.RGBA,
-    safeWidth,
-    safeHeight,
+    candidate.internalFormat,
+    width,
+    height,
     0,
-    gl.RGBA,
-    gl.UNSIGNED_BYTE,
+    candidate.format,
+    candidate.type,
     null
   );
 
@@ -197,11 +215,48 @@ function ensureTileCompositeAccumulationTarget(gl, gpu, width, height) {
     0
   );
 
-  const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+  return gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+}
+
+function ensureTileCompositeAccumulationTarget(gl, gpu, width, height) {
+  const safeWidth = Math.max(1, width | 0);
+  const safeHeight = Math.max(1, height | 0);
+  const current = gpu.tileCompositeAccumulationTarget;
+
+  if (
+    current?.framebuffer &&
+    current?.texture &&
+    current.width === safeWidth &&
+    current.height === safeHeight &&
+    current.internalFormat != null &&
+    current.type != null
+  ) {
+    return current;
+  }
+
+  if (current?.framebuffer) gl.deleteFramebuffer(current.framebuffer);
+  if (current?.texture) gl.deleteTexture(current.texture);
+
+  const texture = gl.createTexture();
+  const framebuffer = gl.createFramebuffer();
+  const candidates = getTileCompositeAccumulationTargetCandidates(gl, gpu);
+  let selectedCandidate = null;
+  let status = 0;
+  let fallbackReason = 'none';
+  for (let i = 0; i < candidates.length; i++) {
+    const candidate = candidates[i];
+    if (tryAllocateTileCompositeAccumulationTarget(gl, texture, framebuffer, safeWidth, safeHeight, candidate)) {
+      selectedCandidate = candidate;
+      status = gl.FRAMEBUFFER_COMPLETE;
+      fallbackReason = i === 0 ? 'preferred-target-accepted' : 'preferred-target-fallback';
+      break;
+    }
+    status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+  }
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   gl.bindTexture(gl.TEXTURE_2D, null);
 
-  if (status !== gl.FRAMEBUFFER_COMPLETE) {
+  if (status !== gl.FRAMEBUFFER_COMPLETE || !selectedCandidate) {
     throw new Error(`Tile composite accumulation framebuffer incomplete (${status})`);
   }
 
@@ -209,7 +264,14 @@ function ensureTileCompositeAccumulationTarget(gl, gpu, width, height) {
     framebuffer,
     texture,
     width: safeWidth,
-    height: safeHeight
+    height: safeHeight,
+    internalFormat: selectedCandidate.internalFormat,
+    format: selectedCandidate.format,
+    type: selectedCandidate.type,
+    formatLabel: selectedCandidate.formatLabel,
+    typeLabel: selectedCandidate.typeLabel,
+    precisionContract: selectedCandidate.precisionContract,
+    fallbackReason
   };
   gpu.tileCompositeAccumulationTarget = target;
   return target;
@@ -277,7 +339,7 @@ function resolveTileCompositeToCanvas(gl, gpu, target, canvasWidth, canvasHeight
   gl.bindVertexArray(null);
 }
 
-function buildUploadSummary(state, aggregate) {
+function buildUploadSummary(state, aggregate, accumulationTarget) {
   return {
     packedUploadLayoutVersion: state.layout?.layoutVersion ?? 0,
     packedUploadStrideBytes: state.layout?.strideBytes ?? 0,
@@ -302,7 +364,11 @@ function buildUploadSummary(state, aggregate) {
     packedDirectTileComposite: true,
     packedDirectCompositingContract: 'tile-local-front-to-back',
     tileCompositePrimitive: aggregate.primitive ?? 'point',
-    tileCompositeRectContract: aggregate.rectContract ?? 'point-sprite-radius'
+    tileCompositeRectContract: aggregate.rectContract ?? 'point-sprite-radius',
+    tileCompositeAccumulationTargetFormat: accumulationTarget?.formatLabel ?? 'unknown',
+    tileCompositeAccumulationTargetType: accumulationTarget?.typeLabel ?? 'unknown',
+    tileCompositeAccumulationTargetPrecisionContract: accumulationTarget?.precisionContract ?? 'unknown',
+    tileCompositeAccumulationTargetFallbackReason: accumulationTarget?.fallbackReason ?? 'unknown'
   };
 }
 
@@ -383,7 +449,7 @@ export function executeTileCompositeDraw({
     else gl.disable(gl.BLEND);
   }
 
-  const uploadSummary = buildUploadSummary(state, aggregate);
+  const uploadSummary = buildUploadSummary(state, aggregate, accumulationTarget);
 
   return {
     executionSummary: {
@@ -398,7 +464,12 @@ export function executeTileCompositeDraw({
       compositingContract: 'tile-local-front-to-back',
       tileCompositePath: 'baseline',
       tileCompositePrimitive: aggregate.primitive,
-      tileCompositeRectContract: aggregate.rectContract
+      tileCompositeRectContract: aggregate.rectContract,
+      tileCompositeAccumulationTargetFormat: accumulationTarget?.formatLabel ?? 'unknown',
+      tileCompositeAccumulationTargetType: accumulationTarget?.typeLabel ?? 'unknown',
+      tileCompositeAccumulationTargetPrecisionContract: accumulationTarget?.precisionContract ?? 'unknown',
+      tileCompositeAccumulationTargetFallbackReason: accumulationTarget?.fallbackReason ?? 'unknown',
+      tileCompositeResolveContract: 'premultiplied-front-to-back-accum + finalT * backgroundGray'
     },
     packedUploadSummary: uploadSummary,
     tileCompositeDrawInfo: {

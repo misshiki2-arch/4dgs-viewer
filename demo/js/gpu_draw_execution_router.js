@@ -14,6 +14,27 @@ function normalizeTileCompositePath(value) {
   return value === 'accumulation' ? 'accumulation' : 'baseline';
 }
 
+function resolveTileCompositePrimitiveForPath(tileCompositePath, tileCompositePrimitive) {
+  const normalizedPath = normalizeTileCompositePath(tileCompositePath);
+  const requestedPrimitive = tileCompositePrimitive === 'quad' ? 'quad' : 'point';
+
+  if (normalizedPath === 'baseline') {
+    return {
+      primitive: 'quad',
+      policy: 'baseline-forced-cuda-rect-coverage',
+      reason: requestedPrimitive === 'quad'
+        ? 'baseline path uses CUDA-style exact rect coverage'
+        : 'baseline path overrides requested point primitive to match CUDA-style exact rect coverage'
+    };
+  }
+
+  return {
+    primitive: requestedPrimitive,
+    policy: 'requested-primitive-preserved',
+    reason: 'accumulation path preserves the requested primitive contract'
+  };
+}
+
 function buildPackedExecutionSummary(drawPathSelection, directPackedDrawInfo) {
   return {
     tileBatchCount: 1,
@@ -209,6 +230,10 @@ function executePackedFullFrameDraw({
   drawPolicyOverride = null
 }) {
   if (Array.isArray(tileCompositePlan?.batches) && tileCompositePlan.batches.length > 0) {
+    const tileCompositePrimitiveContract = resolveTileCompositePrimitiveForPath(
+      tileCompositePath,
+      tileCompositePrimitive
+    );
     const tileCompositeResult = executeTileDrawPath({
       gl,
       gpu,
@@ -216,12 +241,19 @@ function executePackedFullFrameDraw({
       tileCompositePlan,
       drawPathSelection,
       tileCompositePath,
-      primitive: tileCompositePrimitive,
+      primitive: tileCompositePrimitiveContract.primitive,
       bgGray01
     });
 
     return {
-      executionSummary: tileCompositeResult.executionSummary,
+      executionSummary: {
+        ...tileCompositeResult.executionSummary,
+        tileCompositePrimitivePolicy: tileCompositePrimitiveContract.policy,
+        tileCompositePrimitivePolicyReason: tileCompositePrimitiveContract.reason,
+        tileCompositePrimitiveResolved:
+          tileCompositeResult?.executionSummary?.tileCompositePrimitive ??
+          tileCompositePrimitiveContract.primitive
+      },
       packedUploadSummary: tileCompositeResult.packedUploadSummary,
       drawThroughputSummary: buildDrawThroughputSummary({
         drawPathSelection,
@@ -346,6 +378,10 @@ function executeGpuScreenFullFrameDraw({
   drawPolicyOverride = null
 }) {
   if (Array.isArray(tileCompositePlan?.batches) && tileCompositePlan.batches.length > 0) {
+    const tileCompositePrimitiveContract = resolveTileCompositePrimitiveForPath(
+      tileCompositePath,
+      tileCompositePrimitive
+    );
     const tileCompositeResult = executeTileDrawPath({
       gl,
       gpu,
@@ -353,12 +389,19 @@ function executeGpuScreenFullFrameDraw({
       tileCompositePlan,
       drawPathSelection,
       tileCompositePath,
-      primitive: tileCompositePrimitive,
+      primitive: tileCompositePrimitiveContract.primitive,
       bgGray01
     });
 
     return {
-      executionSummary: tileCompositeResult.executionSummary,
+      executionSummary: {
+        ...tileCompositeResult.executionSummary,
+        tileCompositePrimitivePolicy: tileCompositePrimitiveContract.policy,
+        tileCompositePrimitivePolicyReason: tileCompositePrimitiveContract.reason,
+        tileCompositePrimitiveResolved:
+          tileCompositeResult?.executionSummary?.tileCompositePrimitive ??
+          tileCompositePrimitiveContract.primitive
+      },
       packedUploadSummary: tileCompositeResult.packedUploadSummary,
       drawThroughputSummary: buildDrawThroughputSummary({
         drawPathSelection,
