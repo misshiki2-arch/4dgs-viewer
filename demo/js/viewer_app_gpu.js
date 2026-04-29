@@ -135,7 +135,14 @@ function updateDeterministicStateNote() {
 
   const parts = [];
   parts.push(`query active`);
-  parts.push(`cameraPreset=${deterministicQueryState.cameraPresetName ?? 'none'}`);
+  if (Array.isArray(deterministicQueryState.datasetCameraPosition) &&
+      Array.isArray(deterministicQueryState.datasetCameraTarget)) {
+    parts.push(`cameraSource=dataset-query-camera`);
+    parts.push(`datasetImage=${deterministicQueryState.datasetImageName ?? 'none'}`);
+    parts.push(`datasetTime=${Number.isFinite(deterministicQueryState.datasetTime) ? deterministicQueryState.datasetTime : 'none'}`);
+  } else {
+    parts.push(`cameraPreset=${deterministicQueryState.cameraPresetName ?? 'none'}`);
+  }
   parts.push(`drawPath=${deterministicQueryState.drawPath ?? 'default'}`);
   parts.push(`tileCompositePath=${deterministicQueryState.tileCompositePath ?? 'baseline'}`);
   parts.push(`tileCompositePrimitive=${deterministicQueryState.tileCompositePrimitive ?? 'point'}`);
@@ -180,12 +187,68 @@ function buildRenderOverrides() {
 
 function buildDeterministicStateSummary() {
   const summary = buildViewerDeterministicSummary(deterministicQueryState);
+  const convertedPose = convertDatasetTransformMatrixToViewerPose(
+    summary.datasetTransformMatrix,
+    summary.datasetCameraConvention ?? 'nerf-blender-c2w'
+  );
+  const cameraFoVyRad = Number.isFinite(summary.datasetCameraFoVyRad)
+    ? Number(summary.datasetCameraFoVyRad)
+    : (Number.isFinite(summary.datasetCameraFoVy) ? Number(summary.datasetCameraFoVy) : null);
+  const cameraFoVxRad = Number.isFinite(summary.datasetCameraFoVxRad)
+    ? Number(summary.datasetCameraFoVxRad)
+    : (Number.isFinite(summary.datasetCameraFoVx) ? Number(summary.datasetCameraFoVx) : null);
+  const cameraFoVyDeg = Number.isFinite(cameraFoVyRad) ? (cameraFoVyRad * 180 / Math.PI) : null;
+  const cameraFoVxDeg = Number.isFinite(cameraFoVxRad) ? (cameraFoVxRad * 180 / Math.PI) : null;
   return {
     ...summary,
     appliedCameraPresetName,
     deterministicQueryString: summary.deterministicQueryString ?? '',
     deterministicUrlSummary: summary.deterministicUrlSummary ?? '',
     deterministicRawQueryString: summary.rawQueryString ?? '',
+    cameraSource: summary.cameraSource ?? 'camera-preset',
+    datasetCameraConvention: summary.datasetCameraConvention ?? null,
+    datasetCameraLabel: summary.datasetCameraLabel ?? null,
+    imageName: summary.datasetImageName ?? null,
+    frameNumber: Number.isFinite(summary.datasetFrameNumber) ? Number(summary.datasetFrameNumber) : null,
+    viewId: Number.isFinite(summary.datasetViewId) ? Number(summary.datasetViewId) : null,
+    datasetTime: Number.isFinite(summary.datasetTime) ? Number(summary.datasetTime) : null,
+    rawTransformMatrix: Array.isArray(summary.datasetTransformMatrix) ? summary.datasetTransformMatrix.map((row) => [...row]) : null,
+    convertedCameraPose: convertedPose
+      ? {
+          position: [...convertedPose.position],
+          target: [...convertedPose.target],
+          up: [...convertedPose.up],
+          forward: [...convertedPose.forward],
+          targetDistance: convertedPose.targetDistance,
+          convertedMatrix: convertedPose.convertedMatrix.map((row) => [...row])
+        }
+      : null,
+    cameraPosition: convertedPose
+      ? [...convertedPose.position]
+      : (Array.isArray(summary.datasetCameraPosition) ? [...summary.datasetCameraPosition] : null),
+    cameraTarget: convertedPose
+      ? [...convertedPose.target]
+      : (Array.isArray(summary.datasetCameraTarget) ? [...summary.datasetCameraTarget] : null),
+    cameraUp: convertedPose
+      ? [...convertedPose.up]
+      : (Array.isArray(summary.datasetCameraUp) ? [...summary.datasetCameraUp] : null),
+    cameraFoVyRad,
+    cameraFoVxRad,
+    cameraFoVyDeg,
+    cameraFoVxDeg,
+    cameraFoVy: Number.isFinite(summary.datasetCameraFoVy) ? Number(summary.datasetCameraFoVy) : null,
+    cameraFoVx: Number.isFinite(summary.datasetCameraFoVx) ? Number(summary.datasetCameraFoVx) : null,
+    appliedCameraFovDeg: Number.isFinite(camera?.fov) ? Number(camera.fov) : null,
+    intrinsics: {
+      fx: Number.isFinite(summary.datasetFx) ? Number(summary.datasetFx) : null,
+      fy: Number.isFinite(summary.datasetFy) ? Number(summary.datasetFy) : null,
+      cx: Number.isFinite(summary.datasetCx) ? Number(summary.datasetCx) : null,
+      cy: Number.isFinite(summary.datasetCy) ? Number(summary.datasetCy) : null
+    },
+    stride: Number.isFinite(summary.stride) ? Number(summary.stride) : null,
+    bgGray: Number.isFinite(summary.bgGray) ? Number(summary.bgGray) : null,
+    cudaReferenceLabel: summary.cudaReferenceLabel ?? null,
+    cudaReferencePath: summary.cudaReferencePath ?? null,
     snapshotApiAvailable: true,
     snapshotCaptureSource: lastSnapshotSummary.source,
     snapshotRenderWaitMode: lastSnapshotSummary.renderWaitMode,
@@ -1249,6 +1312,30 @@ function buildSlimDeterministicStateSummary(summary) {
     active: !!summary?.active,
     cameraPresetName: summary?.cameraPresetName ?? 'none',
     appliedCameraPresetName: summary?.appliedCameraPresetName ?? 'none',
+    cameraSource: summary?.cameraSource ?? 'camera-preset',
+    datasetCameraConvention: summary?.datasetCameraConvention ?? null,
+    datasetCameraLabel: summary?.datasetCameraLabel ?? null,
+    imageName: summary?.imageName ?? null,
+    frameNumber: Number.isFinite(summary?.frameNumber) ? Number(summary.frameNumber) : null,
+    viewId: Number.isFinite(summary?.viewId) ? Number(summary.viewId) : null,
+    datasetTime: Number.isFinite(summary?.datasetTime) ? Number(summary.datasetTime) : null,
+    rawTransformMatrix: Array.isArray(summary?.rawTransformMatrix) ? summary.rawTransformMatrix.map((row) => [...row]) : null,
+    convertedCameraPose: summary?.convertedCameraPose ?? null,
+    cameraPosition: Array.isArray(summary?.cameraPosition) ? [...summary.cameraPosition] : null,
+    cameraTarget: Array.isArray(summary?.cameraTarget) ? [...summary.cameraTarget] : null,
+    cameraUp: Array.isArray(summary?.cameraUp) ? [...summary.cameraUp] : null,
+    cameraFoVyRad: Number.isFinite(summary?.cameraFoVyRad) ? Number(summary.cameraFoVyRad) : null,
+    cameraFoVxRad: Number.isFinite(summary?.cameraFoVxRad) ? Number(summary.cameraFoVxRad) : null,
+    cameraFoVyDeg: Number.isFinite(summary?.cameraFoVyDeg) ? Number(summary.cameraFoVyDeg) : null,
+    cameraFoVxDeg: Number.isFinite(summary?.cameraFoVxDeg) ? Number(summary.cameraFoVxDeg) : null,
+    cameraFoVy: Number.isFinite(summary?.cameraFoVy) ? Number(summary.cameraFoVy) : null,
+    cameraFoVx: Number.isFinite(summary?.cameraFoVx) ? Number(summary.cameraFoVx) : null,
+    appliedCameraFovDeg: Number.isFinite(summary?.appliedCameraFovDeg) ? Number(summary.appliedCameraFovDeg) : null,
+    intrinsics: summary?.intrinsics ?? null,
+    stride: Number.isFinite(summary?.stride) ? Number(summary.stride) : null,
+    bgGray: Number.isFinite(summary?.bgGray) ? Number(summary.bgGray) : null,
+    cudaReferenceLabel: summary?.cudaReferenceLabel ?? null,
+    cudaReferencePath: summary?.cudaReferencePath ?? null,
     drawPath: summary?.drawPath ?? 'none',
     tileCompositePath: summary?.tileCompositePath ?? 'baseline',
     tileCompositePrimitive: summary?.tileCompositePrimitive ?? 'point',
@@ -1944,8 +2031,88 @@ function buildFullInspectResult({
   };
 }
 
+function convertDatasetTransformMatrixToViewerPose(rawMatrix, convention = 'nerf-blender-c2w') {
+  if (!Array.isArray(rawMatrix) || rawMatrix.length !== 4) return null;
+  const c2w = rawMatrix.map((row) => (Array.isArray(row) ? row.slice(0, 4).map(Number) : []));
+  if (c2w.some((row) => row.length !== 4 || row.some((value) => !Number.isFinite(value)))) {
+    return null;
+  }
+
+  if (convention === 'nerf-blender-c2w') {
+    for (let row = 0; row < 3; row++) {
+      c2w[row][1] *= -1;
+      c2w[row][2] *= -1;
+    }
+  }
+
+  const position = [c2w[0][3], c2w[1][3], c2w[2][3]];
+  const forward = [-c2w[0][2], -c2w[1][2], -c2w[2][2]];
+  const up = [c2w[0][1], c2w[1][1], c2w[2][1]];
+  const targetDistance = 10.0;
+  const target = [
+    position[0] + forward[0] * targetDistance,
+    position[1] + forward[1] * targetDistance,
+    position[2] + forward[2] * targetDistance
+  ];
+
+  return {
+    position,
+    target,
+    up,
+    forward,
+    targetDistance,
+    convertedMatrix: c2w
+  };
+}
+
+function applyDeterministicDatasetCameraPose() {
+  if (!raw) return false;
+  const convertedPose = convertDatasetTransformMatrixToViewerPose(
+    deterministicQueryState.datasetTransformMatrix,
+    deterministicQueryState.datasetCameraConvention ?? 'nerf-blender-c2w'
+  );
+  const position = Array.isArray(convertedPose?.position)
+    ? convertedPose.position
+    : deterministicQueryState.datasetCameraPosition;
+  const target = Array.isArray(convertedPose?.target)
+    ? convertedPose.target
+    : deterministicQueryState.datasetCameraTarget;
+  if (!Array.isArray(position) || position.length < 3 || !Array.isArray(target) || target.length < 3) {
+    return false;
+  }
+
+  camera.position.set(Number(position[0]), Number(position[1]), Number(position[2]));
+  controls.target.set(Number(target[0]), Number(target[1]), Number(target[2]));
+
+  const up = Array.isArray(convertedPose?.up)
+    ? convertedPose.up
+    : deterministicQueryState.datasetCameraUp;
+  if (Array.isArray(up) && up.length >= 3) {
+    camera.up.set(Number(up[0]), Number(up[1]), Number(up[2]));
+  } else {
+    camera.up.set(0, 1, 0);
+  }
+
+  const fovYRadians = Number.isFinite(deterministicQueryState.datasetCameraFoVyRad)
+    ? Number(deterministicQueryState.datasetCameraFoVyRad)
+    : Number(deterministicQueryState.datasetCameraFoVy);
+  if (Number.isFinite(fovYRadians) && fovYRadians > 0) {
+    camera.fov = fovYRadians * 180 / Math.PI;
+  }
+
+  camera.lookAt(Number(target[0]), Number(target[1]), Number(target[2]));
+  camera.updateProjectionMatrix();
+  controls.update();
+  appliedCameraPresetName = deterministicQueryState.datasetCameraLabel ?? deterministicQueryState.datasetImageName ?? 'dataset-camera';
+  return true;
+}
+
 function applyDeterministicCameraPreset() {
   if (!raw) return false;
+
+  if (applyDeterministicDatasetCameraPose()) {
+    return true;
+  }
 
   const preset = deterministicQueryState.cameraPreset;
   if (!preset || preset.name === 'fit') {

@@ -32,6 +32,25 @@ function parseBoolean(value, fallback = null) {
   return fallback;
 }
 
+function parseVector3(value, fallback = null) {
+  if (value === null || value === undefined || value === '') return fallback;
+  const parts = String(value).split(',').map((part) => Number(part.trim()));
+  if (parts.length < 3 || parts.some((part) => !Number.isFinite(part))) return fallback;
+  return [parts[0], parts[1], parts[2]];
+}
+
+function parseMatrix4(value, fallback = null) {
+  if (value === null || value === undefined || value === '') return fallback;
+  const parts = String(value).split(',').map((part) => Number(part.trim()));
+  if (parts.length !== 16 || parts.some((part) => !Number.isFinite(part))) return fallback;
+  return [
+    parts.slice(0, 4),
+    parts.slice(4, 8),
+    parts.slice(8, 12),
+    parts.slice(12, 16)
+  ];
+}
+
 function setSliderValue(sliderEl, valueEl, value, digits = null) {
   if (!sliderEl || value === null || value === undefined) return;
   sliderEl.value = String(value);
@@ -70,6 +89,26 @@ function formatDeterministicFixed(value, digits = 2) {
 function buildDeterministicQueryString(state) {
   const params = new URLSearchParams();
   appendDeterministicQueryParam(params, 'cameraPreset', state?.cameraPresetName);
+  appendDeterministicQueryParam(params, 'datasetTransformMatrix', state?.datasetTransformMatrix, (value) => value.flat().join(','));
+  appendDeterministicQueryParam(params, 'datasetCameraConvention', state?.datasetCameraConvention);
+  appendDeterministicQueryParam(params, 'cameraPosition', state?.datasetCameraPosition, (value) => value.join(','));
+  appendDeterministicQueryParam(params, 'cameraTarget', state?.datasetCameraTarget, (value) => value.join(','));
+  appendDeterministicQueryParam(params, 'cameraUp', state?.datasetCameraUp, (value) => value.join(','));
+  appendDeterministicQueryParam(params, 'cameraFoVyRad', state?.datasetCameraFoVyRad, (value) => String(value));
+  appendDeterministicQueryParam(params, 'cameraFoVxRad', state?.datasetCameraFoVxRad, (value) => String(value));
+  appendDeterministicQueryParam(params, 'cameraFoVy', state?.datasetCameraFoVy, (value) => String(value));
+  appendDeterministicQueryParam(params, 'cameraFoVx', state?.datasetCameraFoVx, (value) => String(value));
+  appendDeterministicQueryParam(params, 'datasetCameraLabel', state?.datasetCameraLabel);
+  appendDeterministicQueryParam(params, 'datasetImageName', state?.datasetImageName);
+  appendDeterministicQueryParam(params, 'datasetFrameNumber', state?.datasetFrameNumber);
+  appendDeterministicQueryParam(params, 'datasetViewId', state?.datasetViewId);
+  appendDeterministicQueryParam(params, 'datasetTime', state?.datasetTime, (value) => String(value));
+  appendDeterministicQueryParam(params, 'datasetFx', state?.datasetFx, (value) => String(value));
+  appendDeterministicQueryParam(params, 'datasetFy', state?.datasetFy, (value) => String(value));
+  appendDeterministicQueryParam(params, 'datasetCx', state?.datasetCx, (value) => String(value));
+  appendDeterministicQueryParam(params, 'datasetCy', state?.datasetCy, (value) => String(value));
+  appendDeterministicQueryParam(params, 'cudaReferenceLabel', state?.cudaReferenceLabel);
+  appendDeterministicQueryParam(params, 'cudaReferencePath', state?.cudaReferencePath);
   appendDeterministicQueryParam(params, 'time', state?.time, (value) => formatDeterministicFixed(value, 2));
   appendDeterministicQueryParam(params, 'drawPath', state?.drawPath);
   appendDeterministicQueryParam(params, 'tileCompositePath', state?.tileCompositePath);
@@ -113,6 +152,26 @@ export function parseViewerQueryState(search = window.location.search) {
     active: false,
     cameraPresetName: cameraPreset?.name ?? null,
     cameraPreset,
+    datasetTransformMatrix: parseMatrix4(params.get('datasetTransformMatrix'), null),
+    datasetCameraConvention: params.get('datasetCameraConvention') ?? null,
+    datasetCameraPosition: parseVector3(params.get('cameraPosition'), null),
+    datasetCameraTarget: parseVector3(params.get('cameraTarget'), null),
+    datasetCameraUp: parseVector3(params.get('cameraUp'), null),
+    datasetCameraFoVyRad: parseNumber(params.get('cameraFoVyRad'), parseNumber(params.get('cameraFoVy'), null)),
+    datasetCameraFoVxRad: parseNumber(params.get('cameraFoVxRad'), parseNumber(params.get('cameraFoVx'), null)),
+    datasetCameraFoVy: parseNumber(params.get('cameraFoVy'), null),
+    datasetCameraFoVx: parseNumber(params.get('cameraFoVx'), null),
+    datasetCameraLabel: params.get('datasetCameraLabel') ?? null,
+    datasetImageName: params.get('datasetImageName') ?? null,
+    datasetFrameNumber: parseInteger(params.get('datasetFrameNumber'), null),
+    datasetViewId: parseInteger(params.get('datasetViewId'), null),
+    datasetTime: parseNumber(params.get('datasetTime'), null),
+    datasetFx: parseNumber(params.get('datasetFx'), null),
+    datasetFy: parseNumber(params.get('datasetFy'), null),
+    datasetCx: parseNumber(params.get('datasetCx'), null),
+    datasetCy: parseNumber(params.get('datasetCy'), null),
+    cudaReferenceLabel: params.get('cudaReferenceLabel') ?? null,
+    cudaReferencePath: params.get('cudaReferencePath') ?? null,
     time: parseNumber(params.get('time'), null),
     drawPath: QUERY_DRAW_PATH_VALUES.has(drawPath) ? drawPath : null,
     tileCompositePath: QUERY_TILE_COMPOSITE_PATH_VALUES.has(tileCompositePath)
@@ -152,6 +211,26 @@ export function parseViewerQueryState(search = window.location.search) {
 
   state.active = [
     'cameraPreset',
+    'datasetTransformMatrix',
+    'datasetCameraConvention',
+    'cameraPosition',
+    'cameraTarget',
+    'cameraUp',
+    'cameraFoVyRad',
+    'cameraFoVxRad',
+    'cameraFoVy',
+    'cameraFoVx',
+    'datasetCameraLabel',
+    'datasetImageName',
+    'datasetFrameNumber',
+    'datasetViewId',
+    'datasetTime',
+    'datasetFx',
+    'datasetFy',
+    'datasetCx',
+    'datasetCy',
+    'cudaReferenceLabel',
+    'cudaReferencePath',
     'time',
     'drawPath',
     'tileCompositePath',
@@ -193,6 +272,31 @@ export function buildViewerDeterministicSummary(queryState) {
   return {
     active: !!state.active,
     cameraPresetName: state.cameraPresetName ?? 'none',
+    cameraSource: Array.isArray(state.datasetTransformMatrix) ? 'dataset-transform-matrix' :
+      (Array.isArray(state.datasetCameraPosition) &&
+      Array.isArray(state.datasetCameraTarget))
+      ? 'dataset-query-camera'
+      : 'camera-preset',
+    datasetTransformMatrix: Array.isArray(state.datasetTransformMatrix) ? state.datasetTransformMatrix.map((row) => [...row]) : null,
+    datasetCameraConvention: state.datasetCameraConvention ?? null,
+    datasetCameraLabel: state.datasetCameraLabel ?? null,
+    datasetImageName: state.datasetImageName ?? null,
+    datasetFrameNumber: Number.isFinite(state.datasetFrameNumber) ? Number(state.datasetFrameNumber) : null,
+    datasetViewId: Number.isFinite(state.datasetViewId) ? Number(state.datasetViewId) : null,
+    datasetTime: Number.isFinite(state.datasetTime) ? Number(state.datasetTime) : null,
+    datasetCameraPosition: Array.isArray(state.datasetCameraPosition) ? [...state.datasetCameraPosition] : null,
+    datasetCameraTarget: Array.isArray(state.datasetCameraTarget) ? [...state.datasetCameraTarget] : null,
+    datasetCameraUp: Array.isArray(state.datasetCameraUp) ? [...state.datasetCameraUp] : null,
+    datasetCameraFoVyRad: Number.isFinite(state.datasetCameraFoVyRad) ? Number(state.datasetCameraFoVyRad) : null,
+    datasetCameraFoVxRad: Number.isFinite(state.datasetCameraFoVxRad) ? Number(state.datasetCameraFoVxRad) : null,
+    datasetCameraFoVy: Number.isFinite(state.datasetCameraFoVy) ? Number(state.datasetCameraFoVy) : null,
+    datasetCameraFoVx: Number.isFinite(state.datasetCameraFoVx) ? Number(state.datasetCameraFoVx) : null,
+    datasetFx: Number.isFinite(state.datasetFx) ? Number(state.datasetFx) : null,
+    datasetFy: Number.isFinite(state.datasetFy) ? Number(state.datasetFy) : null,
+    datasetCx: Number.isFinite(state.datasetCx) ? Number(state.datasetCx) : null,
+    datasetCy: Number.isFinite(state.datasetCy) ? Number(state.datasetCy) : null,
+    cudaReferenceLabel: state.cudaReferenceLabel ?? null,
+    cudaReferencePath: state.cudaReferencePath ?? null,
     drawPath: state.drawPath ?? 'none',
     tileCompositePath: state.tileCompositePath ?? 'baseline',
     tileCompositePrimitive: state.tileCompositePrimitive ?? 'point',
@@ -206,6 +310,8 @@ export function buildViewerDeterministicSummary(queryState) {
     screenshotImageWidth: Number.isFinite(state.screenshotImageWidth) ? Number(state.screenshotImageWidth) : null,
     screenshotImageHeight: Number.isFinite(state.screenshotImageHeight) ? Number(state.screenshotImageHeight) : null,
     screenshotProbeList: state.screenshotProbeList ?? null,
+    stride: Number.isFinite(state.stride) ? Number(state.stride) : null,
+    bgGray: Number.isFinite(state.bgGray) ? Number(state.bgGray) : null,
     time: Number.isFinite(state.time) ? Number(state.time) : null,
     rawQueryString: state.rawQueryString ?? '',
     deterministicQueryString: state.deterministicQueryString ?? '',
