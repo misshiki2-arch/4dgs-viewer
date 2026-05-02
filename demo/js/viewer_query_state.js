@@ -6,6 +6,7 @@ const QUERY_TILE_COMPOSITE_PATH_VALUES = new Set(['baseline', 'accumulation']);
 const QUERY_TILE_COMPOSITE_PRIMITIVE_VALUES = new Set(['point', 'quad']);
 const QUERY_INSPECT_SOURCE_VALUES = new Set(['auto', 'actual-draw', 'packed', 'gpu-screen-fallback']);
 const QUERY_INSPECT_JSON_MODE_VALUES = new Set(['slim', 'full']);
+const QUERY_DATASET_VIEW_MATRIX_MODE_VALUES = new Set(['threejs', 'cuda-aligned']);
 const QUERY_FRAME_POLICY_VALUES = new Set([
   'auto',
   'force-transform-throughput',
@@ -91,6 +92,8 @@ function buildDeterministicQueryString(state) {
   appendDeterministicQueryParam(params, 'cameraPreset', state?.cameraPresetName);
   appendDeterministicQueryParam(params, 'datasetTransformMatrix', state?.datasetTransformMatrix, (value) => value.flat().join(','));
   appendDeterministicQueryParam(params, 'datasetCameraConvention', state?.datasetCameraConvention);
+  appendDeterministicQueryParam(params, 'datasetViewMatrixMode', state?.datasetViewMatrixMode);
+  appendDeterministicQueryParam(params, 'datasetPixelXSign', state?.datasetPixelXSign, (value) => String(value));
   appendDeterministicQueryParam(params, 'cameraPosition', state?.datasetCameraPosition, (value) => value.join(','));
   appendDeterministicQueryParam(params, 'cameraTarget', state?.datasetCameraTarget, (value) => value.join(','));
   appendDeterministicQueryParam(params, 'cameraUp', state?.datasetCameraUp, (value) => value.join(','));
@@ -120,6 +123,7 @@ function buildDeterministicQueryString(state) {
   appendDeterministicQueryParam(params, 'renderScale', state?.renderScale, (value) => formatDeterministicFixed(value, 2));
   appendDeterministicQueryParam(params, 'fixedCanvasWidth', state?.fixedCanvasWidth);
   appendDeterministicQueryParam(params, 'fixedCanvasHeight', state?.fixedCanvasHeight);
+  appendDeterministicQueryParam(params, 'debugPreserveDrawingBuffer', state?.debugPreserveDrawingBuffer, formatDeterministicBoolean);
   appendDeterministicQueryParam(params, 'screenshotProbeX', state?.screenshotProbeX);
   appendDeterministicQueryParam(params, 'screenshotProbeY', state?.screenshotProbeY);
   appendDeterministicQueryParam(params, 'screenshotImageWidth', state?.screenshotImageWidth);
@@ -147,6 +151,8 @@ export function parseViewerQueryState(search = window.location.search) {
   const inspectSource = params.get('inspectSource');
   const inspectJsonMode = params.get('inspectJsonMode');
   const gpuFramePolicyOverride = params.get('gpuFramePolicyOverride');
+  const datasetViewMatrixMode = params.get('datasetViewMatrixMode');
+  const datasetPixelXSign = parseInteger(params.get('datasetPixelXSign'), null);
 
   const state = {
     active: false,
@@ -154,6 +160,12 @@ export function parseViewerQueryState(search = window.location.search) {
     cameraPreset,
     datasetTransformMatrix: parseMatrix4(params.get('datasetTransformMatrix'), null),
     datasetCameraConvention: params.get('datasetCameraConvention') ?? null,
+    datasetViewMatrixMode: QUERY_DATASET_VIEW_MATRIX_MODE_VALUES.has(datasetViewMatrixMode)
+      ? datasetViewMatrixMode
+      : null,
+    datasetPixelXSign: [-1, 1].includes(datasetPixelXSign)
+      ? datasetPixelXSign
+      : null,
     datasetCameraPosition: parseVector3(params.get('cameraPosition'), null),
     datasetCameraTarget: parseVector3(params.get('cameraTarget'), null),
     datasetCameraUp: parseVector3(params.get('cameraUp'), null),
@@ -193,6 +205,10 @@ export function parseViewerQueryState(search = window.location.search) {
     renderScale: parseNumber(params.get('renderScale'), null),
     fixedCanvasWidth: parseInteger(params.get('fixedCanvasWidth'), null),
     fixedCanvasHeight: parseInteger(params.get('fixedCanvasHeight'), null),
+    debugPreserveDrawingBuffer: parseBoolean(
+      params.get('debugPreserveDrawingBuffer'),
+      parseBoolean(params.get('preserveDrawingBuffer'), null)
+    ),
     screenshotProbeX: parseNumber(params.get('screenshotProbeX'), null),
     screenshotProbeY: parseNumber(params.get('screenshotProbeY'), null),
     screenshotImageWidth: parseInteger(params.get('screenshotImageWidth'), null),
@@ -213,6 +229,8 @@ export function parseViewerQueryState(search = window.location.search) {
     'cameraPreset',
     'datasetTransformMatrix',
     'datasetCameraConvention',
+    'datasetViewMatrixMode',
+    'datasetPixelXSign',
     'cameraPosition',
     'cameraTarget',
     'cameraUp',
@@ -242,6 +260,8 @@ export function parseViewerQueryState(search = window.location.search) {
     'renderScale',
     'fixedCanvasWidth',
     'fixedCanvasHeight',
+    'debugPreserveDrawingBuffer',
+    'preserveDrawingBuffer',
     'screenshotProbeX',
     'screenshotProbeY',
     'screenshotImageWidth',
@@ -279,6 +299,8 @@ export function buildViewerDeterministicSummary(queryState) {
       : 'camera-preset',
     datasetTransformMatrix: Array.isArray(state.datasetTransformMatrix) ? state.datasetTransformMatrix.map((row) => [...row]) : null,
     datasetCameraConvention: state.datasetCameraConvention ?? null,
+    datasetViewMatrixMode: state.datasetViewMatrixMode ?? 'threejs',
+    datasetPixelXSign: [-1, 1].includes(state.datasetPixelXSign) ? Number(state.datasetPixelXSign) : 1,
     datasetCameraLabel: state.datasetCameraLabel ?? null,
     datasetImageName: state.datasetImageName ?? null,
     datasetFrameNumber: Number.isFinite(state.datasetFrameNumber) ? Number(state.datasetFrameNumber) : null,
@@ -305,6 +327,9 @@ export function buildViewerDeterministicSummary(queryState) {
     gpuFramePolicyOverride: state.gpuFramePolicyOverride ?? 'auto',
     fixedCanvasWidth: Number.isFinite(state.fixedCanvasWidth) ? Number(state.fixedCanvasWidth) : null,
     fixedCanvasHeight: Number.isFinite(state.fixedCanvasHeight) ? Number(state.fixedCanvasHeight) : null,
+    debugPreserveDrawingBuffer: typeof state.debugPreserveDrawingBuffer === 'boolean'
+      ? state.debugPreserveDrawingBuffer
+      : null,
     screenshotProbeX: Number.isFinite(state.screenshotProbeX) ? Number(state.screenshotProbeX) : null,
     screenshotProbeY: Number.isFinite(state.screenshotProbeY) ? Number(state.screenshotProbeY) : null,
     screenshotImageWidth: Number.isFinite(state.screenshotImageWidth) ? Number(state.screenshotImageWidth) : null,

@@ -84,7 +84,10 @@ ensureDeterministicStateNote(ui);
 applyInfoWrapStyle(ui.info);
 applyPanelResizeStyle(ui.info);
 
-const scene = createViewerScene(canvas);
+const deterministicQueryState = parseViewerQueryState();
+const scene = createViewerScene(canvas, {
+  debugPreserveDrawingBuffer: !!deterministicQueryState.debugPreserveDrawingBuffer
+});
 const { camera, controls, ensureGpu, getGpu, setCanvasSize } = scene;
 
 let raw = null;
@@ -94,7 +97,6 @@ const tokenRef = { value: 0 };
 const interactionState = createGpuInteractionState();
 let playback = null;
 let latestRenderResult = null;
-const deterministicQueryState = parseViewerQueryState();
 let appliedCameraPresetName = deterministicQueryState.cameraPresetName ?? 'none';
 let lastSnapshotSummary = {
   available: true,
@@ -199,6 +201,7 @@ function buildDeterministicStateSummary() {
     : (Number.isFinite(summary.datasetCameraFoVx) ? Number(summary.datasetCameraFoVx) : null);
   const cameraFoVyDeg = Number.isFinite(cameraFoVyRad) ? (cameraFoVyRad * 180 / Math.PI) : null;
   const cameraFoVxDeg = Number.isFinite(cameraFoVxRad) ? (cameraFoVxRad * 180 / Math.PI) : null;
+  const cudaAlignedScreenSpaceCamera = buildCudaAlignedScreenSpaceCameraSummary(summary, convertedPose);
   return {
     ...summary,
     appliedCameraPresetName,
@@ -207,6 +210,8 @@ function buildDeterministicStateSummary() {
     deterministicRawQueryString: summary.rawQueryString ?? '',
     cameraSource: summary.cameraSource ?? 'camera-preset',
     datasetCameraConvention: summary.datasetCameraConvention ?? null,
+    datasetViewMatrixMode: summary.datasetViewMatrixMode ?? 'threejs',
+    datasetPixelXSign: [-1, 1].includes(summary.datasetPixelXSign) ? Number(summary.datasetPixelXSign) : 1,
     datasetCameraLabel: summary.datasetCameraLabel ?? null,
     imageName: summary.datasetImageName ?? null,
     frameNumber: Number.isFinite(summary.datasetFrameNumber) ? Number(summary.datasetFrameNumber) : null,
@@ -247,8 +252,21 @@ function buildDeterministicStateSummary() {
     },
     stride: Number.isFinite(summary.stride) ? Number(summary.stride) : null,
     bgGray: Number.isFinite(summary.bgGray) ? Number(summary.bgGray) : null,
+    debugPreserveDrawingBuffer: typeof summary.debugPreserveDrawingBuffer === 'boolean'
+      ? summary.debugPreserveDrawingBuffer
+      : null,
     cudaReferenceLabel: summary.cudaReferenceLabel ?? null,
     cudaReferencePath: summary.cudaReferencePath ?? null,
+    actualCameraPosition: vector3ToArray(camera?.position),
+    actualCameraQuaternion: quaternionToArray(camera?.quaternion),
+    actualCameraUp: vector3ToArray(camera?.up),
+    actualControlsTarget: vector3ToArray(controls?.target),
+    actualCameraFov: Number.isFinite(camera?.fov) ? Number(camera.fov) : null,
+    actualCameraNear: Number.isFinite(camera?.near) ? Number(camera.near) : null,
+    actualCameraFar: Number.isFinite(camera?.far) ? Number(camera.far) : null,
+    actualCameraMatrixWorld: matrix4ToRows(camera?.matrixWorld),
+    actualCameraRight: column3(matrix4ToRows(camera?.matrixWorld), 0),
+    cudaAlignedScreenSpaceCamera,
     snapshotApiAvailable: true,
     snapshotCaptureSource: lastSnapshotSummary.source,
     snapshotRenderWaitMode: lastSnapshotSummary.renderWaitMode,
@@ -278,6 +296,9 @@ function applyCanvasSize() {
 function buildCanvasSizeSummary() {
   const gpu = getGpu();
   const gl = gpu?.gl ?? null;
+  const contextAttributes = gl && typeof gl.getContextAttributes === 'function'
+    ? gl.getContextAttributes()
+    : null;
   const fixedSize = getFixedCanvasSizeOverride();
   const renderScale = Number(ui.renderScaleSlider?.value);
   return {
@@ -294,10 +315,1537 @@ function buildCanvasSizeSummary() {
     fixedCanvasWidth: fixedSize?.fixedCanvasWidth ?? null,
     fixedCanvasHeight: fixedSize?.fixedCanvasHeight ?? null,
     fixedCanvasActive: !!fixedSize,
+    contextAttributes,
+    preserveDrawingBuffer: typeof contextAttributes?.preserveDrawingBuffer === 'boolean'
+      ? contextAttributes.preserveDrawingBuffer
+      : null,
     coordinateSpaceForReadPixels: 'webgl-default-framebuffer-pixels',
     probeCoordinateWidth: gl ? (gl.drawingBufferWidth | 0) : (Number.isFinite(canvas?.width) ? canvas.width : 0),
     probeCoordinateHeight: gl ? (gl.drawingBufferHeight | 0) : (Number.isFinite(canvas?.height) ? canvas.height : 0)
   };
+}
+
+function vector3ToArray(v) {
+  return v ? [Number(v.x), Number(v.y), Number(v.z)] : null;
+}
+
+function eulerToArray(euler) {
+  return euler ? [Number(euler.x), Number(euler.y), Number(euler.z), euler.order ?? 'XYZ'] : null;
+}
+
+function quaternionToArray(q) {
+  return q ? [Number(q.x), Number(q.y), Number(q.z), Number(q.w)] : null;
+}
+
+function matrix4ToRows(matrix) {
+  if (!matrix || !Array.isArray(matrix.elements)) return null;
+  const e = matrix.elements;
+  return [
+    [e[0], e[4], e[8], e[12]],
+    [e[1], e[5], e[9], e[13]],
+    [e[2], e[6], e[10], e[14]],
+    [e[3], e[7], e[11], e[15]]
+  ].map((row) => row.map(Number));
+}
+
+function cloneMatrixRows(matrixRows) {
+  return Array.isArray(matrixRows)
+    ? matrixRows.map((row) => Array.isArray(row) ? row.map(Number) : [])
+    : null;
+}
+
+function multiplyMatrix4Rows(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== 4 || b.length !== 4) return null;
+  const out = Array.from({ length: 4 }, () => [0, 0, 0, 0]);
+  for (let row = 0; row < 4; row++) {
+    for (let col = 0; col < 4; col++) {
+      let sum = 0;
+      for (let k = 0; k < 4; k++) {
+        const av = Number(a[row]?.[k]);
+        const bv = Number(b[k]?.[col]);
+        if (!Number.isFinite(av) || !Number.isFinite(bv)) return null;
+        sum += av * bv;
+      }
+      out[row][col] = sum;
+    }
+  }
+  return out;
+}
+
+function invertRigidC2wMatrixRows(c2w) {
+  if (!Array.isArray(c2w) || c2w.length !== 4) return null;
+  const out = [
+    [0, 0, 0, 0],
+    [0, 0, 0, 0],
+    [0, 0, 0, 0],
+    [0, 0, 0, 0]
+  ];
+  for (let row = 0; row < 3; row++) {
+    for (let col = 0; col < 3; col++) {
+      const value = Number(c2w[col]?.[row]);
+      if (!Number.isFinite(value)) return null;
+      out[row][col] = value;
+    }
+  }
+  const t = [Number(c2w[0]?.[3]), Number(c2w[1]?.[3]), Number(c2w[2]?.[3])];
+  if (t.some((value) => !Number.isFinite(value))) return null;
+  for (let row = 0; row < 3; row++) {
+    out[row][3] = -(out[row][0] * t[0] + out[row][1] * t[1] + out[row][2] * t[2]);
+  }
+  out[3][3] = 1;
+  return out;
+}
+
+function column3(matrixRows, column) {
+  return Array.isArray(matrixRows) && matrixRows.length >= 3
+    ? [Number(matrixRows[0]?.[column]), Number(matrixRows[1]?.[column]), Number(matrixRows[2]?.[column])]
+    : null;
+}
+
+function buildCudaAlignedScreenSpaceCameraSummary(summary, convertedPose) {
+  const mode = summary?.datasetViewMatrixMode ?? 'threejs';
+  const enabled = mode === 'cuda-aligned';
+  const c2w = cloneMatrixRows(convertedPose?.convertedMatrix);
+  const cudaAlignedViewMatrix = enabled && c2w ? invertRigidC2wMatrixRows(c2w) : null;
+  const signConversionMatrix = [
+    [-1, 0, 0, 0],
+    [0, 1, 0, 0],
+    [0, 0, -1, 0],
+    [0, 0, 0, 1]
+  ];
+  const threeJsViewMatrix = matrix4ToRows(camera?.matrixWorldInverse);
+  const threeJsToCudaViewMatrix = threeJsViewMatrix
+    ? multiplyMatrix4Rows(signConversionMatrix, threeJsViewMatrix)
+    : null;
+  const fx = Number.isFinite(summary?.datasetFx) ? Number(summary.datasetFx) : null;
+  const fy = Number.isFinite(summary?.datasetFy) ? Number(summary.datasetFy) : null;
+  const cx = Number.isFinite(summary?.datasetCx) ? Number(summary.datasetCx) : null;
+  const cy = Number.isFinite(summary?.datasetCy) ? Number(summary.datasetCy) : null;
+  const pixelXSign = [-1, 1].includes(summary?.datasetPixelXSign)
+    ? Number(summary.datasetPixelXSign)
+    : 1;
+
+  return {
+    mode,
+    enabled: enabled && !!cudaAlignedViewMatrix,
+    viewMatrixSource: enabled ? 'dataset-transform-cuda-reader-c2w-inverse' : 'threejs-camera',
+    signConversionMatrix,
+    threeJsViewMatrix,
+    threeJsToCudaViewMatrix,
+    cudaAlignedViewMatrix,
+    cudaAlignedCameraBasis: c2w
+      ? {
+          right: column3(c2w, 0),
+          up: column3(c2w, 1),
+          forward: column3(c2w, 2)
+        }
+      : null,
+    intrinsics: { fx, fy, cx, cy },
+    pixelXSign,
+    pixelSignContract: 'debug-ablation-applied-to-center-projection-and-covariance-jacobian-x',
+    projectionContract: enabled
+      ? 'cuda-plus-z-forward-fx-fy-cx-cy'
+      : 'threejs-camera-projection-matrix',
+    screenYSign: 1,
+    depthSign: 1
+  };
+}
+
+function getCurrentUiDebugSummary() {
+  return {
+    drawPath: ui.drawPathSelect?.value ?? null,
+    tileCompositePath: ui.tileCompositePathSelect?.value ?? null,
+    tileCompositePrimitive: ui.tileCompositePrimitiveSelect?.value ?? null,
+    time: Number.isFinite(Number(ui.timeSlider?.value)) ? Number(ui.timeSlider.value) : null,
+    stride: Number.isFinite(Number(ui.strideSlider?.value)) ? Number(ui.strideSlider.value) : null,
+    bgGray: Number.isFinite(Number(ui.bgGraySlider?.value)) ? Number(ui.bgGraySlider.value) : null
+  };
+}
+
+function buildRawBoundsSummary() {
+  if (!raw || !raw.xyz || raw.N <= 0) {
+    return {
+      available: false,
+      count: raw?.N ?? 0,
+      reason: raw ? 'missing-xyz-or-empty-scene' : 'scene-not-loaded'
+    };
+  }
+
+  const min = [Infinity, Infinity, Infinity];
+  const max = [-Infinity, -Infinity, -Infinity];
+  const dim = raw.xyzDim || 3;
+  for (let i = 0; i < raw.N; i++) {
+    for (let axis = 0; axis < 3; axis++) {
+      const value = raw.xyz[i * dim + axis];
+      if (!Number.isFinite(value)) continue;
+      min[axis] = Math.min(min[axis], value);
+      max[axis] = Math.max(max[axis], value);
+    }
+  }
+
+  if (min.some((value) => !Number.isFinite(value)) || max.some((value) => !Number.isFinite(value))) {
+    return {
+      available: false,
+      count: raw.N,
+      reason: 'non-finite-bounds'
+    };
+  }
+
+  const center = min.map((value, axis) => 0.5 * (value + max[axis]));
+  const size = max.map((value, axis) => value - min[axis]);
+  return {
+    available: true,
+    count: raw.N,
+    min,
+    max,
+    center,
+    size
+  };
+}
+
+function buildActualCameraSummary() {
+  if (!camera) return null;
+  camera.updateMatrixWorld(true);
+  const forwardTarget = typeof camera.position?.clone === 'function' ? camera.position.clone() : null;
+  const forward = camera.getWorldDirection && forwardTarget
+    ? vector3ToArray(camera.getWorldDirection(forwardTarget))
+    : null;
+  return {
+    position: vector3ToArray(camera.position),
+    rotation: eulerToArray(camera.rotation),
+    quaternion: quaternionToArray(camera.quaternion),
+    up: vector3ToArray(camera.up),
+    forward,
+    fov: Number(camera.fov),
+    aspect: Number(camera.aspect),
+    near: Number(camera.near),
+    far: Number(camera.far),
+    matrix: matrix4ToRows(camera.matrix),
+    matrixWorld: matrix4ToRows(camera.matrixWorld),
+    matrixWorldInverse: matrix4ToRows(camera.matrixWorldInverse),
+    projectionMatrix: matrix4ToRows(camera.projectionMatrix)
+  };
+}
+
+function getCameraDebugState() {
+  const deterministicState = buildDeterministicStateSummary();
+  return {
+    timestamp: new Date().toISOString(),
+    locationHref: window.location.href,
+    rawQueryString: window.location.search.replace(/^\?/, ''),
+    camera: buildActualCameraSummary(),
+    controls: {
+      target: vector3ToArray(controls?.target),
+      enabled: typeof controls?.enabled === 'boolean' ? controls.enabled : null,
+      enableDamping: typeof controls?.enableDamping === 'boolean' ? controls.enableDamping : null
+    },
+    deterministicState,
+    convertedCameraPose: deterministicState.convertedCameraPose ?? null,
+    lastRenderResultSummary: buildRenderResultInspectionSummary(latestRenderResult),
+    canvasSizeSummary: buildCanvasSizeSummary(),
+    sceneBounds: buildRawBoundsSummary(),
+    uiState: getCurrentUiDebugSummary()
+  };
+}
+
+function normalizeFramebufferSampleOptions(options = {}) {
+  const gridWidth = Number.isFinite(Number(options.gridWidth))
+    ? Math.max(1, Math.min(512, Number(options.gridWidth) | 0))
+    : 64;
+  const gridHeight = Number.isFinite(Number(options.gridHeight))
+    ? Math.max(1, Math.min(512, Number(options.gridHeight) | 0))
+    : 36;
+  const nonBlackThreshold = Number.isFinite(Number(options.nonBlackThreshold))
+    ? Math.max(0, Number(options.nonBlackThreshold))
+    : 5;
+  const brightestSampleCount = Number.isFinite(Number(options.brightestSampleCount))
+    ? Math.max(0, Math.min(64, Number(options.brightestSampleCount) | 0))
+    : 12;
+  return { gridWidth, gridHeight, nonBlackThreshold, brightestSampleCount };
+}
+
+function sampleFramebufferPixel(gl, x, y) {
+  const pixel = new Uint8Array(4);
+  gl.readPixels(x, y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+  return [pixel[0], pixel[1], pixel[2], pixel[3]];
+}
+
+function pushBrightestSample(samples, sample, maxCount) {
+  if (maxCount <= 0) return;
+  samples.push(sample);
+  samples.sort((a, b) => b.rgbSum - a.rgbSum);
+  if (samples.length > maxCount) samples.length = maxCount;
+}
+
+function sampleCurrentFramebufferStats(options = {}) {
+  const gpu = getGpu();
+  const gl = gpu?.gl ?? null;
+  const canvasSummary = buildCanvasSizeSummary();
+  if (!gl) {
+    return {
+      available: false,
+      reason: 'webgl-not-initialized',
+      ...canvasSummary
+    };
+  }
+
+  const opts = normalizeFramebufferSampleOptions(options);
+  const width = gl.drawingBufferWidth | 0;
+  const height = gl.drawingBufferHeight | 0;
+  if (width <= 0 || height <= 0) {
+    return {
+      available: false,
+      reason: 'empty-framebuffer',
+      ...canvasSummary
+    };
+  }
+
+  gl.finish();
+
+  const sampleCount = opts.gridWidth * opts.gridHeight;
+  const sumRgb = [0, 0, 0];
+  const minRgb = [255, 255, 255];
+  const maxRgb = [0, 0, 0];
+  let alphaSum = 0;
+  let maxAlpha = 0;
+  let nonBlackCount = 0;
+  let nonTransparentCount = 0;
+  let representativeNonBlackPixel = null;
+  const brightestSamples = [];
+
+  for (let gy = 0; gy < opts.gridHeight; gy++) {
+    const y = opts.gridHeight === 1
+      ? Math.floor((height - 1) * 0.5)
+      : Math.round((gy / (opts.gridHeight - 1)) * (height - 1));
+    for (let gx = 0; gx < opts.gridWidth; gx++) {
+      const x = opts.gridWidth === 1
+        ? Math.floor((width - 1) * 0.5)
+        : Math.round((gx / (opts.gridWidth - 1)) * (width - 1));
+      const rgba8 = sampleFramebufferPixel(gl, x, y);
+      const rgbSum = rgba8[0] + rgba8[1] + rgba8[2];
+
+      for (let axis = 0; axis < 3; axis++) {
+        sumRgb[axis] += rgba8[axis];
+        minRgb[axis] = Math.min(minRgb[axis], rgba8[axis]);
+        maxRgb[axis] = Math.max(maxRgb[axis], rgba8[axis]);
+      }
+      alphaSum += rgba8[3];
+      maxAlpha = Math.max(maxAlpha, rgba8[3]);
+
+      if (rgbSum > opts.nonBlackThreshold) {
+        nonBlackCount++;
+        if (!representativeNonBlackPixel) {
+          representativeNonBlackPixel = { x, y, rgba8, rgbSum };
+        }
+      }
+      if (rgba8[3] > 0) nonTransparentCount++;
+
+      pushBrightestSample(brightestSamples, { x, y, rgba8, rgbSum }, opts.brightestSampleCount);
+    }
+  }
+
+  const centerX = Math.floor((width - 1) * 0.5);
+  const centerY = Math.floor((height - 1) * 0.5);
+  const centerPixel = {
+    x: centerX,
+    y: centerY,
+    rgba8: sampleFramebufferPixel(gl, centerX, centerY)
+  };
+  centerPixel.rgbSum = centerPixel.rgba8[0] + centerPixel.rgba8[1] + centerPixel.rgba8[2];
+
+  return {
+    available: true,
+    reason: 'ok',
+    canvasWidth: Number.isFinite(canvas?.width) ? canvas.width : 0,
+    canvasHeight: Number.isFinite(canvas?.height) ? canvas.height : 0,
+    clientWidth: Number.isFinite(canvas?.clientWidth) ? canvas.clientWidth : 0,
+    clientHeight: Number.isFinite(canvas?.clientHeight) ? canvas.clientHeight : 0,
+    framebufferWidth: width,
+    framebufferHeight: height,
+    gridWidth: opts.gridWidth,
+    gridHeight: opts.gridHeight,
+    nonBlackThreshold: opts.nonBlackThreshold,
+    sampleCount,
+    nonBlackCount,
+    nonTransparentCount,
+    meanRgb: sumRgb.map((value) => value / sampleCount),
+    maxRgb,
+    minRgb,
+    maxAlpha,
+    meanAlpha: alphaSum / sampleCount,
+    nonBlackRatio: nonBlackCount / sampleCount,
+    nonTransparentRatio: nonTransparentCount / sampleCount,
+    brightestSamples,
+    centerPixel,
+    representativeNonBlackPixel,
+    likelyBlackFrame: nonBlackCount === 0
+  };
+}
+
+async function captureCurrentDebugBundle(options = {}) {
+  const includeInspect = !!options.includeInspect;
+  let inspectActiveSplatResult = null;
+  let inspectActiveSplatError = null;
+  if (includeInspect) {
+    try {
+      inspectActiveSplatResult = await inspectActiveSplat({
+        ensureCurrentFrame: options.ensureCurrentFrame !== false,
+        inspectSource: options.inspectSource ?? deterministicQueryState.inspectSource ?? 'actual-draw',
+        outputMode: options.outputMode ?? deterministicQueryState.inspectJsonMode ?? 'slim',
+        index: Number.isFinite(Number(options.index)) ? Number(options.index) : 0
+      });
+    } catch (error) {
+      inspectActiveSplatError = error?.message ?? 'unknown-inspect-error';
+    }
+  }
+
+  const cameraDebugState = getCameraDebugState();
+  const framebufferStats = sampleCurrentFramebufferStats(options.framebufferStats ?? {});
+  const lastRenderResultSummary = buildRenderResultInspectionSummary(latestRenderResult);
+  return {
+    timestamp: new Date().toISOString(),
+    locationHref: window.location.href,
+    deterministicState: buildDeterministicStateSummary(),
+    cameraDebugState,
+    framebufferStats,
+    lastRenderResultSummary,
+    drawPathSummary: latestRenderResult?.drawPathSummary ?? null,
+    canvasSizeSummary: buildCanvasSizeSummary(),
+    inspectActiveSplatIncluded: includeInspect,
+    inspectActiveSplat: inspectActiveSplatResult,
+    inspectActiveSplatError
+  };
+}
+
+function normalizeRepresentativeIndexList(input, fallbackReference = null) {
+  const referenceLikeInput = Array.isArray(input?.selectedIndices) || Array.isArray(input?.splats)
+    ? input
+    : null;
+  const source = Array.isArray(input)
+    ? input
+    : (Array.isArray(input?.indices)
+        ? input.indices
+        : (referenceLikeInput?.selectedIndices ?? fallbackReference?.selectedIndices));
+  if (!Array.isArray(source)) return [];
+  const out = [];
+  const seen = new Set();
+  for (const entry of source) {
+    const value = Number.isFinite(Number(entry))
+      ? Number(entry)
+      : (Number.isFinite(Number(entry?.index)) ? Number(entry.index) : NaN);
+    if (!Number.isFinite(value)) continue;
+    const index = value | 0;
+    if (seen.has(index)) continue;
+    seen.add(index);
+    out.push(index);
+  }
+  return out;
+}
+
+function toFiniteNumberOrNull(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function cloneNumberArray(values, length = null) {
+  if (!Array.isArray(values) && !(values instanceof Float32Array)) return null;
+  const count = Number.isFinite(length) ? Math.min(values.length, length | 0) : values.length;
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    out.push(toFiniteNumberOrNull(values[i]));
+  }
+  return out;
+}
+
+function computeRasterRectFromCenterRadius(centerPx, radiusPx) {
+  if (!Array.isArray(centerPx) || centerPx.length < 2 || !Number.isFinite(radiusPx)) return null;
+  const minX = Math.floor(centerPx[0] - radiusPx);
+  const minY = Math.floor(centerPx[1] - radiusPx);
+  const maxXExclusive = Math.floor(centerPx[0] + radiusPx) + 1;
+  const maxYExclusive = Math.floor(centerPx[1] + radiusPx) + 1;
+  return [minX, minY, maxXExclusive, maxYExclusive];
+}
+
+function computeTileCoverageFromTileRange(tileRange) {
+  if (!Array.isArray(tileRange) || tileRange.length < 4) return null;
+  const minX = Number(tileRange[0]);
+  const minY = Number(tileRange[1]);
+  const maxX = Number(tileRange[2]);
+  const maxY = Number(tileRange[3]);
+  if (![minX, minY, maxX, maxY].every(Number.isFinite)) return null;
+  return Math.max(0, (maxX - minX + 1) * (maxY - minY + 1));
+}
+
+function decodePackedPayloadItem(packed, itemIndex, floatsPerItem = 16) {
+  const stride = Number.isFinite(floatsPerItem) ? Math.max(16, floatsPerItem | 0) : 16;
+  const index = Number.isFinite(itemIndex) ? itemIndex | 0 : -1;
+  const base = index * stride;
+  if (!(packed instanceof Float32Array) || index < 0 || base + 16 > packed.length) return null;
+  const centerPx = [packed[base + 0], packed[base + 1]];
+  const radius = packed[base + 2];
+  const depth = packed[base + 3];
+  const colorAlpha = [
+    packed[base + 4],
+    packed[base + 5],
+    packed[base + 6],
+    packed[base + 7]
+  ];
+  const conic = [
+    packed[base + 8],
+    packed[base + 9],
+    packed[base + 10]
+  ];
+  const misc = [
+    packed[base + 12],
+    packed[base + 13],
+    packed[base + 14],
+    packed[base + 15]
+  ];
+  const miscLooksLikeRect = misc.every(Number.isFinite) && misc[2] >= misc[0] && misc[3] >= misc[1];
+  return {
+    centerPx,
+    radius,
+    radiusPx: radius,
+    depth,
+    colorAlpha,
+    color: colorAlpha.slice(0, 3),
+    alpha: colorAlpha[3],
+    opacity: colorAlpha[3],
+    conic,
+    reserved: packed[base + 11],
+    misc,
+    rasterRect: miscLooksLikeRect ? misc : computeRasterRectFromCenterRadius(centerPx, radius),
+    rasterRectFromCenterRadius: computeRasterRectFromCenterRadius(centerPx, radius),
+    packBaseFloatOffset: base,
+    floatsPerItem: stride
+  };
+}
+
+function buildActualPayloadFromVisibleItem(item, visibleIndex) {
+  if (!item) return null;
+  const centerPx = Array.isArray(item.centerPx)
+    ? cloneNumberArray(item.centerPx, 2)
+    : [toFiniteNumberOrNull(item.px), toFiniteNumberOrNull(item.py)];
+  const radius = Number.isFinite(item.radiusPx) ? Number(item.radiusPx) : Number(item.radius);
+  const colorAlpha = Array.isArray(item.colorAlpha)
+    ? cloneNumberArray(item.colorAlpha, 4)
+    : [
+        ...(Array.isArray(item.color) ? cloneNumberArray(item.color, 3) : [0, 0, 0]),
+        toFiniteNumberOrNull(item.opacity)
+      ];
+  const tileCoverage = computeTileCoverageFromTileRange(item.tileRange);
+  return {
+    payloadSource: 'visible',
+    sourceItemIndex: visibleIndex,
+    visibleIndex,
+    originalSplatIndex: Number.isFinite(item.srcIndex) ? item.srcIndex | 0 : null,
+    centerPx,
+    depth: toFiniteNumberOrNull(item.depth),
+    radius,
+    radiusPx: radius,
+    conic: cloneNumberArray(item.conic, 3),
+    colorAlpha,
+    color: colorAlpha ? colorAlpha.slice(0, 3) : null,
+    alpha: colorAlpha ? colorAlpha[3] : null,
+    opacity: colorAlpha ? colorAlpha[3] : null,
+    rasterRect: cloneNumberArray(item.aabb, 4) ?? computeRasterRectFromCenterRadius(centerPx, radius),
+    tileRange: cloneNumberArray(item.tileRange, 4),
+    tileCoverage
+  };
+}
+
+function findPackedScreenSpacePayloadForIndex(packedScreenSpace, originalIndex) {
+  const sourceItems = Array.isArray(packedScreenSpace?.sourceItems)
+    ? packedScreenSpace.sourceItems
+    : (Array.isArray(packedScreenSpace?.visible) ? packedScreenSpace.visible : []);
+  let sourceItemIndex = -1;
+  for (let i = 0; i < sourceItems.length; i++) {
+    const srcIndex = Number(sourceItems[i]?.srcIndex);
+    if (Number.isFinite(srcIndex) && (srcIndex | 0) === originalIndex) {
+      sourceItemIndex = i;
+      break;
+    }
+  }
+  if (sourceItemIndex < 0) return null;
+
+  const decoded = decodePackedPayloadItem(
+    packedScreenSpace?.packed,
+    sourceItemIndex,
+    packedScreenSpace?.floatsPerItem
+  );
+  const sourceItem = sourceItems[sourceItemIndex];
+  return {
+    ...(decoded ?? buildActualPayloadFromVisibleItem(sourceItem, sourceItemIndex)),
+    payloadSource: decoded ? 'packedScreenSpace.packed' : 'packedScreenSpace.sourceItems',
+    packedIndex: sourceItemIndex,
+    sourceItemIndex,
+    visibleIndex: sourceItemIndex,
+    originalSplatIndex: originalIndex,
+    sourcePath: packedScreenSpace?.path ?? 'unknown',
+    packedContract: packedScreenSpace?.packedContract ?? 'unknown',
+    transformPath: packedScreenSpace?.transformSummary?.actualTransformPath ?? 'unknown',
+    tileRange: cloneNumberArray(sourceItem?.tileRange, 4),
+    tileCoverage: computeTileCoverageFromTileRange(sourceItem?.tileRange)
+  };
+}
+
+function findAccumulationPayloadOccurrencesForIndex(tileCompositePlan, originalIndex) {
+  const batches = Array.isArray(tileCompositePlan?.batches) ? tileCompositePlan.batches : [];
+  const occurrences = [];
+  let globalItemIndex = 0;
+  for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+    const batch = batches[batchIndex];
+    const packedCount = Number.isFinite(batch?.packedCount) ? Math.max(0, batch.packedCount | 0) : 0;
+    const sourceIndices = batch?.sourceIndices instanceof Uint32Array ? batch.sourceIndices : null;
+    const orderedIndices = batch?.orderedIndices instanceof Uint32Array ? batch.orderedIndices : null;
+    for (let localIndex = 0; localIndex < packedCount; localIndex++) {
+      const sourceSplatIndex = sourceIndices ? (sourceIndices[localIndex] | 0) : null;
+      if (sourceSplatIndex !== originalIndex) continue;
+      const decoded = decodePackedPayloadItem(batch.packed, localIndex, batch.floatsPerItem);
+      occurrences.push({
+        ...(decoded ?? {}),
+        payloadSource: 'tileCompositePlan.batches[].packed',
+        batchIndex,
+        tileId: Number.isFinite(batch?.tileId) ? batch.tileId | 0 : -1,
+        tile: [
+          Number.isFinite(batch?.tx) ? batch.tx | 0 : 0,
+          Number.isFinite(batch?.ty) ? batch.ty | 0 : 0
+        ],
+        tileRect: cloneNumberArray(batch?.rect, 4),
+        localIndex,
+        packedIndex: localIndex,
+        accumulationGlobalItemIndex: globalItemIndex + localIndex,
+        sourceVisibleIndex: orderedIndices ? (orderedIndices[localIndex] | 0) : null,
+        originalSplatIndex: sourceSplatIndex,
+        batchPackedCount: packedCount
+      });
+    }
+    globalItemIndex += packedCount;
+  }
+  return occurrences;
+}
+
+function summarizeAccumulationOccurrenceConsistency(occurrences) {
+  if (!Array.isArray(occurrences) || occurrences.length <= 1) {
+    return { consistent: true, maxCenterDelta: 0, maxDepthDelta: 0, maxConicDelta: 0, maxRadiusDelta: 0 };
+  }
+  const first = occurrences[0];
+  let maxCenterDelta = 0;
+  let maxDepthDelta = 0;
+  let maxConicDelta = 0;
+  let maxRadiusDelta = 0;
+  for (const occurrence of occurrences.slice(1)) {
+    maxCenterDelta = Math.max(maxCenterDelta, vectorDistance(first.centerPx, occurrence.centerPx));
+    maxDepthDelta = Math.max(maxDepthDelta, scalarAbsDelta(first.depth, occurrence.depth));
+    maxConicDelta = Math.max(maxConicDelta, maxVectorAbsDelta(first.conic, occurrence.conic));
+    maxRadiusDelta = Math.max(maxRadiusDelta, scalarAbsDelta(first.radius, occurrence.radius));
+  }
+  return {
+    consistent: maxCenterDelta <= 1e-6 && maxDepthDelta <= 1e-6 && maxConicDelta <= 1e-9 && maxRadiusDelta <= 1e-6,
+    maxCenterDelta,
+    maxDepthDelta,
+    maxConicDelta,
+    maxRadiusDelta
+  };
+}
+
+function scalarAbsDelta(a, b) {
+  const av = Number(a);
+  const bv = Number(b);
+  return Number.isFinite(av) && Number.isFinite(bv) ? Math.abs(av - bv) : null;
+}
+
+function vectorDelta(a, b, length = null) {
+  if (!Array.isArray(a) || !Array.isArray(b)) return null;
+  const count = Number.isFinite(length) ? length : Math.min(a.length, b.length);
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    const av = Number(a[i]);
+    const bv = Number(b[i]);
+    out.push(Number.isFinite(av) && Number.isFinite(bv) ? bv - av : null);
+  }
+  return out;
+}
+
+function maxVectorAbsDelta(a, b, length = null) {
+  const delta = vectorDelta(a, b, length);
+  if (!Array.isArray(delta)) return null;
+  let maxDelta = 0;
+  for (const value of delta) {
+    if (!Number.isFinite(value)) return null;
+    maxDelta = Math.max(maxDelta, Math.abs(value));
+  }
+  return maxDelta;
+}
+
+function vectorDistance(a, b, length = null) {
+  const delta = vectorDelta(a, b, length);
+  if (!Array.isArray(delta)) return null;
+  let sum = 0;
+  for (const value of delta) {
+    if (!Number.isFinite(value)) return null;
+    sum += value * value;
+  }
+  return Math.sqrt(sum);
+}
+
+function getRepresentativeReferenceByIndex(referenceDebug) {
+  const splats = Array.isArray(referenceDebug?.splats) ? referenceDebug.splats : [];
+  const map = new Map();
+  for (const splat of splats) {
+    const index = Number(splat?.index);
+    if (Number.isFinite(index)) map.set(index | 0, splat);
+  }
+  return map;
+}
+
+function buildReferencePayloadSummary(referenceEntry) {
+  const projection = referenceEntry?.projections?.viewerCudaAlignedCurrent ?? null;
+  if (!projection) return null;
+  const color = Array.isArray(referenceEntry?.color) ? cloneNumberArray(referenceEntry.color, 3) : null;
+  const alpha = Number.isFinite(projection.opacity)
+    ? Number(projection.opacity)
+    : (Number.isFinite(referenceEntry?.cudaNativeState?.opacity) ? Number(referenceEntry.cudaNativeState.opacity) : null);
+  return {
+    centerPx: cloneNumberArray(projection.centerPx, 2),
+    depth: toFiniteNumberOrNull(projection.depth),
+    conic: cloneNumberArray(projection.conic, 3),
+    radius: toFiniteNumberOrNull(projection.radius),
+    radiusPx: toFiniteNumberOrNull(projection.radius),
+    rasterRect: cloneNumberArray(projection.rasterRect, 4),
+    color,
+    alpha,
+    opacity: alpha,
+    colorAlpha: color ? [...color, alpha] : null,
+    culled: !!projection.culled,
+    cullReason: projection.cullReason ?? 'none'
+  };
+}
+
+function buildPayloadComparison(referencePayload, actualPayload) {
+  if (!referencePayload || !actualPayload) return null;
+  const centerDelta = vectorDelta(referencePayload.centerPx, actualPayload.centerPx, 2);
+  const conicDelta = vectorDelta(referencePayload.conic, actualPayload.conic, 3);
+  const rasterRectDelta = vectorDelta(referencePayload.rasterRect, actualPayload.rasterRect, 4);
+  const colorDelta = vectorDelta(referencePayload.color, actualPayload.color, 3);
+  return {
+    centerDelta,
+    centerDistance: vectorDistance(referencePayload.centerPx, actualPayload.centerPx, 2),
+    depthDelta: scalarAbsDelta(referencePayload.depth, actualPayload.depth),
+    conicDelta,
+    conicMaxAbsDelta: maxVectorAbsDelta(referencePayload.conic, actualPayload.conic, 3),
+    radiusDelta: scalarAbsDelta(referencePayload.radius, actualPayload.radius),
+    rasterRectDelta,
+    rasterRectMaxAbsDelta: maxVectorAbsDelta(referencePayload.rasterRect, actualPayload.rasterRect, 4),
+    alphaDelta: scalarAbsDelta(referencePayload.alpha, actualPayload.alpha),
+    colorDelta,
+    colorMaxAbsDelta: maxVectorAbsDelta(referencePayload.color, actualPayload.color, 3)
+  };
+}
+
+function summarizeRepresentativePayloadComparisons(items) {
+  const found = items.filter((item) => item.found);
+  const missing = items.filter((item) => !item.found);
+  const stats = {};
+  const fields = [
+    ['centerDistance', (item) => item.compare?.centerDistance],
+    ['depthAbsDelta', (item) => item.compare?.depthDelta],
+    ['conicMaxAbsDelta', (item) => item.compare?.conicMaxAbsDelta],
+    ['radiusAbsDelta', (item) => item.compare?.radiusDelta],
+    ['rasterRectMaxAbsDelta', (item) => item.compare?.rasterRectMaxAbsDelta],
+    ['alphaAbsDelta', (item) => item.compare?.alphaDelta],
+    ['colorMaxAbsDelta', (item) => item.compare?.colorMaxAbsDelta]
+  ];
+  for (const [name, getter] of fields) {
+    const values = found.map(getter).filter(Number.isFinite).sort((a, b) => a - b);
+    stats[name] = values.length > 0
+      ? {
+          count: values.length,
+          mean: values.reduce((sum, value) => sum + value, 0) / values.length,
+          median: values[Math.floor(values.length / 2)],
+          max: values[values.length - 1]
+        }
+      : { count: 0, mean: null, median: null, max: null };
+  }
+  const missingReasons = {};
+  for (const item of missing) {
+    const reason = item.missingReason ?? 'unknown';
+    missingReasons[reason] = (missingReasons[reason] ?? 0) + 1;
+  }
+  const allCompared = found.length > 0 && found.every((item) => !!item.compare);
+  const payloadMatchesDebug =
+    allCompared &&
+    stats.centerDistance.max !== null && stats.centerDistance.max <= 1e-3 &&
+    stats.depthAbsDelta.max !== null && stats.depthAbsDelta.max <= 1e-4 &&
+    stats.conicMaxAbsDelta.max !== null && stats.conicMaxAbsDelta.max <= 1e-6 &&
+    stats.radiusAbsDelta.max !== null && stats.radiusAbsDelta.max <= 1e-6;
+  return {
+    selectedCount: items.length,
+    foundCount: found.length,
+    missingCount: missing.length,
+    missingReasons,
+    stats,
+    indexMappingProblemLikely: missing.length > 0 || found.some((item) => !Number.isFinite(item.actualPayload?.originalSplatIndex)),
+    payloadMatchesDebug,
+    classification: missing.length > 0
+      ? 'C'
+      : (payloadMatchesDebug ? 'A' : 'B'),
+    classificationReason: missing.length > 0
+      ? 'one-or-more-representative-indices-missing-from-actual-payload'
+      : (payloadMatchesDebug
+          ? 'debug-viewerCudaAlignedCurrent-values-match-actual-payload-within-tolerance'
+          : 'debug-viewerCudaAlignedCurrent-values-differ-from-actual-payload')
+  };
+}
+
+function inspectActualPayloadForOriginalIndex(renderResult, originalIndex) {
+  if (!renderResult) {
+    return {
+      found: false,
+      missingReason: 'payload-not-retained',
+      visiblePayload: null,
+      packedPayload: null,
+      accumulationOccurrences: []
+    };
+  }
+  const visible = Array.isArray(renderResult.visible) ? renderResult.visible : [];
+  const visibleIndex = visible.findIndex((item) => {
+    const srcIndex = Number(item?.srcIndex);
+    return Number.isFinite(srcIndex) && (srcIndex | 0) === originalIndex;
+  });
+  const visiblePayload = visibleIndex >= 0
+    ? buildActualPayloadFromVisibleItem(visible[visibleIndex], visibleIndex)
+    : null;
+  const packedPayload = findPackedScreenSpacePayloadForIndex(renderResult.packedScreenSpace, originalIndex);
+  const accumulationOccurrences = findAccumulationPayloadOccurrencesForIndex(renderResult.tileCompositePlan, originalIndex);
+  const accumulationFirst = accumulationOccurrences.length > 0 ? accumulationOccurrences[0] : null;
+  const actualPayload = accumulationFirst ?? packedPayload ?? visiblePayload;
+  const found = !!actualPayload;
+  let missingReason = 'none';
+  if (!found) {
+    if (visible.length > 0 && visible.every((item) => !Number.isFinite(item?.srcIndex))) {
+      missingReason = 'source-index-not-preserved';
+    } else if (!renderResult.packedScreenSpace && !renderResult.tileCompositePlan) {
+      missingReason = 'payload-not-retained';
+    } else {
+      missingReason = 'not-visible-or-culled';
+    }
+  }
+  return {
+    found,
+    missingReason,
+    actualPayload,
+    visiblePayload,
+    packedPayload,
+    accumulationPayload: accumulationFirst,
+    accumulationOccurrences,
+    accumulationOccurrenceCount: accumulationOccurrences.length,
+    accumulationOccurrenceConsistency: summarizeAccumulationOccurrenceConsistency(accumulationOccurrences)
+  };
+}
+
+function hasRetainedActualPayload(renderResult) {
+  if (!renderResult) return false;
+  if (Array.isArray(renderResult.visible) && renderResult.visible.length > 0) return true;
+  if (renderResult.packedScreenSpace?.packed instanceof Float32Array) return true;
+  if (Array.isArray(renderResult.packedScreenSpace?.sourceItems) && renderResult.packedScreenSpace.sourceItems.length > 0) return true;
+  if (Array.isArray(renderResult.tileCompositePlan?.batches) && renderResult.tileCompositePlan.batches.length > 0) return true;
+  return false;
+}
+
+function buildActualPayloadRetentionSummary(renderResult) {
+  const visible = Array.isArray(renderResult?.visible) ? renderResult.visible : [];
+  const packedScreenSpace = renderResult?.packedScreenSpace ?? null;
+  const sourceItems = Array.isArray(packedScreenSpace?.sourceItems) ? packedScreenSpace.sourceItems : [];
+  const batches = Array.isArray(renderResult?.tileCompositePlan?.batches) ? renderResult.tileCompositePlan.batches : [];
+  const batchWithPackedCount = batches.filter((batch) => batch?.packed instanceof Float32Array).length;
+  const batchWithSourceIndicesCount = batches.filter((batch) => batch?.sourceIndices instanceof Uint32Array).length;
+  const visibleWithSrcIndexCount = visible.filter((item) => Number.isFinite(Number(item?.srcIndex))).length;
+  const sourceItemsWithSrcIndexCount = sourceItems.filter((item) => Number.isFinite(Number(item?.srcIndex))).length;
+  return {
+    renderResultPresent: !!renderResult,
+    retainedActualPayload: hasRetainedActualPayload(renderResult),
+    visibleCount: visible.length,
+    visibleWithSrcIndexCount,
+    visibleSrcIndexPreserved: visible.length > 0 && visibleWithSrcIndexCount === visible.length,
+    packedScreenSpacePresent: !!packedScreenSpace,
+    packedScreenSpacePackedPresent: packedScreenSpace?.packed instanceof Float32Array,
+    packedScreenSpacePackedCount: Number.isFinite(packedScreenSpace?.packedCount) ? packedScreenSpace.packedCount : 0,
+    packedScreenSpaceFloatsPerItem: Number.isFinite(packedScreenSpace?.floatsPerItem) ? packedScreenSpace.floatsPerItem : 0,
+    packedScreenSpaceSourceItemCount: sourceItems.length,
+    packedScreenSpaceSourceItemsWithSrcIndexCount: sourceItemsWithSrcIndexCount,
+    packedScreenSpaceSrcIndexPreserved: sourceItems.length > 0 && sourceItemsWithSrcIndexCount === sourceItems.length,
+    tileCompositePlanPresent: !!renderResult?.tileCompositePlan,
+    tileCompositeBatchCount: batches.length,
+    tileCompositeBatchWithPackedCount: batchWithPackedCount,
+    tileCompositeBatchWithSourceIndicesCount: batchWithSourceIndicesCount,
+    tileCompositeSourceIndicesPreserved: batches.length > 0 && batchWithSourceIndicesCount === batches.length,
+    tileCompositeTotalPackedCount: batches.reduce((sum, batch) => (
+      sum + (Number.isFinite(batch?.packedCount) ? Math.max(0, batch.packedCount | 0) : 0)
+    ), 0),
+    actualDrawPath:
+      renderResult?.drawThroughputSummary?.actualDrawPath ??
+      renderResult?.drawPathSummary?.actualPath ??
+      'none',
+    tileCompositePath: renderResult?.executionSummary?.tileCompositePath ?? 'none',
+    tileCompositePrimitive: renderResult?.executionSummary?.tileCompositePrimitive ?? 'none'
+  };
+}
+
+function delayMs(ms) {
+  return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms | 0)));
+}
+
+async function waitForRenderSchedulerIdle(timeoutMs = 2000) {
+  const start = performance.now();
+  while (
+    scheduler?.state &&
+    (scheduler.state.rendering || scheduler.state.renderPending) &&
+    performance.now() - start < timeoutMs
+  ) {
+    await delayMs(16);
+  }
+  return {
+    idle: !scheduler?.state || (!scheduler.state.rendering && !scheduler.state.renderPending),
+    waitedMs: performance.now() - start,
+    schedulerState: scheduler?.state
+      ? {
+          rendering: !!scheduler.state.rendering,
+          renderPending: !!scheduler.state.renderPending,
+          needsRenderAgain: !!scheduler.state.needsRenderAgain
+        }
+      : null
+  };
+}
+
+async function renderCurrentFrameForDebugPayload(options = {}) {
+  const attempts = [];
+  const idleBefore = await waitForRenderSchedulerIdle(options.schedulerIdleTimeoutMs ?? 2000);
+  attempts.push({ stage: 'wait-for-scheduler-idle', ...idleBefore });
+
+  const maxAttempts = Number.isFinite(options.maxAttempts)
+    ? Math.max(1, Math.min(5, options.maxAttempts | 0))
+    : 3;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const result = await renderCurrentFrame({
+      preservePreviousOnNull: true,
+      isolatedTokenRef: true
+    });
+    const retentionSummary = buildActualPayloadRetentionSummary(result);
+    attempts.push({
+      stage: 'render-current-frame',
+      attempt,
+      resultPresent: !!result,
+      retentionSummary
+    });
+    if (hasRetainedActualPayload(result)) {
+      return { renderResult: result, attempts };
+    }
+    if (hasRetainedActualPayload(latestRenderResult)) {
+      attempts.push({
+        stage: 'fallback-latest-render-result',
+        resultPresent: true,
+        retentionSummary: buildActualPayloadRetentionSummary(latestRenderResult)
+      });
+      return { renderResult: latestRenderResult, attempts };
+    }
+    await delayMs(32);
+  }
+
+  return {
+    renderResult: hasRetainedActualPayload(latestRenderResult) ? latestRenderResult : null,
+    attempts
+  };
+}
+
+async function captureRepresentativeActualPayloadDebug(input = {}, maybeOptions = {}) {
+  const options = Array.isArray(input) || Array.isArray(input?.selectedIndices) || Array.isArray(input?.splats)
+    ? maybeOptions
+    : (input ?? {});
+  const referenceDebug = options.referenceDebug ?? options.reference ?? (
+    Array.isArray(input?.selectedIndices) || Array.isArray(input?.splats) ? input : null
+  );
+  const indices = normalizeRepresentativeIndexList(input, referenceDebug);
+  const ensureCurrentFrame = options.ensureCurrentFrame !== false;
+  const debugRender = ensureCurrentFrame || !hasRetainedActualPayload(latestRenderResult)
+    ? await renderCurrentFrameForDebugPayload(options)
+    : { renderResult: latestRenderResult, attempts: [{ stage: 'reuse-latest-render-result', retentionSummary: buildActualPayloadRetentionSummary(latestRenderResult) }] };
+  const renderResult = debugRender.renderResult;
+  const referenceByIndex = getRepresentativeReferenceByIndex(referenceDebug);
+  const items = indices.map((index) => {
+    const referenceEntry = referenceByIndex.get(index) ?? null;
+    const referencePayload = buildReferencePayloadSummary(referenceEntry);
+    const actual = inspectActualPayloadForOriginalIndex(renderResult, index);
+    return {
+      index,
+      referenceAvailable: !!referencePayload,
+      referencePayload,
+      found: actual.found,
+      missingReason: actual.missingReason,
+      actualPayload: actual.actualPayload,
+      visiblePayload: actual.visiblePayload,
+      packedPayload: actual.packedPayload,
+      accumulationPayload: actual.accumulationPayload,
+      accumulationOccurrenceCount: actual.accumulationOccurrenceCount,
+      accumulationOccurrenceConsistency: actual.accumulationOccurrenceConsistency,
+      accumulationOccurrences: options.includeAllAccumulationOccurrences === true
+        ? actual.accumulationOccurrences
+        : actual.accumulationOccurrences.slice(0, 8),
+      compare: buildPayloadComparison(referencePayload, actual.actualPayload)
+    };
+  });
+  const summary = summarizeRepresentativePayloadComparisons(items);
+  return {
+    schemaVersion: 'step90-representative-actual-payload-compare-v1',
+    timestamp: new Date().toISOString(),
+    selectedIndices: indices,
+    summary,
+    actualPayloadSource: {
+      preferredPayload: 'tileCompositePlan.batches[].packed when accumulation occurrences exist; otherwise packedScreenSpace.packed; otherwise visible',
+      visibleSource: 'latestRenderResult.visible[] from buildVisibleSplats',
+      packedSource: 'latestRenderResult.packedScreenSpace.packed/sourceItems',
+      accumulationSource: 'latestRenderResult.tileCompositePlan.batches[].packed/sourceIndices before buildTileAccumulationPayload texture upload'
+    },
+    actualPayloadRetentionSummary: buildActualPayloadRetentionSummary(renderResult),
+    debugRenderAttempts: debugRender.attempts,
+    deterministicState: buildSlimDeterministicStateSummary(buildDeterministicStateSummary()),
+    lastRenderResultSummary: buildRenderResultInspectionSummary(renderResult),
+    items
+  };
+}
+
+function downloadJsonDebug(data, fileName = 'gpu-viewer-debug.json') {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = sanitizeSnapshotFileName(fileName);
+  a.click();
+  URL.revokeObjectURL(url);
+  return { fileName: a.download, byteLength: blob.size };
+}
+
+async function saveRepresentativeActualPayloadOverlayPng(compareResult, options = {}) {
+  const width = Number.isFinite(options.width) ? Math.max(1, options.width | 0) : (canvas?.width ?? 1280);
+  const height = Number.isFinite(options.height) ? Math.max(1, options.height | 0) : (canvas?.height ?? 720);
+  const overlay = document.createElement('canvas');
+  overlay.width = width;
+  overlay.height = height;
+  const ctx = overlay.getContext('2d');
+  ctx.fillStyle = 'rgba(0,0,0,1)';
+  ctx.fillRect(0, 0, width, height);
+  ctx.font = '11px sans-serif';
+  ctx.lineWidth = 1.5;
+
+  const drawPoint = (center, radius, color, label, labelOffsetY = 0) => {
+    if (!Array.isArray(center) || center.length < 2 || !center.every(Number.isFinite)) return;
+    const r = Number.isFinite(radius) ? Math.max(2, Math.min(80, radius)) : 4;
+    ctx.strokeStyle = color;
+    ctx.beginPath();
+    ctx.arc(center[0], center[1], r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = color;
+    ctx.fillRect(center[0] - 2, center[1] - 2, 4, 4);
+    if (label) ctx.fillText(label, center[0] + 5, center[1] - 5 + labelOffsetY);
+  };
+
+  for (const item of compareResult?.items ?? []) {
+    drawPoint(
+      item.referencePayload?.centerPx,
+      item.referencePayload?.radius,
+      'rgba(0,200,255,0.9)',
+      `${item.index} ref`,
+      0
+    );
+    drawPoint(
+      item.actualPayload?.centerPx,
+      item.actualPayload?.radius,
+      'rgba(255,210,0,0.9)',
+      `${item.index} actual`,
+      12
+    );
+  }
+
+  ctx.fillStyle = 'rgba(0,200,255,0.9)';
+  ctx.fillText('cyan: viewerCudaAlignedCurrent reference', 12, 18);
+  ctx.fillStyle = 'rgba(255,210,0,0.9)';
+  ctx.fillText('yellow: actual gpu-screen / accumulation payload', 12, 34);
+
+  const fileName = sanitizeSnapshotFileName(options.name ?? 'step90_representative_actual_payload_overlay.png');
+  const blob = await captureBlobFromCanvas(overlay, fileName, options.download !== false);
+  return { blob, fileName, width, height, source: 'generated-debug-overlay-canvas' };
+}
+
+function normalizeDebugPixelList(inputPixels) {
+  if (!Array.isArray(inputPixels)) return [];
+  const pixels = [];
+  const seen = new Set();
+  for (const entry of inputPixels) {
+    const x = Array.isArray(entry) ? Number(entry[0]) : Number(entry?.x ?? entry?.[0]);
+    const y = Array.isArray(entry) ? Number(entry[1]) : Number(entry?.y ?? entry?.[1]);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    const pixel = [Math.floor(x), Math.floor(y)];
+    const key = `${pixel[0]},${pixel[1]}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    pixels.push({
+      pixel,
+      source: entry?.source ?? 'requested',
+      representativeIndex: Number.isFinite(Number(entry?.representativeIndex))
+        ? Number(entry.representativeIndex) | 0
+        : null
+    });
+  }
+  return pixels;
+}
+
+function buildRepresentativeCompareMap(compareResult) {
+  const map = new Map();
+  for (const item of Array.isArray(compareResult?.items) ? compareResult.items : []) {
+    const index = Number(item?.index);
+    if (Number.isFinite(index)) map.set(index | 0, item);
+  }
+  return map;
+}
+
+function selectDefaultAccumulationDebugPixels(compareResult, maxPixels = 3) {
+  const items = Array.isArray(compareResult?.items) ? compareResult.items : [];
+  return items
+    .filter((item) => item?.found && Array.isArray(item.actualPayload?.centerPx))
+    .map((item) => {
+      const radius = Number.isFinite(item.actualPayload?.radius) ? Math.max(1, Number(item.actualPayload.radius)) : 1;
+      const alpha = Number.isFinite(item.actualPayload?.alpha) ? Math.max(0, Number(item.actualPayload.alpha)) : 0;
+      const occurrenceCount = Number.isFinite(item.accumulationOccurrenceCount) ? Math.max(1, item.accumulationOccurrenceCount | 0) : 1;
+      return {
+        item,
+        score: radius * alpha * occurrenceCount
+      };
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, Math.max(1, maxPixels | 0))
+    .map(({ item }) => ({
+      pixel: [
+        Math.floor(item.actualPayload.centerPx[0]),
+        Math.floor(item.actualPayload.centerPx[1])
+      ],
+      source: 'representative-high-overlap-alpha-radius',
+      representativeIndex: Number(item.index) | 0
+    }));
+}
+
+function getTileGridSummaryFromRenderResult(renderResult) {
+  const summary = renderResult?.tileCompositePlan?.summary ?? renderResult?.tileSummary ?? null;
+  const tileSize = Number.isFinite(summary?.tileCompositeTileSize)
+    ? Math.max(1, summary.tileCompositeTileSize | 0)
+    : (Number.isFinite(summary?.tileSize) ? Math.max(1, summary.tileSize | 0) : 32);
+  const canvasWidth = Number.isFinite(canvas?.width) ? canvas.width | 0 : 0;
+  const canvasHeight = Number.isFinite(canvas?.height) ? canvas.height | 0 : 0;
+  const tileCols = Number.isFinite(summary?.tileCompositeTileCols)
+    ? Math.max(1, summary.tileCompositeTileCols | 0)
+    : Math.max(1, Math.ceil(canvasWidth / tileSize));
+  const tileRows = Number.isFinite(summary?.tileCompositeTileRows)
+    ? Math.max(1, summary.tileCompositeTileRows | 0)
+    : Math.max(1, Math.ceil(canvasHeight / tileSize));
+  return { tileSize, tileCols, tileRows, canvasWidth, canvasHeight };
+}
+
+function findTileBatchForPixel(renderResult, pixel) {
+  const grid = getTileGridSummaryFromRenderResult(renderResult);
+  const x = Math.floor(pixel?.[0] ?? -1);
+  const y = Math.floor(pixel?.[1] ?? -1);
+  if (x < 0 || y < 0 || x >= grid.canvasWidth || y >= grid.canvasHeight) {
+    return {
+      ok: false,
+      reason: 'pixel-out-of-bounds',
+      grid,
+      tileId: -1,
+      tile: [-1, -1],
+      batch: null
+    };
+  }
+  const tx = Math.min(grid.tileCols - 1, Math.floor(x / grid.tileSize));
+  const ty = Math.min(grid.tileRows - 1, Math.floor(y / grid.tileSize));
+  const tileId = ty * grid.tileCols + tx;
+  const batches = Array.isArray(renderResult?.tileCompositePlan?.batches)
+    ? renderResult.tileCompositePlan.batches
+    : [];
+  const batch = batches.find((candidate) => (candidate?.tileId | 0) === tileId) ?? null;
+  return {
+    ok: !!batch,
+    reason: batch ? 'ok' : 'tile-batch-not-found',
+    grid,
+    tileId,
+    tile: [tx, ty],
+    tileBounds: batch?.rect ? cloneNumberArray(batch.rect, 4) : [
+      tx * grid.tileSize,
+      ty * grid.tileSize,
+      Math.min(grid.canvasWidth, (tx + 1) * grid.tileSize),
+      Math.min(grid.canvasHeight, (ty + 1) * grid.tileSize)
+    ],
+    batch
+  };
+}
+
+function computeDepthOrderingSummaryForBatch(batch) {
+  const packedCount = Number.isFinite(batch?.packedCount) ? Math.max(0, batch.packedCount | 0) : 0;
+  let previousDepth = -Infinity;
+  let mismatchCount = 0;
+  let firstMismatch = null;
+  const depthPreviewHead = [];
+  const depthPreviewTail = [];
+  for (let i = 0; i < packedCount; i++) {
+    const payload = decodePackedPayloadItem(batch?.packed, i, batch?.floatsPerItem);
+    const depth = Number(payload?.depth);
+    if (i < 8) depthPreviewHead.push(depth);
+    if (i >= Math.max(0, packedCount - 8)) depthPreviewTail.push(depth);
+    if (Number.isFinite(depth) && Number.isFinite(previousDepth) && depth < previousDepth) {
+      mismatchCount++;
+      if (!firstMismatch) firstMismatch = { localOrder: i, previousDepth, currentDepth: depth };
+    }
+    if (Number.isFinite(depth)) previousDepth = depth;
+  }
+  return {
+    depthOrder: 'ascending-near-to-far',
+    sequenceConsistent: mismatchCount === 0,
+    orderingMismatchCount: mismatchCount,
+    firstMismatch,
+    depthPreviewHead,
+    depthPreviewTail
+  };
+}
+
+function evaluateAccumulationPayloadAtPixel(payload, pixel) {
+  const dx = payload.centerPx[0] - pixel[0];
+  const dy = payload.centerPx[1] - pixel[1];
+  const power =
+    -0.5 * (payload.conic[0] * dx * dx + payload.conic[2] * dy * dy) -
+    payload.conic[1] * dx * dy;
+  const rawAlpha = payload.alpha * Math.exp(power);
+  const computedAlpha = Math.min(0.99, rawAlpha);
+  let skipReason = 'none';
+  if (power > 0.0) {
+    skipReason = 'power-positive';
+  } else if (computedAlpha < (1.0 / 255.0)) {
+    skipReason = 'alpha-below-1-over-255';
+  }
+  return {
+    dx,
+    dy,
+    power,
+    rawAlpha,
+    computedAlpha,
+    survivesPower: power <= 0.0,
+    survivesAlphaThreshold: computedAlpha >= (1.0 / 255.0),
+    skipReason
+  };
+}
+
+function readFramebufferPixelRgb(gl, pixel) {
+  const width = Number.isFinite(canvas?.width) ? canvas.width | 0 : 0;
+  const height = Number.isFinite(canvas?.height) ? canvas.height | 0 : 0;
+  const x = Math.floor(pixel?.[0] ?? -1);
+  const y = Math.floor(pixel?.[1] ?? -1);
+  if (!gl || x < 0 || y < 0 || x >= width || y >= height) {
+    return {
+      valid: false,
+      reason: 'pixel-out-of-bounds-or-missing-gl',
+      pixel: [x, y],
+      glPixel: [x, height - 1 - y],
+      rgba8: [0, 0, 0, 0],
+      rgb: [0, 0, 0]
+    };
+  }
+  const yGl = height - 1 - y;
+  const rgba = new Uint8Array(4);
+  try {
+    gl.readPixels(x, yGl, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, rgba);
+  } catch (error) {
+    return {
+      valid: false,
+      reason: `readpixels-failed:${error?.message ?? 'unknown'}`,
+      pixel: [x, y],
+      glPixel: [x, yGl],
+      rgba8: [0, 0, 0, 0],
+      rgb: [0, 0, 0]
+    };
+  }
+  return {
+    valid: true,
+    reason: 'readback-ok',
+    pixel: [x, y],
+    glPixel: [x, yGl],
+    rgba8: Array.from(rgba),
+    rgb: [rgba[0] / 255.0, rgba[1] / 255.0, rgba[2] / 255.0]
+  };
+}
+
+function simulateTileAccumulationAtPixel({
+  batch,
+  pixel,
+  bgGray01,
+  representativeCompareMap,
+  maxItems = 2048
+}) {
+  const packedCount = Number.isFinite(batch?.packedCount) ? Math.max(0, batch.packedCount | 0) : 0;
+  const clampedCount = Math.min(packedCount, Math.max(1, Math.min(2048, maxItems | 0)));
+  const sourceIndices = batch?.sourceIndices instanceof Uint32Array ? batch.sourceIndices : null;
+  const orderedIndices = batch?.orderedIndices instanceof Uint32Array ? batch.orderedIndices : null;
+  const entries = [];
+  let T = 1.0;
+  let accumColor = [0, 0, 0];
+  let accumDepth = 0;
+  let contributor = 0;
+  let lastContributingLocalOrder = -1;
+  let earlyOutTriggered = false;
+  let earlyOutAtLocalOrder = -1;
+  let alphaSum = 0;
+  let contributionCount = 0;
+  let powerSkipCount = 0;
+  let alphaSkipCount = 0;
+
+  for (let localOrder = 0; localOrder < clampedCount; localOrder++) {
+    contributor++;
+    const payload = decodePackedPayloadItem(batch?.packed, localOrder, batch?.floatsPerItem);
+    if (!payload) {
+      entries.push({ localOrder, skipReason: 'payload-decode-failed' });
+      continue;
+    }
+    const originalSplatIndex = sourceIndices ? (sourceIndices[localOrder] | 0) : null;
+    const representative = Number.isFinite(originalSplatIndex)
+      ? representativeCompareMap.get(originalSplatIndex)
+      : null;
+    const evaluation = evaluateAccumulationPayloadAtPixel(payload, pixel);
+    const TBefore = T;
+    const testT = TBefore * (1.0 - evaluation.computedAlpha);
+    let contributionRgb = [0, 0, 0];
+    let accumColorAfter = [...accumColor];
+    let TAfter = TBefore;
+    let contributes = false;
+    let skipReason = evaluation.skipReason;
+
+    if (skipReason === 'power-positive') {
+      powerSkipCount++;
+    } else if (skipReason === 'alpha-below-1-over-255') {
+      alphaSkipCount++;
+    } else if (testT < 0.0001) {
+      skipReason = 'early-out-testT-below-0.0001';
+      earlyOutTriggered = true;
+      earlyOutAtLocalOrder = localOrder;
+    } else {
+      contributionRgb = payload.color.map((value) => value * evaluation.computedAlpha * TBefore);
+      accumColor = [
+        accumColor[0] + contributionRgb[0],
+        accumColor[1] + contributionRgb[1],
+        accumColor[2] + contributionRgb[2]
+      ];
+      accumDepth += payload.depth * evaluation.computedAlpha * TBefore;
+      accumColorAfter = [...accumColor];
+      T = testT;
+      TAfter = T;
+      contributes = true;
+      contributionCount++;
+      alphaSum += evaluation.computedAlpha;
+      lastContributingLocalOrder = localOrder;
+    }
+
+    entries.push({
+      localOrder,
+      packedIndex: localOrder,
+      sourceVisibleIndex: orderedIndices ? (orderedIndices[localOrder] | 0) : null,
+      originalSplatIndex,
+      representative: !!representative,
+      representativeReferenceMatchesActualPayload: representative?.summary?.payloadMatchesDebug ?? representative?.found ?? null,
+      representativeAccumulationOccurrenceCount: representative?.accumulationOccurrenceCount ?? null,
+      depth: payload.depth,
+      centerPx: payload.centerPx,
+      radius: payload.radius,
+      rasterRect: payload.rasterRect,
+      conic: payload.conic,
+      opacity: payload.alpha,
+      alpha: payload.alpha,
+      color: payload.color,
+      dx: evaluation.dx,
+      dy: evaluation.dy,
+      power: evaluation.power,
+      rawAlpha: evaluation.rawAlpha,
+      computedAlpha: evaluation.computedAlpha,
+      skipReason,
+      contributes,
+      TBefore,
+      test_T: testT,
+      TAfter,
+      contributionRgb,
+      accumColorAfter,
+      accumDepthAfter: accumDepth
+    });
+
+    if (earlyOutTriggered) break;
+  }
+
+  const bg = Number.isFinite(bgGray01) ? Math.max(0, Math.min(1, Number(bgGray01))) : 0;
+  const finalRgb = [
+    accumColor[0] + T * bg,
+    accumColor[1] + T * bg,
+    accumColor[2] + T * bg
+  ];
+  return {
+    pixel,
+    packedCount,
+    clampedCount,
+    maxItemsEvaluated: clampedCount,
+    sortOrderContract: 'ascending-depth-near-to-far-front-to-back',
+    shaderEquationContract: 'matches gpu_tile_accumulation_executor fragment shader and CUDA forward.cu render loop',
+    depthOrderingSummary: computeDepthOrderingSummaryForBatch(batch),
+    contributorCounter: contributor,
+    contributionCount,
+    powerSkipCount,
+    alphaSkipCount,
+    alphaSum,
+    lastContributingLocalOrder,
+    earlyOutTriggered,
+    earlyOutAtLocalOrder,
+    finalT: T,
+    accumColor,
+    finalRgb,
+    accumDepth,
+    entries
+  };
+}
+
+async function captureTileAccumulationDebug(input = {}) {
+  const options = input ?? {};
+  const representativeCompare = options.representativeCompare ?? options.compareResult ?? null;
+  const requestedPixels = normalizeDebugPixelList(options.pixels);
+  const pixels = requestedPixels.length > 0
+    ? requestedPixels
+    : selectDefaultAccumulationDebugPixels(representativeCompare, options.maxPixels ?? 3);
+  const debugRender = options.ensureCurrentFrame === false && hasRetainedActualPayload(latestRenderResult)
+    ? { renderResult: latestRenderResult, attempts: [{ stage: 'reuse-latest-render-result', retentionSummary: buildActualPayloadRetentionSummary(latestRenderResult) }] }
+    : await renderCurrentFrameForDebugPayload(options);
+  const renderResult = debugRender.renderResult;
+  const gl = getGpu()?.gl ?? null;
+  const bgGray01 = Number.isFinite(Number(ui.bgGraySlider?.value))
+    ? Number(ui.bgGraySlider.value) / 255.0
+    : 0;
+  const representativeCompareMap = buildRepresentativeCompareMap(representativeCompare);
+
+  const pixelResults = pixels.map((pixelSpec) => {
+    const tileInfo = findTileBatchForPixel(renderResult, pixelSpec.pixel);
+    if (!tileInfo.ok) {
+      return {
+        pixel: pixelSpec.pixel,
+        pixelSource: pixelSpec.source,
+        representativeIndex: pixelSpec.representativeIndex,
+        ok: false,
+        reason: tileInfo.reason,
+        tileId: tileInfo.tileId,
+        tile: tileInfo.tile,
+        tileBounds: tileInfo.tileBounds ?? null,
+        grid: tileInfo.grid
+      };
+    }
+    const simulation = simulateTileAccumulationAtPixel({
+      batch: tileInfo.batch,
+      pixel: pixelSpec.pixel,
+      bgGray01,
+      representativeCompareMap,
+      maxItems: options.maxItems ?? 2048
+    });
+    const framebuffer = readFramebufferPixelRgb(gl, pixelSpec.pixel);
+    const framebufferDelta = framebuffer.valid
+      ? [
+          framebuffer.rgb[0] - simulation.finalRgb[0],
+          framebuffer.rgb[1] - simulation.finalRgb[1],
+          framebuffer.rgb[2] - simulation.finalRgb[2]
+        ]
+      : null;
+    return {
+      pixel: pixelSpec.pixel,
+      pixelSource: pixelSpec.source,
+      representativeIndex: pixelSpec.representativeIndex,
+      ok: true,
+      tileId: tileInfo.tileId,
+      tile: tileInfo.tile,
+      tileBounds: tileInfo.tileBounds,
+      grid: tileInfo.grid,
+      tilePayloadCount: Number.isFinite(tileInfo.batch?.packedCount) ? tileInfo.batch.packedCount : 0,
+      batchPackedCount: Number.isFinite(tileInfo.batch?.packedCount) ? tileInfo.batch.packedCount : 0,
+      batchFloatsPerItem: Number.isFinite(tileInfo.batch?.floatsPerItem) ? tileInfo.batch.floatsPerItem : 16,
+      batchHasSourceIndices: tileInfo.batch?.sourceIndices instanceof Uint32Array,
+      batchHasOrderedIndices: tileInfo.batch?.orderedIndices instanceof Uint32Array,
+      accumulation: simulation,
+      framebuffer,
+      framebufferDelta,
+      framebufferDeltaAbsMax: Array.isArray(framebufferDelta)
+        ? Math.max(...framebufferDelta.map((value) => Math.abs(value)))
+        : null
+    };
+  });
+
+  return {
+    schemaVersion: 'step90-tile-accumulation-debug-v1',
+    timestamp: new Date().toISOString(),
+    purpose: 'CPU/JS replay of Viewer tile accumulation shader inputs/order/equations for selected pixels',
+    cudaEquationSummary: {
+      order: 'per tile sorted by ascending depth key, front-to-back',
+      power: '-0.5 * (conic.x * dx^2 + conic.z * dy^2) - conic.y * dx * dy',
+      alpha: 'min(0.99, opacity * exp(power))',
+      skip: 'continue if power > 0 or alpha < 1/255',
+      testT: 'T * (1 - alpha)',
+      earlyOut: 'if testT < 0.0001, stop without contributing crossing splat',
+      color: 'C += rgb * alpha * T; final = C + T * bg'
+    },
+    viewerEquationSummary: {
+      order: 'tileCompositePlan.batches[].packed sorted by ascending depth',
+      bgGray01,
+      premultipliedAlpha: false,
+      outputAlpha: 1
+    },
+    selectedPixels: pixels,
+    actualPayloadRetentionSummary: buildActualPayloadRetentionSummary(renderResult),
+    debugRenderAttempts: debugRender.attempts,
+    lastRenderResultSummary: buildRenderResultInspectionSummary(renderResult),
+    representativeCompareSummary: representativeCompare?.summary ?? null,
+    pixels: pixelResults
+  };
+}
+
+async function saveTileAccumulationDebugOverlayPng(debugResult, options = {}) {
+  const width = Number.isFinite(options.width) ? Math.max(1, options.width | 0) : (canvas?.width ?? 1280);
+  const height = Number.isFinite(options.height) ? Math.max(1, options.height | 0) : (canvas?.height ?? 720);
+  const overlay = document.createElement('canvas');
+  overlay.width = width;
+  overlay.height = height;
+  const ctx = overlay.getContext('2d');
+  ctx.fillStyle = 'rgba(0,0,0,1)';
+  ctx.fillRect(0, 0, width, height);
+  ctx.font = '12px sans-serif';
+  ctx.lineWidth = 1.5;
+  for (const result of debugResult?.pixels ?? []) {
+    const [x, y] = result.pixel ?? [0, 0];
+    ctx.strokeStyle = result.ok ? 'rgba(255,210,0,0.95)' : 'rgba(255,80,80,0.95)';
+    ctx.beginPath();
+    ctx.arc(x, y, 8, 0, Math.PI * 2);
+    ctx.stroke();
+    if (Array.isArray(result.tileBounds)) {
+      ctx.strokeStyle = 'rgba(0,200,255,0.65)';
+      ctx.strokeRect(
+        result.tileBounds[0],
+        result.tileBounds[1],
+        result.tileBounds[2] - result.tileBounds[0],
+        result.tileBounds[3] - result.tileBounds[1]
+      );
+    }
+    ctx.fillStyle = 'rgba(255,210,0,0.95)';
+    ctx.fillText(
+      `${x},${y} tile=${result.tileId ?? -1} contrib=${result.accumulation?.contributionCount ?? 0}`,
+      x + 10,
+      y - 10
+    );
+  }
+  const fileName = sanitizeSnapshotFileName(options.name ?? 'step90_tile_accumulation_debug_overlay.png');
+  const blob = await captureBlobFromCanvas(overlay, fileName, options.download !== false);
+  return { blob, fileName, width, height, source: 'generated-tile-accumulation-debug-overlay' };
 }
 
 function parseScreenshotProbeList(rawProbeList) {
@@ -1314,6 +2862,8 @@ function buildSlimDeterministicStateSummary(summary) {
     appliedCameraPresetName: summary?.appliedCameraPresetName ?? 'none',
     cameraSource: summary?.cameraSource ?? 'camera-preset',
     datasetCameraConvention: summary?.datasetCameraConvention ?? null,
+    datasetViewMatrixMode: summary?.datasetViewMatrixMode ?? 'threejs',
+    datasetPixelXSign: [-1, 1].includes(summary?.datasetPixelXSign) ? Number(summary.datasetPixelXSign) : 1,
     datasetCameraLabel: summary?.datasetCameraLabel ?? null,
     imageName: summary?.imageName ?? null,
     frameNumber: Number.isFinite(summary?.frameNumber) ? Number(summary.frameNumber) : null,
@@ -1334,8 +2884,23 @@ function buildSlimDeterministicStateSummary(summary) {
     intrinsics: summary?.intrinsics ?? null,
     stride: Number.isFinite(summary?.stride) ? Number(summary.stride) : null,
     bgGray: Number.isFinite(summary?.bgGray) ? Number(summary.bgGray) : null,
+    debugPreserveDrawingBuffer: typeof summary?.debugPreserveDrawingBuffer === 'boolean'
+      ? summary.debugPreserveDrawingBuffer
+      : null,
     cudaReferenceLabel: summary?.cudaReferenceLabel ?? null,
     cudaReferencePath: summary?.cudaReferencePath ?? null,
+    actualCameraPosition: Array.isArray(summary?.actualCameraPosition) ? [...summary.actualCameraPosition] : null,
+    actualCameraQuaternion: Array.isArray(summary?.actualCameraQuaternion) ? [...summary.actualCameraQuaternion] : null,
+    actualCameraUp: Array.isArray(summary?.actualCameraUp) ? [...summary.actualCameraUp] : null,
+    actualControlsTarget: Array.isArray(summary?.actualControlsTarget) ? [...summary.actualControlsTarget] : null,
+    actualCameraFov: Number.isFinite(summary?.actualCameraFov) ? Number(summary.actualCameraFov) : null,
+    actualCameraNear: Number.isFinite(summary?.actualCameraNear) ? Number(summary.actualCameraNear) : null,
+    actualCameraFar: Number.isFinite(summary?.actualCameraFar) ? Number(summary.actualCameraFar) : null,
+    actualCameraMatrixWorld: Array.isArray(summary?.actualCameraMatrixWorld)
+      ? summary.actualCameraMatrixWorld.map((row) => Array.isArray(row) ? [...row] : row)
+      : null,
+    actualCameraRight: Array.isArray(summary?.actualCameraRight) ? [...summary.actualCameraRight] : null,
+    cudaAlignedScreenSpaceCamera: summary?.cudaAlignedScreenSpaceCamera ?? null,
     drawPath: summary?.drawPath ?? 'none',
     tileCompositePath: summary?.tileCompositePath ?? 'baseline',
     tileCompositePrimitive: summary?.tileCompositePrimitive ?? 'point',
@@ -2046,7 +3611,7 @@ function convertDatasetTransformMatrixToViewerPose(rawMatrix, convention = 'nerf
   }
 
   const position = [c2w[0][3], c2w[1][3], c2w[2][3]];
-  const forward = [-c2w[0][2], -c2w[1][2], -c2w[2][2]];
+  const forward = [c2w[0][2], c2w[1][2], c2w[2][2]];
   const up = [c2w[0][1], c2w[1][1], c2w[2][1]];
   const targetDistance = 10.0;
   const target = [
@@ -2194,6 +3759,33 @@ async function captureBlobFromCanvas(sourceCanvas, fileName, download) {
   });
 }
 
+async function saveCurrentCanvasPng(options = {}) {
+  const input = typeof options === 'string' ? { name: options } : (options ?? {});
+  const download = input.download !== false;
+  const fileName = sanitizeSnapshotFileName(input.name ?? 'gpu-viewer-current-canvas.png');
+  if (input.renderBeforeCapture) {
+    await renderCurrentFrame();
+  }
+  const framebufferStats = sampleCurrentFramebufferStats(input.framebufferStats ?? {});
+  console.info('[gpuViewerDebug.saveCurrentCanvasPng] framebufferStats', {
+    likelyBlackFrame: framebufferStats?.likelyBlackFrame ?? null,
+    nonBlackRatio: framebufferStats?.nonBlackRatio ?? null,
+    nonBlackCount: framebufferStats?.nonBlackCount ?? null,
+    maxRgb: framebufferStats?.maxRgb ?? null,
+    preserveDrawingBuffer: buildCanvasSizeSummary().preserveDrawingBuffer
+  });
+  const blob = await captureBlobFromCanvas(canvas, fileName, download);
+  return {
+    blob,
+    fileName,
+    source: 'canvas-toBlob-current-default-framebuffer',
+    framebufferStats,
+    canvasSizeSummary: buildCanvasSizeSummary(),
+    deterministicState: buildDeterministicStateSummary(),
+    lastRenderResultSummary: buildRenderResultInspectionSummary(latestRenderResult)
+  };
+}
+
 function captureSnapshotCanvasFromGpu(gpu) {
   const gl = gpu?.gl;
   if (!gl) {
@@ -2212,7 +3804,7 @@ function captureSnapshotCanvasFromGpu(gpu) {
   return createSnapshotCanvasFromPixels(width, height, pixels);
 }
 
-async function renderCurrentFrame() {
+async function renderCurrentFrame(options = {}) {
   ensureGpu();
   const renderResult = await renderGpuFrame({
     raw,
@@ -2221,18 +3813,20 @@ async function renderCurrentFrame() {
     camera,
     controls,
     ui,
-    tokenRef,
+    tokenRef: options.isolatedTokenRef ? { value: 0 } : tokenRef,
     infoEl: ui.info,
     interactionOverride: buildRenderOverrides(),
     deterministicStateSummary: buildDeterministicStateSummary()
   });
-  latestRenderResult = renderResult;
+  if (renderResult || !options.preservePreviousOnNull) {
+    latestRenderResult = renderResult;
+  }
 
   if (renderResult && typeof renderResult.debugText === 'string') {
     refreshLatestDebugText(renderResult.debugText);
   } else if (renderResult && typeof renderResult.infoText === 'string') {
     refreshLatestDebugText(renderResult.infoText);
-  } else {
+  } else if (!options.preservePreviousOnNull) {
     refreshLatestDebugText();
   }
 
@@ -2383,6 +3977,25 @@ function installViewerDebugApi() {
     }),
     getDefaultSingleSplatCompareInput: () => structuredClone(DEFAULT_SINGLE_SPLAT_COMPARE_INPUT),
     getDeterministicState: () => buildDeterministicStateSummary(),
+    getCameraDebugState,
+    sampleCurrentFramebufferStats,
+    captureCurrentDebugBundle,
+    captureRepresentativeActualPayloadDebug,
+    inspectPackedPayloadForIndices: captureRepresentativeActualPayloadDebug,
+    downloadJsonDebug,
+    downloadRepresentativeActualPayloadCompareJson: async (input = {}, fileName = 'step90_representative_actual_payload_compare.json') => {
+      const result = await captureRepresentativeActualPayloadDebug(input);
+      return {
+        result,
+        download: downloadJsonDebug(result, fileName)
+      };
+    },
+    saveRepresentativeActualPayloadOverlayPng,
+    captureTileAccumulationDebug,
+    captureRepresentativePixelAccumulationDebug: captureTileAccumulationDebug,
+    saveTileAccumulationDebugOverlayPng,
+    saveCurrentCanvasPng,
+    captureCurrentCanvasPng: saveCurrentCanvasPng,
     getLatestDebugText: () => refreshLatestDebugText(),
     getLastRenderResult: () => latestRenderResult,
     scheduleRender: () => scheduler.scheduleRender()

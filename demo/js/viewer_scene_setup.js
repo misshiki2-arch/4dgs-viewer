@@ -23,7 +23,7 @@ export function applyViewerCameraPresetState(camera, controls, preset) {
   return true;
 }
 
-export function createViewerScene(canvas) {
+export function createViewerScene(canvas, options = {}) {
   const camera = new THREE.PerspectiveCamera(60, 1, 0.01, 5000);
   camera.position.set(40, 20, 20);
 
@@ -37,7 +37,9 @@ export function createViewerScene(canvas) {
 
   function ensureGpu() {
     if (!gpu) {
-      gpu = createGpuRenderer(canvas);
+      gpu = createGpuRenderer(canvas, {
+        preserveDrawingBuffer: !!options.debugPreserveDrawingBuffer
+      });
     }
     return gpu;
   }

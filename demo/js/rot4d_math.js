@@ -441,6 +441,11 @@ function computeGaussianStateDebugFromInput(compareInput) {
 }
 
 function computeScreenSplatDebugDetails(camera, pos, cov3, opacity, renderW, renderH) {
+  const screenSpaceCamera = camera?.screenSpaceTransformOverride ?? null;
+  if (screenSpaceCamera?.mode === 'cuda-aligned') {
+    return computeCudaAlignedScreenSplatDetails(screenSpaceCamera, pos, cov3, opacity, renderW, renderH);
+  }
+
   const worldPoint = new THREE.Vector3(pos[0], pos[1], pos[2]);
   const mv = worldPoint.clone().applyMatrix4(camera.matrixWorldInverse);
   const zc = -mv.z;
@@ -460,8 +465,10 @@ function computeScreenSplatDebugDetails(camera, pos, cov3, opacity, renderW, ren
     };
   }
 
-  const tanFovY = Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5));
-  const tanFovX = tanFovY * camera.aspect;
+  const cameraFov = Number.isFinite(camera?.fov) ? Number(camera.fov) : 60;
+  const cameraAspect = Number.isFinite(camera?.aspect) ? Number(camera.aspect) : (renderW / Math.max(1, renderH));
+  const tanFovY = Math.tan(THREE.MathUtils.degToRad(cameraFov * 0.5));
+  const tanFovX = tanFovY * cameraAspect;
   let txtz = mv.x / zc;
   let tytz = mv.y / zc;
   txtz = clamp(txtz, -1.3 * tanFovX, 1.3 * tanFovX);
@@ -536,6 +543,172 @@ function computeScreenSplatDebugDetails(camera, pos, cov3, opacity, renderW, ren
     lambda2,
     radius,
     opacity
+  };
+}
+
+function applyMatrix4Rows(matrixRows, vector4) {
+  return matrixRows.map((row) => row.reduce((sum, value, index) => sum + value * vector4[index], 0));
+}
+
+function getCudaAlignedViewRotation3x3(screenSpaceCamera) {
+  const matrixRows = screenSpaceCamera?.viewMatrix;
+  if (!Array.isArray(matrixRows) || matrixRows.length < 3) return null;
+  return [
+    [matrixRows[0][0], matrixRows[0][1], matrixRows[0][2]],
+    [matrixRows[1][0], matrixRows[1][1], matrixRows[1][2]],
+    [matrixRows[2][0], matrixRows[2][1], matrixRows[2][2]]
+  ];
+}
+
+function computeCudaAlignedScreenSplatDetails(screenSpaceCamera, pos, cov3, opacity, renderW, renderH) {
+  const viewMatrix = screenSpaceCamera?.viewMatrix;
+  if (!Array.isArray(viewMatrix) || viewMatrix.length !== 4) {
+    return {
+      culled: true,
+      cullReason: 'cuda-aligned-view-matrix-missing',
+      view_space_pos: null,
+      projected_cov2x2: null,
+      conic: null,
+      det: null,
+      mid: null,
+      lambda1: null,
+      lambda2: null,
+      radius: null,
+      opacity
+    };
+  }
+
+  const mv4 = applyMatrix4Rows(viewMatrix, [pos[0], pos[1], pos[2], 1.0]);
+  const mv = { x: mv4[0], y: mv4[1], z: mv4[2] };
+  const zc = mv.z;
+  if (zc <= 1e-6) {
+    return {
+      culled: true,
+      cullReason: 'cuda-aligned-camera-space-z-too-small',
+      view_space_pos: [mv.x, mv.y, mv.z],
+      projected_cov2x2: null,
+      conic: null,
+      det: null,
+      mid: null,
+      lambda1: null,
+      lambda2: null,
+      radius: null,
+      opacity
+    };
+  }
+
+  const cameraFov = Number.isFinite(screenSpaceCamera?.fov) ? Number(screenSpaceCamera.fov) : 60;
+  const cameraAspect = Number.isFinite(screenSpaceCamera?.aspect)
+    ? Number(screenSpaceCamera.aspect)
+    : (renderW / Math.max(1, renderH));
+  const tanFovY = Math.tan(THREE.MathUtils.degToRad(cameraFov * 0.5));
+  const tanFovX = tanFovY * cameraAspect;
+  const fx = Number.isFinite(screenSpaceCamera?.intrinsics?.fx)
+    ? Number(screenSpaceCamera.intrinsics.fx)
+    : renderW / (2 * tanFovX);
+  const fy = Number.isFinite(screenSpaceCamera?.intrinsics?.fy)
+    ? Number(screenSpaceCamera.intrinsics.fy)
+    : renderH / (2 * tanFovY);
+  const cx = Number.isFinite(screenSpaceCamera?.intrinsics?.cx)
+    ? Number(screenSpaceCamera.intrinsics.cx)
+    : (renderW - 1) * 0.5;
+  const cy = Number.isFinite(screenSpaceCamera?.intrinsics?.cy)
+    ? Number(screenSpaceCamera.intrinsics.cy)
+    : (renderH - 1) * 0.5;
+  const pixelXSign = [-1, 1].includes(screenSpaceCamera?.pixelXSign)
+    ? Number(screenSpaceCamera.pixelXSign)
+    : 1;
+
+  let txtz = mv.x / zc;
+  let tytz = mv.y / zc;
+  txtz = clamp(txtz, -1.3 * tanFovX, 1.3 * tanFovX);
+  tytz = clamp(tytz, -1.3 * tanFovY, 1.3 * tanFovY);
+
+  const tx = txtz * zc;
+  const ty = tytz * zc;
+  const J = [
+    [pixelXSign * fx / zc, 0.0, -(pixelXSign * fx * tx) / (zc * zc)],
+    [0.0, fy / zc, -(fy * ty) / (zc * zc)],
+    [0.0, 0.0, 0.0]
+  ];
+  const W = getCudaAlignedViewRotation3x3(screenSpaceCamera);
+  if (!W) {
+    return {
+      culled: true,
+      cullReason: 'cuda-aligned-view-rotation-missing',
+      view_space_pos: [mv.x, mv.y, mv.z],
+      projected_cov2x2: null,
+      conic: null,
+      det: null,
+      mid: null,
+      lambda1: null,
+      lambda2: null,
+      radius: null,
+      opacity
+    };
+  }
+  const Tm = mat3Mul(W, J);
+  const cov = mat3Mul(mat3Transpose(Tm), mat3Mul(cov3, Tm));
+  cov[0][0] += 0.3;
+  cov[1][1] += 0.3;
+
+  const a = cov[0][0];
+  const b = cov[0][1];
+  const c = cov[1][1];
+  const det = a * c - b * b;
+  if (!Number.isFinite(det) || det <= 0) {
+    return {
+      culled: true,
+      cullReason: 'cuda-aligned-projected-covariance-singular',
+      view_space_pos: [mv.x, mv.y, mv.z],
+      projected_cov2x2: [[a, b], [b, c]],
+      conic: null,
+      det,
+      mid: null,
+      lambda1: null,
+      lambda2: null,
+      radius: null,
+      opacity
+    };
+  }
+
+  const inv = 1 / det;
+  const conic = [c * inv, -b * inv, a * inv];
+  const mid = 0.5 * (a + c);
+  const lambda1 = mid + Math.sqrt(Math.max(0.1, mid * mid - det));
+  const lambda2 = mid - Math.sqrt(Math.max(0.1, mid * mid - det));
+  const radius = Math.ceil(3 * Math.sqrt(Math.max(lambda1, lambda2)));
+  if (radius <= 0.4 || radius > 4096) {
+    return {
+      culled: true,
+      cullReason: radius > 4096 ? 'cuda-aligned-radius-too-large' : 'cuda-aligned-radius-too-small',
+      view_space_pos: [mv.x, mv.y, mv.z],
+      projected_cov2x2: [[a, b], [b, c]],
+      conic,
+      det,
+      mid,
+      lambda1,
+      lambda2,
+      radius,
+      opacity
+    };
+  }
+
+  return {
+    culled: false,
+    cullReason: 'none',
+    view_space_pos: [mv.x, mv.y, mv.z],
+    projected_cov2x2: [[a, b], [b, c]],
+    conic,
+    det,
+    mid,
+    lambda1,
+    lambda2,
+    radius,
+    opacity,
+    px: pixelXSign * fx * (mv.x / zc) + cx,
+    py: fy * (mv.y / zc) + cy,
+    depth: zc
   };
 }
 
@@ -681,6 +854,20 @@ export function computeGaussianDebugState(input = {}) {
 }
 
 export function computeScreenSplat(camera, pos, cov3, opacity, renderW, renderH) {
+  const screenSpaceCamera = camera?.screenSpaceTransformOverride ?? null;
+  if (screenSpaceCamera?.mode === 'cuda-aligned') {
+    const details = computeCudaAlignedScreenSplatDetails(screenSpaceCamera, pos, cov3, opacity, renderW, renderH);
+    if (details?.culled) return null;
+    return {
+      px: details.px,
+      py: details.py,
+      conic: details.conic,
+      radius: details.radius,
+      depth: details.depth,
+      opacity
+    };
+  }
+
   const mv = new THREE.Vector3(pos[0], pos[1], pos[2]).applyMatrix4(camera.matrixWorldInverse);
   const zc = -mv.z;
   if (zc <= 1e-6) return null;

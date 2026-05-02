@@ -639,12 +639,40 @@ function mergeGpuScreenComparisonSummary(builderSummary, drawSummary) {
   };
 }
 
-export function createGpuRenderer(canvas) {
+function buildScreenSpaceCameraProxy(camera, deterministicStateSummary) {
+  const cudaAligned = deterministicStateSummary?.cudaAlignedScreenSpaceCamera;
+  if (!cudaAligned?.enabled || !Array.isArray(cudaAligned.cudaAlignedViewMatrix)) {
+    return null;
+  }
+  return {
+    fov: camera.fov,
+    aspect: camera.aspect,
+    matrixWorldInverse: camera.matrixWorldInverse,
+    projectionMatrix: camera.projectionMatrix,
+    updateMatrixWorld: () => {},
+    screenSpaceTransformOverride: {
+      mode: 'cuda-aligned',
+      viewMatrixSource: cudaAligned.viewMatrixSource ?? 'dataset-transform-cuda-reader-c2w-inverse',
+      viewMatrix: cudaAligned.cudaAlignedViewMatrix,
+      fov: camera.fov,
+      aspect: camera.aspect,
+      intrinsics: cudaAligned.intrinsics ?? null,
+      pixelXSign: [-1, 1].includes(cudaAligned.pixelXSign) ? Number(cudaAligned.pixelXSign) : 1,
+      signConversionMatrix: cudaAligned.signConversionMatrix ?? null,
+      basis: cudaAligned.cudaAlignedCameraBasis ?? null,
+      projectionContract: cudaAligned.projectionContract ?? 'cuda-plus-z-forward-fx-fy-cx-cy',
+      screenYSign: Number.isFinite(cudaAligned.screenYSign) ? Number(cudaAligned.screenYSign) : 1,
+      depthSign: Number.isFinite(cudaAligned.depthSign) ? Number(cudaAligned.depthSign) : 1
+    }
+  };
+}
+
+export function createGpuRenderer(canvas, options = {}) {
   const gl = canvas.getContext('webgl2', {
     alpha: false,
     antialias: false,
     premultipliedAlpha: false,
-    preserveDrawingBuffer: false
+    preserveDrawingBuffer: !!options.preserveDrawingBuffer
   });
   if (!gl) throw new Error('WebGL2 is not available in this browser.');
 
@@ -738,10 +766,12 @@ export async function renderGpuFrame({
   const buildConfig = getVisibleBuildConfig(ui, interactionOverride);
   const tileGrid = computeTileGrid(canvas.width, canvas.height, 32);
   const camPos = camera.position.clone();
+  const screenSpaceCamera = buildScreenSpaceCameraProxy(camera, deterministicStateSummary);
 
   const visibleResult = await buildVisibleSplats({
     raw,
     camera,
+    screenSpaceCamera,
     canvasWidth: canvas.width,
     canvasHeight: canvas.height,
     camPos,
@@ -898,6 +928,9 @@ export async function renderGpuFrame({
 
   const elapsed = performance.now() - t0;
   const buildStats = buildSafeBuildStats(rawBuildStats, visible, packedScreenSpace, elapsed);
+  buildStats.screenSpaceCameraMode = screenSpaceCamera?.screenSpaceTransformOverride?.mode ?? 'threejs';
+  buildStats.screenSpaceViewMatrixSource =
+    screenSpaceCamera?.screenSpaceTransformOverride?.viewMatrixSource ?? 'threejs-camera';
   const avgRefsPerVisible = visible.length > 0 ? (tileSummary.totalRefs / visible.length) : 0;
 
   const tileDebugText = formatTileDebugSummary({
