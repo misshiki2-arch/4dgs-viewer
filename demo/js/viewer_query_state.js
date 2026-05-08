@@ -359,8 +359,15 @@ export function applyViewerQueryStateToUi(ui, queryState) {
 
   setCheckboxValue(ui.useSHCheck, queryState.useSH);
   setCheckboxValue(ui.useRot4dCheck, queryState.useRot4d);
-  setCheckboxValue(ui.useNativeRot4dCheck, queryState.useNativeRot4d);
-  setCheckboxValue(ui.useNativeMarginalCheck, queryState.useNativeMarginal);
+  const cudaAlignedDefaults = queryState.datasetViewMatrixMode === 'cuda-aligned';
+  setCheckboxValue(
+    ui.useNativeRot4dCheck,
+    queryState.useNativeRot4d ?? (cudaAlignedDefaults ? true : null)
+  );
+  setCheckboxValue(
+    ui.useNativeMarginalCheck,
+    queryState.useNativeMarginal ?? (cudaAlignedDefaults ? true : null)
+  );
   setCheckboxValue(ui.usePackedVisiblePathCheck, queryState.usePackedVisiblePath);
   setSelectValue(ui.drawPathSelect, queryState.drawPath);
   setSelectValue(ui.tileCompositePathSelect, queryState.tileCompositePath);

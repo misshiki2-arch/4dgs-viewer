@@ -428,6 +428,7 @@ function buildCudaAlignedScreenSpaceCameraSummary(summary, convertedPose) {
   const fy = Number.isFinite(summary?.datasetFy) ? Number(summary.datasetFy) : null;
   const cx = Number.isFinite(summary?.datasetCx) ? Number(summary.datasetCx) : null;
   const cy = Number.isFinite(summary?.datasetCy) ? Number(summary.datasetCy) : null;
+  const covarianceTanFov = -Math.tan(0.5);
   const pixelXSign = [-1, 1].includes(summary?.datasetPixelXSign)
     ? Number(summary.datasetPixelXSign)
     : 1;
@@ -448,6 +449,9 @@ function buildCudaAlignedScreenSpaceCameraSummary(summary, convertedPose) {
         }
       : null,
     intrinsics: { fx, fy, cx, cy },
+    covarianceTanFovX: covarianceTanFov,
+    covarianceTanFovY: covarianceTanFov,
+    covarianceFocalContract: 'current-cuda-render-computeCov2D-uses-negative-tan-fov-0.5-rad',
     pixelXSign,
     pixelSignContract: 'debug-ablation-applied-to-center-projection-and-covariance-jacobian-x',
     projectionContract: enabled
@@ -857,7 +861,10 @@ function buildActualPayloadFromVisibleItem(item, visibleIndex) {
     opacity: colorAlpha ? colorAlpha[3] : null,
     rasterRect: cloneNumberArray(item.aabb, 4) ?? computeRasterRectFromCenterRadius(centerPx, radius),
     tileRange: cloneNumberArray(item.tileRange, 4),
-    tileCoverage
+    tileCoverage,
+    stateConvention: typeof item.stateConvention === 'string' ? item.stateConvention : null,
+    usedCuda4DStateHelper: typeof item.usedCuda4DStateHelper === 'boolean' ? item.usedCuda4DStateHelper : null,
+    stateHelperVersion: typeof item.stateHelperVersion === 'string' ? item.stateHelperVersion : null
   };
 }
 
@@ -1510,6 +1517,9 @@ function buildDebugScreenSpaceCameraProxy() {
       fov: camera.fov,
       aspect: camera.aspect,
       intrinsics: cudaAligned.intrinsics ?? null,
+      covarianceTanFovX: Number.isFinite(cudaAligned.covarianceTanFovX) ? Number(cudaAligned.covarianceTanFovX) : null,
+      covarianceTanFovY: Number.isFinite(cudaAligned.covarianceTanFovY) ? Number(cudaAligned.covarianceTanFovY) : null,
+      covarianceFocalContract: cudaAligned.covarianceFocalContract ?? null,
       pixelXSign: [-1, 1].includes(cudaAligned.pixelXSign) ? Number(cudaAligned.pixelXSign) : 1,
       signConversionMatrix: cudaAligned.signConversionMatrix ?? null,
       basis: cudaAligned.cudaAlignedCameraBasis ?? null,
@@ -1532,7 +1542,12 @@ function clonePayloadForAssociationDebug(payload) {
     opacity: toFiniteNumberOrNull(payload.opacity),
     alpha: toFiniteNumberOrNull(payload.alpha),
     color: cloneNumberArray(payload.color, 3),
-    colorAlpha: cloneNumberArray(payload.colorAlpha, 4)
+    colorAlpha: cloneNumberArray(payload.colorAlpha, 4),
+    stateConvention: typeof payload.stateConvention === 'string' ? payload.stateConvention : null,
+    usedCuda4DStateHelper: typeof payload.usedCuda4DStateHelper === 'boolean' ? payload.usedCuda4DStateHelper : null,
+    stateHelperVersion: typeof payload.stateHelperVersion === 'string'
+      ? payload.stateHelperVersion
+      : (typeof payload.helperVersion === 'string' ? payload.helperVersion : null)
   };
 }
 
@@ -1685,6 +1700,9 @@ function recomputePayloadForOriginalSplatIndex(originalSplatIndex) {
     flags,
     useRot4d,
     source: 'raw-recompute-current-viewer-settings',
+    stateConvention: gs.stateConvention ?? null,
+    usedCuda4DStateHelper: !!gs.usedCuda4DStateHelper,
+    stateHelperVersion: gs.helperVersion ?? null,
     centerPx: [px, py],
     depth: splat.depth,
     conic,
@@ -1799,6 +1817,7 @@ function readFramebufferPixelRgb(gl, pixel) {
 
 function simulateTileAccumulationAtPixel({
   batch,
+  visibleItems = [],
   pixel,
   bgGray01,
   representativeCompareMap,
@@ -1882,6 +1901,15 @@ function simulateTileAccumulationAtPixel({
       opacity: payload.alpha,
       alpha: payload.alpha,
       color: payload.color,
+      stateConvention: Number.isFinite(orderedIndices ? (orderedIndices[localOrder] | 0) : null)
+        ? (visibleItems[orderedIndices[localOrder] | 0]?.stateConvention ?? null)
+        : null,
+      usedCuda4DStateHelper: Number.isFinite(orderedIndices ? (orderedIndices[localOrder] | 0) : null)
+        ? !!visibleItems[orderedIndices[localOrder] | 0]?.usedCuda4DStateHelper
+        : null,
+      stateHelperVersion: Number.isFinite(orderedIndices ? (orderedIndices[localOrder] | 0) : null)
+        ? (visibleItems[orderedIndices[localOrder] | 0]?.stateHelperVersion ?? null)
+        : null,
       dx: evaluation.dx,
       dy: evaluation.dy,
       power: evaluation.power,
@@ -1972,6 +2000,7 @@ async function captureTileAccumulationDebug(input = {}) {
     }
     const simulation = simulateTileAccumulationAtPixel({
       batch: tileInfo.batch,
+      visibleItems: Array.isArray(renderResult?.visible) ? renderResult.visible : [],
       pixel: pixelSpec.pixel,
       bgGray01,
       representativeCompareMap,
@@ -2087,6 +2116,15 @@ async function captureViewerPayloadIndexAssociationDebug(input = {}) {
       const sourceVisibleConsistency = {
         hasVisibleItem: !!visibleItem,
         visibleItemSrcIndex: Number.isFinite(visibleItem?.srcIndex) ? (visibleItem.srcIndex | 0) : null,
+        visibleItemStateConvention: typeof visibleItem?.stateConvention === 'string'
+          ? visibleItem.stateConvention
+          : null,
+        visibleItemUsedCuda4DStateHelper: typeof visibleItem?.usedCuda4DStateHelper === 'boolean'
+          ? visibleItem.usedCuda4DStateHelper
+          : null,
+        visibleItemStateHelperVersion: typeof visibleItem?.stateHelperVersion === 'string'
+          ? visibleItem.stateHelperVersion
+          : null,
         matchesOriginalSplatIndex:
           Number.isFinite(visibleItem?.srcIndex) &&
           Number.isFinite(originalSplatIndex) &&

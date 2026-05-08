@@ -31,7 +31,7 @@ export async function buildVisibleSplats({ raw,camera,screenSpaceCamera=null,can
     const minX=clampInt(Math.floor(px-coverageRadius),0,canvasWidth-1), maxX=clampInt(Math.ceil(px+coverageRadius),0,canvasWidth-1), minY=clampInt(Math.floor(py-coverageRadius),0,canvasHeight-1), maxY=clampInt(Math.ceil(py+coverageRadius),0,canvasHeight-1);
     let tileRange=null; if(tileGrid){ tileRange=computeTileRangeFromAABB([minX,minY,maxX,maxY],tileGrid.tileCols,tileGrid.tileRows,tileGrid.tileSize); minTileX=Math.min(minTileX,tileRange[0]); minTileY=Math.min(minTileY,tileRange[1]); maxTileX=Math.max(maxTileX,tileRange[2]); maxTileY=Math.max(maxTileY,tileRange[3]); }
     const colorAlpha=buildColorAlpha(color,splat.opacity);
-    visible.push({ srcIndex:i, px, py, radius:drawRadius, depth:splat.depth, colorAlpha, conic:[splat.conic[0]/(sx*sx),splat.conic[1]/(sx*sy),splat.conic[2]/(sy*sy)], aabb:[minX,minY,maxX,maxY], tileRange, color, opacity:splat.opacity });
+    visible.push({ srcIndex:i, px, py, radius:drawRadius, depth:splat.depth, colorAlpha, conic:[splat.conic[0]/(sx*sx),splat.conic[1]/(sx*sy),splat.conic[2]/(sy*sy)], aabb:[minX,minY,maxX,maxY], tileRange, color, opacity:splat.opacity, stateConvention:gs.stateConvention??'unknown', usedCuda4DStateHelper:!!gs.usedCuda4DStateHelper, stateHelperVersion:gs.helperVersion??null });
     if(visible.length>=maxVisible) break;
     if((visible.length & 2047)===0){ await new Promise((r)=>setTimeout(r,0)); if(tokenRef&&frameToken!==null&&frameToken!==tokenRef.value) return null; }
   }

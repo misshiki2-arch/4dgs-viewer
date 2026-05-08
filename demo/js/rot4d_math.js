@@ -1,4 +1,8 @@
 import * as THREE from 'three';
+import {
+  CUDA_4D_STATE_HELPER_VERSION,
+  computeCudaConditionalGaussianState4D
+} from './cuda_4d_state.js';
 
 export const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 export const sigmoid = x => 1 / (1 + Math.exp(-x));
@@ -375,9 +379,41 @@ function computeGaussianStateDebugFromInput(compareInput) {
   };
 
   if (compareInput.useRot4d) {
-    const R4 = compareInput.nativeRot4d
-      ? buildRotation4DNative(qLNorm, qRNorm)
-      : buildRotation4DOld(qLNorm, qRNorm);
+    if (compareInput.nativeRot4d) {
+      const cudaState = computeCudaConditionalGaussianState4D({
+        position: pos0,
+        opacity: baseOpacity,
+        scaleXYZ: scale,
+        scaleT,
+        rotation: compareInput.rotation,
+        rotationR: compareInput.rotation_r,
+        timestamp: compareInput.timestamp,
+        tCenter: compareInput.t_center,
+        prefilterVar: compareInput.prefilter_var
+      });
+      return {
+        ...baseResult,
+        qL_norm: cudaState.debug.qL_norm,
+        qR_norm: cudaState.debug.qR_norm,
+        cov_t: cudaState.debug.cov_t,
+        marginal_denom: cudaState.debug.marginal_denom,
+        marginal_t: cudaState.debug.marginal_t,
+        cov12: cudaState.debug.cov12,
+        mean_offset: cudaState.debug.mean_offset,
+        conditional_cov3x3: cloneMat3(cudaState.cov3),
+        pos_conditional: cloneVec3(cudaState.pos),
+        opacity_after_marginal: cudaState.opacity,
+        R4: cloneMat4(cudaState.debug.R4),
+        Sigma4: cloneMat4(cudaState.debug.Sigma4),
+        stateConvention: cudaState.debug.stateConvention,
+        usedCuda4DStateHelper: true,
+        helperVersion: cudaState.debug.helperVersion,
+        culled: cudaState.debug.culled,
+        cullReason: cudaState.debug.cullReason
+      };
+    }
+
+    const R4 = buildRotation4DOld(qLNorm, qRNorm);
     const S = buildScalingMatrix4(scale, scaleT);
     // CUDA builds the 4D covariance from M = S * R and Sigma = M^T * M.
     const M = mat4Mul(S, R4);
@@ -551,6 +587,20 @@ function applyMatrix4Rows(matrixRows, vector4) {
 }
 
 function getCudaAlignedViewRotation3x3(screenSpaceCamera) {
+  const basis = screenSpaceCamera?.basis;
+  if (
+    basis &&
+    Array.isArray(basis.right) && basis.right.length >= 3 &&
+    Array.isArray(basis.up) && basis.up.length >= 3 &&
+    Array.isArray(basis.forward) && basis.forward.length >= 3
+  ) {
+    return [
+      [basis.right[0], basis.right[1], basis.right[2]],
+      [basis.up[0], basis.up[1], basis.up[2]],
+      [basis.forward[0], basis.forward[1], basis.forward[2]]
+    ];
+  }
+
   const matrixRows = screenSpaceCamera?.viewMatrix;
   if (!Array.isArray(matrixRows) || matrixRows.length < 3) return null;
   return [
@@ -609,11 +659,19 @@ function computeCudaAlignedScreenSplatDetails(screenSpaceCamera, pos, cov3, opac
   const fy = Number.isFinite(screenSpaceCamera?.intrinsics?.fy)
     ? Number(screenSpaceCamera.intrinsics.fy)
     : renderH / (2 * tanFovY);
+  const covarianceTanFovX = Number.isFinite(screenSpaceCamera?.covarianceTanFovX)
+    ? Number(screenSpaceCamera.covarianceTanFovX)
+    : tanFovX;
+  const covarianceTanFovY = Number.isFinite(screenSpaceCamera?.covarianceTanFovY)
+    ? Number(screenSpaceCamera.covarianceTanFovY)
+    : tanFovY;
+  const covFocalX = -renderW / (2 * covarianceTanFovX);
+  const covFocalY = -renderH / (2 * covarianceTanFovY);
   const cx = Number.isFinite(screenSpaceCamera?.intrinsics?.cx)
-    ? Number(screenSpaceCamera.intrinsics.cx)
+    ? Number(screenSpaceCamera.intrinsics.cx) - 0.5
     : (renderW - 1) * 0.5;
   const cy = Number.isFinite(screenSpaceCamera?.intrinsics?.cy)
-    ? Number(screenSpaceCamera.intrinsics.cy)
+    ? Number(screenSpaceCamera.intrinsics.cy) - 0.5
     : (renderH - 1) * 0.5;
   const pixelXSign = [-1, 1].includes(screenSpaceCamera?.pixelXSign)
     ? Number(screenSpaceCamera.pixelXSign)
@@ -621,14 +679,14 @@ function computeCudaAlignedScreenSplatDetails(screenSpaceCamera, pos, cov3, opac
 
   let txtz = mv.x / zc;
   let tytz = mv.y / zc;
-  txtz = clamp(txtz, -1.3 * tanFovX, 1.3 * tanFovX);
-  tytz = clamp(tytz, -1.3 * tanFovY, 1.3 * tanFovY);
+  txtz = clamp(txtz, -1.3 * covarianceTanFovX, 1.3 * covarianceTanFovX);
+  tytz = clamp(tytz, -1.3 * covarianceTanFovY, 1.3 * covarianceTanFovY);
 
   const tx = txtz * zc;
   const ty = tytz * zc;
   const J = [
-    [pixelXSign * fx / zc, 0.0, -(pixelXSign * fx * tx) / (zc * zc)],
-    [0.0, fy / zc, -(fy * ty) / (zc * zc)],
+    [covFocalX / zc, 0.0, -(covFocalX * tx) / (zc * zc)],
+    [0.0, covFocalY / zc, -(covFocalY * ty) / (zc * zc)],
     [0.0, 0.0, 0.0]
   ];
   const W = getCudaAlignedViewRotation3x3(screenSpaceCamera);
@@ -647,8 +705,8 @@ function computeCudaAlignedScreenSplatDetails(screenSpaceCamera, pos, cov3, opac
       opacity
     };
   }
-  const Tm = mat3Mul(W, J);
-  const cov = mat3Mul(mat3Transpose(Tm), mat3Mul(cov3, Tm));
+  const Tm = mat3Mul(J, W);
+  const cov = mat3Mul(Tm, mat3Mul(cov3, mat3Transpose(Tm)));
   cov[0][0] += 0.3;
   cov[1][1] += 0.3;
 
@@ -736,7 +794,30 @@ export function computeGaussianState(raw, i, timestamp, scalingModifier, sigmaSc
     const qL = [raw.rotation[i * raw.rotationDim], raw.rotation[i * raw.rotationDim + 1], raw.rotation[i * raw.rotationDim + 2], raw.rotation[i * raw.rotationDim + 3]];
     const qR = [raw.rotation_r[i * raw.rotationRDim], raw.rotation_r[i * raw.rotationRDim + 1], raw.rotation_r[i * raw.rotationRDim + 2], raw.rotation_r[i * raw.rotationRDim + 3]];
 
-    const R4 = flags.nativeRot4d ? buildRotation4DNative(qL, qR) : buildRotation4DOld(qL, qR);
+    if (flags.nativeRot4d) {
+      const cudaState = computeCudaConditionalGaussianState4D({
+        position: pos0,
+        opacity,
+        scaleXYZ: scale,
+        scaleT,
+        rotation: qL,
+        rotationR: qR,
+        timestamp,
+        tCenter,
+        prefilterVar
+      });
+      if (cudaState.debug.culled) return null;
+      return {
+        pos: cudaState.pos,
+        cov3: cudaState.cov3,
+        opacity: cudaState.opacity,
+        stateConvention: 'cuda-glm',
+        usedCuda4DStateHelper: true,
+        helperVersion: CUDA_4D_STATE_HELPER_VERSION
+      };
+    }
+
+    const R4 = buildRotation4DOld(qL, qR);
 
     const S = buildScalingMatrix4(scale, scaleT);
     const M = mat4Mul(S, R4);
@@ -763,7 +844,10 @@ export function computeGaussianState(raw, i, timestamp, scalingModifier, sigmaSc
     return {
       pos: [pos0[0] + delta[0], pos0[1] + delta[1], pos0[2] + delta[2]],
       cov3: cond,
-      opacity
+      opacity,
+      stateConvention: 'legacy-js-rot4d',
+      usedCuda4DStateHelper: false,
+      helperVersion: null
     };
   }
 
@@ -785,7 +869,14 @@ export function computeGaussianState(raw, i, timestamp, scalingModifier, sigmaSc
     opacity *= marginal_t;
   }
 
-  return { pos: pos0, cov3: Sigma, opacity };
+  return {
+    pos: pos0,
+    cov3: Sigma,
+    opacity,
+    stateConvention: raw.scaleTDim > 0 ? 'legacy-js-3d-with-temporal-marginal' : 'legacy-js-3d',
+    usedCuda4DStateHelper: false,
+    helperVersion: null
+  };
 }
 
 export function computeGaussianDebugState(input = {}) {
