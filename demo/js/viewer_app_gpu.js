@@ -1,5 +1,12 @@
 import { parseSplat4DV2 } from './splat4d_parser_v2.js';
-import { fitCameraToRaw, computeGaussianDebugState, DEFAULT_SINGLE_SPLAT_COMPARE_INPUT } from './rot4d_math.js';
+import {
+  fitCameraToRaw,
+  computeGaussianDebugState,
+  computeGaussianState,
+  computeScreenSplat,
+  DEFAULT_SINGLE_SPLAT_COMPARE_INPUT
+} from './rot4d_math.js';
+import { evalSHColor } from './sh_eval.js';
 import { renderGpuFrame } from './gpu_renderer.js';
 import {
   inspectGpuPackedPayloadItem,
@@ -1486,6 +1493,217 @@ function findTileBatchForPixel(renderResult, pixel) {
   };
 }
 
+function buildDebugScreenSpaceCameraProxy() {
+  const deterministicState = buildDeterministicStateSummary();
+  const cudaAligned = deterministicState?.cudaAlignedScreenSpaceCamera;
+  if (!cudaAligned?.enabled || !Array.isArray(cudaAligned.cudaAlignedViewMatrix)) return null;
+  return {
+    fov: camera.fov,
+    aspect: camera.aspect,
+    matrixWorldInverse: camera.matrixWorldInverse,
+    projectionMatrix: camera.projectionMatrix,
+    updateMatrixWorld: () => {},
+    screenSpaceTransformOverride: {
+      mode: 'cuda-aligned',
+      viewMatrixSource: cudaAligned.viewMatrixSource ?? 'dataset-transform-cuda-reader-c2w-inverse',
+      viewMatrix: cudaAligned.cudaAlignedViewMatrix,
+      fov: camera.fov,
+      aspect: camera.aspect,
+      intrinsics: cudaAligned.intrinsics ?? null,
+      pixelXSign: [-1, 1].includes(cudaAligned.pixelXSign) ? Number(cudaAligned.pixelXSign) : 1,
+      signConversionMatrix: cudaAligned.signConversionMatrix ?? null,
+      basis: cudaAligned.cudaAlignedCameraBasis ?? null,
+      projectionContract: cudaAligned.projectionContract ?? 'cuda-plus-z-forward-fx-fy-cx-cy',
+      screenYSign: Number.isFinite(cudaAligned.screenYSign) ? Number(cudaAligned.screenYSign) : 1,
+      depthSign: Number.isFinite(cudaAligned.depthSign) ? Number(cudaAligned.depthSign) : 1
+    }
+  };
+}
+
+function clonePayloadForAssociationDebug(payload) {
+  if (!payload) return null;
+  return {
+    centerPx: cloneNumberArray(payload.centerPx, 2),
+    depth: toFiniteNumberOrNull(payload.depth),
+    conic: cloneNumberArray(payload.conic, 3),
+    radius: toFiniteNumberOrNull(payload.radius),
+    radiusPx: toFiniteNumberOrNull(payload.radiusPx),
+    rasterRect: cloneNumberArray(payload.rasterRect, 4),
+    opacity: toFiniteNumberOrNull(payload.opacity),
+    alpha: toFiniteNumberOrNull(payload.alpha),
+    color: cloneNumberArray(payload.color, 3),
+    colorAlpha: cloneNumberArray(payload.colorAlpha, 4)
+  };
+}
+
+function computeMaxAbsDelta(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return null;
+  let maxAbs = 0;
+  for (let i = 0; i < a.length; i++) {
+    const av = Number(a[i]);
+    const bv = Number(b[i]);
+    if (!Number.isFinite(av) || !Number.isFinite(bv)) return null;
+    maxAbs = Math.max(maxAbs, Math.abs(av - bv));
+  }
+  return maxAbs;
+}
+
+function buildAssociationDelta(packedPayload, recomputedPayload) {
+  if (!packedPayload || !recomputedPayload) {
+    return {
+      valid: false,
+      reason: packedPayload ? 'recomputed-payload-missing' : 'packed-payload-missing'
+    };
+  }
+  const centerPxMaxAbs = computeMaxAbsDelta(packedPayload.centerPx, recomputedPayload.centerPx);
+  const conicMaxAbs = computeMaxAbsDelta(packedPayload.conic, recomputedPayload.conic);
+  const colorMaxAbs = computeMaxAbsDelta(packedPayload.color, recomputedPayload.color);
+  const rasterRectMaxAbs = computeMaxAbsDelta(packedPayload.rasterRect, recomputedPayload.rasterRect);
+  const depthAbs = Number.isFinite(packedPayload.depth) && Number.isFinite(recomputedPayload.depth)
+    ? Math.abs(packedPayload.depth - recomputedPayload.depth)
+    : null;
+  const radiusAbs = Number.isFinite(packedPayload.radius) && Number.isFinite(recomputedPayload.radius)
+    ? Math.abs(packedPayload.radius - recomputedPayload.radius)
+    : null;
+  const opacityAbs = Number.isFinite(packedPayload.alpha) && Number.isFinite(recomputedPayload.alpha)
+    ? Math.abs(packedPayload.alpha - recomputedPayload.alpha)
+    : null;
+  const mismatches = {
+    centerPx: Number.isFinite(centerPxMaxAbs) && centerPxMaxAbs > 1e-3,
+    depth: Number.isFinite(depthAbs) && depthAbs > 1e-3,
+    conic: Number.isFinite(conicMaxAbs) && conicMaxAbs > 1e-5,
+    radius: Number.isFinite(radiusAbs) && radiusAbs > 0,
+    opacity: Number.isFinite(opacityAbs) && opacityAbs > 1e-5,
+    color: Number.isFinite(colorMaxAbs) && colorMaxAbs > 1e-5,
+    rasterRect: Number.isFinite(rasterRectMaxAbs) && rasterRectMaxAbs > 0
+  };
+  return {
+    valid: true,
+    centerPxMaxAbs,
+    depthAbs,
+    conicMaxAbs,
+    radiusAbs,
+    opacityAbs,
+    colorMaxAbs,
+    rasterRectMaxAbs,
+    mismatches,
+    anyMismatch: Object.values(mismatches).some(Boolean)
+  };
+}
+
+function recomputePayloadForOriginalSplatIndex(originalSplatIndex) {
+  const index = Number(originalSplatIndex);
+  if (!raw || !Number.isFinite(index) || index < 0 || index >= raw.N) {
+    return {
+      ok: false,
+      reason: 'raw-missing-or-index-out-of-range',
+      originalSplatIndex: Number.isFinite(index) ? (index | 0) : null
+    };
+  }
+
+  const renderScale = Number.isFinite(Number(ui.renderScaleSlider?.value))
+    ? Number(ui.renderScaleSlider.value)
+    : 1;
+  const renderW = Math.max(1, Math.round(canvas.width * renderScale));
+  const renderH = Math.max(1, Math.round(canvas.height * renderScale));
+  const sx = canvas.width / renderW;
+  const sy = canvas.height / renderH;
+  const timestamp = Number.isFinite(Number(ui.timeSlider?.value)) ? Number(ui.timeSlider.value) : 0;
+  const scalingModifier = Number.isFinite(Number(ui.splatScaleSlider?.value)) ? Number(ui.splatScaleSlider.value) : 1;
+  const sigmaScale = Number.isFinite(Number(ui.sigmaScaleSlider?.value)) ? Number(ui.sigmaScaleSlider.value) : 1;
+  const prefilterVar = Number.isFinite(Number(ui.prefilterVarSlider?.value)) ? Number(ui.prefilterVarSlider.value) : 0;
+  const useRot4d = !!ui.useRot4dCheck?.checked;
+  const flags = {
+    nativeRot4d: !!ui.useNativeRot4dCheck?.checked,
+    nativeMarginal: !!ui.useNativeMarginalCheck?.checked
+  };
+
+  const gs = computeGaussianState(
+    raw,
+    index | 0,
+    timestamp,
+    scalingModifier,
+    sigmaScale,
+    prefilterVar,
+    useRot4d,
+    flags
+  );
+  if (!gs) {
+    return {
+      ok: false,
+      reason: 'computeGaussianState-culled-or-null',
+      originalSplatIndex: index | 0,
+      timestamp,
+      flags,
+      useRot4d
+    };
+  }
+
+  const color = evalSHColor(
+    raw,
+    index | 0,
+    camera.position.clone(),
+    gs.pos,
+    timestamp,
+    Number.isFinite(Number(ui.timeDurationSlider?.value)) ? Number(ui.timeDurationSlider.value) : 33,
+    !!ui.useSHCheck?.checked,
+    !!ui.forceSh3dCheck?.checked
+  );
+  const screenSpaceCamera = buildDebugScreenSpaceCameraProxy();
+  const splat = computeScreenSplat(screenSpaceCamera || camera, gs.pos, gs.cov3, gs.opacity, renderW, renderH);
+  if (!splat) {
+    return {
+      ok: false,
+      reason: 'computeScreenSplat-culled-or-null',
+      originalSplatIndex: index | 0,
+      timestamp,
+      flags,
+      useRot4d
+    };
+  }
+
+  const px = splat.px * sx;
+  const py = splat.py * sy;
+  const radius = splat.radius * Math.max(sx, sy);
+  const coverageRadius = Math.max(1, radius);
+  const rasterRect = [
+    clampIntForDebug(Math.floor(px - coverageRadius), 0, canvas.width - 1),
+    clampIntForDebug(Math.floor(py - coverageRadius), 0, canvas.height - 1),
+    clampIntForDebug(Math.ceil(px + coverageRadius), 0, canvas.width - 1),
+    clampIntForDebug(Math.ceil(py + coverageRadius), 0, canvas.height - 1)
+  ];
+  const conic = [
+    splat.conic[0] / (sx * sx),
+    splat.conic[1] / (sx * sy),
+    splat.conic[2] / (sy * sy)
+  ];
+  return {
+    ok: true,
+    reason: 'ok',
+    originalSplatIndex: index | 0,
+    timestamp,
+    flags,
+    useRot4d,
+    source: 'raw-recompute-current-viewer-settings',
+    centerPx: [px, py],
+    depth: splat.depth,
+    conic,
+    radius,
+    radiusPx: radius,
+    rasterRect,
+    opacity: splat.opacity,
+    alpha: splat.opacity,
+    color,
+    colorAlpha: [color[0], color[1], color[2], splat.opacity]
+  };
+}
+
+function clampIntForDebug(value, min, max) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return min;
+  return Math.min(max, Math.max(min, n | 0));
+}
+
 function computeDepthOrderingSummaryForBatch(batch) {
   const packedCount = Number.isFinite(batch?.packedCount) ? Math.max(0, batch.packedCount | 0) : 0;
   let previousDepth = -Infinity;
@@ -1719,7 +1937,15 @@ async function captureTileAccumulationDebug(input = {}) {
   const pixels = requestedPixels.length > 0
     ? requestedPixels
     : selectDefaultAccumulationDebugPixels(representativeCompare, options.maxPixels ?? 3);
-  const debugRender = options.ensureCurrentFrame === false && hasRetainedActualPayload(latestRenderResult)
+  const renderResultOverride = hasRetainedActualPayload(options.renderResultOverride) ? options.renderResultOverride : null;
+  const debugRender = renderResultOverride
+    ? {
+        renderResult: renderResultOverride,
+        attempts: Array.isArray(options.sharedDebugRenderAttempts)
+          ? options.sharedDebugRenderAttempts
+          : [{ stage: 'shared-render-result-override', retentionSummary: buildActualPayloadRetentionSummary(renderResultOverride) }]
+      }
+    : options.ensureCurrentFrame === false && hasRetainedActualPayload(latestRenderResult)
     ? { renderResult: latestRenderResult, attempts: [{ stage: 'reuse-latest-render-result', retentionSummary: buildActualPayloadRetentionSummary(latestRenderResult) }] }
     : await renderCurrentFrameForDebugPayload(options);
   const renderResult = debugRender.renderResult;
@@ -1807,6 +2033,395 @@ async function captureTileAccumulationDebug(input = {}) {
     lastRenderResultSummary: buildRenderResultInspectionSummary(renderResult),
     representativeCompareSummary: representativeCompare?.summary ?? null,
     pixels: pixelResults
+  };
+}
+
+async function captureViewerPayloadIndexAssociationDebug(input = {}) {
+  const options = input ?? {};
+  const targetPixel = Array.isArray(options.pixel) && options.pixel.length >= 2
+    ? [Number(options.pixel[0]) | 0, Number(options.pixel[1]) | 0]
+    : [655, 363];
+  const targetIndices = Array.isArray(options.indices) && options.indices.length > 0
+    ? options.indices.map((value) => Number(value)).filter(Number.isFinite).map((value) => value | 0)
+    : [2765070, 1182029, 2718004];
+  const targetIndexSet = new Set(targetIndices);
+  const maxEntries = Number.isFinite(Number(options.maxEntries))
+    ? Math.max(1, Number(options.maxEntries) | 0)
+    : 2048;
+  const renderResultOverride = hasRetainedActualPayload(options.renderResultOverride) ? options.renderResultOverride : null;
+  const debugRender = renderResultOverride
+    ? {
+        renderResult: renderResultOverride,
+        attempts: Array.isArray(options.sharedDebugRenderAttempts)
+          ? options.sharedDebugRenderAttempts
+          : [{ stage: 'shared-render-result-override', retentionSummary: buildActualPayloadRetentionSummary(renderResultOverride) }]
+      }
+    : options.ensureCurrentFrame === false && hasRetainedActualPayload(latestRenderResult)
+    ? { renderResult: latestRenderResult, attempts: [{ stage: 'reuse-latest-render-result', retentionSummary: buildActualPayloadRetentionSummary(latestRenderResult) }] }
+    : await renderCurrentFrameForDebugPayload(options);
+  const renderResult = debugRender.renderResult;
+  const tileInfo = findTileBatchForPixel(renderResult, targetPixel);
+  const visible = Array.isArray(renderResult?.visible) ? renderResult.visible : [];
+  const entries = [];
+  const mismatches = [];
+  const targetOccurrences = new Map(targetIndices.map((index) => [index, []]));
+
+  if (tileInfo.ok) {
+    const batch = tileInfo.batch;
+    const packedCount = Number.isFinite(batch?.packedCount) ? Math.max(0, batch.packedCount | 0) : 0;
+    const clampedCount = Math.min(packedCount, maxEntries);
+    const sourceIndices = batch?.sourceIndices instanceof Uint32Array ? batch.sourceIndices : null;
+    const orderedIndices = batch?.orderedIndices instanceof Uint32Array ? batch.orderedIndices : null;
+
+    for (let localOrder = 0; localOrder < clampedCount; localOrder++) {
+      const sourceVisibleIndex = orderedIndices ? (orderedIndices[localOrder] | 0) : null;
+      const originalSplatIndex = sourceIndices ? (sourceIndices[localOrder] | 0) : null;
+      const visibleItem = Number.isFinite(sourceVisibleIndex) ? visible[sourceVisibleIndex] : null;
+      const packedPayload = decodePackedPayloadItem(batch?.packed, localOrder, batch?.floatsPerItem);
+      const recomputed = Number.isFinite(originalSplatIndex)
+        ? recomputePayloadForOriginalSplatIndex(originalSplatIndex)
+        : { ok: false, reason: 'missing-originalSplatIndex' };
+      const recomputedPayload = recomputed?.ok ? clonePayloadForAssociationDebug(recomputed) : null;
+      const packedSlim = clonePayloadForAssociationDebug(packedPayload);
+      const delta = buildAssociationDelta(packedSlim, recomputedPayload);
+      const sourceVisibleConsistency = {
+        hasVisibleItem: !!visibleItem,
+        visibleItemSrcIndex: Number.isFinite(visibleItem?.srcIndex) ? (visibleItem.srcIndex | 0) : null,
+        matchesOriginalSplatIndex:
+          Number.isFinite(visibleItem?.srcIndex) &&
+          Number.isFinite(originalSplatIndex) &&
+          (visibleItem.srcIndex | 0) === (originalSplatIndex | 0)
+      };
+      const evaluation = packedPayload ? evaluateAccumulationPayloadAtPixel(packedPayload, targetPixel) : null;
+      const entry = {
+        localOrder,
+        slot: localOrder,
+        packedIndex: localOrder,
+        sourceVisibleIndex,
+        originalSplatIndex,
+        targetIndex: Number.isFinite(originalSplatIndex) && targetIndexSet.has(originalSplatIndex),
+        sourceVisibleConsistency,
+        packedPayload: packedSlim,
+        recomputedFromOriginalSplatIndex: recomputed?.ok
+          ? recomputedPayload
+          : {
+              ok: false,
+              reason: recomputed?.reason ?? 'recompute-failed',
+              originalSplatIndex,
+              timestamp: recomputed?.timestamp ?? null,
+              flags: recomputed?.flags ?? null,
+              useRot4d: recomputed?.useRot4d ?? null
+            },
+        delta,
+        pixelEvaluation: evaluation
+          ? {
+              dx: evaluation.dx,
+              dy: evaluation.dy,
+              power: evaluation.power,
+              rawAlpha: evaluation.rawAlpha,
+              computedAlpha: evaluation.computedAlpha,
+              skipReason: evaluation.skipReason
+            }
+          : null,
+        cullShouldNotContribute:
+          recomputed && !recomputed.ok && evaluation?.skipReason === 'none',
+        associationMismatch: !!delta?.anyMismatch || (recomputed && !recomputed.ok)
+      };
+      if (entry.associationMismatch) mismatches.push(entry);
+      if (Number.isFinite(originalSplatIndex) && targetOccurrences.has(originalSplatIndex)) {
+        targetOccurrences.get(originalSplatIndex).push(entry);
+      }
+      if (options.includeAllEntries === true || localOrder < 64 || entry.targetIndex || entry.associationMismatch) entries.push(entry);
+    }
+  }
+
+  for (const index of targetIndices) {
+    if ((targetOccurrences.get(index)?.length ?? 0) > 0) continue;
+    const recomputed = recomputePayloadForOriginalSplatIndex(index);
+    targetOccurrences.set(index, [{
+      localOrder: null,
+      slot: null,
+      packedIndex: null,
+      sourceVisibleIndex: null,
+      originalSplatIndex: index,
+      targetIndex: true,
+      sourceVisibleConsistency: {
+        hasVisibleItem: false,
+        visibleItemSrcIndex: null,
+        matchesOriginalSplatIndex: false
+      },
+      packedPayload: null,
+      recomputedFromOriginalSplatIndex: recomputed?.ok
+        ? clonePayloadForAssociationDebug(recomputed)
+        : {
+            ok: false,
+            reason: recomputed?.reason ?? 'recompute-failed',
+            originalSplatIndex: index,
+            timestamp: recomputed?.timestamp ?? null,
+            flags: recomputed?.flags ?? null,
+            useRot4d: recomputed?.useRot4d ?? null
+          },
+      delta: {
+        valid: false,
+        reason: 'target-index-not-present-in-target-tile-batch'
+      },
+      pixelEvaluation: null,
+      cullShouldNotContribute: false,
+      associationMismatch: false
+    }]);
+  }
+
+  return {
+    schemaVersion: 'step90-viewer-payload-index-association-debug-v1',
+    timestamp: new Date().toISOString(),
+    purpose: 'Validate that each tile accumulation packed payload slot matches its source/original index metadata.',
+    target: {
+      pixel: targetPixel,
+      indices: targetIndices,
+      maxEntries
+    },
+    debugRenderAttempts: debugRender.attempts,
+    deterministicState: buildSlimDeterministicStateSummary(buildDeterministicStateSummary()),
+    lastRenderResultSummary: buildRenderResultInspectionSummary(renderResult),
+    tile: {
+      ok: tileInfo.ok,
+      reason: tileInfo.reason,
+      tileId: tileInfo.tileId,
+      tile: tileInfo.tile,
+      tileBounds: tileInfo.tileBounds ?? null,
+      grid: tileInfo.grid,
+      packedCount: Number.isFinite(tileInfo.batch?.packedCount) ? tileInfo.batch.packedCount : 0,
+      floatsPerItem: Number.isFinite(tileInfo.batch?.floatsPerItem) ? tileInfo.batch.floatsPerItem : 16,
+      hasSourceIndices: tileInfo.batch?.sourceIndices instanceof Uint32Array,
+      hasOrderedIndices: tileInfo.batch?.orderedIndices instanceof Uint32Array
+    },
+    summary: {
+      checkedEntryCount: tileInfo.ok
+        ? Math.min(Number.isFinite(tileInfo.batch?.packedCount) ? Math.max(0, tileInfo.batch.packedCount | 0) : 0, maxEntries)
+        : 0,
+      emittedEntryCount: entries.length,
+      mismatchCount: mismatches.length,
+      targetOccurrenceCounts: Object.fromEntries(
+        targetIndices.map((index) => [String(index), targetOccurrences.get(index)?.filter((entry) => entry.localOrder !== null).length ?? 0])
+      ),
+      associationMismatchLikely: mismatches.length > 0,
+      mismatchReasons: summarizeAssociationMismatchReasons(mismatches)
+    },
+    targetOccurrences: Object.fromEntries(
+      targetIndices.map((index) => [String(index), targetOccurrences.get(index) ?? []])
+    ),
+    mismatches: mismatches.slice(0, 128),
+    entries
+  };
+}
+
+function summarizeAssociationMismatchReasons(mismatches) {
+  const out = {};
+  for (const mismatch of mismatches) {
+    let reason = 'value-delta';
+    if (mismatch?.recomputedFromOriginalSplatIndex?.ok === false) {
+      reason = mismatch.recomputedFromOriginalSplatIndex.reason ?? 'recompute-failed';
+    } else if (mismatch?.delta?.mismatches) {
+      reason = Object.entries(mismatch.delta.mismatches)
+        .filter(([, value]) => !!value)
+        .map(([key]) => key)
+        .join('+') || 'value-delta';
+    }
+    out[reason] = (out[reason] ?? 0) + 1;
+  }
+  return out;
+}
+
+function getVisibleCountFromDebugResult(debugResult) {
+  const retention = debugResult?.actualPayloadRetentionSummary;
+  if (Number.isFinite(retention?.visibleCount)) return retention.visibleCount;
+  const attempts = Array.isArray(debugResult?.debugRenderAttempts) ? debugResult.debugRenderAttempts : [];
+  for (let i = attempts.length - 1; i >= 0; i--) {
+    const visibleCount = attempts[i]?.retentionSummary?.visibleCount;
+    if (Number.isFinite(visibleCount)) return visibleCount;
+  }
+  return null;
+}
+
+function findOriginalSplatOccurrencesInTileDebug(tileDebug, index) {
+  const entries = tileDebug?.pixels?.[0]?.accumulation?.entries;
+  if (!Array.isArray(entries)) return [];
+  return entries
+    .filter((entry) => Number.isFinite(entry?.originalSplatIndex) && (entry.originalSplatIndex | 0) === (index | 0))
+    .map((entry) => ({
+      localOrder: entry.localOrder ?? null,
+      slot: entry.localOrder ?? null,
+      packedIndex: entry.packedIndex ?? null,
+      sourceVisibleIndex: entry.sourceVisibleIndex ?? null,
+      originalSplatIndex: entry.originalSplatIndex ?? null,
+      depth: entry.depth ?? null,
+      centerPx: cloneNumberArray(entry.centerPx, 2),
+      conic: cloneNumberArray(entry.conic, 3),
+      radius: entry.radius ?? null,
+      opacity: entry.opacity ?? null,
+      computedAlpha: entry.computedAlpha ?? null,
+      skipReason: entry.skipReason ?? null
+    }));
+}
+
+function summarizeSlotIndexAgreement(tileDebug, associationDebug) {
+  const tileEntries = tileDebug?.pixels?.[0]?.accumulation?.entries;
+  const associationEntries = associationDebug?.entries;
+  if (!Array.isArray(tileEntries) || !Array.isArray(associationEntries)) {
+    return {
+      comparable: false,
+      reason: 'entries-missing'
+    };
+  }
+  const associationByLocalOrder = new Map();
+  for (const entry of associationEntries) {
+    if (Number.isFinite(entry?.localOrder)) associationByLocalOrder.set(entry.localOrder | 0, entry);
+  }
+  let comparedCount = 0;
+  let mismatchCount = 0;
+  let firstMismatch = null;
+  for (const tileEntry of tileEntries) {
+    if (!Number.isFinite(tileEntry?.localOrder)) continue;
+    const associationEntry = associationByLocalOrder.get(tileEntry.localOrder | 0);
+    if (!associationEntry) continue;
+    comparedCount++;
+    const tileOriginal = Number.isFinite(tileEntry?.originalSplatIndex) ? (tileEntry.originalSplatIndex | 0) : null;
+    const associationOriginal = Number.isFinite(associationEntry?.originalSplatIndex) ? (associationEntry.originalSplatIndex | 0) : null;
+    if (tileOriginal !== associationOriginal) {
+      mismatchCount++;
+      if (!firstMismatch) {
+        firstMismatch = {
+          localOrder: tileEntry.localOrder | 0,
+          tileOriginalSplatIndex: tileOriginal,
+          associationOriginalSplatIndex: associationOriginal,
+          tileSourceVisibleIndex: tileEntry.sourceVisibleIndex ?? null,
+          associationSourceVisibleIndex: associationEntry.sourceVisibleIndex ?? null
+        };
+      }
+    }
+  }
+  return {
+    comparable: true,
+    comparedCount,
+    mismatchCount,
+    firstMismatch
+  };
+}
+
+function buildLiveSameStateConsistencySummary(tileDebug, associationDebug, indices) {
+  const tilePixel = tileDebug?.pixels?.[0] ?? null;
+  const tileAccumulation = tilePixel?.accumulation ?? null;
+  const tileVisibleCount = getVisibleCountFromDebugResult(tileDebug);
+  const associationVisibleCount = getVisibleCountFromDebugResult(associationDebug);
+  const tilePayloadCount = Number.isFinite(tilePixel?.tilePayloadCount) ? tilePixel.tilePayloadCount : null;
+  const associationPackedCount = Number.isFinite(associationDebug?.tile?.packedCount) ? associationDebug.tile.packedCount : null;
+  const targetIndices = Array.isArray(indices) ? indices : [];
+  const targetSummary = {};
+  for (const index of targetIndices) {
+    const key = String(index | 0);
+    const associationOccurrences = associationDebug?.targetOccurrences?.[key] ?? [];
+    targetSummary[key] = {
+      tileAccumulationOccurrences: findOriginalSplatOccurrencesInTileDebug(tileDebug, index),
+      associationOccurrences,
+      tileAccumulationOccurrenceCount: findOriginalSplatOccurrencesInTileDebug(tileDebug, index).length,
+      associationOccurrenceCount: associationOccurrences.filter((entry) => entry?.localOrder !== null).length
+    };
+  }
+  return {
+    schemaVersion: 'step90-live-same-state-consistency-summary-v1',
+    timestamp: new Date().toISOString(),
+    visibleCount: {
+      tileAccumulation: tileVisibleCount,
+      association: associationVisibleCount,
+      equal: tileVisibleCount !== null && tileVisibleCount === associationVisibleCount
+    },
+    tilePayloadCount: {
+      tileAccumulation: tilePayloadCount,
+      associationPackedCount,
+      equal: tilePayloadCount !== null && tilePayloadCount === associationPackedCount
+    },
+    tile: {
+      tileAccumulationTileId: tilePixel?.tileId ?? null,
+      associationTileId: associationDebug?.tile?.tileId ?? null,
+      tileAccumulationTile: tilePixel?.tile ?? null,
+      associationTile: associationDebug?.tile?.tile ?? null,
+      equal:
+        tilePixel?.tileId === associationDebug?.tile?.tileId &&
+        JSON.stringify(tilePixel?.tile ?? null) === JSON.stringify(associationDebug?.tile?.tile ?? null)
+    },
+    accumulation: {
+      contributorCounter: tileAccumulation?.contributorCounter ?? null,
+      contributionCount: tileAccumulation?.contributionCount ?? null,
+      alphaSkipCount: tileAccumulation?.alphaSkipCount ?? null,
+      earlyOutTriggered: tileAccumulation?.earlyOutTriggered ?? null,
+      earlyOutAtLocalOrder: tileAccumulation?.earlyOutAtLocalOrder ?? null,
+      finalRgb: tileAccumulation?.finalRgb ?? null
+    },
+    association: {
+      mismatchCount: associationDebug?.summary?.mismatchCount ?? null,
+      associationMismatchLikely: associationDebug?.summary?.associationMismatchLikely ?? null,
+      targetOccurrenceCounts: associationDebug?.summary?.targetOccurrenceCounts ?? null
+    },
+    slotIndexAgreement: summarizeSlotIndexAgreement(tileDebug, associationDebug),
+    targetSummary
+  };
+}
+
+async function captureLiveSameStateTileAndAssociationDebug(input = {}) {
+  const options = input ?? {};
+  const pixel = Array.isArray(options.pixel) && options.pixel.length >= 2
+    ? [Number(options.pixel[0]) | 0, Number(options.pixel[1]) | 0]
+    : [655, 363];
+  const indices = Array.isArray(options.indices) && options.indices.length > 0
+    ? options.indices.map((value) => Number(value)).filter(Number.isFinite).map((value) => value | 0)
+    : [2765070, 1182029, 2718004];
+  const debugRender = await renderCurrentFrameForDebugPayload(options);
+  const sharedOptions = {
+    ...options,
+    ensureCurrentFrame: false,
+    renderResultOverride: debugRender.renderResult,
+    sharedDebugRenderAttempts: debugRender.attempts
+  };
+  const tileAccumulationDebug = await captureTileAccumulationDebug({
+    ...sharedOptions,
+    pixels: [{ x: pixel[0], y: pixel[1], source: 'live-same-state-target' }],
+    maxItems: Number.isFinite(Number(options.maxItems)) ? Number(options.maxItems) : 2048
+  });
+  const associationDebug = await captureViewerPayloadIndexAssociationDebug({
+    ...sharedOptions,
+    pixel,
+    indices,
+    maxEntries: Number.isFinite(Number(options.maxEntries)) ? Number(options.maxEntries) : 2048,
+    includeAllEntries: options.includeAllEntries !== false
+  });
+  const consistencySummary = buildLiveSameStateConsistencySummary(tileAccumulationDebug, associationDebug, indices);
+  return {
+    schemaVersion: 'step90-live-same-state-tile-and-association-debug-v1',
+    timestamp: new Date().toISOString(),
+    purpose: 'Capture tile accumulation debug and payload-index association debug from one shared Viewer renderResult.',
+    target: {
+      pixel,
+      indices
+    },
+    sharedDebugRenderAttempts: debugRender.attempts,
+    consistencySummary,
+    tileAccumulationDebug,
+    associationDebug
+  };
+}
+
+async function downloadLiveSameStateTileAndAssociationDebugJson(input = {}, fileNames = {}) {
+  const result = await captureLiveSameStateTileAndAssociationDebug(input);
+  const tileFileName = fileNames.tileAccumulation ?? 'step90_tile_accumulation_debug_live_same_state.json';
+  const associationFileName = fileNames.association ?? 'step90_viewer_payload_index_association_debug_live_same_state.json';
+  const summaryFileName = fileNames.summary ?? 'step90_live_same_state_consistency_summary.json';
+  return {
+    result,
+    downloads: {
+      tileAccumulation: downloadJsonDebug(result.tileAccumulationDebug, tileFileName),
+      association: downloadJsonDebug(result.associationDebug, associationFileName),
+      summary: downloadJsonDebug(result.consistencySummary, summaryFileName)
+    }
   };
 }
 
@@ -3994,6 +4609,16 @@ function installViewerDebugApi() {
     captureTileAccumulationDebug,
     captureRepresentativePixelAccumulationDebug: captureTileAccumulationDebug,
     saveTileAccumulationDebugOverlayPng,
+    captureViewerPayloadIndexAssociationDebug,
+    downloadViewerPayloadIndexAssociationDebugJson: async (input = {}, fileName = 'step90_viewer_payload_index_association_debug.json') => {
+      const result = await captureViewerPayloadIndexAssociationDebug(input);
+      return {
+        result,
+        download: downloadJsonDebug(result, fileName)
+      };
+    },
+    captureLiveSameStateTileAndAssociationDebug,
+    downloadLiveSameStateTileAndAssociationDebugJson,
     saveCurrentCanvasPng,
     captureCurrentCanvasPng: saveCurrentCanvasPng,
     getLatestDebugText: () => refreshLatestDebugText(),
