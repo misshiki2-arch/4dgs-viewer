@@ -89,7 +89,12 @@ export function buildCandidateComparisonSummary({
       temporalWindow: candidateCandidateInfo?.temporalWindow ?? null,
       temporalIndexDebug: candidateCandidateInfo?.temporalIndexDebug ?? null,
       temporalBucketDebug: candidateCandidateInfo?.temporalBucketDebug ?? null,
-      gpuCandidateStubSummary: candidateCandidateInfo?.gpuCandidateStubSummary ?? null
+      gpuCandidateStubSummary: candidateCandidateInfo?.gpuCandidateStubSummary ?? null,
+      gpuCandidateSummary: candidateCandidateInfo?.gpuCandidateSummary ?? null,
+      validCount: Number.isFinite(candidateCandidateInfo?.validCount) ? candidateCandidateInfo.validCount : null,
+      rejectedCount: Number.isFinite(candidateCandidateInfo?.rejectedCount) ? candidateCandidateInfo.rejectedCount : null,
+      filterMode: candidateCandidateInfo?.filterMode ?? null,
+      filterSummary: candidateCandidateInfo?.filterSummary ?? null
     },
     anyMismatch: !!candidateIndices.anyMismatch
   };

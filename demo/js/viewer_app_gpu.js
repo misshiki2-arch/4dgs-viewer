@@ -15,7 +15,10 @@ import {
   buildGpuStubCandidateInfo,
   buildGpuSubsetCandidateInfo
 } from './gpu_candidate_builder_gpu_stub.js';
-import { buildGpuFirstNCandidateInfo } from './gpu_candidate_builder_gpu_firstn.js';
+import {
+  buildCpuFilteredCandidateInfo,
+  buildGpuFirstNCandidateInfo
+} from './gpu_candidate_builder_gpu_firstn.js';
 import {
   inspectGpuPackedPayloadItem,
   inspectPackedInterleavedTileCompositeItem
@@ -1392,7 +1395,8 @@ async function captureGpuCandidateSubsetComparisonDebug(options = {}) {
     raw,
     referenceSubsetCandidateInfo,
     subsetCount,
-    startIndex
+    startIndex,
+    filterMode: options.filterMode ?? 'all-valid'
   });
   return buildCandidateComparisonSummary({
     referenceCandidateInfo: referenceSubsetCandidateInfo,
@@ -1409,6 +1413,70 @@ async function captureGpuCandidateSubsetComparisonDebug(options = {}) {
       fullReferenceCandidateCount: referenceCandidateInfo.candidateIndices?.length ?? 0,
       subset: referenceSubsetCandidateInfo.candidateSubsetSummary ?? null,
       gpuCandidateSummary: candidateCandidateInfo.gpuCandidateSummary ?? null,
+      filterSummary: candidateCandidateInfo.filterSummary ?? null,
+      candidateArgs: {
+        stride: candidateArgs.stride,
+        temporalPrefilterMode: candidateArgs.temporalPrefilterMode,
+        useTemporalIndex: candidateArgs.useTemporalIndex,
+        useTemporalBucket: candidateArgs.useTemporalBucket,
+        timestamp: candidateArgs.timestamp,
+        sigmaScale: candidateArgs.sigmaScale,
+        temporalSigmaThreshold: candidateArgs.temporalSigmaThreshold,
+        temporalWindowMode: candidateArgs.temporalWindowMode,
+        fixedWindowRadius: candidateArgs.fixedWindowRadius,
+        temporalBucketWidth: candidateArgs.temporalBucketWidth,
+        temporalBucketRadius: candidateArgs.temporalBucketRadius
+      }
+    }
+  });
+}
+
+async function captureGpuCandidateFilterComparisonDebug(options = {}) {
+  const subsetCount = Number.isFinite(options.subsetCount) ? options.subsetCount : 1024;
+  const startIndex = Number.isFinite(options.startIndex) ? options.startIndex : 0;
+  const filterMode = options.filterMode ?? 'evenIndex';
+  const candidateArgs = buildCandidateComparisonArgs(options);
+  const referenceCandidateInfo = buildCandidateInfo(candidateArgs);
+  const referenceSubsetCandidateInfo = buildCandidateSubsetInfo({
+    raw,
+    referenceCandidateInfo,
+    subsetMode: 'firstN',
+    subsetCount,
+    explicitIndices: null,
+    candidateMode: options.referenceSubsetMode ?? 'cpu-firstn-subset'
+  });
+  const referenceFilteredCandidateInfo = buildCpuFilteredCandidateInfo({
+    raw,
+    referenceSubsetCandidateInfo,
+    filterMode,
+    candidateMode: options.referenceFilterMode ?? 'cpu-firstn-filter-reference'
+  });
+  ensureGpu();
+  const candidateCandidateInfo = buildGpuFirstNCandidateInfo({
+    gl: getGpu()?.gl,
+    raw,
+    referenceSubsetCandidateInfo,
+    subsetCount,
+    startIndex,
+    filterMode
+  });
+  return buildCandidateComparisonSummary({
+    referenceCandidateInfo: referenceFilteredCandidateInfo,
+    candidateCandidateInfo,
+    referenceLabel: options.referenceLabel ?? 'cpu-firstn-candidate-filter-reference',
+    candidateLabel: options.candidateLabel ?? 'gpu-firstn-candidate-filter-debug',
+    options: {
+      maxMismatches: options.maxMismatches
+    },
+    metadata: {
+      comparisonMode: options.comparisonMode ?? 'cpu-firstn-filter-vs-gpu-firstn-filter-debug',
+      deterministicState: buildSlimDeterministicStateSummary(buildDeterministicStateSummary()),
+      fullReferenceCandidateMode: referenceCandidateInfo.candidateMode ?? 'unknown',
+      fullReferenceCandidateCount: referenceCandidateInfo.candidateIndices?.length ?? 0,
+      subset: referenceSubsetCandidateInfo.candidateSubsetSummary ?? null,
+      cpuFilterSummary: referenceFilteredCandidateInfo.filterSummary ?? null,
+      gpuCandidateSummary: candidateCandidateInfo.gpuCandidateSummary ?? null,
+      filterSummary: candidateCandidateInfo.filterSummary ?? null,
       candidateArgs: {
         stride: candidateArgs.stride,
         temporalPrefilterMode: candidateArgs.temporalPrefilterMode,
@@ -3668,6 +3736,7 @@ function installViewerDebugApi() {
     captureCandidateComparisonDebug,
     captureCandidateSubsetComparisonDebug,
     captureGpuCandidateSubsetComparisonDebug,
+    captureGpuCandidateFilterComparisonDebug,
     captureLiveSameStateTileAndAssociationDebug,
     downloadLiveSameStateTileAndAssociationDebugJson,
     saveCurrentCanvasPng,
