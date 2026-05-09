@@ -1,4 +1,9 @@
 import { captureGpuCandidateDryRunVisibleComparison } from './gpu_candidate_compare_runner.js';
+import {
+  buildGpuCandidateRuntimeConfig,
+  buildGpuCandidateRuntimeSummary
+} from './gpu_candidate_runtime_selector.js';
+import { buildGpuCandidateRuntimeFallbackSummary } from './gpu_candidate_runtime_fallback.js';
 
 const RUNTIME_SHADOW_COMPARE = 'shadow-compare';
 const DEFAULT_SUBSET_MODE = 'visibleSrcIndices';
@@ -11,39 +16,41 @@ function toFiniteInteger(value, fallback) {
 }
 
 export function buildGpuCandidateShadowOptionsFromQuery(queryState = {}, overrides = {}) {
-  const runtime = overrides.runtime ?? overrides.gpuCandidateRuntime ??
-    queryState.gpuCandidateRuntime ?? 'off';
+  const runtimeConfig = buildGpuCandidateRuntimeConfig(queryState, overrides);
+  const runtime = runtimeConfig.requestedRuntime === 'cpu-reference'
+    ? 'off'
+    : runtimeConfig.requestedRuntime;
   const compare = typeof overrides.compare === 'boolean'
     ? overrides.compare
     : (typeof overrides.gpuCandidateCompare === 'boolean'
       ? overrides.gpuCandidateCompare
-      : !!queryState.gpuCandidateCompare);
+      : runtimeConfig.compareRequested);
   return {
     runtime,
     compare,
-    subsetMode: overrides.subsetMode ?? overrides.gpuCandidateSubsetMode ??
-      queryState.gpuCandidateSubsetMode ?? DEFAULT_SUBSET_MODE,
-    subsetCount: toFiniteInteger(
-      overrides.subsetCount ?? overrides.gpuCandidateSubsetCount ?? queryState.gpuCandidateSubsetCount,
-      DEFAULT_SUBSET_COUNT
-    ),
-    startIndex: toFiniteInteger(
-      overrides.startIndex ?? overrides.gpuCandidateStartIndex ?? queryState.gpuCandidateStartIndex,
-      0
-    ),
-    filterMode: overrides.filterMode ?? overrides.gpuCandidateFilterMode ??
-      queryState.gpuCandidateFilterMode ?? DEFAULT_FILTER_MODE,
+    requestedRuntime: runtimeConfig.requestedRuntime,
+    runtimeConfig,
+    runtimeSummary: buildGpuCandidateRuntimeSummary(runtimeConfig),
+    subsetMode: runtimeConfig.subsetMode ?? DEFAULT_SUBSET_MODE,
+    subsetCount: toFiniteInteger(runtimeConfig.subsetCount, DEFAULT_SUBSET_COUNT),
+    startIndex: toFiniteInteger(runtimeConfig.startIndex, 0),
+    filterMode: runtimeConfig.filterMode ?? DEFAULT_FILTER_MODE,
     maxMismatches: toFiniteInteger(overrides.maxMismatches, 16),
     epsilon: Number.isFinite(Number(overrides.epsilon)) ? Number(overrides.epsilon) : 1e-6
   };
 }
 
 export function isGpuCandidateShadowCompareEnabled(options = {}) {
-  return options.runtime === RUNTIME_SHADOW_COMPARE && options.compare === true;
+  return (options.runtime === RUNTIME_SHADOW_COMPARE || options.runtime === 'limited-draw') &&
+    options.compare === true;
 }
 
 function buildShadowFailureResult({ options, metadata, error, status = 'failed' }) {
   const message = error?.message ?? String(error ?? 'unknown error');
+  const fallback = buildGpuCandidateRuntimeFallbackSummary({
+    runtimeConfig: options.runtimeConfig,
+    error
+  });
   return {
     schemaVersion: 'step96-gpu-candidate-shadow-compare-v1',
     timestamp: new Date().toISOString(),
@@ -52,10 +59,8 @@ function buildShadowFailureResult({ options, metadata, error, status = 'failed' 
     compareOnly: true,
     gpuCandidateUsedForDisplay: false,
     displayCandidateSource: 'cpu-reference',
-    fallback: {
-      action: 'keep-cpu-render-result',
-      reason: message
-    },
+    runtimeSummary: options.runtimeSummary ?? buildGpuCandidateRuntimeSummary(options.runtimeConfig),
+    fallback,
     readbackWarning: 'GPU candidate shadow compare may use synchronous debug readback; keep it out of normal rendering until readback/fence-sync is designed.',
     options,
     metadata,
@@ -74,6 +79,14 @@ function buildShadowFailureResult({ options, metadata, error, status = 'failed' 
       rejectedCount: null
     }
   };
+}
+
+function buildShadowRuntimeFallback(options, shadowCompare = null, error = null) {
+  return buildGpuCandidateRuntimeFallbackSummary({
+    runtimeConfig: options.runtimeConfig,
+    shadowCompare,
+    error
+  });
 }
 
 export function runGpuCandidateShadowCompare({
@@ -102,10 +115,8 @@ export function runGpuCandidateShadowCompare({
       compareOnly: true,
       gpuCandidateUsedForDisplay: false,
       displayCandidateSource: 'cpu-reference',
-      fallback: {
-        action: 'keep-cpu-render-result',
-        reason: 'shadow compare disabled'
-      },
+      runtimeSummary: shadowOptions.runtimeSummary,
+      fallback: buildShadowRuntimeFallback(shadowOptions),
       readbackWarning: 'GPU candidate shadow compare may use synchronous debug readback; keep it out of normal rendering until readback/fence-sync is designed.',
       options: shadowOptions,
       metadata,
@@ -146,6 +157,7 @@ export function runGpuCandidateShadowCompare({
         ...metadata,
         comparisonMode: 'gpu-candidate-shadow-compare',
         shadowCompareRuntime: shadowOptions.runtime,
+        runtimeSummary: shadowOptions.runtimeSummary,
         displayCandidateSource: 'cpu-reference',
         gpuCandidateUsedForDisplay: false
       }
@@ -154,6 +166,13 @@ export function runGpuCandidateShadowCompare({
     const filterSummary = dryRun.candidateComparison?.metadata?.filterSummary ??
       dryRun.candidateComparison?.metadata?.gpuCandidateSummary?.filterSummary ??
       null;
+    const fallback = buildShadowRuntimeFallback(shadowOptions, {
+      status: 'ok',
+      candidateComparison: dryRun.candidateComparison,
+      visibleComparison: dryRun.visibleComparison,
+      summary: { anyMismatch: !!dryRun.anyMismatch },
+      shadowCompare: dryRun
+    });
     return {
       schemaVersion: 'step96-gpu-candidate-shadow-compare-v1',
       timestamp: new Date().toISOString(),
@@ -162,10 +181,8 @@ export function runGpuCandidateShadowCompare({
       compareOnly: true,
       gpuCandidateUsedForDisplay: false,
       displayCandidateSource: 'cpu-reference',
-      fallback: {
-        action: 'keep-cpu-render-result',
-        reason: dryRun.anyMismatch ? 'shadow mismatch; display path remains CPU reference' : 'none'
-      },
+      runtimeSummary: shadowOptions.runtimeSummary,
+      fallback,
       readbackWarning: 'GPU candidate shadow compare may use synchronous debug readback; keep it out of normal rendering until readback/fence-sync is designed.',
       options: shadowOptions,
       metadata,

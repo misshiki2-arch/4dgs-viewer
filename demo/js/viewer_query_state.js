@@ -12,7 +12,8 @@ const QUERY_FRAME_POLICY_VALUES = new Set([
   'force-transform-throughput',
   'force-draw-throughput'
 ]);
-const QUERY_GPU_CANDIDATE_RUNTIME_VALUES = new Set(['off', 'shadow-compare']);
+const QUERY_GPU_CANDIDATE_RUNTIME_VALUES = new Set(['off', 'cpu-reference', 'shadow-compare', 'limited-draw']);
+const QUERY_GPU_CANDIDATE_FALLBACK_VALUES = new Set(['cpu-on-error', 'cpu-always', 'none']);
 const QUERY_GPU_CANDIDATE_SUBSET_MODE_VALUES = new Set([
   'firstN',
   'visibleSrcIndices',
@@ -149,10 +150,15 @@ function buildDeterministicQueryString(state) {
   appendDeterministicQueryParam(params, 'useNativeMarginal', state?.useNativeMarginal, formatDeterministicBoolean);
   appendDeterministicQueryParam(params, 'usePackedVisiblePath', state?.usePackedVisiblePath, formatDeterministicBoolean);
   appendDeterministicQueryParam(params, 'gpuCandidateRuntime', state?.gpuCandidateRuntime);
+  appendDeterministicQueryParam(params, 'gpuCandidateFallback', state?.gpuCandidateFallback);
+  appendDeterministicQueryParam(params, 'gpuCandidateRequireCompare', state?.gpuCandidateRequireCompare, formatDeterministicBoolean);
+  appendDeterministicQueryParam(params, 'gpuCandidateRequireShadowOk', state?.gpuCandidateRequireShadowOk, formatDeterministicBoolean);
   appendDeterministicQueryParam(params, 'gpuCandidateSubsetMode', state?.gpuCandidateSubsetMode);
   appendDeterministicQueryParam(params, 'gpuCandidateSubsetCount', state?.gpuCandidateSubsetCount);
   appendDeterministicQueryParam(params, 'gpuCandidateFilterMode', state?.gpuCandidateFilterMode);
   appendDeterministicQueryParam(params, 'gpuCandidateCompare', state?.gpuCandidateCompare, formatDeterministicBoolean);
+  appendDeterministicQueryParam(params, 'gpuCandidateAllowReadbackInDraw', state?.gpuCandidateAllowReadbackInDraw, formatDeterministicBoolean);
+  appendDeterministicQueryParam(params, 'gpuCandidateDebugReadback', state?.gpuCandidateDebugReadback, formatDeterministicBoolean);
   appendDeterministicQueryParam(params, 'bgGray', state?.bgGray);
   return params.toString();
 }
@@ -170,6 +176,7 @@ export function parseViewerQueryState(search = window.location.search) {
   const datasetViewMatrixMode = params.get('datasetViewMatrixMode');
   const datasetPixelXSign = parseInteger(params.get('datasetPixelXSign'), null);
   const gpuCandidateRuntime = params.get('gpuCandidateRuntime');
+  const gpuCandidateFallback = params.get('gpuCandidateFallback');
   const gpuCandidateSubsetMode = params.get('gpuCandidateSubsetMode');
   const gpuCandidateFilterMode = params.get('gpuCandidateFilterMode');
 
@@ -242,8 +249,13 @@ export function parseViewerQueryState(search = window.location.search) {
     useNativeMarginal: parseBoolean(params.get('useNativeMarginal'), null),
     usePackedVisiblePath: parseBoolean(params.get('usePackedVisiblePath'), null),
     gpuCandidateRuntime: QUERY_GPU_CANDIDATE_RUNTIME_VALUES.has(gpuCandidateRuntime)
-      ? gpuCandidateRuntime
+      ? (gpuCandidateRuntime === 'off' ? 'cpu-reference' : gpuCandidateRuntime)
       : null,
+    gpuCandidateFallback: QUERY_GPU_CANDIDATE_FALLBACK_VALUES.has(gpuCandidateFallback)
+      ? gpuCandidateFallback
+      : null,
+    gpuCandidateRequireCompare: parseBoolean(params.get('gpuCandidateRequireCompare'), null),
+    gpuCandidateRequireShadowOk: parseBoolean(params.get('gpuCandidateRequireShadowOk'), null),
     gpuCandidateSubsetMode: QUERY_GPU_CANDIDATE_SUBSET_MODE_VALUES.has(gpuCandidateSubsetMode)
       ? gpuCandidateSubsetMode
       : null,
@@ -252,6 +264,8 @@ export function parseViewerQueryState(search = window.location.search) {
       ? gpuCandidateFilterMode
       : null,
     gpuCandidateCompare: parseBoolean(params.get('gpuCandidateCompare'), null),
+    gpuCandidateAllowReadbackInDraw: parseBoolean(params.get('gpuCandidateAllowReadbackInDraw'), null),
+    gpuCandidateDebugReadback: parseBoolean(params.get('gpuCandidateDebugReadback'), null),
     bgGray: parseInteger(params.get('bgGray'), null)
   };
 
@@ -306,10 +320,15 @@ export function parseViewerQueryState(search = window.location.search) {
     'useNativeMarginal',
     'usePackedVisiblePath',
     'gpuCandidateRuntime',
+    'gpuCandidateFallback',
+    'gpuCandidateRequireCompare',
+    'gpuCandidateRequireShadowOk',
     'gpuCandidateSubsetMode',
     'gpuCandidateSubsetCount',
     'gpuCandidateFilterMode',
     'gpuCandidateCompare',
+    'gpuCandidateAllowReadbackInDraw',
+    'gpuCandidateDebugReadback',
     'bgGray'
   ].some((key) => params.has(key));
 
@@ -373,12 +392,25 @@ export function buildViewerDeterministicSummary(queryState) {
     stride: Number.isFinite(state.stride) ? Number(state.stride) : null,
     bgGray: Number.isFinite(state.bgGray) ? Number(state.bgGray) : null,
     time: Number.isFinite(state.time) ? Number(state.time) : null,
-    gpuCandidateRuntime: state.gpuCandidateRuntime ?? 'off',
+    gpuCandidateRuntime: state.gpuCandidateRuntime ?? 'cpu-reference',
+    gpuCandidateFallback: state.gpuCandidateFallback ?? null,
+    gpuCandidateRequireCompare: typeof state.gpuCandidateRequireCompare === 'boolean'
+      ? state.gpuCandidateRequireCompare
+      : null,
+    gpuCandidateRequireShadowOk: typeof state.gpuCandidateRequireShadowOk === 'boolean'
+      ? state.gpuCandidateRequireShadowOk
+      : null,
     gpuCandidateSubsetMode: state.gpuCandidateSubsetMode ?? null,
     gpuCandidateSubsetCount: Number.isFinite(state.gpuCandidateSubsetCount) ? Number(state.gpuCandidateSubsetCount) : null,
     gpuCandidateFilterMode: state.gpuCandidateFilterMode ?? null,
     gpuCandidateCompare: typeof state.gpuCandidateCompare === 'boolean'
       ? state.gpuCandidateCompare
+      : null,
+    gpuCandidateAllowReadbackInDraw: typeof state.gpuCandidateAllowReadbackInDraw === 'boolean'
+      ? state.gpuCandidateAllowReadbackInDraw
+      : null,
+    gpuCandidateDebugReadback: typeof state.gpuCandidateDebugReadback === 'boolean'
+      ? state.gpuCandidateDebugReadback
       : null,
     rawQueryString: state.rawQueryString ?? '',
     deterministicQueryString: state.deterministicQueryString ?? '',

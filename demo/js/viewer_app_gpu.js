@@ -80,6 +80,11 @@ import {
   isGpuCandidateShadowCompareEnabled,
   runGpuCandidateShadowCompare
 } from './gpu_candidate_shadow_compare_runner.js';
+import {
+  buildGpuCandidateRuntimeConfig,
+  buildGpuCandidateRuntimeSummary
+} from './gpu_candidate_runtime_selector.js';
+import { buildGpuCandidateRuntimeFallbackSummary } from './gpu_candidate_runtime_fallback.js';
 
 const canvas = document.getElementById('glCanvas');
 
@@ -315,6 +320,30 @@ function buildDeterministicStateSummary() {
     snapshotRenderWaitMode: lastSnapshotSummary.renderWaitMode,
     snapshotLastStatus: lastSnapshotSummary.status,
     snapshotLastReason: lastSnapshotSummary.reason
+  };
+}
+
+function buildGpuCandidateRuntimeDebugSummary(options = {}) {
+  const runtimeConfig = buildGpuCandidateRuntimeConfig(deterministicQueryState, options);
+  const runtimeSummary = buildGpuCandidateRuntimeSummary(runtimeConfig);
+  const fallback = buildGpuCandidateRuntimeFallbackSummary({
+    runtimeConfig,
+    shadowCompare: latestGpuCandidateShadowCompare
+  });
+  return {
+    schemaVersion: 'step97-gpu-candidate-runtime-summary-debug-v1',
+    timestamp: new Date().toISOString(),
+    purpose: 'Summarize GPU candidate runtime selector and fallback decisions before limited-draw is connected to rendering.',
+    runtimeSummary,
+    fallback,
+    displayCandidateSource: runtimeSummary.displayCandidateSource,
+    gpuCandidateUsedForDisplay: false,
+    limitedDrawConnectedToRendering: false,
+    latestShadowCompareStatus: latestGpuCandidateShadowCompare?.status ?? null,
+    latestShadowCompareAnyMismatch: latestGpuCandidateShadowCompare?.summary?.anyMismatch ?? null,
+    deterministicState: buildSlimDeterministicStateSummary(buildDeterministicStateSummary()),
+    lastRenderResultSummary: buildRenderResultInspectionSummary(latestRenderResult),
+    readbackPolicy: runtimeSummary.readbackPolicy
   };
 }
 
@@ -2812,6 +2841,13 @@ function buildSlimDeterministicStateSummary(summary) {
     inspectJsonMode: summary?.inspectJsonMode ?? 'slim',
     gpuFramePolicyOverride: summary?.gpuFramePolicyOverride ?? 'auto',
     gpuCandidateRuntime: summary?.gpuCandidateRuntime ?? 'off',
+    gpuCandidateFallback: summary?.gpuCandidateFallback ?? null,
+    gpuCandidateRequireCompare: typeof summary?.gpuCandidateRequireCompare === 'boolean'
+      ? summary.gpuCandidateRequireCompare
+      : null,
+    gpuCandidateRequireShadowOk: typeof summary?.gpuCandidateRequireShadowOk === 'boolean'
+      ? summary.gpuCandidateRequireShadowOk
+      : null,
     gpuCandidateSubsetMode: summary?.gpuCandidateSubsetMode ?? null,
     gpuCandidateSubsetCount: Number.isFinite(summary?.gpuCandidateSubsetCount)
       ? Number(summary.gpuCandidateSubsetCount)
@@ -2819,6 +2855,12 @@ function buildSlimDeterministicStateSummary(summary) {
     gpuCandidateFilterMode: summary?.gpuCandidateFilterMode ?? null,
     gpuCandidateCompare: typeof summary?.gpuCandidateCompare === 'boolean'
       ? summary.gpuCandidateCompare
+      : null,
+    gpuCandidateAllowReadbackInDraw: typeof summary?.gpuCandidateAllowReadbackInDraw === 'boolean'
+      ? summary.gpuCandidateAllowReadbackInDraw
+      : null,
+    gpuCandidateDebugReadback: typeof summary?.gpuCandidateDebugReadback === 'boolean'
+      ? summary.gpuCandidateDebugReadback
       : null,
     time: Number.isFinite(summary?.time) ? Number(summary.time) : null,
     deterministicQueryString: summary?.deterministicQueryString ?? '',
@@ -3875,6 +3917,7 @@ function installViewerDebugApi() {
     captureGpuCandidateFilterComparisonDebug,
     captureGpuCandidateDryRunVisibleComparisonDebug,
     captureGpuCandidateShadowCompareDebug,
+    captureGpuCandidateRuntimeSummaryDebug: buildGpuCandidateRuntimeDebugSummary,
     captureLiveSameStateTileAndAssociationDebug,
     downloadLiveSameStateTileAndAssociationDebugJson,
     saveCurrentCanvasPng,
