@@ -7,8 +7,12 @@ import {
   DEFAULT_SINGLE_SPLAT_COMPARE_INPUT
 } from './rot4d_math.js';
 import { evalSHColor } from './sh_eval.js';
-import { renderGpuFrame } from './gpu_renderer.js';
+import {
+  buildScreenSpaceCameraProxy,
+  renderGpuFrame
+} from './gpu_renderer.js';
 import { getVisibleBuildConfig } from './gpu_visible_builder.js';
+import { computeTileGrid } from './gpu_tile_utils.js';
 import { buildCandidateInfo } from './gpu_candidate_path_selector.js';
 import {
   buildCandidateSubsetInfo,
@@ -70,6 +74,7 @@ import {
   buildCandidateComparisonSummary,
   buildVisibleComparisonSummary
 } from './gpu_visible_compare_debug.js';
+import { captureGpuCandidateDryRunVisibleComparison } from './gpu_candidate_compare_runner.js';
 
 const canvas = document.getElementById('glCanvas');
 
@@ -1490,6 +1495,48 @@ async function captureGpuCandidateFilterComparisonDebug(options = {}) {
         temporalBucketWidth: candidateArgs.temporalBucketWidth,
         temporalBucketRadius: candidateArgs.temporalBucketRadius
       }
+    }
+  });
+}
+
+async function captureGpuCandidateDryRunVisibleComparisonDebug(options = {}) {
+  const ensureCurrentFrame = options.ensureCurrentFrame !== false;
+  const debugRender = ensureCurrentFrame || !latestRenderResult
+    ? await renderCurrentFrameForDebugPayload(options)
+    : {
+        renderResult: latestRenderResult,
+        attempts: [{ stage: 'reuse-latest-render-result' }]
+      };
+  ensureGpu();
+  camera.updateMatrixWorld(true);
+  const deterministicState = buildDeterministicStateSummary();
+  const buildConfig = getVisibleBuildConfig(ui, buildRenderOverrides());
+  const candidateArgs = buildCandidateComparisonArgs(options);
+  const tileGrid = computeTileGrid(canvas.width, canvas.height, 32);
+  const screenSpaceCamera = buildScreenSpaceCameraProxy(camera, deterministicState);
+  return captureGpuCandidateDryRunVisibleComparison({
+    gl: getGpu()?.gl,
+    raw,
+    camera,
+    screenSpaceCamera,
+    canvasWidth: canvas.width,
+    canvasHeight: canvas.height,
+    camPos: camera.position.clone(),
+    tileGrid,
+    buildConfig,
+    candidateArgs,
+    subsetCount: Number.isFinite(options.subsetCount) ? options.subsetCount : 1024,
+    subsetMode: options.subsetMode ?? 'visibleSrcIndices',
+    startIndex: Number.isFinite(options.startIndex) ? options.startIndex : 0,
+    filterMode: options.filterMode ?? 'all-valid',
+    maxMismatches: options.maxMismatches,
+    epsilon: options.epsilon,
+    visibleSourceItems: Array.isArray(debugRender.renderResult?.visible) ? debugRender.renderResult.visible : [],
+    metadata: {
+      comparisonMode: options.comparisonMode ?? 'gpu-candidate-dry-run-visible-comparison',
+      deterministicState: buildSlimDeterministicStateSummary(deterministicState),
+      renderAttempts: debugRender.attempts,
+      lastRenderResultSummary: buildRenderResultInspectionSummary(debugRender.renderResult)
     }
   });
 }
@@ -3737,6 +3784,7 @@ function installViewerDebugApi() {
     captureCandidateSubsetComparisonDebug,
     captureGpuCandidateSubsetComparisonDebug,
     captureGpuCandidateFilterComparisonDebug,
+    captureGpuCandidateDryRunVisibleComparisonDebug,
     captureLiveSameStateTileAndAssociationDebug,
     downloadLiveSameStateTileAndAssociationDebugJson,
     saveCurrentCanvasPng,

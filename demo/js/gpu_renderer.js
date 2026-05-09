@@ -639,7 +639,7 @@ function mergeGpuScreenComparisonSummary(builderSummary, drawSummary) {
   };
 }
 
-function buildScreenSpaceCameraProxy(camera, deterministicStateSummary) {
+export function buildScreenSpaceCameraProxy(camera, deterministicStateSummary) {
   const cudaAligned = deterministicStateSummary?.cudaAlignedScreenSpaceCamera;
   if (!cudaAligned?.enabled || !Array.isArray(cudaAligned.cudaAlignedViewMatrix)) {
     return null;
