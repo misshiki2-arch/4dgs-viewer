@@ -326,19 +326,23 @@ function buildDeterministicStateSummary() {
 function buildGpuCandidateRuntimeDebugSummary(options = {}) {
   const runtimeConfig = buildGpuCandidateRuntimeConfig(deterministicQueryState, options);
   const runtimeSummary = buildGpuCandidateRuntimeSummary(runtimeConfig);
+  const limitedDrawSummary = latestRenderResult?.limitedDrawRuntimeSummary ?? null;
   const fallback = buildGpuCandidateRuntimeFallbackSummary({
     runtimeConfig,
     shadowCompare: latestGpuCandidateShadowCompare
   });
+  const effectiveFallback = limitedDrawSummary?.fallback ?? fallback;
   return {
-    schemaVersion: 'step97-gpu-candidate-runtime-summary-debug-v1',
+    schemaVersion: 'step99-gpu-candidate-runtime-summary-debug-v1',
     timestamp: new Date().toISOString(),
-    purpose: 'Summarize GPU candidate runtime selector and fallback decisions before limited-draw is connected to rendering.',
+    purpose: 'Summarize GPU candidate runtime selector, limited-draw candidate source routing, and fallback decisions.',
     runtimeSummary,
-    fallback,
-    displayCandidateSource: runtimeSummary.displayCandidateSource,
-    gpuCandidateUsedForDisplay: false,
-    limitedDrawConnectedToRendering: false,
+    fallback: effectiveFallback,
+    limitedDrawSummary,
+    displayCandidateSource: limitedDrawSummary?.displayCandidateSource ?? effectiveFallback.displayCandidateSource ?? runtimeSummary.displayCandidateSource,
+    gpuCandidateUsedForDisplay: !!(limitedDrawSummary?.gpuCandidateUsedForDisplay ?? effectiveFallback.gpuCandidateUsedForDisplay),
+    limitedDrawConnectedToRendering: true,
+    limitedDrawUsedForCandidateSource: !!(limitedDrawSummary?.limitedDrawUsedForCandidateSource ?? effectiveFallback.limitedDrawUsedForCandidateSource),
     latestShadowCompareStatus: latestGpuCandidateShadowCompare?.status ?? null,
     latestShadowCompareAnyMismatch: latestGpuCandidateShadowCompare?.summary?.anyMismatch ?? null,
     deterministicState: buildSlimDeterministicStateSummary(buildDeterministicStateSummary()),
@@ -2881,6 +2885,11 @@ function buildRenderResultInspectionSummary(renderResult) {
     drawThroughputSummary: renderResult?.drawThroughputSummary ?? null,
     gpuFallbackSummary: renderResult?.gpuFallbackSummary ?? null,
     gpuCompatibilityBridgeSummary: renderResult?.gpuCompatibilityBridgeSummary ?? null,
+    limitedDrawRuntimeSummary: renderResult?.limitedDrawRuntimeSummary ?? null,
+    gpuCandidateRuntimeSummary: renderResult?.gpuCandidateRuntimeSummary ?? null,
+    gpuCandidateRuntimeFallback: renderResult?.gpuCandidateRuntimeFallback ?? null,
+    limitedDrawUsedForCandidateSource: !!renderResult?.limitedDrawRuntimeSummary?.limitedDrawUsedForCandidateSource,
+    displayCandidateSource: renderResult?.limitedDrawRuntimeSummary?.displayCandidateSource ?? 'cpu-reference',
     executionSummary: executionSummary
       ? {
           requestedDrawPath: executionSummary.requestedDrawPath ?? 'none',
@@ -3710,7 +3719,8 @@ async function renderCurrentFrame(options = {}) {
     tokenRef: options.isolatedTokenRef ? { value: 0 } : tokenRef,
     infoEl: ui.info,
     interactionOverride: buildRenderOverrides(),
-    deterministicStateSummary: buildDeterministicStateSummary()
+    deterministicStateSummary: buildDeterministicStateSummary(),
+    latestGpuCandidateShadowCompare
   });
   if (renderResult || !options.preservePreviousOnNull) {
     latestRenderResult = renderResult;

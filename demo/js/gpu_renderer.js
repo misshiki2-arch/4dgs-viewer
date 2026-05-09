@@ -68,6 +68,7 @@ import {
 import { executeFullFrameDrawByPath } from './gpu_draw_execution_router.js';
 import { executeSelectedTileLegacyDraw } from './gpu_selected_tile_draw_executor.js';
 import { buildTileCompositePlan } from './gpu_tile_composite_utils.js';
+import { resolveGpuCandidateLimitedDrawRuntime } from './gpu_candidate_limited_draw_runtime.js';
 
 function ensureDebugOverlayCanvas(mainCanvas) {
   let overlay = document.getElementById('gpuTileDebugOverlay');
@@ -728,7 +729,8 @@ export async function renderGpuFrame({
   tokenRef,
   infoEl,
   interactionOverride = null,
-  deterministicStateSummary = null
+  deterministicStateSummary = null,
+  latestGpuCandidateShadowCompare = null
 }) {
   const gl = gpu.gl;
   const bg255 = parseInt(ui.bgGraySlider.value, 10);
@@ -770,6 +772,29 @@ export async function renderGpuFrame({
   const tileGrid = computeTileGrid(canvas.width, canvas.height, 32);
   const camPos = camera.position.clone();
   const screenSpaceCamera = buildScreenSpaceCameraProxy(camera, deterministicStateSummary);
+  const candidateArgs = {
+    raw,
+    stride: buildConfig.stride,
+    temporalPrefilterMode: buildConfig.temporalPrefilterMode,
+    useTemporalIndex: buildConfig.useTemporalIndex,
+    useTemporalIndexCache: buildConfig.useTemporalIndexCache,
+    temporalWindowMode: buildConfig.temporalWindowMode,
+    fixedWindowRadius: buildConfig.fixedWindowRadius,
+    useTemporalBucket: buildConfig.useTemporalBucket,
+    useTemporalBucketCache: buildConfig.useTemporalBucketCache,
+    temporalBucketWidth: buildConfig.temporalBucketWidth,
+    temporalBucketRadius: buildConfig.temporalBucketRadius,
+    timestamp: buildConfig.timestamp,
+    sigmaScale: buildConfig.sigmaScale,
+    temporalSigmaThreshold: 3.0
+  };
+  const limitedDrawRuntime = resolveGpuCandidateLimitedDrawRuntime({
+    gl,
+    raw,
+    queryState: deterministicStateSummary ?? {},
+    candidateArgs,
+    shadowCompare: latestGpuCandidateShadowCompare
+  });
 
   const visibleResult = await buildVisibleSplats({
     raw,
@@ -783,6 +808,8 @@ export async function renderGpuFrame({
     tileGrid,
     temporalSigmaThreshold: 3.0,
     enablePackedVisiblePath: !!buildConfig.enablePackedVisiblePath,
+    candidateInfoOverride: limitedDrawRuntime.candidateInfoOverride,
+    candidateSourceSummary: limitedDrawRuntime.summary,
     ...buildConfig
   });
   if (visibleResult === null) return null;
@@ -934,6 +961,10 @@ export async function renderGpuFrame({
   buildStats.screenSpaceCameraMode = screenSpaceCamera?.screenSpaceTransformOverride?.mode ?? 'threejs';
   buildStats.screenSpaceViewMatrixSource =
     screenSpaceCamera?.screenSpaceTransformOverride?.viewMatrixSource ?? 'threejs-camera';
+  buildStats.limitedDrawUsedForCandidateSource =
+    !!limitedDrawRuntime.summary?.limitedDrawUsedForCandidateSource;
+  buildStats.displayCandidateSource =
+    limitedDrawRuntime.summary?.displayCandidateSource ?? 'cpu-reference';
   const avgRefsPerVisible = visible.length > 0 ? (tileSummary.totalRefs / visible.length) : 0;
 
   const tileDebugText = formatTileDebugSummary({
@@ -1193,6 +1224,9 @@ export async function renderGpuFrame({
     transformThroughputSummary,
     drawThroughputSummary,
     frameGpuThroughputSummary,
+    limitedDrawRuntimeSummary: limitedDrawRuntime.summary,
+    gpuCandidateRuntimeSummary: limitedDrawRuntime.runtimeSummary,
+    gpuCandidateRuntimeFallback: limitedDrawRuntime.fallback,
     tileCompositePlan,
     tileAccumulationPayloadSummary,
     executionSummary,

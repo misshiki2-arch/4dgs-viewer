@@ -12,7 +12,8 @@ function getPackedMismatch(visibleComparison) {
 export function buildGpuCandidateRuntimeFallbackSummary({
   runtimeConfig = {},
   shadowCompare = null,
-  error = null
+  error = null,
+  extraReasons = []
 } = {}) {
   const reasons = [];
   const requestedRuntime = runtimeConfig.requestedRuntime ?? 'cpu-reference';
@@ -43,6 +44,15 @@ export function buildGpuCandidateRuntimeFallbackSummary({
       reasons,
       'readback-required-in-draw',
       'Current GPU candidate debug builders require readback; draw runtime keeps CPU reference until async/fence-sync design exists.'
+    );
+  }
+  for (const reason of Array.isArray(extraReasons) ? extraReasons : []) {
+    if (!reason?.code) continue;
+    addReason(
+      reasons,
+      reason.code,
+      reason.message ?? reason.code,
+      reason.details ?? null
     );
   }
   if (runtimeConfig.requireShadowOk && shadowStatus && shadowStatus !== 'ok') {
@@ -82,6 +92,7 @@ export function buildGpuCandidateRuntimeFallbackSummary({
     visibleMismatch,
     packedMismatch,
     anyMismatch: shadowAnyMismatch,
+    limitedDrawUsedForCandidateSource: requestedRuntime === 'limited-draw' && !shouldUseCpu,
     readbackPolicy: runtimeConfig.readbackPolicy ?? null
   };
 }

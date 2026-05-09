@@ -79,8 +79,10 @@ export function buildGpuCandidateRuntimeConfig(queryState = {}, overrides = {}) 
   const limitedDrawRequested = requestedRuntime === 'limited-draw';
   const shadowCompareRequested = requestedRuntime === 'shadow-compare';
   const shadowCompareEnabled = compareRequested && (shadowCompareRequested || limitedDrawRequested);
-  const limitedDrawImplemented = false;
-  const effectiveDisplayRuntime = limitedDrawRequested && limitedDrawImplemented
+  const limitedDrawImplemented = true;
+  const limitedDrawRequiresReadbackInDraw = limitedDrawRequested;
+  const limitedDrawReadbackAllowed = limitedDrawRequiresReadbackInDraw && allowReadbackInDraw;
+  const effectiveDisplayRuntime = limitedDrawRequested && limitedDrawImplemented && limitedDrawReadbackAllowed
     ? 'limited-draw'
     : 'cpu-reference';
 
@@ -96,6 +98,8 @@ export function buildGpuCandidateRuntimeConfig(queryState = {}, overrides = {}) 
     shadowCompareEnabled,
     limitedDrawRequested,
     limitedDrawImplemented,
+    limitedDrawRequiresReadbackInDraw,
+    limitedDrawReadbackAllowed,
     fallbackMode,
     requireCompare,
     requireShadowOk,
@@ -126,6 +130,8 @@ export function buildGpuCandidateRuntimeSummary(runtimeConfig = {}) {
     shadowCompareEnabled: !!runtimeConfig.shadowCompareEnabled,
     limitedDrawRequested: !!runtimeConfig.limitedDrawRequested,
     limitedDrawImplemented: !!runtimeConfig.limitedDrawImplemented,
+    limitedDrawRequiresReadbackInDraw: !!runtimeConfig.limitedDrawRequiresReadbackInDraw,
+    limitedDrawReadbackAllowed: !!runtimeConfig.limitedDrawReadbackAllowed,
     fallbackMode: runtimeConfig.fallbackMode ?? DEFAULT_FALLBACK,
     requireCompare: !!runtimeConfig.requireCompare,
     requireShadowOk: !!runtimeConfig.requireShadowOk,
