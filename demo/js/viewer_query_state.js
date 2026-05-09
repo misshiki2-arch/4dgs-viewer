@@ -12,6 +12,17 @@ const QUERY_FRAME_POLICY_VALUES = new Set([
   'force-transform-throughput',
   'force-draw-throughput'
 ]);
+const QUERY_GPU_CANDIDATE_RUNTIME_VALUES = new Set(['off', 'shadow-compare']);
+const QUERY_GPU_CANDIDATE_SUBSET_MODE_VALUES = new Set([
+  'firstN',
+  'visibleSrcIndices',
+  'fromVisible',
+  'visibleReachable'
+]);
+const QUERY_GPU_CANDIDATE_FILTER_MODE_VALUES = new Set([
+  'all-valid',
+  'evenIndex'
+]);
 
 function parseNumber(value, fallback = null) {
   if (value === null || value === undefined || value === '') return fallback;
@@ -137,6 +148,11 @@ function buildDeterministicQueryString(state) {
   appendDeterministicQueryParam(params, 'useNativeRot4d', state?.useNativeRot4d, formatDeterministicBoolean);
   appendDeterministicQueryParam(params, 'useNativeMarginal', state?.useNativeMarginal, formatDeterministicBoolean);
   appendDeterministicQueryParam(params, 'usePackedVisiblePath', state?.usePackedVisiblePath, formatDeterministicBoolean);
+  appendDeterministicQueryParam(params, 'gpuCandidateRuntime', state?.gpuCandidateRuntime);
+  appendDeterministicQueryParam(params, 'gpuCandidateSubsetMode', state?.gpuCandidateSubsetMode);
+  appendDeterministicQueryParam(params, 'gpuCandidateSubsetCount', state?.gpuCandidateSubsetCount);
+  appendDeterministicQueryParam(params, 'gpuCandidateFilterMode', state?.gpuCandidateFilterMode);
+  appendDeterministicQueryParam(params, 'gpuCandidateCompare', state?.gpuCandidateCompare, formatDeterministicBoolean);
   appendDeterministicQueryParam(params, 'bgGray', state?.bgGray);
   return params.toString();
 }
@@ -153,6 +169,9 @@ export function parseViewerQueryState(search = window.location.search) {
   const gpuFramePolicyOverride = params.get('gpuFramePolicyOverride');
   const datasetViewMatrixMode = params.get('datasetViewMatrixMode');
   const datasetPixelXSign = parseInteger(params.get('datasetPixelXSign'), null);
+  const gpuCandidateRuntime = params.get('gpuCandidateRuntime');
+  const gpuCandidateSubsetMode = params.get('gpuCandidateSubsetMode');
+  const gpuCandidateFilterMode = params.get('gpuCandidateFilterMode');
 
   const state = {
     active: false,
@@ -222,6 +241,17 @@ export function parseViewerQueryState(search = window.location.search) {
     useNativeRot4d: parseBoolean(params.get('useNativeRot4d'), null),
     useNativeMarginal: parseBoolean(params.get('useNativeMarginal'), null),
     usePackedVisiblePath: parseBoolean(params.get('usePackedVisiblePath'), null),
+    gpuCandidateRuntime: QUERY_GPU_CANDIDATE_RUNTIME_VALUES.has(gpuCandidateRuntime)
+      ? gpuCandidateRuntime
+      : null,
+    gpuCandidateSubsetMode: QUERY_GPU_CANDIDATE_SUBSET_MODE_VALUES.has(gpuCandidateSubsetMode)
+      ? gpuCandidateSubsetMode
+      : null,
+    gpuCandidateSubsetCount: parseInteger(params.get('gpuCandidateSubsetCount'), null),
+    gpuCandidateFilterMode: QUERY_GPU_CANDIDATE_FILTER_MODE_VALUES.has(gpuCandidateFilterMode)
+      ? gpuCandidateFilterMode
+      : null,
+    gpuCandidateCompare: parseBoolean(params.get('gpuCandidateCompare'), null),
     bgGray: parseInteger(params.get('bgGray'), null)
   };
 
@@ -275,6 +305,11 @@ export function parseViewerQueryState(search = window.location.search) {
     'useNativeRot4d',
     'useNativeMarginal',
     'usePackedVisiblePath',
+    'gpuCandidateRuntime',
+    'gpuCandidateSubsetMode',
+    'gpuCandidateSubsetCount',
+    'gpuCandidateFilterMode',
+    'gpuCandidateCompare',
     'bgGray'
   ].some((key) => params.has(key));
 
@@ -338,6 +373,13 @@ export function buildViewerDeterministicSummary(queryState) {
     stride: Number.isFinite(state.stride) ? Number(state.stride) : null,
     bgGray: Number.isFinite(state.bgGray) ? Number(state.bgGray) : null,
     time: Number.isFinite(state.time) ? Number(state.time) : null,
+    gpuCandidateRuntime: state.gpuCandidateRuntime ?? 'off',
+    gpuCandidateSubsetMode: state.gpuCandidateSubsetMode ?? null,
+    gpuCandidateSubsetCount: Number.isFinite(state.gpuCandidateSubsetCount) ? Number(state.gpuCandidateSubsetCount) : null,
+    gpuCandidateFilterMode: state.gpuCandidateFilterMode ?? null,
+    gpuCandidateCompare: typeof state.gpuCandidateCompare === 'boolean'
+      ? state.gpuCandidateCompare
+      : null,
     rawQueryString: state.rawQueryString ?? '',
     deterministicQueryString: state.deterministicQueryString ?? '',
     deterministicUrlSummary: state.deterministicUrlSummary ?? ''

@@ -75,6 +75,11 @@ import {
   buildVisibleComparisonSummary
 } from './gpu_visible_compare_debug.js';
 import { captureGpuCandidateDryRunVisibleComparison } from './gpu_candidate_compare_runner.js';
+import {
+  buildGpuCandidateShadowOptionsFromQuery,
+  isGpuCandidateShadowCompareEnabled,
+  runGpuCandidateShadowCompare
+} from './gpu_candidate_shadow_compare_runner.js';
 
 const canvas = document.getElementById('glCanvas');
 
@@ -134,6 +139,7 @@ const tokenRef = { value: 0 };
 const interactionState = createGpuInteractionState();
 let playback = null;
 let latestRenderResult = null;
+let latestGpuCandidateShadowCompare = null;
 let appliedCameraPresetName = deterministicQueryState.cameraPresetName ?? 'none';
 let lastSnapshotSummary = {
   available: true,
@@ -1541,6 +1547,66 @@ async function captureGpuCandidateDryRunVisibleComparisonDebug(options = {}) {
   });
 }
 
+async function runGpuCandidateShadowCompareForRender(renderResult, options = {}) {
+  const shadowOptions = buildGpuCandidateShadowOptionsFromQuery(deterministicQueryState, options);
+  if (!options.force && !isGpuCandidateShadowCompareEnabled(shadowOptions)) {
+    latestGpuCandidateShadowCompare = null;
+    return null;
+  }
+  ensureGpu();
+  camera.updateMatrixWorld(true);
+  const deterministicState = buildDeterministicStateSummary();
+  const buildConfig = getVisibleBuildConfig(ui, buildRenderOverrides());
+  const candidateArgs = buildCandidateComparisonArgs(options);
+  const tileGrid = computeTileGrid(canvas.width, canvas.height, 32);
+  const screenSpaceCamera = buildScreenSpaceCameraProxy(camera, deterministicState);
+  latestGpuCandidateShadowCompare = runGpuCandidateShadowCompare({
+    gl: getGpu()?.gl,
+    raw,
+    camera,
+    screenSpaceCamera,
+    canvasWidth: canvas.width,
+    canvasHeight: canvas.height,
+    camPos: camera.position.clone(),
+    tileGrid,
+    buildConfig,
+    candidateArgs,
+    renderResult,
+    visibleSourceItems: Array.isArray(renderResult?.visible) ? renderResult.visible : [],
+    options: {
+      ...shadowOptions,
+      force: !!options.force
+    },
+    metadata: {
+      comparisonMode: options.comparisonMode ?? 'gpu-candidate-shadow-compare',
+      deterministicState: buildSlimDeterministicStateSummary(deterministicState),
+      trigger: options.trigger ?? 'manual',
+      lastRenderResultSummary: buildRenderResultInspectionSummary(renderResult)
+    }
+  });
+  return latestGpuCandidateShadowCompare;
+}
+
+async function captureGpuCandidateShadowCompareDebug(options = {}) {
+  const ensureCurrentFrame = options.ensureCurrentFrame !== false;
+  const debugRender = ensureCurrentFrame || !latestRenderResult
+    ? await renderCurrentFrameForDebugPayload(options)
+    : {
+        renderResult: latestRenderResult,
+        attempts: [{ stage: 'reuse-latest-render-result' }]
+      };
+  const result = await runGpuCandidateShadowCompareForRender(debugRender.renderResult, {
+    ...options,
+    force: options.force !== false,
+    trigger: options.trigger ?? 'debug-api',
+    comparisonMode: options.comparisonMode ?? 'gpu-candidate-shadow-compare-debug-api'
+  });
+  if (result?.metadata) {
+    result.metadata.renderAttempts = debugRender.attempts;
+  }
+  return result;
+}
+
 async function captureRepresentativeActualPayloadDebug(input = {}, maybeOptions = {}) {
   const options = Array.isArray(input) || Array.isArray(input?.selectedIndices) || Array.isArray(input?.splats)
     ? maybeOptions
@@ -2745,6 +2811,15 @@ function buildSlimDeterministicStateSummary(summary) {
     inspectSource: summary?.inspectSource ?? 'auto',
     inspectJsonMode: summary?.inspectJsonMode ?? 'slim',
     gpuFramePolicyOverride: summary?.gpuFramePolicyOverride ?? 'auto',
+    gpuCandidateRuntime: summary?.gpuCandidateRuntime ?? 'off',
+    gpuCandidateSubsetMode: summary?.gpuCandidateSubsetMode ?? null,
+    gpuCandidateSubsetCount: Number.isFinite(summary?.gpuCandidateSubsetCount)
+      ? Number(summary.gpuCandidateSubsetCount)
+      : null,
+    gpuCandidateFilterMode: summary?.gpuCandidateFilterMode ?? null,
+    gpuCandidateCompare: typeof summary?.gpuCandidateCompare === 'boolean'
+      ? summary.gpuCandidateCompare
+      : null,
     time: Number.isFinite(summary?.time) ? Number(summary.time) : null,
     deterministicQueryString: summary?.deterministicQueryString ?? '',
     deterministicUrlSummary: summary?.deterministicUrlSummary ?? ''
@@ -3598,6 +3673,20 @@ async function renderCurrentFrame(options = {}) {
   if (renderResult || !options.preservePreviousOnNull) {
     latestRenderResult = renderResult;
   }
+  if (renderResult) {
+    const shadowOptions = buildGpuCandidateShadowOptionsFromQuery(deterministicQueryState);
+    if (isGpuCandidateShadowCompareEnabled(shadowOptions)) {
+      latestGpuCandidateShadowCompare = await runGpuCandidateShadowCompareForRender(renderResult, {
+        ...shadowOptions,
+        trigger: 'render-current-frame',
+        comparisonMode: 'gpu-candidate-shadow-compare-runtime-query'
+      });
+    } else {
+      latestGpuCandidateShadowCompare = null;
+    }
+  } else if (!options.preservePreviousOnNull) {
+    latestGpuCandidateShadowCompare = null;
+  }
 
   if (renderResult && typeof renderResult.debugText === 'string') {
     refreshLatestDebugText(renderResult.debugText);
@@ -3785,12 +3874,14 @@ function installViewerDebugApi() {
     captureGpuCandidateSubsetComparisonDebug,
     captureGpuCandidateFilterComparisonDebug,
     captureGpuCandidateDryRunVisibleComparisonDebug,
+    captureGpuCandidateShadowCompareDebug,
     captureLiveSameStateTileAndAssociationDebug,
     downloadLiveSameStateTileAndAssociationDebugJson,
     saveCurrentCanvasPng,
     captureCurrentCanvasPng: saveCurrentCanvasPng,
     getLatestDebugText: () => refreshLatestDebugText(),
     getLastRenderResult: () => latestRenderResult,
+    getLastGpuCandidateShadowCompare: () => latestGpuCandidateShadowCompare,
     scheduleRender: () => scheduler.scheduleRender()
   };
 }
