@@ -1,6 +1,3 @@
-import { computeGaussianState, computeScreenSplat } from './rot4d_math.js';
-import { evalSHColor } from './sh_eval.js';
-import { clampInt, computeTileRangeFromAABB } from './gpu_tile_utils.js';
 import { getTemporalIndexUiOptions } from './gpu_temporal_index_utils.js';
 import { getTemporalBucketUiOptions } from './gpu_temporal_bucket_utils.js';
 import {
@@ -8,10 +5,10 @@ import {
   buildCandidateInfo
 } from './gpu_candidate_path_selector.js';
 import { createScreenSpaceBuildContext, buildPackedScreenSpaceWithContext, summarizePackedScreenSpace } from './gpu_screen_space_builder.js';
+import { buildVisibleItemForCandidate } from './gpu_visible_item_builder.js';
 function nowMs(){return performance.now();}
 export function getVisibleBuildConfig(ui, qualityOverride = null){ const temporalIndexOptions=getTemporalIndexUiOptions(ui); const temporalBucketOptions=getTemporalBucketUiOptions(ui); const temporalPrefilterMode=deriveTemporalPrefilterMode(ui, temporalIndexOptions, temporalBucketOptions); const baseConfig={ renderScale:parseFloat(ui.renderScaleSlider.value), stride:parseInt(ui.strideSlider.value,10), maxVisible:parseInt(ui.maxVisibleSlider.value,10), timestamp:parseFloat(ui.timeSlider.value), scalingModifier:parseFloat(ui.splatScaleSlider.value), sigmaScale:parseFloat(ui.sigmaScaleSlider.value), prefilterVar:parseFloat(ui.prefilterVarSlider.value), useSH:!!ui.useSHCheck.checked, useRot4d:!!ui.useRot4dCheck.checked, useNativeRot4d:!!ui.useNativeRot4dCheck.checked, useNativeMarginal:!!ui.useNativeMarginalCheck.checked, forceSh3d:!!ui.forceSh3dCheck.checked, timeDuration:parseFloat(ui.timeDurationSlider.value), interactionActive:false, playbackActive:false, qualityOverrideActive:false, qualityOverrideReason:'none', temporalPrefilterMode, ...temporalIndexOptions, ...temporalBucketOptions }; return qualityOverride ? { ...baseConfig, ...qualityOverride } : baseConfig; }
 function passesTemporalCulling(raw,i,timestamp,sigmaScale=1.0,sigmaThreshold=3.0){ if(!raw||!raw.t||!raw.scale_t) return true; const t0=raw.t[i]; if(!Number.isFinite(t0)) return true; const s=raw.scale_t[i]; if(!Number.isFinite(s)) return true; const sigmaT=s*sigmaScale; if(!Number.isFinite(sigmaT)||sigmaT<=0) return true; return Math.abs(timestamp-t0)<=sigmaThreshold*sigmaT; }
-function buildColorAlpha(color,opacity){ const r=Array.isArray(color)&&Number.isFinite(color[0])?color[0]:0; const g=Array.isArray(color)&&Number.isFinite(color[1])?color[1]:0; const b=Array.isArray(color)&&Number.isFinite(color[2])?color[2]:0; const a=Number.isFinite(opacity)?opacity:(Array.isArray(color)&&Number.isFinite(color[3])?color[3]:0); return [r,g,b,a]; }
 function buildEmptyStats(enablePackedVisiblePath){ return { accepted:0, processed:0, culled:0, temporalRejected:0, temporalPassed:0, temporalCullRatio:0, candidateMode:'none', packedVisiblePathEnabled:!!enablePackedVisiblePath, packedVisiblePathUsed:false, packedVisibleCount:0, packedVisibleLength:0, packedVisibleFloatsPerItem:0, packedVisiblePath:'none', visibleBuildMs:0, candidateBuildMs:0, screenSpaceBuildMs:0, qualityOverrideActive:false, qualityOverrideReason:'none', temporalIndexEnabled:false, temporalIndexCacheEnabled:false, temporalIndexCacheHit:false, temporalIndexBuiltThisFrame:false, temporalIndexTotalCount:0, temporalIndexTMin:NaN, temporalIndexTMax:NaN, temporalIndexRangeCount:0, temporalIndexCandidateCount:0, temporalIndexRangeFraction:0, temporalIndexCandidateFraction:0, temporalWindowMode:'disabled', temporalWindowRadius:Infinity, temporalWindowCacheHit:false, temporalWindowBuiltThisFrame:false, temporalBucketEnabled:false, temporalBucketCacheEnabled:false, temporalBucketCacheHit:false, temporalBucketBuiltThisFrame:false, temporalBucketWidth:NaN, temporalBucketRadius:0, temporalBucketCount:0, temporalBucketStart:0, temporalBucketEnd:-1, temporalBucketSourceCount:0, temporalBucketCandidateCount:0, temporalBucketSourceFraction:0, temporalBucketCandidateFraction:0, temporalBucketPostWindowCandidateCount:0, temporalBucketPostWindowCandidateFraction:0, temporalBucketTMin:NaN, temporalBucketTMax:NaN, interactionActive:false, playbackActive:false }; }
 export async function buildVisibleSplats({ raw,camera,screenSpaceCamera=null,canvasWidth,canvasHeight,renderScale,stride,maxVisible,timestamp,scalingModifier,sigmaScale,prefilterVar,useSH,useRot4d,useNativeRot4d,useNativeMarginal,forceSh3d,timeDuration,camPos,tokenRef=null,frameToken=null,tileGrid=null,temporalSigmaThreshold=3.0,interactionActive=false,playbackActive=false,qualityOverrideActive=false,qualityOverrideReason='none',temporalPrefilterMode='sorted',useTemporalIndex=true,useTemporalIndexCache=true,temporalWindowMode='median',fixedWindowRadius=0.5,useTemporalBucket=false,useTemporalBucketCache=true,temporalBucketWidth=0.1,temporalBucketRadius=0,enablePackedVisiblePath=true,screenSpaceContext=null }) {
   if(!raw) return { visible:[], packedScreenSpace:null, packedSummary:summarizePackedScreenSpace(null), renderW:0, renderH:0, sx:1, sy:1, activeTileBox:null, buildStats:buildEmptyStats(enablePackedVisiblePath) };
@@ -22,16 +19,9 @@ export async function buildVisibleSplats({ raw,camera,screenSpaceCamera=null,can
     const i=candidateIndices[k]; processed++;
     if(!passesTemporalCulling(raw,i,timestamp,sigmaScale,temporalSigmaThreshold)){ temporalRejected++; culled++; continue; }
     temporalPassed++;
-    const gs=computeGaussianState(raw,i,timestamp,scalingModifier,sigmaScale,prefilterVar,useRot4d,flags); if(!gs){ culled++; continue; }
-    const color=evalSHColor(raw,i,camPos,gs.pos,timestamp,timeDuration,useSH,forceSh3d);
-    const splat=computeScreenSplat(screenSpaceCamera||camera,gs.pos,gs.cov3,gs.opacity,renderW,renderH); if(!splat){ culled++; continue; }
-    const px=splat.px*sx, py=splat.py*sy;
-    const drawRadius=splat.radius*Math.max(sx,sy);
-    const coverageRadius=Math.max(1.0,drawRadius);
-    const minX=clampInt(Math.floor(px-coverageRadius),0,canvasWidth-1), maxX=clampInt(Math.ceil(px+coverageRadius),0,canvasWidth-1), minY=clampInt(Math.floor(py-coverageRadius),0,canvasHeight-1), maxY=clampInt(Math.ceil(py+coverageRadius),0,canvasHeight-1);
-    let tileRange=null; if(tileGrid){ tileRange=computeTileRangeFromAABB([minX,minY,maxX,maxY],tileGrid.tileCols,tileGrid.tileRows,tileGrid.tileSize); minTileX=Math.min(minTileX,tileRange[0]); minTileY=Math.min(minTileY,tileRange[1]); maxTileX=Math.max(maxTileX,tileRange[2]); maxTileY=Math.max(maxTileY,tileRange[3]); }
-    const colorAlpha=buildColorAlpha(color,splat.opacity);
-    visible.push({ srcIndex:i, px, py, radius:drawRadius, depth:splat.depth, colorAlpha, conic:[splat.conic[0]/(sx*sx),splat.conic[1]/(sx*sy),splat.conic[2]/(sy*sy)], aabb:[minX,minY,maxX,maxY], tileRange, color, opacity:splat.opacity, stateConvention:gs.stateConvention??'unknown', usedCuda4DStateHelper:!!gs.usedCuda4DStateHelper, stateHelperVersion:gs.helperVersion??null });
+    const item=buildVisibleItemForCandidate({raw,index:i,camera,screenSpaceCamera,renderW,renderH,canvasWidth,canvasHeight,sx,sy,timestamp,scalingModifier,sigmaScale,prefilterVar,useRot4d,flags,camPos,timeDuration,useSH,forceSh3d,tileGrid}); if(!item){ culled++; continue; }
+    if(item.tileRange){ minTileX=Math.min(minTileX,item.tileRange[0]); minTileY=Math.min(minTileY,item.tileRange[1]); maxTileX=Math.max(maxTileX,item.tileRange[2]); maxTileY=Math.max(maxTileY,item.tileRange[3]); }
+    visible.push(item);
     if(visible.length>=maxVisible) break;
     if((visible.length & 2047)===0){ await new Promise((r)=>setTimeout(r,0)); if(tokenRef&&frameToken!==null&&frameToken!==tokenRef.value) return null; }
   }

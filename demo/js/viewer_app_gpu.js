@@ -8,6 +8,14 @@ import {
 } from './rot4d_math.js';
 import { evalSHColor } from './sh_eval.js';
 import { renderGpuFrame } from './gpu_renderer.js';
+import { getVisibleBuildConfig } from './gpu_visible_builder.js';
+import { buildCandidateInfo } from './gpu_candidate_path_selector.js';
+import {
+  buildCandidateSubsetInfo,
+  buildGpuStubCandidateInfo,
+  buildGpuSubsetCandidateInfo
+} from './gpu_candidate_builder_gpu_stub.js';
+import { buildGpuFirstNCandidateInfo } from './gpu_candidate_builder_gpu_firstn.js';
 import {
   inspectGpuPackedPayloadItem,
   inspectPackedInterleavedTileCompositeItem
@@ -55,6 +63,10 @@ import {
   captureCanvasPngBlob
 } from './gpu_framebuffer_debug_utils.js';
 import { createGpuTileLiveDebugCapture } from './gpu_tile_live_debug_capture.js';
+import {
+  buildCandidateComparisonSummary,
+  buildVisibleComparisonSummary
+} from './gpu_visible_compare_debug.js';
 
 const canvas = document.getElementById('glCanvas');
 
@@ -1193,6 +1205,225 @@ async function captureLiveSameStateTileAndAssociationDebug(input = {}) {
 
 async function downloadLiveSameStateTileAndAssociationDebugJson(input = {}, fileNames = {}) {
   return await getTileLiveDebugCaptureApi().downloadLiveSameStateTileAndAssociationDebugJson(input, fileNames);
+}
+
+async function captureVisibleComparisonDebug(options = {}) {
+  const ensureCurrentFrame = options.ensureCurrentFrame !== false;
+  const debugRender = ensureCurrentFrame || !latestRenderResult
+    ? await renderCurrentFrameForDebugPayload(options)
+    : {
+        renderResult: latestRenderResult,
+        attempts: [{ stage: 'reuse-latest-render-result' }]
+      };
+  const renderResult = debugRender.renderResult;
+  const referenceItems = Array.isArray(options.referenceItems)
+    ? options.referenceItems
+    : (Array.isArray(renderResult?.visible) ? renderResult.visible : []);
+  const candidateItems = Array.isArray(options.candidateItems)
+    ? options.candidateItems
+    : (Array.isArray(renderResult?.visible) ? renderResult.visible : []);
+  const referencePackedPayload =
+    options.referencePackedPayload ??
+    options.referencePackedScreenSpace ??
+    renderResult?.packedScreenSpace ??
+    null;
+  const candidatePackedPayload =
+    options.candidatePackedPayload ??
+    options.candidatePackedScreenSpace ??
+    renderResult?.packedScreenSpace ??
+    null;
+  return buildVisibleComparisonSummary({
+    referenceItems,
+    candidateItems,
+    referencePackedPayload,
+    candidatePackedPayload,
+    referenceLabel: options.referenceLabel ?? 'cpu-visible-reference',
+    candidateLabel: options.candidateLabel ?? 'cpu-visible-self',
+    options: {
+      epsilon: options.epsilon,
+      maxMismatches: options.maxMismatches
+    },
+    metadata: {
+      comparisonMode: options.comparisonMode ?? 'latest-render-result-self-compare',
+      renderAttempts: debugRender.attempts,
+      deterministicState: buildSlimDeterministicStateSummary(buildDeterministicStateSummary()),
+      lastRenderResultSummary: buildRenderResultInspectionSummary(renderResult),
+      buildStats: renderResult?.buildStats ?? null,
+      packedSummary: renderResult?.packedSummary ?? null
+    }
+  });
+}
+
+function buildCandidateComparisonArgs(options = {}) {
+  const buildConfig = getVisibleBuildConfig(ui, buildRenderOverrides());
+  return {
+    raw,
+    stride: Number.isFinite(options.stride) ? options.stride : buildConfig.stride,
+    temporalPrefilterMode: options.temporalPrefilterMode ?? buildConfig.temporalPrefilterMode,
+    useTemporalIndex: typeof options.useTemporalIndex === 'boolean'
+      ? options.useTemporalIndex
+      : buildConfig.useTemporalIndex,
+    useTemporalIndexCache: typeof options.useTemporalIndexCache === 'boolean'
+      ? options.useTemporalIndexCache
+      : buildConfig.useTemporalIndexCache,
+    temporalWindowMode: options.temporalWindowMode ?? buildConfig.temporalWindowMode,
+    fixedWindowRadius: Number.isFinite(options.fixedWindowRadius)
+      ? options.fixedWindowRadius
+      : buildConfig.fixedWindowRadius,
+    useTemporalBucket: typeof options.useTemporalBucket === 'boolean'
+      ? options.useTemporalBucket
+      : buildConfig.useTemporalBucket,
+    useTemporalBucketCache: typeof options.useTemporalBucketCache === 'boolean'
+      ? options.useTemporalBucketCache
+      : buildConfig.useTemporalBucketCache,
+    temporalBucketWidth: Number.isFinite(options.temporalBucketWidth)
+      ? options.temporalBucketWidth
+      : buildConfig.temporalBucketWidth,
+    temporalBucketRadius: Number.isFinite(options.temporalBucketRadius)
+      ? options.temporalBucketRadius
+      : buildConfig.temporalBucketRadius,
+    timestamp: Number.isFinite(options.timestamp) ? options.timestamp : buildConfig.timestamp,
+    sigmaScale: Number.isFinite(options.sigmaScale) ? options.sigmaScale : buildConfig.sigmaScale,
+    temporalSigmaThreshold: Number.isFinite(options.temporalSigmaThreshold)
+      ? options.temporalSigmaThreshold
+      : 3.0
+  };
+}
+
+async function captureCandidateComparisonDebug(options = {}) {
+  const candidateArgs = buildCandidateComparisonArgs(options);
+  const referenceCandidateInfo = buildCandidateInfo(candidateArgs);
+  const candidateCandidateInfo = buildGpuStubCandidateInfo({
+    raw,
+    referenceCandidateInfo,
+    reason: options.reason ?? 'step94-3-gpu-candidate-stub'
+  });
+  return buildCandidateComparisonSummary({
+    referenceCandidateInfo,
+    candidateCandidateInfo,
+    referenceLabel: options.referenceLabel ?? 'cpu-candidate-reference',
+    candidateLabel: options.candidateLabel ?? 'gpu-candidate-stub',
+    options: {
+      maxMismatches: options.maxMismatches
+    },
+    metadata: {
+      comparisonMode: options.comparisonMode ?? 'cpu-candidate-vs-gpu-stub',
+      deterministicState: buildSlimDeterministicStateSummary(buildDeterministicStateSummary()),
+      candidateArgs: {
+        stride: candidateArgs.stride,
+        temporalPrefilterMode: candidateArgs.temporalPrefilterMode,
+        useTemporalIndex: candidateArgs.useTemporalIndex,
+        useTemporalBucket: candidateArgs.useTemporalBucket,
+        timestamp: candidateArgs.timestamp,
+        sigmaScale: candidateArgs.sigmaScale,
+        temporalSigmaThreshold: candidateArgs.temporalSigmaThreshold,
+        temporalWindowMode: candidateArgs.temporalWindowMode,
+        fixedWindowRadius: candidateArgs.fixedWindowRadius,
+        temporalBucketWidth: candidateArgs.temporalBucketWidth,
+        temporalBucketRadius: candidateArgs.temporalBucketRadius
+      }
+    }
+  });
+}
+
+async function captureCandidateSubsetComparisonDebug(options = {}) {
+  const candidateArgs = buildCandidateComparisonArgs(options);
+  const referenceCandidateInfo = buildCandidateInfo(candidateArgs);
+  const referenceSubsetCandidateInfo = buildCandidateSubsetInfo({
+    raw,
+    referenceCandidateInfo,
+    subsetMode: options.subsetMode ?? 'firstN',
+    subsetCount: Number.isFinite(options.subsetCount) ? options.subsetCount : 1024,
+    explicitIndices: options.indices ?? options.explicitIndices ?? null,
+    candidateMode: options.referenceSubsetMode ?? 'cpu-subset'
+  });
+  const candidateCandidateInfo = buildGpuSubsetCandidateInfo({
+    raw,
+    referenceSubsetCandidateInfo,
+    reason: options.reason ?? 'step94-4-gpu-candidate-subset-stub'
+  });
+  return buildCandidateComparisonSummary({
+    referenceCandidateInfo: referenceSubsetCandidateInfo,
+    candidateCandidateInfo,
+    referenceLabel: options.referenceLabel ?? 'cpu-candidate-subset-reference',
+    candidateLabel: options.candidateLabel ?? 'gpu-candidate-subset-stub',
+    options: {
+      maxMismatches: options.maxMismatches
+    },
+    metadata: {
+      comparisonMode: options.comparisonMode ?? 'cpu-candidate-subset-vs-gpu-subset-stub',
+      deterministicState: buildSlimDeterministicStateSummary(buildDeterministicStateSummary()),
+      fullReferenceCandidateMode: referenceCandidateInfo.candidateMode ?? 'unknown',
+      fullReferenceCandidateCount: referenceCandidateInfo.candidateIndices?.length ?? 0,
+      subset: referenceSubsetCandidateInfo.candidateSubsetSummary ?? null,
+      candidateArgs: {
+        stride: candidateArgs.stride,
+        temporalPrefilterMode: candidateArgs.temporalPrefilterMode,
+        useTemporalIndex: candidateArgs.useTemporalIndex,
+        useTemporalBucket: candidateArgs.useTemporalBucket,
+        timestamp: candidateArgs.timestamp,
+        sigmaScale: candidateArgs.sigmaScale,
+        temporalSigmaThreshold: candidateArgs.temporalSigmaThreshold,
+        temporalWindowMode: candidateArgs.temporalWindowMode,
+        fixedWindowRadius: candidateArgs.fixedWindowRadius,
+        temporalBucketWidth: candidateArgs.temporalBucketWidth,
+        temporalBucketRadius: candidateArgs.temporalBucketRadius
+      }
+    }
+  });
+}
+
+async function captureGpuCandidateSubsetComparisonDebug(options = {}) {
+  const subsetCount = Number.isFinite(options.subsetCount) ? options.subsetCount : 1024;
+  const startIndex = Number.isFinite(options.startIndex) ? options.startIndex : 0;
+  const candidateArgs = buildCandidateComparisonArgs(options);
+  const referenceCandidateInfo = buildCandidateInfo(candidateArgs);
+  const referenceSubsetCandidateInfo = buildCandidateSubsetInfo({
+    raw,
+    referenceCandidateInfo,
+    subsetMode: 'firstN',
+    subsetCount,
+    explicitIndices: null,
+    candidateMode: options.referenceSubsetMode ?? 'cpu-firstn-subset'
+  });
+  ensureGpu();
+  const candidateCandidateInfo = buildGpuFirstNCandidateInfo({
+    gl: getGpu()?.gl,
+    raw,
+    referenceSubsetCandidateInfo,
+    subsetCount,
+    startIndex
+  });
+  return buildCandidateComparisonSummary({
+    referenceCandidateInfo: referenceSubsetCandidateInfo,
+    candidateCandidateInfo,
+    referenceLabel: options.referenceLabel ?? 'cpu-firstn-candidate-reference',
+    candidateLabel: options.candidateLabel ?? 'gpu-firstn-candidate-debug',
+    options: {
+      maxMismatches: options.maxMismatches
+    },
+    metadata: {
+      comparisonMode: options.comparisonMode ?? 'cpu-firstn-subset-vs-gpu-firstn-debug',
+      deterministicState: buildSlimDeterministicStateSummary(buildDeterministicStateSummary()),
+      fullReferenceCandidateMode: referenceCandidateInfo.candidateMode ?? 'unknown',
+      fullReferenceCandidateCount: referenceCandidateInfo.candidateIndices?.length ?? 0,
+      subset: referenceSubsetCandidateInfo.candidateSubsetSummary ?? null,
+      gpuCandidateSummary: candidateCandidateInfo.gpuCandidateSummary ?? null,
+      candidateArgs: {
+        stride: candidateArgs.stride,
+        temporalPrefilterMode: candidateArgs.temporalPrefilterMode,
+        useTemporalIndex: candidateArgs.useTemporalIndex,
+        useTemporalBucket: candidateArgs.useTemporalBucket,
+        timestamp: candidateArgs.timestamp,
+        sigmaScale: candidateArgs.sigmaScale,
+        temporalSigmaThreshold: candidateArgs.temporalSigmaThreshold,
+        temporalWindowMode: candidateArgs.temporalWindowMode,
+        fixedWindowRadius: candidateArgs.fixedWindowRadius,
+        temporalBucketWidth: candidateArgs.temporalBucketWidth,
+        temporalBucketRadius: candidateArgs.temporalBucketRadius
+      }
+    }
+  });
 }
 
 async function captureRepresentativeActualPayloadDebug(input = {}, maybeOptions = {}) {
@@ -3433,6 +3664,10 @@ function installViewerDebugApi() {
         download: downloadJsonDebug(result, fileName)
       };
     },
+    captureVisibleComparisonDebug,
+    captureCandidateComparisonDebug,
+    captureCandidateSubsetComparisonDebug,
+    captureGpuCandidateSubsetComparisonDebug,
     captureLiveSameStateTileAndAssociationDebug,
     downloadLiveSameStateTileAndAssociationDebugJson,
     saveCurrentCanvasPng,
