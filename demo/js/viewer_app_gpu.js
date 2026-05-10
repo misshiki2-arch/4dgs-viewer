@@ -333,9 +333,9 @@ function buildGpuCandidateRuntimeDebugSummary(options = {}) {
   });
   const effectiveFallback = limitedDrawSummary?.fallback ?? fallback;
   return {
-    schemaVersion: 'step99-gpu-candidate-runtime-summary-debug-v1',
+    schemaVersion: 'step101-gpu-candidate-runtime-summary-debug-v1',
     timestamp: new Date().toISOString(),
-    purpose: 'Summarize GPU candidate runtime selector, limited-draw candidate source routing, and fallback decisions.',
+    purpose: 'Summarize GPU candidate runtime selector, limited-draw candidate source promotion, and fallback decisions.',
     runtimeSummary,
     fallback: effectiveFallback,
     limitedDrawSummary,

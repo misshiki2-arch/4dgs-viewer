@@ -5,7 +5,15 @@ import {
   buildGpuExplicitCandidateInfo,
   buildGpuFirstNCandidateInfo
 } from './gpu_candidate_builder_gpu_firstn.js';
-import { buildCandidateComparisonSummary } from './gpu_visible_compare_debug.js';
+import { buildVisibleItemForCandidate } from './gpu_visible_item_builder.js';
+import {
+  buildPackedScreenSpaceWithContext,
+  createScreenSpaceBuildContext
+} from './gpu_screen_space_builder.js';
+import {
+  buildCandidateComparisonSummary,
+  buildVisibleComparisonSummary
+} from './gpu_visible_compare_debug.js';
 import {
   buildGpuCandidateRuntimeConfig,
   buildGpuCandidateRuntimeSummary
@@ -136,6 +144,120 @@ function summarizeCandidateArgs(candidateArgs) {
   };
 }
 
+function passesTemporalCulling(raw, i, timestamp, sigmaScale = 1.0, sigmaThreshold = 3.0) {
+  if (!raw || !raw.t || !raw.scale_t) return true;
+  const t0 = raw.t[i];
+  if (!Number.isFinite(t0)) return true;
+  const s = raw.scale_t[i];
+  if (!Number.isFinite(s)) return true;
+  const sigmaT = s * sigmaScale;
+  if (!Number.isFinite(sigmaT) || sigmaT <= 0) return true;
+  return Math.abs(timestamp - t0) <= sigmaThreshold * sigmaT;
+}
+
+function buildVisibleAndPackedFromCandidateInfo({
+  candidateInfo,
+  raw,
+  camera,
+  screenSpaceCamera = null,
+  canvasWidth,
+  canvasHeight,
+  camPos,
+  tileGrid = null,
+  buildConfig = {},
+  temporalSigmaThreshold = 3.0,
+  label = 'limited-draw-candidate'
+} = {}) {
+  const renderScale = Number.isFinite(buildConfig.renderScale) ? buildConfig.renderScale : 1;
+  const renderW = Math.max(1, Math.round(canvasWidth * renderScale));
+  const renderH = Math.max(1, Math.round(canvasHeight * renderScale));
+  const sx = canvasWidth / renderW;
+  const sy = canvasHeight / renderH;
+  const flags = {
+    nativeRot4d: !!buildConfig.useNativeRot4d,
+    nativeMarginal: !!buildConfig.useNativeMarginal
+  };
+  const maxVisible = Number.isFinite(buildConfig.maxVisible) ? buildConfig.maxVisible : Infinity;
+  const candidateIndices = candidateInfo?.candidateIndices instanceof Uint32Array
+    ? candidateInfo.candidateIndices
+    : (Array.isArray(candidateInfo?.candidateIndices)
+      ? Uint32Array.from(candidateInfo.candidateIndices)
+      : new Uint32Array(0));
+  const visible = [];
+  let processed = 0;
+  let culled = 0;
+  let temporalRejected = 0;
+  let temporalPassed = 0;
+
+  for (let k = 0; k < candidateIndices.length; k++) {
+    const index = candidateIndices[k];
+    processed++;
+    if (!passesTemporalCulling(raw, index, buildConfig.timestamp, buildConfig.sigmaScale, temporalSigmaThreshold)) {
+      temporalRejected++;
+      culled++;
+      continue;
+    }
+    temporalPassed++;
+    const item = buildVisibleItemForCandidate({
+      raw,
+      index,
+      camera,
+      screenSpaceCamera,
+      renderW,
+      renderH,
+      canvasWidth,
+      canvasHeight,
+      sx,
+      sy,
+      timestamp: buildConfig.timestamp,
+      scalingModifier: buildConfig.scalingModifier,
+      sigmaScale: buildConfig.sigmaScale,
+      prefilterVar: buildConfig.prefilterVar,
+      useRot4d: buildConfig.useRot4d,
+      flags,
+      camPos,
+      timeDuration: buildConfig.timeDuration,
+      useSH: buildConfig.useSH,
+      forceSh3d: buildConfig.forceSh3d,
+      tileGrid
+    });
+    if (!item) {
+      culled++;
+      continue;
+    }
+    visible.push(item);
+    if (visible.length >= maxVisible) break;
+  }
+  visible.sort((a, b) => b.depth - a.depth);
+  const packedScreenSpace = buildConfig.enablePackedVisiblePath !== false
+    ? buildPackedScreenSpaceWithContext(createScreenSpaceBuildContext(), visible, {
+        renderW,
+        renderH,
+        sx,
+        sy
+      })
+    : null;
+  return {
+    label,
+    candidateInfo,
+    visible,
+    packedScreenSpace,
+    buildStats: {
+      label,
+      accepted: visible.length,
+      processed,
+      culled,
+      temporalRejected,
+      temporalPassed,
+      candidateMode: candidateInfo?.candidateMode ?? 'unknown',
+      candidateCount: candidateIndices.length,
+      packedVisibleCount: packedScreenSpace?.packedCount ?? 0,
+      packedVisibleLength: packedScreenSpace?.packed?.length ?? 0,
+      packedVisibleFloatsPerItem: packedScreenSpace?.floatsPerItem ?? 0
+    }
+  };
+}
+
 function buildSkippedSummary({
   runtimeConfig,
   runtimeSummary,
@@ -145,7 +267,7 @@ function buildSkippedSummary({
   referenceCandidateInfo = null
 }) {
   return {
-    schemaVersion: 'step99-gpu-candidate-limited-draw-summary-v1',
+    schemaVersion: 'step101-gpu-candidate-limited-draw-summary-v1',
     requestedRuntime: runtimeConfig.requestedRuntime ?? 'cpu-reference',
     effectiveDisplayRuntime: fallback.effectiveRuntime ?? 'cpu-reference',
     displayCandidateSource: fallback.displayCandidateSource ?? 'cpu-reference',
@@ -163,6 +285,73 @@ function buildSkippedSummary({
   };
 }
 
+function buildLimitedDrawFallbackReasons(runtimeConfig, gpuCandidateInfo, visibleComparison, shadowCompare, referenceSubsetCandidateInfo) {
+  const reasons = [];
+  if (referenceSubsetCandidateInfo?.candidateSubsetSummary?.enabled) {
+    reasons.push({
+      code: 'subset-display-not-allowed',
+      message: 'Subset limited-draw is compare-only and is not allowed to replace the normal display candidate source.',
+      details: {
+        subsetMode: referenceSubsetCandidateInfo.candidateSubsetSummary.subsetMode ?? runtimeConfig.subsetMode,
+        subsetCount: referenceSubsetCandidateInfo.candidateSubsetSummary.subsetCount ?? null,
+        requestedSubsetCount: referenceSubsetCandidateInfo.candidateSubsetSummary.requestedSubsetCount ?? runtimeConfig.subsetCount
+      }
+    });
+  }
+  if (runtimeConfig.subsetMode !== 'visibleSrcIndices') {
+    reasons.push({
+      code: 'unsupported-limited-draw-subset',
+      message: 'limited-draw compare-only path currently supports visibleSrcIndices.',
+      details: { subsetMode: runtimeConfig.subsetMode }
+    });
+  }
+  if (runtimeConfig.subsetCount !== 1024) {
+    reasons.push({
+      code: 'unsupported-limited-draw-subset-count',
+      message: 'limited-draw compare-only path currently supports subsetCount=1024.',
+      details: { subsetCount: runtimeConfig.subsetCount }
+    });
+  }
+  if (runtimeConfig.filterMode !== 'all-valid') {
+    reasons.push({
+      code: 'unsupported-limited-draw-filter',
+      message: 'limited-draw compare-only path currently supports filterMode=all-valid.',
+      details: { filterMode: runtimeConfig.filterMode }
+    });
+  }
+  if (!runtimeConfig.requireCompare) {
+    reasons.push({
+      code: 'compare-required-for-limited-draw',
+      message: 'limited-draw subset path requires candidate/visible comparison.'
+    });
+  }
+  if (!runtimeConfig.requireShadowOk) {
+    reasons.push({
+      code: 'shadow-ok-required-for-limited-draw',
+      message: 'limited-draw subset path requires shadow compare gating.'
+    });
+  } else if (shadowCompare?.status !== 'ok') {
+    reasons.push({
+      code: 'shadow-compare-required-for-limited-draw',
+      message: 'limited-draw subset path requires a latest shadow compare with status ok.',
+      details: { shadowStatus: shadowCompare?.status ?? null }
+    });
+  }
+  if ((gpuCandidateInfo?.candidateIndices?.length ?? 0) <= 0) {
+    reasons.push({
+      code: 'empty-gpu-candidate',
+      message: 'GPU candidate output was empty.'
+    });
+  }
+  if (!visibleComparison) {
+    reasons.push({
+      code: 'visible-comparison-required-for-limited-draw',
+      message: 'limited-draw subset path requires visible and packed payload comparison.'
+    });
+  }
+  return reasons;
+}
+
 export function resolveGpuCandidateLimitedDrawRuntime({
   gl,
   raw,
@@ -170,7 +359,14 @@ export function resolveGpuCandidateLimitedDrawRuntime({
   overrides = {},
   candidateArgs,
   visibleSourceItems = null,
-  shadowCompare = null
+  shadowCompare = null,
+  camera = null,
+  screenSpaceCamera = null,
+  canvasWidth = 0,
+  canvasHeight = 0,
+  camPos = null,
+  tileGrid = null,
+  buildConfig = null
 } = {}) {
   const runtimeConfig = buildGpuCandidateRuntimeConfig(queryState, overrides);
   const runtimeSummary = buildGpuCandidateRuntimeSummary(runtimeConfig);
@@ -288,14 +484,72 @@ export function resolveGpuCandidateLimitedDrawRuntime({
       candidateArgs: summarizeCandidateArgs(candidateArgs)
     }
   });
+  const canBuildVisibleComparison = raw &&
+    camera &&
+    Number.isFinite(canvasWidth) &&
+    Number.isFinite(canvasHeight) &&
+    buildConfig;
+  const referenceVisibleBuild = canBuildVisibleComparison
+    ? buildVisibleAndPackedFromCandidateInfo({
+        candidateInfo: referenceFilteredCandidateInfo,
+        raw,
+        camera,
+        screenSpaceCamera,
+        canvasWidth,
+        canvasHeight,
+        camPos,
+        tileGrid,
+        buildConfig,
+        temporalSigmaThreshold: candidateArgs?.temporalSigmaThreshold ?? 3.0,
+        label: 'cpu-filtered-candidate-visible-limited-draw-reference'
+      })
+    : null;
+  const gpuVisibleBuild = canBuildVisibleComparison
+    ? buildVisibleAndPackedFromCandidateInfo({
+        candidateInfo: gpuCandidateInfo,
+        raw,
+        camera,
+        screenSpaceCamera,
+        canvasWidth,
+        canvasHeight,
+        camPos,
+        tileGrid,
+        buildConfig,
+        temporalSigmaThreshold: candidateArgs?.temporalSigmaThreshold ?? 3.0,
+        label: 'gpu-candidate-visible-limited-draw'
+      })
+    : null;
+  const visibleComparison = canBuildVisibleComparison
+    ? buildVisibleComparisonSummary({
+        referenceItems: referenceVisibleBuild.visible,
+        candidateItems: gpuVisibleBuild.visible,
+        referencePackedPayload: referenceVisibleBuild.packedScreenSpace,
+        candidatePackedPayload: gpuVisibleBuild.packedScreenSpace,
+        referenceLabel: 'cpu-filtered-visible-limited-draw-reference',
+        candidateLabel: 'gpu-candidate-visible-limited-draw',
+        options: { epsilon: 1e-6, maxMismatches: 16 },
+        metadata: {
+          comparisonMode: 'cpu-filtered-visible-vs-gpu-candidate-limited-draw',
+          referenceBuildStats: referenceVisibleBuild.buildStats,
+          candidateBuildStats: gpuVisibleBuild.buildStats
+        }
+      })
+    : null;
   const finalFallback = buildGpuCandidateRuntimeFallbackSummary({
     runtimeConfig,
     shadowCompare: {
       status: shadowCompare?.status ?? 'ok',
       candidateComparison,
-      visibleComparison: null,
-      summary: { anyMismatch: !!candidateComparison.anyMismatch }
-    }
+      visibleComparison,
+      summary: { anyMismatch: !!(candidateComparison.anyMismatch || visibleComparison?.anyMismatch) }
+    },
+    extraReasons: buildLimitedDrawFallbackReasons(
+      runtimeConfig,
+      gpuCandidateInfo,
+      visibleComparison,
+      shadowCompare,
+      referenceSubsetCandidateInfo
+    )
   });
   const useGpuCandidate = finalFallback.action === 'use-gpu-candidate';
 
@@ -305,7 +559,7 @@ export function resolveGpuCandidateLimitedDrawRuntime({
     runtimeSummary,
     fallback: finalFallback,
     summary: {
-      schemaVersion: 'step99-gpu-candidate-limited-draw-summary-v1',
+      schemaVersion: 'step101-gpu-candidate-limited-draw-summary-v1',
       requestedRuntime: runtimeConfig.requestedRuntime,
       effectiveDisplayRuntime: finalFallback.effectiveRuntime,
       displayCandidateSource: finalFallback.displayCandidateSource,
@@ -319,7 +573,10 @@ export function resolveGpuCandidateLimitedDrawRuntime({
       candidateArgs: summarizeCandidateArgs(candidateArgs),
       referenceCandidateSummary: summarizeCandidateInfo(referenceFilteredCandidateInfo),
       gpuCandidateSummary: summarizeCandidateInfo(gpuCandidateInfo),
-      candidateComparison
+      candidateComparison,
+      visibleComparison,
+      referenceVisibleBuildSummary: referenceVisibleBuild?.buildStats ?? null,
+      gpuVisibleBuildSummary: gpuVisibleBuild?.buildStats ?? null
     }
   };
 }

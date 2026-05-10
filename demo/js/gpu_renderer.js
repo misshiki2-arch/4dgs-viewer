@@ -788,15 +788,7 @@ export async function renderGpuFrame({
     sigmaScale: buildConfig.sigmaScale,
     temporalSigmaThreshold: 3.0
   };
-  const limitedDrawRuntime = resolveGpuCandidateLimitedDrawRuntime({
-    gl,
-    raw,
-    queryState: deterministicStateSummary ?? {},
-    candidateArgs,
-    shadowCompare: latestGpuCandidateShadowCompare
-  });
-
-  const visibleResult = await buildVisibleSplats({
+  const buildVisibleInput = {
     raw,
     camera,
     screenSpaceCamera,
@@ -808,9 +800,40 @@ export async function renderGpuFrame({
     tileGrid,
     temporalSigmaThreshold: 3.0,
     enablePackedVisiblePath: !!buildConfig.enablePackedVisiblePath,
-    candidateInfoOverride: limitedDrawRuntime.candidateInfoOverride,
-    candidateSourceSummary: limitedDrawRuntime.summary,
     ...buildConfig
+  };
+  const subsetMode = deterministicStateSummary?.gpuCandidateSubsetMode ?? 'visibleSrcIndices';
+  const limitedDrawNeedsReferenceVisible =
+    deterministicStateSummary?.gpuCandidateRuntime === 'limited-draw' &&
+    deterministicStateSummary?.gpuCandidateAllowReadbackInDraw === true &&
+    (subsetMode === 'visibleSrcIndices' || subsetMode === 'fromVisible' || subsetMode === 'visibleReachable');
+  let referenceVisibleResult = null;
+  if (limitedDrawNeedsReferenceVisible) {
+    referenceVisibleResult = await buildVisibleSplats(buildVisibleInput);
+    if (referenceVisibleResult === null) return null;
+  }
+  const limitedDrawRuntime = resolveGpuCandidateLimitedDrawRuntime({
+    gl,
+    raw,
+    queryState: deterministicStateSummary ?? {},
+    candidateArgs,
+    shadowCompare: latestGpuCandidateShadowCompare,
+    camera,
+    screenSpaceCamera,
+    canvasWidth: canvas.width,
+    canvasHeight: canvas.height,
+    camPos,
+    tileGrid,
+    buildConfig,
+    visibleSourceItems: Array.isArray(referenceVisibleResult?.visible)
+      ? referenceVisibleResult.visible
+      : null
+  });
+
+  const visibleResult = await buildVisibleSplats({
+    ...buildVisibleInput,
+    candidateInfoOverride: limitedDrawRuntime.candidateInfoOverride,
+    candidateSourceSummary: limitedDrawRuntime.summary
   });
   if (visibleResult === null) return null;
 
