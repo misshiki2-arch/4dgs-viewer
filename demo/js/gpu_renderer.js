@@ -803,9 +803,11 @@ export async function renderGpuFrame({
     ...buildConfig
   };
   const subsetMode = deterministicStateSummary?.gpuCandidateSubsetMode ?? 'visibleSrcIndices';
+  const candidateSourceMode = deterministicStateSummary?.gpuCandidateSourceMode ?? 'visibleSrcIndices';
   const limitedDrawNeedsReferenceVisible =
     deterministicStateSummary?.gpuCandidateRuntime === 'limited-draw' &&
     deterministicStateSummary?.gpuCandidateAllowReadbackInDraw === true &&
+    candidateSourceMode === 'visibleSrcIndices' &&
     (subsetMode === 'visibleSrcIndices' || subsetMode === 'fromVisible' || subsetMode === 'visibleReachable');
   let referenceVisibleResult = null;
   if (limitedDrawNeedsReferenceVisible) {

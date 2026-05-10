@@ -2,12 +2,20 @@ const RUNTIME_VALUES = new Set(['cpu-reference', 'shadow-compare', 'limited-draw
 const FALLBACK_VALUES = new Set(['cpu-on-error', 'cpu-always', 'none']);
 const SUBSET_MODE_VALUES = new Set(['firstN', 'visibleSrcIndices', 'fromVisible', 'visibleReachable']);
 const FILTER_MODE_VALUES = new Set(['all-valid', 'evenIndex']);
+const SOURCE_MODE_VALUES = new Set(['visibleSrcIndices', 'firstN', 'range']);
+const PROMOTE_POLICY_VALUES = new Set(['never', 'compare-ok', 'async-ready']);
+const READBACK_MODE_VALUES = new Set(['sync-debug', 'async-fence', 'none']);
 
 const DEFAULT_RUNTIME = 'cpu-reference';
 const DEFAULT_FALLBACK = 'cpu-on-error';
 const DEFAULT_SUBSET_MODE = 'visibleSrcIndices';
 const DEFAULT_SUBSET_COUNT = 1024;
 const DEFAULT_FILTER_MODE = 'all-valid';
+const DEFAULT_SOURCE_MODE = 'visibleSrcIndices';
+const DEFAULT_RANGE_START = 0;
+const DEFAULT_RANGE_COUNT = 65536;
+const DEFAULT_PROMOTE_POLICY = 'never';
+const DEFAULT_READBACK_MODE = 'sync-debug';
 
 function normalizeRuntime(value) {
   return RUNTIME_VALUES.has(value) ? value : DEFAULT_RUNTIME;
@@ -23,6 +31,18 @@ function normalizeSubsetMode(value) {
 
 function normalizeFilterMode(value) {
   return FILTER_MODE_VALUES.has(value) ? value : DEFAULT_FILTER_MODE;
+}
+
+function normalizeSourceMode(value) {
+  return SOURCE_MODE_VALUES.has(value) ? value : DEFAULT_SOURCE_MODE;
+}
+
+function normalizePromotePolicy(value) {
+  return PROMOTE_POLICY_VALUES.has(value) ? value : DEFAULT_PROMOTE_POLICY;
+}
+
+function normalizeReadbackMode(value) {
+  return READBACK_MODE_VALUES.has(value) ? value : DEFAULT_READBACK_MODE;
 }
 
 function toFiniteInteger(value, fallback) {
@@ -75,6 +95,23 @@ export function buildGpuCandidateRuntimeConfig(queryState = {}, overrides = {}) 
     overrides.startIndex ?? overrides.gpuCandidateStartIndex ?? queryState.gpuCandidateStartIndex,
     0
   );
+  const sourceMode = normalizeSourceMode(
+    overrides.sourceMode ?? overrides.gpuCandidateSourceMode ?? queryState.gpuCandidateSourceMode
+  );
+  const rangeStart = toFiniteInteger(
+    overrides.rangeStart ?? overrides.gpuCandidateRangeStart ?? queryState.gpuCandidateRangeStart,
+    DEFAULT_RANGE_START
+  );
+  const rangeCount = toFiniteInteger(
+    overrides.rangeCount ?? overrides.gpuCandidateRangeCount ?? queryState.gpuCandidateRangeCount,
+    DEFAULT_RANGE_COUNT
+  );
+  const promotePolicy = normalizePromotePolicy(
+    overrides.promotePolicy ?? overrides.gpuCandidatePromotePolicy ?? queryState.gpuCandidatePromotePolicy
+  );
+  const readbackMode = normalizeReadbackMode(
+    overrides.readbackMode ?? overrides.gpuCandidateReadbackMode ?? queryState.gpuCandidateReadbackMode
+  );
 
   const limitedDrawRequested = requestedRuntime === 'limited-draw';
   const shadowCompareRequested = requestedRuntime === 'shadow-compare';
@@ -109,11 +146,17 @@ export function buildGpuCandidateRuntimeConfig(queryState = {}, overrides = {}) 
     subsetCount,
     startIndex,
     filterMode,
+    sourceMode,
+    rangeStart,
+    rangeCount,
+    promotePolicy,
+    readbackMode,
     readbackPolicy: {
       allowReadbackInDraw,
       debugReadback,
       drawReadbackAllowed: allowReadbackInDraw,
       shadowReadbackAllowed: debugReadback,
+      readbackMode,
       note: 'Synchronous GPU candidate readback is allowed only for debug/shadow unless allowReadbackInDraw is explicitly enabled.'
     }
   };
@@ -141,6 +184,11 @@ export function buildGpuCandidateRuntimeSummary(runtimeConfig = {}) {
     subsetCount: Number.isFinite(runtimeConfig.subsetCount) ? runtimeConfig.subsetCount : DEFAULT_SUBSET_COUNT,
     startIndex: Number.isFinite(runtimeConfig.startIndex) ? runtimeConfig.startIndex : 0,
     filterMode: runtimeConfig.filterMode ?? DEFAULT_FILTER_MODE,
+    sourceMode: runtimeConfig.sourceMode ?? DEFAULT_SOURCE_MODE,
+    rangeStart: Number.isFinite(runtimeConfig.rangeStart) ? runtimeConfig.rangeStart : DEFAULT_RANGE_START,
+    rangeCount: Number.isFinite(runtimeConfig.rangeCount) ? runtimeConfig.rangeCount : DEFAULT_RANGE_COUNT,
+    promotePolicy: runtimeConfig.promotePolicy ?? DEFAULT_PROMOTE_POLICY,
+    readbackMode: runtimeConfig.readbackMode ?? DEFAULT_READBACK_MODE,
     readbackPolicy: runtimeConfig.readbackPolicy ?? null
   };
 }

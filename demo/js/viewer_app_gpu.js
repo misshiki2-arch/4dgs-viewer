@@ -333,12 +333,14 @@ function buildGpuCandidateRuntimeDebugSummary(options = {}) {
   });
   const effectiveFallback = limitedDrawSummary?.fallback ?? fallback;
   return {
-    schemaVersion: 'step101-gpu-candidate-runtime-summary-debug-v1',
+    schemaVersion: 'step103-gpu-candidate-runtime-summary-debug-v1',
     timestamp: new Date().toISOString(),
     purpose: 'Summarize GPU candidate runtime selector, limited-draw candidate source promotion, and fallback decisions.',
     runtimeSummary,
     fallback: effectiveFallback,
     limitedDrawSummary,
+    candidateSourceSummary: limitedDrawSummary?.candidateSourceSummary ?? null,
+    candidateSourceComparison: limitedDrawSummary?.candidateSourceComparison ?? null,
     displayCandidateSource: limitedDrawSummary?.displayCandidateSource ?? effectiveFallback.displayCandidateSource ?? runtimeSummary.displayCandidateSource,
     gpuCandidateUsedForDisplay: !!(limitedDrawSummary?.gpuCandidateUsedForDisplay ?? effectiveFallback.gpuCandidateUsedForDisplay),
     limitedDrawConnectedToRendering: true,
@@ -1640,6 +1642,34 @@ async function captureGpuCandidateShadowCompareDebug(options = {}) {
   return result;
 }
 
+async function captureGpuCandidateSourceCompareDebug(options = {}) {
+  const ensureCurrentFrame = options.ensureCurrentFrame !== false;
+  const debugRender = ensureCurrentFrame || !latestRenderResult
+    ? await renderCurrentFrameForDebugPayload(options)
+    : {
+        renderResult: latestRenderResult,
+        attempts: [{ stage: 'reuse-latest-render-result' }]
+      };
+  const limitedDrawSummary = debugRender.renderResult?.limitedDrawRuntimeSummary ?? null;
+  return {
+    schemaVersion: 'step103-gpu-candidate-source-compare-debug-v1',
+    timestamp: new Date().toISOString(),
+    status: limitedDrawSummary?.candidateSourceComparison ? 'ok' : 'missing',
+    reason: limitedDrawSummary?.candidateSourceComparison ? 'ok' : 'candidate-source-comparison-unavailable',
+    candidateSourceSummary: limitedDrawSummary?.candidateSourceSummary ?? null,
+    candidateSourceComparison: limitedDrawSummary?.candidateSourceComparison ?? null,
+    candidateComparison: limitedDrawSummary?.candidateSourceComparison?.candidateComparison ??
+      limitedDrawSummary?.candidateComparison ??
+      null,
+    displayCandidateSource: limitedDrawSummary?.displayCandidateSource ?? 'cpu-reference',
+    gpuCandidateUsedForDisplay: !!limitedDrawSummary?.gpuCandidateUsedForDisplay,
+    limitedDrawUsedForCandidateSource: !!limitedDrawSummary?.limitedDrawUsedForCandidateSource,
+    deterministicState: buildSlimDeterministicStateSummary(buildDeterministicStateSummary()),
+    renderAttempts: debugRender.attempts,
+    lastRenderResultSummary: buildRenderResultInspectionSummary(debugRender.renderResult)
+  };
+}
+
 async function captureRepresentativeActualPayloadDebug(input = {}, maybeOptions = {}) {
   const options = Array.isArray(input) || Array.isArray(input?.selectedIndices) || Array.isArray(input?.splats)
     ? maybeOptions
@@ -2857,6 +2887,15 @@ function buildSlimDeterministicStateSummary(summary) {
       ? Number(summary.gpuCandidateSubsetCount)
       : null,
     gpuCandidateFilterMode: summary?.gpuCandidateFilterMode ?? null,
+    gpuCandidateSourceMode: summary?.gpuCandidateSourceMode ?? null,
+    gpuCandidateRangeStart: Number.isFinite(summary?.gpuCandidateRangeStart)
+      ? Number(summary.gpuCandidateRangeStart)
+      : null,
+    gpuCandidateRangeCount: Number.isFinite(summary?.gpuCandidateRangeCount)
+      ? Number(summary.gpuCandidateRangeCount)
+      : null,
+    gpuCandidatePromotePolicy: summary?.gpuCandidatePromotePolicy ?? null,
+    gpuCandidateReadbackMode: summary?.gpuCandidateReadbackMode ?? null,
     gpuCandidateCompare: typeof summary?.gpuCandidateCompare === 'boolean'
       ? summary.gpuCandidateCompare
       : null,
@@ -3927,6 +3966,7 @@ function installViewerDebugApi() {
     captureGpuCandidateFilterComparisonDebug,
     captureGpuCandidateDryRunVisibleComparisonDebug,
     captureGpuCandidateShadowCompareDebug,
+    captureGpuCandidateSourceCompareDebug,
     captureGpuCandidateRuntimeSummaryDebug: buildGpuCandidateRuntimeDebugSummary,
     captureLiveSameStateTileAndAssociationDebug,
     downloadLiveSameStateTileAndAssociationDebugJson,

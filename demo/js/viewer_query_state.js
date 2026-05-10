@@ -24,6 +24,21 @@ const QUERY_GPU_CANDIDATE_FILTER_MODE_VALUES = new Set([
   'all-valid',
   'evenIndex'
 ]);
+const QUERY_GPU_CANDIDATE_SOURCE_MODE_VALUES = new Set([
+  'visibleSrcIndices',
+  'firstN',
+  'range'
+]);
+const QUERY_GPU_CANDIDATE_PROMOTE_POLICY_VALUES = new Set([
+  'never',
+  'compare-ok',
+  'async-ready'
+]);
+const QUERY_GPU_CANDIDATE_READBACK_MODE_VALUES = new Set([
+  'sync-debug',
+  'async-fence',
+  'none'
+]);
 
 function parseNumber(value, fallback = null) {
   if (value === null || value === undefined || value === '') return fallback;
@@ -156,6 +171,11 @@ function buildDeterministicQueryString(state) {
   appendDeterministicQueryParam(params, 'gpuCandidateSubsetMode', state?.gpuCandidateSubsetMode);
   appendDeterministicQueryParam(params, 'gpuCandidateSubsetCount', state?.gpuCandidateSubsetCount);
   appendDeterministicQueryParam(params, 'gpuCandidateFilterMode', state?.gpuCandidateFilterMode);
+  appendDeterministicQueryParam(params, 'gpuCandidateSourceMode', state?.gpuCandidateSourceMode);
+  appendDeterministicQueryParam(params, 'gpuCandidateRangeStart', state?.gpuCandidateRangeStart);
+  appendDeterministicQueryParam(params, 'gpuCandidateRangeCount', state?.gpuCandidateRangeCount);
+  appendDeterministicQueryParam(params, 'gpuCandidatePromotePolicy', state?.gpuCandidatePromotePolicy);
+  appendDeterministicQueryParam(params, 'gpuCandidateReadbackMode', state?.gpuCandidateReadbackMode);
   appendDeterministicQueryParam(params, 'gpuCandidateCompare', state?.gpuCandidateCompare, formatDeterministicBoolean);
   appendDeterministicQueryParam(params, 'gpuCandidateAllowReadbackInDraw', state?.gpuCandidateAllowReadbackInDraw, formatDeterministicBoolean);
   appendDeterministicQueryParam(params, 'gpuCandidateDebugReadback', state?.gpuCandidateDebugReadback, formatDeterministicBoolean);
@@ -179,6 +199,9 @@ export function parseViewerQueryState(search = window.location.search) {
   const gpuCandidateFallback = params.get('gpuCandidateFallback');
   const gpuCandidateSubsetMode = params.get('gpuCandidateSubsetMode');
   const gpuCandidateFilterMode = params.get('gpuCandidateFilterMode');
+  const gpuCandidateSourceMode = params.get('gpuCandidateSourceMode');
+  const gpuCandidatePromotePolicy = params.get('gpuCandidatePromotePolicy');
+  const gpuCandidateReadbackMode = params.get('gpuCandidateReadbackMode');
 
   const state = {
     active: false,
@@ -263,6 +286,17 @@ export function parseViewerQueryState(search = window.location.search) {
     gpuCandidateFilterMode: QUERY_GPU_CANDIDATE_FILTER_MODE_VALUES.has(gpuCandidateFilterMode)
       ? gpuCandidateFilterMode
       : null,
+    gpuCandidateSourceMode: QUERY_GPU_CANDIDATE_SOURCE_MODE_VALUES.has(gpuCandidateSourceMode)
+      ? gpuCandidateSourceMode
+      : null,
+    gpuCandidateRangeStart: parseInteger(params.get('gpuCandidateRangeStart'), null),
+    gpuCandidateRangeCount: parseInteger(params.get('gpuCandidateRangeCount'), null),
+    gpuCandidatePromotePolicy: QUERY_GPU_CANDIDATE_PROMOTE_POLICY_VALUES.has(gpuCandidatePromotePolicy)
+      ? gpuCandidatePromotePolicy
+      : null,
+    gpuCandidateReadbackMode: QUERY_GPU_CANDIDATE_READBACK_MODE_VALUES.has(gpuCandidateReadbackMode)
+      ? gpuCandidateReadbackMode
+      : null,
     gpuCandidateCompare: parseBoolean(params.get('gpuCandidateCompare'), null),
     gpuCandidateAllowReadbackInDraw: parseBoolean(params.get('gpuCandidateAllowReadbackInDraw'), null),
     gpuCandidateDebugReadback: parseBoolean(params.get('gpuCandidateDebugReadback'), null),
@@ -326,6 +360,11 @@ export function parseViewerQueryState(search = window.location.search) {
     'gpuCandidateSubsetMode',
     'gpuCandidateSubsetCount',
     'gpuCandidateFilterMode',
+    'gpuCandidateSourceMode',
+    'gpuCandidateRangeStart',
+    'gpuCandidateRangeCount',
+    'gpuCandidatePromotePolicy',
+    'gpuCandidateReadbackMode',
     'gpuCandidateCompare',
     'gpuCandidateAllowReadbackInDraw',
     'gpuCandidateDebugReadback',
@@ -403,6 +442,11 @@ export function buildViewerDeterministicSummary(queryState) {
     gpuCandidateSubsetMode: state.gpuCandidateSubsetMode ?? null,
     gpuCandidateSubsetCount: Number.isFinite(state.gpuCandidateSubsetCount) ? Number(state.gpuCandidateSubsetCount) : null,
     gpuCandidateFilterMode: state.gpuCandidateFilterMode ?? null,
+    gpuCandidateSourceMode: state.gpuCandidateSourceMode ?? null,
+    gpuCandidateRangeStart: Number.isFinite(state.gpuCandidateRangeStart) ? Number(state.gpuCandidateRangeStart) : null,
+    gpuCandidateRangeCount: Number.isFinite(state.gpuCandidateRangeCount) ? Number(state.gpuCandidateRangeCount) : null,
+    gpuCandidatePromotePolicy: state.gpuCandidatePromotePolicy ?? null,
+    gpuCandidateReadbackMode: state.gpuCandidateReadbackMode ?? null,
     gpuCandidateCompare: typeof state.gpuCandidateCompare === 'boolean'
       ? state.gpuCandidateCompare
       : null,

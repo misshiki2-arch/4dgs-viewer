@@ -19,6 +19,10 @@ import {
   buildGpuCandidateRuntimeSummary
 } from './gpu_candidate_runtime_selector.js';
 import { buildGpuCandidateRuntimeFallbackSummary } from './gpu_candidate_runtime_fallback.js';
+import {
+  buildGpuOwnedCandidateSourceComparison,
+  isGpuOwnedCandidateSourceMode
+} from './gpu_candidate_source_runtime.js';
 
 function clonePlainObject(value) {
   if (!value || typeof value !== 'object') return value;
@@ -123,6 +127,7 @@ function summarizeCandidateInfo(candidateInfo) {
     rejectedCount: Number.isFinite(candidateInfo?.rejectedCount) ? candidateInfo.rejectedCount : null,
     rangeSummary: candidateInfo?.rangeSummary ?? null,
     candidateSubsetSummary: candidateInfo?.candidateSubsetSummary ?? null,
+    candidateSourceSummary: candidateInfo?.candidateSourceSummary ?? null,
     filterSummary: candidateInfo?.filterSummary ?? null,
     gpuCandidateSummary: candidateInfo?.gpuCandidateSummary ?? null
   };
@@ -267,7 +272,7 @@ function buildSkippedSummary({
   referenceCandidateInfo = null
 }) {
   return {
-    schemaVersion: 'step101-gpu-candidate-limited-draw-summary-v1',
+    schemaVersion: 'step103-gpu-candidate-limited-draw-summary-v1',
     requestedRuntime: runtimeConfig.requestedRuntime ?? 'cpu-reference',
     effectiveDisplayRuntime: fallback.effectiveRuntime ?? 'cpu-reference',
     displayCandidateSource: fallback.displayCandidateSource ?? 'cpu-reference',
@@ -281,13 +286,35 @@ function buildSkippedSummary({
     candidateArgs: summarizeCandidateArgs(candidateArgs),
     referenceCandidateSummary: summarizeCandidateInfo(referenceCandidateInfo),
     gpuCandidateSummary: null,
+    candidateSourceSummary: null,
+    candidateSourceComparison: null,
     candidateComparison: null
   };
 }
 
-function buildLimitedDrawFallbackReasons(runtimeConfig, gpuCandidateInfo, visibleComparison, shadowCompare, referenceSubsetCandidateInfo) {
+function buildLimitedDrawFallbackReasons(
+  runtimeConfig,
+  gpuCandidateInfo,
+  visibleComparison,
+  shadowCompare,
+  referenceSubsetCandidateInfo,
+  candidateSourceComparison
+) {
   const reasons = [];
-  if (referenceSubsetCandidateInfo?.candidateSubsetSummary?.enabled) {
+  const sourceMode = runtimeConfig.sourceMode ?? 'visibleSrcIndices';
+  const isGpuOwnedSource = isGpuOwnedCandidateSourceMode(sourceMode);
+  if (isGpuOwnedSource) {
+    reasons.push({
+      code: 'source-mode-display-not-allowed',
+      message: 'GPU-owned candidate source mode is compare-only in Step103 and is not allowed to replace the normal display candidate source.',
+      details: {
+        sourceMode,
+        promotePolicy: runtimeConfig.promotePolicy ?? 'never',
+        rangeStart: runtimeConfig.rangeStart ?? null,
+        rangeCount: runtimeConfig.rangeCount ?? null
+      }
+    });
+  } else if (referenceSubsetCandidateInfo?.candidateSubsetSummary?.enabled) {
     reasons.push({
       code: 'subset-display-not-allowed',
       message: 'Subset limited-draw is compare-only and is not allowed to replace the normal display candidate source.',
@@ -298,14 +325,14 @@ function buildLimitedDrawFallbackReasons(runtimeConfig, gpuCandidateInfo, visibl
       }
     });
   }
-  if (runtimeConfig.subsetMode !== 'visibleSrcIndices') {
+  if (!isGpuOwnedSource && runtimeConfig.subsetMode !== 'visibleSrcIndices') {
     reasons.push({
       code: 'unsupported-limited-draw-subset',
       message: 'limited-draw compare-only path currently supports visibleSrcIndices.',
       details: { subsetMode: runtimeConfig.subsetMode }
     });
   }
-  if (runtimeConfig.subsetCount !== 1024) {
+  if (!isGpuOwnedSource && runtimeConfig.subsetCount !== 1024) {
     reasons.push({
       code: 'unsupported-limited-draw-subset-count',
       message: 'limited-draw compare-only path currently supports subsetCount=1024.',
@@ -317,6 +344,13 @@ function buildLimitedDrawFallbackReasons(runtimeConfig, gpuCandidateInfo, visibl
       code: 'unsupported-limited-draw-filter',
       message: 'limited-draw compare-only path currently supports filterMode=all-valid.',
       details: { filterMode: runtimeConfig.filterMode }
+    });
+  }
+  if (isGpuOwnedSource && runtimeConfig.promotePolicy !== 'never') {
+    reasons.push({
+      code: 'unsupported-promote-policy',
+      message: 'Step103 keeps GPU-owned candidate source modes compare-only.',
+      details: { promotePolicy: runtimeConfig.promotePolicy }
     });
   }
   if (!runtimeConfig.requireCompare) {
@@ -341,6 +375,16 @@ function buildLimitedDrawFallbackReasons(runtimeConfig, gpuCandidateInfo, visibl
     reasons.push({
       code: 'empty-gpu-candidate',
       message: 'GPU candidate output was empty.'
+    });
+  }
+  if (isGpuOwnedSource && candidateSourceComparison?.status && candidateSourceComparison.status !== 'ok') {
+    reasons.push({
+      code: 'gpu-error',
+      message: 'GPU-owned candidate source comparison did not complete successfully.',
+      details: {
+        status: candidateSourceComparison.status,
+        reason: candidateSourceComparison.reason ?? null
+      }
     });
   }
   if (!visibleComparison) {
@@ -408,10 +452,12 @@ export function resolveGpuCandidateLimitedDrawRuntime({
   }
 
   const subsetMode = runtimeConfig.subsetMode ?? 'visibleSrcIndices';
+  const sourceMode = runtimeConfig.sourceMode ?? 'visibleSrcIndices';
+  const gpuOwnedSourceMode = isGpuOwnedCandidateSourceMode(sourceMode);
   const needsVisibleSource = subsetMode === 'visibleSrcIndices' ||
     subsetMode === 'fromVisible' ||
     subsetMode === 'visibleReachable';
-  if (needsVisibleSource && !Array.isArray(visibleSourceItems)) {
+  if (!gpuOwnedSourceMode && needsVisibleSource && !Array.isArray(visibleSourceItems)) {
     const fallback = buildGpuCandidateRuntimeFallbackSummary({
       runtimeConfig,
       shadowCompare,
@@ -437,45 +483,68 @@ export function resolveGpuCandidateLimitedDrawRuntime({
   }
 
   const referenceCandidateInfo = buildCandidateInfo(candidateArgs);
-  const referenceSubsetCandidateInfo = buildReferenceSubsetCandidateInfo({
-    raw,
-    referenceCandidateInfo,
-    subsetMode,
-    subsetCount: runtimeConfig.subsetCount,
-    visibleSourceItems
-  });
-  const referenceFilteredCandidateInfo = buildCpuFilteredCandidateInfo({
-    raw,
-    referenceSubsetCandidateInfo,
-    filterMode: runtimeConfig.filterMode,
-    candidateMode: referenceSubsetCandidateInfo.candidateSubsetSummary?.subsetMode === 'visibleSrcIndices'
-      ? 'cpu-visible-src-filter-reference'
-      : 'cpu-firstn-filter-reference'
-  });
-  const gpuCandidateInfo = referenceSubsetCandidateInfo.candidateSubsetSummary?.subsetMode === 'visibleSrcIndices'
-    ? buildGpuExplicitCandidateInfo({
+  const sourceComparison = gpuOwnedSourceMode
+    ? buildGpuOwnedCandidateSourceComparison({
         gl,
         raw,
-        referenceSubsetCandidateInfo,
-        candidateIndices: referenceSubsetCandidateInfo.candidateIndices,
-        filterMode: runtimeConfig.filterMode
+        runtimeConfig,
+        referenceCandidateInfo,
+        filterMode: runtimeConfig.filterMode,
+        metadata: {
+          candidateArgs: summarizeCandidateArgs(candidateArgs)
+        }
       })
-    : buildGpuFirstNCandidateInfo({
-        gl,
+    : null;
+  const referenceSubsetCandidateInfo = gpuOwnedSourceMode
+    ? sourceComparison?.cpuMirrorCandidateInfo
+    : buildReferenceSubsetCandidateInfo({
+        raw,
+        referenceCandidateInfo,
+        subsetMode,
+        subsetCount: runtimeConfig.subsetCount,
+        visibleSourceItems
+      });
+  const referenceFilteredCandidateInfo = gpuOwnedSourceMode
+    ? sourceComparison.cpuMirrorCandidateInfo
+    : buildCpuFilteredCandidateInfo({
         raw,
         referenceSubsetCandidateInfo,
-        subsetCount: runtimeConfig.subsetCount,
-        startIndex: runtimeConfig.startIndex,
-        filterMode: runtimeConfig.filterMode
+        filterMode: runtimeConfig.filterMode,
+        candidateMode: referenceSubsetCandidateInfo.candidateSubsetSummary?.subsetMode === 'visibleSrcIndices'
+          ? 'cpu-visible-src-filter-reference'
+          : 'cpu-firstn-filter-reference'
       });
+  const gpuCandidateInfo = gpuOwnedSourceMode
+    ? sourceComparison.gpuCandidateInfo
+    : (referenceSubsetCandidateInfo.candidateSubsetSummary?.subsetMode === 'visibleSrcIndices'
+      ? buildGpuExplicitCandidateInfo({
+          gl,
+          raw,
+          referenceSubsetCandidateInfo,
+          candidateIndices: referenceSubsetCandidateInfo.candidateIndices,
+          filterMode: runtimeConfig.filterMode
+        })
+      : buildGpuFirstNCandidateInfo({
+          gl,
+          raw,
+          referenceSubsetCandidateInfo,
+          subsetCount: runtimeConfig.subsetCount,
+          startIndex: runtimeConfig.startIndex,
+          filterMode: runtimeConfig.filterMode
+        }));
   const candidateComparison = buildCandidateComparisonSummary({
     referenceCandidateInfo: referenceFilteredCandidateInfo,
     candidateCandidateInfo: gpuCandidateInfo,
-    referenceLabel: 'cpu-filtered-candidate-reference',
-    candidateLabel: 'gpu-candidate-limited-draw',
+    referenceLabel: gpuOwnedSourceMode ? 'cpu-range-candidate-source-reference' : 'cpu-filtered-candidate-reference',
+    candidateLabel: gpuOwnedSourceMode ? 'gpu-range-candidate-source' : 'gpu-candidate-limited-draw',
     options: { maxMismatches: 16 },
     metadata: {
-      comparisonMode: 'cpu-filtered-candidate-vs-gpu-candidate-limited-draw',
+      comparisonMode: gpuOwnedSourceMode
+        ? 'cpu-range-candidate-source-vs-gpu-range-candidate-source'
+        : 'cpu-filtered-candidate-vs-gpu-candidate-limited-draw',
+      sourceMode,
+      sourceConfig: sourceComparison?.sourceConfig ?? null,
+      candidateSourceSummary: sourceComparison?.candidateSourceSummary ?? null,
       subset: referenceSubsetCandidateInfo.candidateSubsetSummary ?? null,
       selectedCandidateCount: referenceSubsetCandidateInfo.candidateIndices?.length ?? 0,
       cpuFilterSummary: referenceFilteredCandidateInfo.filterSummary ?? null,
@@ -548,7 +617,8 @@ export function resolveGpuCandidateLimitedDrawRuntime({
       gpuCandidateInfo,
       visibleComparison,
       shadowCompare,
-      referenceSubsetCandidateInfo
+      referenceSubsetCandidateInfo,
+      sourceComparison
     )
   });
   const useGpuCandidate = finalFallback.action === 'use-gpu-candidate';
@@ -559,7 +629,7 @@ export function resolveGpuCandidateLimitedDrawRuntime({
     runtimeSummary,
     fallback: finalFallback,
     summary: {
-      schemaVersion: 'step101-gpu-candidate-limited-draw-summary-v1',
+      schemaVersion: 'step103-gpu-candidate-limited-draw-summary-v1',
       requestedRuntime: runtimeConfig.requestedRuntime,
       effectiveDisplayRuntime: finalFallback.effectiveRuntime,
       displayCandidateSource: finalFallback.displayCandidateSource,
@@ -571,6 +641,19 @@ export function resolveGpuCandidateLimitedDrawRuntime({
       runtimeSummary,
       fallback: finalFallback,
       candidateArgs: summarizeCandidateArgs(candidateArgs),
+      candidateSourceSummary: sourceComparison?.candidateSourceSummary ?? null,
+      candidateSourceComparison: sourceComparison
+        ? {
+            schemaVersion: sourceComparison.schemaVersion,
+            status: sourceComparison.status,
+            reason: sourceComparison.reason,
+            sourceConfig: sourceComparison.sourceConfig,
+            candidateSourceSummary: sourceComparison.candidateSourceSummary,
+            cpuMirrorCandidateSummary: sourceComparison.cpuMirrorCandidateSummary,
+            gpuCandidateSummary: sourceComparison.gpuCandidateSummary,
+            candidateComparison: sourceComparison.candidateComparison
+          }
+        : null,
       referenceCandidateSummary: summarizeCandidateInfo(referenceFilteredCandidateInfo),
       gpuCandidateSummary: summarizeCandidateInfo(gpuCandidateInfo),
       candidateComparison,
