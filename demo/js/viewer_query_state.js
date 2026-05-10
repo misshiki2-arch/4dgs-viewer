@@ -176,6 +176,8 @@ function buildDeterministicQueryString(state) {
   appendDeterministicQueryParam(params, 'gpuCandidateRangeCount', state?.gpuCandidateRangeCount);
   appendDeterministicQueryParam(params, 'gpuCandidatePromotePolicy', state?.gpuCandidatePromotePolicy);
   appendDeterministicQueryParam(params, 'gpuCandidateReadbackMode', state?.gpuCandidateReadbackMode);
+  appendDeterministicQueryParam(params, 'gpuCandidateCoverageCompare', state?.gpuCandidateCoverageCompare, formatDeterministicBoolean);
+  appendDeterministicQueryParam(params, 'gpuCandidateCoverageMaxMisses', state?.gpuCandidateCoverageMaxMisses);
   appendDeterministicQueryParam(params, 'gpuCandidateCompare', state?.gpuCandidateCompare, formatDeterministicBoolean);
   appendDeterministicQueryParam(params, 'gpuCandidateAllowReadbackInDraw', state?.gpuCandidateAllowReadbackInDraw, formatDeterministicBoolean);
   appendDeterministicQueryParam(params, 'gpuCandidateDebugReadback', state?.gpuCandidateDebugReadback, formatDeterministicBoolean);
@@ -297,6 +299,8 @@ export function parseViewerQueryState(search = window.location.search) {
     gpuCandidateReadbackMode: QUERY_GPU_CANDIDATE_READBACK_MODE_VALUES.has(gpuCandidateReadbackMode)
       ? gpuCandidateReadbackMode
       : null,
+    gpuCandidateCoverageCompare: parseBoolean(params.get('gpuCandidateCoverageCompare'), null),
+    gpuCandidateCoverageMaxMisses: parseInteger(params.get('gpuCandidateCoverageMaxMisses'), null),
     gpuCandidateCompare: parseBoolean(params.get('gpuCandidateCompare'), null),
     gpuCandidateAllowReadbackInDraw: parseBoolean(params.get('gpuCandidateAllowReadbackInDraw'), null),
     gpuCandidateDebugReadback: parseBoolean(params.get('gpuCandidateDebugReadback'), null),
@@ -365,6 +369,8 @@ export function parseViewerQueryState(search = window.location.search) {
     'gpuCandidateRangeCount',
     'gpuCandidatePromotePolicy',
     'gpuCandidateReadbackMode',
+    'gpuCandidateCoverageCompare',
+    'gpuCandidateCoverageMaxMisses',
     'gpuCandidateCompare',
     'gpuCandidateAllowReadbackInDraw',
     'gpuCandidateDebugReadback',
@@ -447,6 +453,12 @@ export function buildViewerDeterministicSummary(queryState) {
     gpuCandidateRangeCount: Number.isFinite(state.gpuCandidateRangeCount) ? Number(state.gpuCandidateRangeCount) : null,
     gpuCandidatePromotePolicy: state.gpuCandidatePromotePolicy ?? null,
     gpuCandidateReadbackMode: state.gpuCandidateReadbackMode ?? null,
+    gpuCandidateCoverageCompare: typeof state.gpuCandidateCoverageCompare === 'boolean'
+      ? state.gpuCandidateCoverageCompare
+      : null,
+    gpuCandidateCoverageMaxMisses: Number.isFinite(state.gpuCandidateCoverageMaxMisses)
+      ? Number(state.gpuCandidateCoverageMaxMisses)
+      : null,
     gpuCandidateCompare: typeof state.gpuCandidateCompare === 'boolean'
       ? state.gpuCandidateCompare
       : null,

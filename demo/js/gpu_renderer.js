@@ -69,6 +69,7 @@ import { executeFullFrameDrawByPath } from './gpu_draw_execution_router.js';
 import { executeSelectedTileLegacyDraw } from './gpu_selected_tile_draw_executor.js';
 import { buildTileCompositePlan } from './gpu_tile_composite_utils.js';
 import { resolveGpuCandidateLimitedDrawRuntime } from './gpu_candidate_limited_draw_runtime.js';
+import { buildGpuCandidateCoverageSummary } from './gpu_candidate_coverage_debug.js';
 
 function ensureDebugOverlayCanvas(mainCanvas) {
   let overlay = document.getElementById('gpuTileDebugOverlay');
@@ -846,6 +847,28 @@ export async function renderGpuFrame({
     activeTileBox,
     buildStats: rawBuildStats
   } = visibleResult;
+  if (
+    limitedDrawRuntime.runtimeConfig?.coverageCompare &&
+    limitedDrawRuntime.candidateSourceComparison?.gpuCandidateInfo
+  ) {
+    const coverageSummary = buildGpuCandidateCoverageSummary({
+      candidateInfo: limitedDrawRuntime.candidateSourceComparison.gpuCandidateInfo,
+      candidateSourceSummary: limitedDrawRuntime.candidateSourceComparison.candidateSourceSummary,
+      sourceConfig: limitedDrawRuntime.candidateSourceComparison.sourceConfig,
+      visibleItems: visible,
+      packedScreenSpace,
+      maxMissingSamples: limitedDrawRuntime.runtimeConfig.coverageMaxMisses,
+      metadata: {
+        comparisonMode: 'gpu-range-candidate-coverage-vs-cpu-reference-visible',
+        candidateComparisonAnyMismatch:
+          !!limitedDrawRuntime.candidateSourceComparison.candidateComparison?.anyMismatch
+      }
+    });
+    limitedDrawRuntime.summary.candidateCoverageSummary = coverageSummary;
+    if (limitedDrawRuntime.summary.candidateSourceComparison) {
+      limitedDrawRuntime.summary.candidateSourceComparison.candidateCoverageSummary = coverageSummary;
+    }
+  }
 
   const tileData = buildTileLists(visible, tileGrid.tileCols, tileGrid.tileRows);
   const tileSummary = summarizeTileLists(

@@ -16,6 +16,7 @@ const DEFAULT_RANGE_START = 0;
 const DEFAULT_RANGE_COUNT = 65536;
 const DEFAULT_PROMOTE_POLICY = 'never';
 const DEFAULT_READBACK_MODE = 'sync-debug';
+const DEFAULT_COVERAGE_MAX_MISSES = 32;
 
 function normalizeRuntime(value) {
   return RUNTIME_VALUES.has(value) ? value : DEFAULT_RUNTIME;
@@ -112,6 +113,14 @@ export function buildGpuCandidateRuntimeConfig(queryState = {}, overrides = {}) 
   const readbackMode = normalizeReadbackMode(
     overrides.readbackMode ?? overrides.gpuCandidateReadbackMode ?? queryState.gpuCandidateReadbackMode
   );
+  const coverageCompare = toBoolean(
+    overrides.coverageCompare ?? overrides.gpuCandidateCoverageCompare ?? queryState.gpuCandidateCoverageCompare,
+    false
+  );
+  const coverageMaxMisses = toFiniteInteger(
+    overrides.coverageMaxMisses ?? overrides.gpuCandidateCoverageMaxMisses ?? queryState.gpuCandidateCoverageMaxMisses,
+    DEFAULT_COVERAGE_MAX_MISSES
+  );
 
   const limitedDrawRequested = requestedRuntime === 'limited-draw';
   const shadowCompareRequested = requestedRuntime === 'shadow-compare';
@@ -151,6 +160,8 @@ export function buildGpuCandidateRuntimeConfig(queryState = {}, overrides = {}) 
     rangeCount,
     promotePolicy,
     readbackMode,
+    coverageCompare,
+    coverageMaxMisses,
     readbackPolicy: {
       allowReadbackInDraw,
       debugReadback,
@@ -189,6 +200,10 @@ export function buildGpuCandidateRuntimeSummary(runtimeConfig = {}) {
     rangeCount: Number.isFinite(runtimeConfig.rangeCount) ? runtimeConfig.rangeCount : DEFAULT_RANGE_COUNT,
     promotePolicy: runtimeConfig.promotePolicy ?? DEFAULT_PROMOTE_POLICY,
     readbackMode: runtimeConfig.readbackMode ?? DEFAULT_READBACK_MODE,
+    coverageCompare: !!runtimeConfig.coverageCompare,
+    coverageMaxMisses: Number.isFinite(runtimeConfig.coverageMaxMisses)
+      ? runtimeConfig.coverageMaxMisses
+      : DEFAULT_COVERAGE_MAX_MISSES,
     readbackPolicy: runtimeConfig.readbackPolicy ?? null
   };
 }

@@ -272,7 +272,7 @@ function buildSkippedSummary({
   referenceCandidateInfo = null
 }) {
   return {
-    schemaVersion: 'step103-gpu-candidate-limited-draw-summary-v1',
+    schemaVersion: 'step105-gpu-candidate-limited-draw-summary-v1',
     requestedRuntime: runtimeConfig.requestedRuntime ?? 'cpu-reference',
     effectiveDisplayRuntime: fallback.effectiveRuntime ?? 'cpu-reference',
     displayCandidateSource: fallback.displayCandidateSource ?? 'cpu-reference',
@@ -288,6 +288,7 @@ function buildSkippedSummary({
     gpuCandidateSummary: null,
     candidateSourceSummary: null,
     candidateSourceComparison: null,
+    candidateCoverageSummary: null,
     candidateComparison: null
   };
 }
@@ -628,8 +629,9 @@ export function resolveGpuCandidateLimitedDrawRuntime({
     runtimeConfig,
     runtimeSummary,
     fallback: finalFallback,
+    candidateSourceComparison: sourceComparison,
     summary: {
-      schemaVersion: 'step103-gpu-candidate-limited-draw-summary-v1',
+      schemaVersion: 'step105-gpu-candidate-limited-draw-summary-v1',
       requestedRuntime: runtimeConfig.requestedRuntime,
       effectiveDisplayRuntime: finalFallback.effectiveRuntime,
       displayCandidateSource: finalFallback.displayCandidateSource,
@@ -642,6 +644,7 @@ export function resolveGpuCandidateLimitedDrawRuntime({
       fallback: finalFallback,
       candidateArgs: summarizeCandidateArgs(candidateArgs),
       candidateSourceSummary: sourceComparison?.candidateSourceSummary ?? null,
+      candidateCoverageSummary: null,
       candidateSourceComparison: sourceComparison
         ? {
             schemaVersion: sourceComparison.schemaVersion,

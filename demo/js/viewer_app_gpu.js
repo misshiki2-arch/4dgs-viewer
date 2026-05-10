@@ -333,7 +333,7 @@ function buildGpuCandidateRuntimeDebugSummary(options = {}) {
   });
   const effectiveFallback = limitedDrawSummary?.fallback ?? fallback;
   return {
-    schemaVersion: 'step103-gpu-candidate-runtime-summary-debug-v1',
+    schemaVersion: 'step105-gpu-candidate-runtime-summary-debug-v1',
     timestamp: new Date().toISOString(),
     purpose: 'Summarize GPU candidate runtime selector, limited-draw candidate source promotion, and fallback decisions.',
     runtimeSummary,
@@ -341,6 +341,7 @@ function buildGpuCandidateRuntimeDebugSummary(options = {}) {
     limitedDrawSummary,
     candidateSourceSummary: limitedDrawSummary?.candidateSourceSummary ?? null,
     candidateSourceComparison: limitedDrawSummary?.candidateSourceComparison ?? null,
+    candidateCoverageSummary: limitedDrawSummary?.candidateCoverageSummary ?? null,
     displayCandidateSource: limitedDrawSummary?.displayCandidateSource ?? effectiveFallback.displayCandidateSource ?? runtimeSummary.displayCandidateSource,
     gpuCandidateUsedForDisplay: !!(limitedDrawSummary?.gpuCandidateUsedForDisplay ?? effectiveFallback.gpuCandidateUsedForDisplay),
     limitedDrawConnectedToRendering: true,
@@ -1658,9 +1659,36 @@ async function captureGpuCandidateSourceCompareDebug(options = {}) {
     reason: limitedDrawSummary?.candidateSourceComparison ? 'ok' : 'candidate-source-comparison-unavailable',
     candidateSourceSummary: limitedDrawSummary?.candidateSourceSummary ?? null,
     candidateSourceComparison: limitedDrawSummary?.candidateSourceComparison ?? null,
+    candidateCoverageSummary: limitedDrawSummary?.candidateCoverageSummary ?? null,
     candidateComparison: limitedDrawSummary?.candidateSourceComparison?.candidateComparison ??
       limitedDrawSummary?.candidateComparison ??
       null,
+    displayCandidateSource: limitedDrawSummary?.displayCandidateSource ?? 'cpu-reference',
+    gpuCandidateUsedForDisplay: !!limitedDrawSummary?.gpuCandidateUsedForDisplay,
+    limitedDrawUsedForCandidateSource: !!limitedDrawSummary?.limitedDrawUsedForCandidateSource,
+    deterministicState: buildSlimDeterministicStateSummary(buildDeterministicStateSummary()),
+    renderAttempts: debugRender.attempts,
+    lastRenderResultSummary: buildRenderResultInspectionSummary(debugRender.renderResult)
+  };
+}
+
+async function captureGpuCandidateCoverageDebug(options = {}) {
+  const ensureCurrentFrame = options.ensureCurrentFrame !== false;
+  const debugRender = ensureCurrentFrame || !latestRenderResult
+    ? await renderCurrentFrameForDebugPayload(options)
+    : {
+        renderResult: latestRenderResult,
+        attempts: [{ stage: 'reuse-latest-render-result' }]
+      };
+  const limitedDrawSummary = debugRender.renderResult?.limitedDrawRuntimeSummary ?? null;
+  return {
+    schemaVersion: 'step105-gpu-candidate-coverage-debug-v1',
+    timestamp: new Date().toISOString(),
+    status: limitedDrawSummary?.candidateCoverageSummary ? 'ok' : 'missing',
+    reason: limitedDrawSummary?.candidateCoverageSummary ? 'ok' : 'candidate-coverage-summary-unavailable',
+    candidateCoverageSummary: limitedDrawSummary?.candidateCoverageSummary ?? null,
+    candidateSourceSummary: limitedDrawSummary?.candidateSourceSummary ?? null,
+    candidateSourceComparison: limitedDrawSummary?.candidateSourceComparison ?? null,
     displayCandidateSource: limitedDrawSummary?.displayCandidateSource ?? 'cpu-reference',
     gpuCandidateUsedForDisplay: !!limitedDrawSummary?.gpuCandidateUsedForDisplay,
     limitedDrawUsedForCandidateSource: !!limitedDrawSummary?.limitedDrawUsedForCandidateSource,
@@ -2896,6 +2924,12 @@ function buildSlimDeterministicStateSummary(summary) {
       : null,
     gpuCandidatePromotePolicy: summary?.gpuCandidatePromotePolicy ?? null,
     gpuCandidateReadbackMode: summary?.gpuCandidateReadbackMode ?? null,
+    gpuCandidateCoverageCompare: typeof summary?.gpuCandidateCoverageCompare === 'boolean'
+      ? summary.gpuCandidateCoverageCompare
+      : null,
+    gpuCandidateCoverageMaxMisses: Number.isFinite(summary?.gpuCandidateCoverageMaxMisses)
+      ? Number(summary.gpuCandidateCoverageMaxMisses)
+      : null,
     gpuCandidateCompare: typeof summary?.gpuCandidateCompare === 'boolean'
       ? summary.gpuCandidateCompare
       : null,
@@ -3967,6 +4001,7 @@ function installViewerDebugApi() {
     captureGpuCandidateDryRunVisibleComparisonDebug,
     captureGpuCandidateShadowCompareDebug,
     captureGpuCandidateSourceCompareDebug,
+    captureGpuCandidateCoverageDebug,
     captureGpuCandidateRuntimeSummaryDebug: buildGpuCandidateRuntimeDebugSummary,
     captureLiveSameStateTileAndAssociationDebug,
     downloadLiveSameStateTileAndAssociationDebugJson,
