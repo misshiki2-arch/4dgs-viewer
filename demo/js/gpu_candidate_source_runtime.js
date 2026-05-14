@@ -2,12 +2,19 @@ import {
   buildCpuFilteredCandidateInfo,
   buildGpuFirstNCandidateInfo
 } from './gpu_candidate_builder_gpu_firstn.js';
+import {
+  buildCpuScreenCoarseCandidateSourceInfo,
+  buildGpuScreenCoarseCandidateInfo
+} from './gpu_candidate_screen_coarse_runtime.js';
 import { buildCandidateComparisonSummary } from './gpu_visible_compare_debug.js';
 
-const SOURCE_MODE_VALUES = new Set(['visibleSrcIndices', 'firstN', 'range']);
+const SOURCE_MODE_VALUES = new Set(['visibleSrcIndices', 'firstN', 'range', 'screenCoarse']);
 const DEFAULT_SOURCE_MODE = 'visibleSrcIndices';
 const DEFAULT_RANGE_START = 0;
 const DEFAULT_RANGE_COUNT = 65536;
+const DEFAULT_SCREEN_COARSE_MAX_COUNT = 65536;
+const DEFAULT_SCREEN_COARSE_MIN_RADIUS_PX = 0.25;
+const SCREEN_COARSE_DEPTH_MODE_VALUES = new Set(['positive', 'any']);
 
 function clonePlainObject(value) {
   if (!value || typeof value !== 'object') return value;
@@ -22,6 +29,15 @@ function toFiniteInteger(value, fallback) {
   return Number.isFinite(n) ? Math.max(0, n | 0) : fallback;
 }
 
+function toFiniteNumber(value, fallback) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function normalizeScreenCoarseDepthMode(value) {
+  return SCREEN_COARSE_DEPTH_MODE_VALUES.has(value) ? value : 'positive';
+}
+
 export function normalizeGpuCandidateSourceMode(value) {
   return SOURCE_MODE_VALUES.has(value) ? value : DEFAULT_SOURCE_MODE;
 }
@@ -33,13 +49,21 @@ export function buildGpuCandidateSourceConfig(runtimeConfig = {}) {
     sourceMode,
     rangeStart: toFiniteInteger(runtimeConfig.rangeStart, DEFAULT_RANGE_START),
     rangeCount: toFiniteInteger(runtimeConfig.rangeCount, DEFAULT_RANGE_COUNT),
+    screenCoarseMaxCount: toFiniteInteger(runtimeConfig.screenCoarseMaxCount, DEFAULT_SCREEN_COARSE_MAX_COUNT),
+    screenCoarseMinRadiusPx: Math.max(
+      0,
+      toFiniteNumber(runtimeConfig.screenCoarseMinRadiusPx, DEFAULT_SCREEN_COARSE_MIN_RADIUS_PX)
+    ),
+    screenCoarseRequireInViewport: runtimeConfig.screenCoarseRequireInViewport !== false,
+    screenCoarseDepthMode: normalizeScreenCoarseDepthMode(runtimeConfig.screenCoarseDepthMode),
     promotePolicy: runtimeConfig.promotePolicy ?? 'never',
     readbackMode: runtimeConfig.readbackMode ?? 'sync-debug'
   };
 }
 
 export function isGpuOwnedCandidateSourceMode(sourceMode) {
-  return normalizeGpuCandidateSourceMode(sourceMode) === 'range';
+  const normalized = normalizeGpuCandidateSourceMode(sourceMode);
+  return normalized === 'range' || normalized === 'screenCoarse';
 }
 
 export function buildCpuRangeCandidateSourceInfo({
@@ -112,12 +136,19 @@ export function buildGpuOwnedCandidateSourceComparison({
   runtimeConfig = {},
   referenceCandidateInfo = null,
   filterMode = 'all-valid',
+  camera = null,
+  screenSpaceCamera = null,
+  canvasWidth = 0,
+  canvasHeight = 0,
+  camPos = null,
+  tileGrid = null,
+  buildConfig = null,
   metadata = {}
 } = {}) {
   const sourceConfig = buildGpuCandidateSourceConfig(runtimeConfig);
-  if (sourceConfig.sourceMode !== 'range') {
+  if (sourceConfig.sourceMode !== 'range' && sourceConfig.sourceMode !== 'screenCoarse') {
     return {
-      schemaVersion: 'step103-gpu-candidate-source-compare-v1',
+      schemaVersion: 'step107-gpu-candidate-source-compare-v1',
       status: 'skipped',
       reason: 'unsupported-source-mode-for-gpu-owned-compare',
       sourceConfig,
@@ -128,34 +159,68 @@ export function buildGpuOwnedCandidateSourceComparison({
     };
   }
 
-  const cpuSourceInfo = buildCpuRangeCandidateSourceInfo({
-    raw,
-    referenceCandidateInfo,
-    rangeStart: sourceConfig.rangeStart,
-    rangeCount: sourceConfig.rangeCount
-  });
-  const cpuMirrorInfo = buildCpuFilteredCandidateInfo({
-    raw,
-    referenceSubsetCandidateInfo: cpuSourceInfo,
-    filterMode,
-    candidateMode: 'cpu-range-candidate-filter-reference'
-  });
-  const gpuCandidateInfo = buildGpuFirstNCandidateInfo({
-    gl,
-    raw,
-    referenceSubsetCandidateInfo: cpuSourceInfo,
-    subsetCount: sourceConfig.rangeCount,
-    startIndex: sourceConfig.rangeStart,
-    filterMode
-  });
+  let cpuSourceInfo = null;
+  let cpuMirrorInfo = null;
+  let gpuCandidateInfo = null;
+  let referenceLabel = 'cpu-range-candidate-source-reference';
+  let candidateLabel = 'gpu-range-candidate-source';
+  let comparisonMode = 'cpu-range-candidate-source-vs-gpu-range-candidate-source';
+  if (sourceConfig.sourceMode === 'screenCoarse') {
+    cpuSourceInfo = buildCpuScreenCoarseCandidateSourceInfo({
+      raw,
+      referenceCandidateInfo,
+      runtimeConfig: sourceConfig,
+      filterMode,
+      camera,
+      screenSpaceCamera,
+      canvasWidth,
+      canvasHeight,
+      camPos,
+      tileGrid,
+      buildConfig
+    });
+    cpuMirrorInfo = cpuSourceInfo;
+    gpuCandidateInfo = buildGpuScreenCoarseCandidateInfo({
+      gl,
+      raw,
+      referenceCandidateInfo,
+      cpuScreenCoarseSourceInfo: cpuSourceInfo,
+      runtimeConfig: sourceConfig,
+      filterMode
+    });
+    referenceLabel = 'cpu-screen-coarse-candidate-source-reference';
+    candidateLabel = 'gpu-screen-coarse-candidate-source';
+    comparisonMode = 'cpu-screen-coarse-candidate-source-vs-gpu-screen-coarse-candidate-source';
+  } else {
+    cpuSourceInfo = buildCpuRangeCandidateSourceInfo({
+      raw,
+      referenceCandidateInfo,
+      rangeStart: sourceConfig.rangeStart,
+      rangeCount: sourceConfig.rangeCount
+    });
+    cpuMirrorInfo = buildCpuFilteredCandidateInfo({
+      raw,
+      referenceSubsetCandidateInfo: cpuSourceInfo,
+      filterMode,
+      candidateMode: 'cpu-range-candidate-filter-reference'
+    });
+    gpuCandidateInfo = buildGpuFirstNCandidateInfo({
+      gl,
+      raw,
+      referenceSubsetCandidateInfo: cpuSourceInfo,
+      subsetCount: sourceConfig.rangeCount,
+      startIndex: sourceConfig.rangeStart,
+      filterMode
+    });
+  }
   const candidateComparison = buildCandidateComparisonSummary({
     referenceCandidateInfo: cpuMirrorInfo,
     candidateCandidateInfo: gpuCandidateInfo,
-    referenceLabel: 'cpu-range-candidate-source-reference',
-    candidateLabel: 'gpu-range-candidate-source',
+    referenceLabel,
+    candidateLabel,
     options: { maxMismatches: 16 },
     metadata: {
-      comparisonMode: 'cpu-range-candidate-source-vs-gpu-range-candidate-source',
+      comparisonMode,
       sourceConfig,
       candidateSourceSummary: cpuSourceInfo.candidateSourceSummary,
       cpuFilterSummary: cpuMirrorInfo.filterSummary ?? null,
@@ -166,7 +231,7 @@ export function buildGpuOwnedCandidateSourceComparison({
     }
   });
   return {
-    schemaVersion: 'step103-gpu-candidate-source-compare-v1',
+    schemaVersion: 'step107-gpu-candidate-source-compare-v1',
     status: gpuCandidateInfo.gpuCandidateSummary?.status === 'ok' ? 'ok' : 'fallback',
     reason: gpuCandidateInfo.gpuCandidateSummary?.reason ?? 'ok',
     sourceConfig,
@@ -175,7 +240,8 @@ export function buildGpuOwnedCandidateSourceComparison({
       candidateMode: cpuMirrorInfo.candidateMode,
       candidateCount: cpuMirrorInfo.candidateIndices?.length ?? 0,
       filterSummary: cpuMirrorInfo.filterSummary ?? null,
-      rangeSummary: cpuMirrorInfo.rangeSummary ?? null
+      rangeSummary: cpuMirrorInfo.rangeSummary ?? null,
+      screenCoarseSummary: cpuMirrorInfo.screenCoarseSummary ?? null
     },
     gpuCandidateSummary: gpuCandidateInfo.gpuCandidateSummary ?? null,
     candidateComparison,

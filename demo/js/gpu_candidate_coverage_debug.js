@@ -106,6 +106,9 @@ export function buildGpuCandidateCoverageSummary({
     candidateSourceSummary?.rangeCount ??
     candidateInfo?.rangeSummary?.rangeCount ??
     null;
+  const screenCoarseSummary = candidateSourceSummary?.sourceMode === 'screenCoarse'
+    ? candidateSourceSummary
+    : (candidateInfo?.screenCoarseSummary ?? null);
   return {
     schemaVersion: 'step105-gpu-candidate-coverage-summary-v1',
     status: 'ok',
@@ -113,8 +116,21 @@ export function buildGpuCandidateCoverageSummary({
     sourceMode: sourceConfig?.sourceMode ?? candidateSourceSummary?.sourceMode ?? 'unknown',
     candidateRangeStart: rangeStart,
     candidateRangeCount: rangeCount,
+    screenCoarseMaxCount: sourceConfig?.screenCoarseMaxCount ??
+      screenCoarseSummary?.maxCount ??
+      null,
+    screenCoarseMinRadiusPx: sourceConfig?.screenCoarseMinRadiusPx ??
+      screenCoarseSummary?.minRadiusPx ??
+      null,
+    screenCoarseRequireInViewport: sourceConfig?.screenCoarseRequireInViewport ??
+      screenCoarseSummary?.requireInViewport ??
+      null,
+    screenCoarseDepthMode: sourceConfig?.screenCoarseDepthMode ??
+      screenCoarseSummary?.depthMode ??
+      null,
     gpuCandidateCount: indices.length,
     candidateSourceSummary: candidateSourceSummary ?? null,
+    screenCoarseSummary,
     sourceConfig: sourceConfig ?? null,
     acceptedCount: Number.isFinite(visibleCoverage.visibleHitCount)
       ? visibleCoverage.visibleHitCount

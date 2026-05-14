@@ -27,7 +27,8 @@ const QUERY_GPU_CANDIDATE_FILTER_MODE_VALUES = new Set([
 const QUERY_GPU_CANDIDATE_SOURCE_MODE_VALUES = new Set([
   'visibleSrcIndices',
   'firstN',
-  'range'
+  'range',
+  'screenCoarse'
 ]);
 const QUERY_GPU_CANDIDATE_PROMOTE_POLICY_VALUES = new Set([
   'never',
@@ -38,6 +39,10 @@ const QUERY_GPU_CANDIDATE_READBACK_MODE_VALUES = new Set([
   'sync-debug',
   'async-fence',
   'none'
+]);
+const QUERY_GPU_CANDIDATE_SCREEN_COARSE_DEPTH_MODE_VALUES = new Set([
+  'positive',
+  'any'
 ]);
 
 function parseNumber(value, fallback = null) {
@@ -174,6 +179,15 @@ function buildDeterministicQueryString(state) {
   appendDeterministicQueryParam(params, 'gpuCandidateSourceMode', state?.gpuCandidateSourceMode);
   appendDeterministicQueryParam(params, 'gpuCandidateRangeStart', state?.gpuCandidateRangeStart);
   appendDeterministicQueryParam(params, 'gpuCandidateRangeCount', state?.gpuCandidateRangeCount);
+  appendDeterministicQueryParam(params, 'gpuCandidateScreenCoarseMaxCount', state?.gpuCandidateScreenCoarseMaxCount);
+  appendDeterministicQueryParam(params, 'gpuCandidateScreenCoarseMinRadiusPx', state?.gpuCandidateScreenCoarseMinRadiusPx);
+  appendDeterministicQueryParam(
+    params,
+    'gpuCandidateScreenCoarseRequireInViewport',
+    state?.gpuCandidateScreenCoarseRequireInViewport,
+    formatDeterministicBoolean
+  );
+  appendDeterministicQueryParam(params, 'gpuCandidateScreenCoarseDepthMode', state?.gpuCandidateScreenCoarseDepthMode);
   appendDeterministicQueryParam(params, 'gpuCandidatePromotePolicy', state?.gpuCandidatePromotePolicy);
   appendDeterministicQueryParam(params, 'gpuCandidateReadbackMode', state?.gpuCandidateReadbackMode);
   appendDeterministicQueryParam(params, 'gpuCandidateCoverageCompare', state?.gpuCandidateCoverageCompare, formatDeterministicBoolean);
@@ -204,6 +218,7 @@ export function parseViewerQueryState(search = window.location.search) {
   const gpuCandidateSourceMode = params.get('gpuCandidateSourceMode');
   const gpuCandidatePromotePolicy = params.get('gpuCandidatePromotePolicy');
   const gpuCandidateReadbackMode = params.get('gpuCandidateReadbackMode');
+  const gpuCandidateScreenCoarseDepthMode = params.get('gpuCandidateScreenCoarseDepthMode');
 
   const state = {
     active: false,
@@ -293,6 +308,15 @@ export function parseViewerQueryState(search = window.location.search) {
       : null,
     gpuCandidateRangeStart: parseInteger(params.get('gpuCandidateRangeStart'), null),
     gpuCandidateRangeCount: parseInteger(params.get('gpuCandidateRangeCount'), null),
+    gpuCandidateScreenCoarseMaxCount: parseInteger(params.get('gpuCandidateScreenCoarseMaxCount'), null),
+    gpuCandidateScreenCoarseMinRadiusPx: parseNumber(params.get('gpuCandidateScreenCoarseMinRadiusPx'), null),
+    gpuCandidateScreenCoarseRequireInViewport: parseBoolean(
+      params.get('gpuCandidateScreenCoarseRequireInViewport'),
+      null
+    ),
+    gpuCandidateScreenCoarseDepthMode: QUERY_GPU_CANDIDATE_SCREEN_COARSE_DEPTH_MODE_VALUES.has(gpuCandidateScreenCoarseDepthMode)
+      ? gpuCandidateScreenCoarseDepthMode
+      : null,
     gpuCandidatePromotePolicy: QUERY_GPU_CANDIDATE_PROMOTE_POLICY_VALUES.has(gpuCandidatePromotePolicy)
       ? gpuCandidatePromotePolicy
       : null,
@@ -367,6 +391,10 @@ export function parseViewerQueryState(search = window.location.search) {
     'gpuCandidateSourceMode',
     'gpuCandidateRangeStart',
     'gpuCandidateRangeCount',
+    'gpuCandidateScreenCoarseMaxCount',
+    'gpuCandidateScreenCoarseMinRadiusPx',
+    'gpuCandidateScreenCoarseRequireInViewport',
+    'gpuCandidateScreenCoarseDepthMode',
     'gpuCandidatePromotePolicy',
     'gpuCandidateReadbackMode',
     'gpuCandidateCoverageCompare',
@@ -451,6 +479,16 @@ export function buildViewerDeterministicSummary(queryState) {
     gpuCandidateSourceMode: state.gpuCandidateSourceMode ?? null,
     gpuCandidateRangeStart: Number.isFinite(state.gpuCandidateRangeStart) ? Number(state.gpuCandidateRangeStart) : null,
     gpuCandidateRangeCount: Number.isFinite(state.gpuCandidateRangeCount) ? Number(state.gpuCandidateRangeCount) : null,
+    gpuCandidateScreenCoarseMaxCount: Number.isFinite(state.gpuCandidateScreenCoarseMaxCount)
+      ? Number(state.gpuCandidateScreenCoarseMaxCount)
+      : null,
+    gpuCandidateScreenCoarseMinRadiusPx: Number.isFinite(state.gpuCandidateScreenCoarseMinRadiusPx)
+      ? Number(state.gpuCandidateScreenCoarseMinRadiusPx)
+      : null,
+    gpuCandidateScreenCoarseRequireInViewport: typeof state.gpuCandidateScreenCoarseRequireInViewport === 'boolean'
+      ? state.gpuCandidateScreenCoarseRequireInViewport
+      : null,
+    gpuCandidateScreenCoarseDepthMode: state.gpuCandidateScreenCoarseDepthMode ?? null,
     gpuCandidatePromotePolicy: state.gpuCandidatePromotePolicy ?? null,
     gpuCandidateReadbackMode: state.gpuCandidateReadbackMode ?? null,
     gpuCandidateCoverageCompare: typeof state.gpuCandidateCoverageCompare === 'boolean'

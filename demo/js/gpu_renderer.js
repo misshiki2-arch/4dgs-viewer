@@ -859,7 +859,7 @@ export async function renderGpuFrame({
       packedScreenSpace,
       maxMissingSamples: limitedDrawRuntime.runtimeConfig.coverageMaxMisses,
       metadata: {
-        comparisonMode: 'gpu-range-candidate-coverage-vs-cpu-reference-visible',
+        comparisonMode: `gpu-${limitedDrawRuntime.runtimeConfig.sourceMode ?? 'candidate'}-candidate-coverage-vs-cpu-reference-visible`,
         candidateComparisonAnyMismatch:
           !!limitedDrawRuntime.candidateSourceComparison.candidateComparison?.anyMismatch
       }

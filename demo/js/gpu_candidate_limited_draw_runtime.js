@@ -128,6 +128,7 @@ function summarizeCandidateInfo(candidateInfo) {
     rangeSummary: candidateInfo?.rangeSummary ?? null,
     candidateSubsetSummary: candidateInfo?.candidateSubsetSummary ?? null,
     candidateSourceSummary: candidateInfo?.candidateSourceSummary ?? null,
+    screenCoarseSummary: candidateInfo?.screenCoarseSummary ?? null,
     filterSummary: candidateInfo?.filterSummary ?? null,
     gpuCandidateSummary: candidateInfo?.gpuCandidateSummary ?? null
   };
@@ -312,7 +313,11 @@ function buildLimitedDrawFallbackReasons(
         sourceMode,
         promotePolicy: runtimeConfig.promotePolicy ?? 'never',
         rangeStart: runtimeConfig.rangeStart ?? null,
-        rangeCount: runtimeConfig.rangeCount ?? null
+        rangeCount: runtimeConfig.rangeCount ?? null,
+        screenCoarseMaxCount: runtimeConfig.screenCoarseMaxCount ?? null,
+        screenCoarseMinRadiusPx: runtimeConfig.screenCoarseMinRadiusPx ?? null,
+        screenCoarseRequireInViewport: runtimeConfig.screenCoarseRequireInViewport ?? null,
+        screenCoarseDepthMode: runtimeConfig.screenCoarseDepthMode ?? null
       }
     });
   } else if (referenceSubsetCandidateInfo?.candidateSubsetSummary?.enabled) {
@@ -491,6 +496,13 @@ export function resolveGpuCandidateLimitedDrawRuntime({
         runtimeConfig,
         referenceCandidateInfo,
         filterMode: runtimeConfig.filterMode,
+        camera,
+        screenSpaceCamera,
+        canvasWidth,
+        canvasHeight,
+        camPos,
+        tileGrid,
+        buildConfig,
         metadata: {
           candidateArgs: summarizeCandidateArgs(candidateArgs)
         }
@@ -536,12 +548,16 @@ export function resolveGpuCandidateLimitedDrawRuntime({
   const candidateComparison = buildCandidateComparisonSummary({
     referenceCandidateInfo: referenceFilteredCandidateInfo,
     candidateCandidateInfo: gpuCandidateInfo,
-    referenceLabel: gpuOwnedSourceMode ? 'cpu-range-candidate-source-reference' : 'cpu-filtered-candidate-reference',
-    candidateLabel: gpuOwnedSourceMode ? 'gpu-range-candidate-source' : 'gpu-candidate-limited-draw',
+    referenceLabel: gpuOwnedSourceMode
+      ? `cpu-${sourceMode}-candidate-source-reference`
+      : 'cpu-filtered-candidate-reference',
+    candidateLabel: gpuOwnedSourceMode
+      ? `gpu-${sourceMode}-candidate-source`
+      : 'gpu-candidate-limited-draw',
     options: { maxMismatches: 16 },
     metadata: {
       comparisonMode: gpuOwnedSourceMode
-        ? 'cpu-range-candidate-source-vs-gpu-range-candidate-source'
+        ? `cpu-${sourceMode}-candidate-source-vs-gpu-${sourceMode}-candidate-source`
         : 'cpu-filtered-candidate-vs-gpu-candidate-limited-draw',
       sourceMode,
       sourceConfig: sourceComparison?.sourceConfig ?? null,

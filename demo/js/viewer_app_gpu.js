@@ -1672,6 +1672,17 @@ async function captureGpuCandidateSourceCompareDebug(options = {}) {
   };
 }
 
+async function captureGpuCandidateScreenCoarseCompareDebug(options = {}) {
+  const result = await captureGpuCandidateSourceCompareDebug(options);
+  return {
+    ...result,
+    schemaVersion: 'step107-gpu-candidate-screen-coarse-compare-debug-v1',
+    sourceMode: result?.candidateSourceComparison?.sourceConfig?.sourceMode ??
+      result?.candidateSourceSummary?.sourceMode ??
+      null
+  };
+}
+
 async function captureGpuCandidateCoverageDebug(options = {}) {
   const ensureCurrentFrame = options.ensureCurrentFrame !== false;
   const debugRender = ensureCurrentFrame || !latestRenderResult
@@ -4001,6 +4012,7 @@ function installViewerDebugApi() {
     captureGpuCandidateDryRunVisibleComparisonDebug,
     captureGpuCandidateShadowCompareDebug,
     captureGpuCandidateSourceCompareDebug,
+    captureGpuCandidateScreenCoarseCompareDebug,
     captureGpuCandidateCoverageDebug,
     captureGpuCandidateRuntimeSummaryDebug: buildGpuCandidateRuntimeDebugSummary,
     captureLiveSameStateTileAndAssociationDebug,

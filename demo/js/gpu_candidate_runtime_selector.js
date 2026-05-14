@@ -2,9 +2,10 @@ const RUNTIME_VALUES = new Set(['cpu-reference', 'shadow-compare', 'limited-draw
 const FALLBACK_VALUES = new Set(['cpu-on-error', 'cpu-always', 'none']);
 const SUBSET_MODE_VALUES = new Set(['firstN', 'visibleSrcIndices', 'fromVisible', 'visibleReachable']);
 const FILTER_MODE_VALUES = new Set(['all-valid', 'evenIndex']);
-const SOURCE_MODE_VALUES = new Set(['visibleSrcIndices', 'firstN', 'range']);
+const SOURCE_MODE_VALUES = new Set(['visibleSrcIndices', 'firstN', 'range', 'screenCoarse']);
 const PROMOTE_POLICY_VALUES = new Set(['never', 'compare-ok', 'async-ready']);
 const READBACK_MODE_VALUES = new Set(['sync-debug', 'async-fence', 'none']);
+const SCREEN_COARSE_DEPTH_MODE_VALUES = new Set(['positive', 'any']);
 
 const DEFAULT_RUNTIME = 'cpu-reference';
 const DEFAULT_FALLBACK = 'cpu-on-error';
@@ -14,6 +15,10 @@ const DEFAULT_FILTER_MODE = 'all-valid';
 const DEFAULT_SOURCE_MODE = 'visibleSrcIndices';
 const DEFAULT_RANGE_START = 0;
 const DEFAULT_RANGE_COUNT = 65536;
+const DEFAULT_SCREEN_COARSE_MAX_COUNT = 65536;
+const DEFAULT_SCREEN_COARSE_MIN_RADIUS_PX = 0.25;
+const DEFAULT_SCREEN_COARSE_REQUIRE_IN_VIEWPORT = true;
+const DEFAULT_SCREEN_COARSE_DEPTH_MODE = 'positive';
 const DEFAULT_PROMOTE_POLICY = 'never';
 const DEFAULT_READBACK_MODE = 'sync-debug';
 const DEFAULT_COVERAGE_MAX_MISSES = 32;
@@ -46,9 +51,18 @@ function normalizeReadbackMode(value) {
   return READBACK_MODE_VALUES.has(value) ? value : DEFAULT_READBACK_MODE;
 }
 
+function normalizeScreenCoarseDepthMode(value) {
+  return SCREEN_COARSE_DEPTH_MODE_VALUES.has(value) ? value : DEFAULT_SCREEN_COARSE_DEPTH_MODE;
+}
+
 function toFiniteInteger(value, fallback) {
   const n = Number(value);
   return Number.isFinite(n) ? Math.max(0, n | 0) : fallback;
+}
+
+function toFiniteNumber(value, fallback) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
 }
 
 function toBoolean(value, fallback) {
@@ -107,6 +121,29 @@ export function buildGpuCandidateRuntimeConfig(queryState = {}, overrides = {}) 
     overrides.rangeCount ?? overrides.gpuCandidateRangeCount ?? queryState.gpuCandidateRangeCount,
     DEFAULT_RANGE_COUNT
   );
+  const screenCoarseMaxCount = toFiniteInteger(
+    overrides.screenCoarseMaxCount ??
+      overrides.gpuCandidateScreenCoarseMaxCount ??
+      queryState.gpuCandidateScreenCoarseMaxCount,
+    DEFAULT_SCREEN_COARSE_MAX_COUNT
+  );
+  const screenCoarseMinRadiusPx = Math.max(0, toFiniteNumber(
+    overrides.screenCoarseMinRadiusPx ??
+      overrides.gpuCandidateScreenCoarseMinRadiusPx ??
+      queryState.gpuCandidateScreenCoarseMinRadiusPx,
+    DEFAULT_SCREEN_COARSE_MIN_RADIUS_PX
+  ));
+  const screenCoarseRequireInViewport = toBoolean(
+    overrides.screenCoarseRequireInViewport ??
+      overrides.gpuCandidateScreenCoarseRequireInViewport ??
+      queryState.gpuCandidateScreenCoarseRequireInViewport,
+    DEFAULT_SCREEN_COARSE_REQUIRE_IN_VIEWPORT
+  );
+  const screenCoarseDepthMode = normalizeScreenCoarseDepthMode(
+    overrides.screenCoarseDepthMode ??
+      overrides.gpuCandidateScreenCoarseDepthMode ??
+      queryState.gpuCandidateScreenCoarseDepthMode
+  );
   const promotePolicy = normalizePromotePolicy(
     overrides.promotePolicy ?? overrides.gpuCandidatePromotePolicy ?? queryState.gpuCandidatePromotePolicy
   );
@@ -158,6 +195,10 @@ export function buildGpuCandidateRuntimeConfig(queryState = {}, overrides = {}) 
     sourceMode,
     rangeStart,
     rangeCount,
+    screenCoarseMaxCount,
+    screenCoarseMinRadiusPx,
+    screenCoarseRequireInViewport,
+    screenCoarseDepthMode,
     promotePolicy,
     readbackMode,
     coverageCompare,
@@ -198,6 +239,16 @@ export function buildGpuCandidateRuntimeSummary(runtimeConfig = {}) {
     sourceMode: runtimeConfig.sourceMode ?? DEFAULT_SOURCE_MODE,
     rangeStart: Number.isFinite(runtimeConfig.rangeStart) ? runtimeConfig.rangeStart : DEFAULT_RANGE_START,
     rangeCount: Number.isFinite(runtimeConfig.rangeCount) ? runtimeConfig.rangeCount : DEFAULT_RANGE_COUNT,
+    screenCoarseMaxCount: Number.isFinite(runtimeConfig.screenCoarseMaxCount)
+      ? runtimeConfig.screenCoarseMaxCount
+      : DEFAULT_SCREEN_COARSE_MAX_COUNT,
+    screenCoarseMinRadiusPx: Number.isFinite(runtimeConfig.screenCoarseMinRadiusPx)
+      ? runtimeConfig.screenCoarseMinRadiusPx
+      : DEFAULT_SCREEN_COARSE_MIN_RADIUS_PX,
+    screenCoarseRequireInViewport: typeof runtimeConfig.screenCoarseRequireInViewport === 'boolean'
+      ? runtimeConfig.screenCoarseRequireInViewport
+      : DEFAULT_SCREEN_COARSE_REQUIRE_IN_VIEWPORT,
+    screenCoarseDepthMode: runtimeConfig.screenCoarseDepthMode ?? DEFAULT_SCREEN_COARSE_DEPTH_MODE,
     promotePolicy: runtimeConfig.promotePolicy ?? DEFAULT_PROMOTE_POLICY,
     readbackMode: runtimeConfig.readbackMode ?? DEFAULT_READBACK_MODE,
     coverageCompare: !!runtimeConfig.coverageCompare,
