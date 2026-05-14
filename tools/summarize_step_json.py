@@ -32,6 +32,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 KNOWN_SUFFIXES = [
     "gpu_candidate_screen_coarse_compare",
+    "gpu_candidate_screen_coarse_dryrun_visible_compare",
     "gpu_candidate_source_compare",
     "gpu_candidate_coverage",
     "gpu_candidate_runtime_summary",
@@ -327,6 +328,40 @@ def extract_visible_compare(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def extract_dryrun_visible_compare(data: Dict[str, Any]) -> Dict[str, Any]:
+    visible = extract_visible_compare(data)
+    coverage = get_path(data, ["coverageSummary"], {})
+    candidate = extract_candidate_compare(data)
+    return {
+        "status": get_path(data, ["status"]),
+        "reason": get_path(data, ["reason"]),
+        "sourceMode": get_path(data, ["sourceMode", "candidateSourceSummary.sourceMode"]),
+        "gpuCandidateCount": get_path(
+            data,
+            [
+                "coverageSummary.gpuCandidateCount",
+                "gpuCandidateSummary.candidateCount",
+                "candidateSourceSummary.candidateCount",
+            ],
+        ),
+        "visibleCoverageRatio": get_path(coverage, ["visibleCoverageRatio"]),
+        "visibleMissCount": get_path(coverage, ["visibleMissCount"]),
+        "candidateAnyMismatch": candidate.get("candidateAnyMismatch"),
+        "visibleItemsAnyMismatch": visible.get("visibleItemsAnyMismatch"),
+        "visibleItemsReferenceCount": visible.get("visibleItemsReferenceCount"),
+        "visibleItemsCandidateCount": visible.get("visibleItemsCandidateCount"),
+        "packedPayloadAnyMismatch": visible.get("packedPayloadAnyMismatch"),
+        "packedPayloadReferenceCount": visible.get("packedPayloadReferenceCount"),
+        "packedPayloadCandidateCount": visible.get("packedPayloadCandidateCount"),
+        "packedPayloadMaxAbs": visible.get("packedPayloadMaxAbs"),
+        "mismatchClassification": get_path(data, ["mismatchClassification"]),
+        "anyMismatch": get_path(data, ["anyMismatch"]),
+        "displayCandidateSource": get_path(data, ["displayCandidateSource"]),
+        "gpuCandidateUsedForDisplay": get_path(data, ["gpuCandidateUsedForDisplay"]),
+        "limitedDrawUsedForCandidateSource": get_path(data, ["limitedDrawUsedForCandidateSource"]),
+    }
+
+
 def extract_association(data: Dict[str, Any]) -> Dict[str, Any]:
     summary = get_path(data, ["summary"], data)
 
@@ -409,6 +444,7 @@ def summarize_step(base_dir: Path, prefix: str) -> Dict[str, Any]:
         "runtime": None,
         "limitedDraw": None,
         "visibleCompare": None,
+        "dryRunVisibleCompare": None,
         "association": None,
         "renderSummary": None,
         "loadErrors": {},
@@ -444,6 +480,11 @@ def summarize_step(base_dir: Path, prefix: str) -> Dict[str, Any]:
 
     if "visible_compare" in loaded:
         result["visibleCompare"] = extract_visible_compare(loaded["visible_compare"])
+
+    if "gpu_candidate_screen_coarse_dryrun_visible_compare" in loaded:
+        result["dryRunVisibleCompare"] = extract_dryrun_visible_compare(
+            loaded["gpu_candidate_screen_coarse_dryrun_visible_compare"]
+        )
 
     if "association" in loaded:
         result["association"] = extract_association(loaded["association"])
@@ -495,6 +536,7 @@ def print_human_summary(summary: Dict[str, Any]) -> None:
     print_section("Runtime", summary.get("runtime"))
     print_section("Limited draw", summary.get("limitedDraw"))
     print_section("Visible compare", summary.get("visibleCompare"))
+    print_section("Dry-run visible compare", summary.get("dryRunVisibleCompare"))
     print_section("Association", summary.get("association"))
     print_section("Render summary", summary.get("renderSummary"))
 

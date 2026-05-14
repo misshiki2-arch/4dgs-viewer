@@ -14,6 +14,7 @@ import {
   buildCandidateComparisonSummary,
   buildVisibleComparisonSummary
 } from './gpu_visible_compare_debug.js';
+import { buildGpuOwnedCandidateSourceComparison } from './gpu_candidate_source_runtime.js';
 
 function nowMs() {
   return typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -284,6 +285,99 @@ function buildReferenceSubsetCandidateInfo({
   });
 }
 
+function toFiniteInteger(value, fallback) {
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.max(0, n | 0) : fallback;
+}
+
+function toFiniteNumber(value, fallback) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function buildScreenCoarseRuntimeConfig(options = {}) {
+  return {
+    sourceMode: 'screenCoarse',
+    promotePolicy: 'never',
+    readbackMode: options.readbackMode ?? 'sync-debug',
+    screenCoarseMaxCount: toFiniteInteger(options.maxCount ?? options.screenCoarseMaxCount, 65536),
+    screenCoarseMinRadiusPx: Math.max(
+      0,
+      toFiniteNumber(options.minRadiusPx ?? options.screenCoarseMinRadiusPx, 0.25)
+    ),
+    screenCoarseRequireInViewport:
+      typeof (options.requireInViewport ?? options.screenCoarseRequireInViewport) === 'boolean'
+        ? (options.requireInViewport ?? options.screenCoarseRequireInViewport)
+        : true,
+    screenCoarseDepthMode: options.depthMode ?? options.screenCoarseDepthMode ?? 'positive'
+  };
+}
+
+function buildVisibleCoverageAgainstCandidate(referenceItems, candidateInfo, maxMissingSamples = 32) {
+  const candidateIndices = candidateInfo?.candidateIndices instanceof Uint32Array
+    ? candidateInfo.candidateIndices
+    : (Array.isArray(candidateInfo?.candidateIndices) ? Uint32Array.from(candidateInfo.candidateIndices) : new Uint32Array(0));
+  const candidateSet = new Set();
+  for (let i = 0; i < candidateIndices.length; i++) candidateSet.add(candidateIndices[i] >>> 0);
+
+  const visible = Array.isArray(referenceItems) ? referenceItems : [];
+  const missing = [];
+  let hitCount = 0;
+  let missCount = 0;
+  const sampleLimit = toFiniteInteger(maxMissingSamples, 32);
+  for (const item of visible) {
+    const srcIndex = Number(item?.srcIndex);
+    if (!Number.isFinite(srcIndex) || srcIndex < 0) continue;
+    const index = srcIndex >>> 0;
+    if (candidateSet.has(index)) {
+      hitCount++;
+    } else {
+      missCount++;
+      if (missing.length < sampleLimit) missing.push(index);
+    }
+  }
+  const count = hitCount + missCount;
+  return {
+    schemaVersion: 'step108-screen-coarse-dry-run-visible-coverage-v1',
+    sourceMode: 'screenCoarse',
+    gpuCandidateCount: candidateIndices.length,
+    cpuVisibleCount: count,
+    visibleHitCount: hitCount,
+    visibleMissCount: missCount,
+    visibleCoverageRatio: count > 0 ? hitCount / count : 1,
+    missingVisibleSrcIndices: missing,
+    maxMissingSamples: sampleLimit
+  };
+}
+
+function classifyDryRunMismatch({
+  candidateComparison = null,
+  visibleComparison = null,
+  coverageSummary = null
+} = {}) {
+  const candidateIndices = candidateComparison?.candidateIndices ?? {};
+  const visibleItems = visibleComparison?.visibleItems ?? {};
+  const packedPayload = visibleComparison?.packedPayload ?? {};
+
+  if ((coverageSummary?.visibleMissCount ?? 0) > 0) return 'candidate-shortage';
+  if (candidateIndices.anyMismatch) return 'candidate-order-mismatch';
+  if (visibleItems.countEqual === false) return 'visible-count-mismatch';
+  if ((visibleItems.orderMismatchCount ?? 0) > 0 || (visibleItems.itemMismatchCount ?? 0) > 0) {
+    return 'visible-item-field-mismatch';
+  }
+  if (packedPayload.countEqual === false) return 'packed-count-mismatch';
+  if (
+    packedPayload.referencePresent === false ||
+    packedPayload.candidatePresent === false ||
+    packedPayload.lengthEqual === false ||
+    packedPayload.referenceFloatsPerItem !== packedPayload.candidateFloatsPerItem
+  ) {
+    return 'packed-layout-mismatch';
+  }
+  if ((packedPayload.mismatchCount ?? 0) > 0) return 'packed-value-mismatch';
+  return 'none';
+}
+
 export function captureGpuCandidateDryRunVisibleComparison({
   gl,
   raw,
@@ -419,5 +513,147 @@ export function captureGpuCandidateDryRunVisibleComparison({
     referenceDryRunSummary: referenceDryRun.buildStats,
     gpuDryRunSummary: gpuDryRun.buildStats,
     anyMismatch: !!(candidateComparison.anyMismatch || visibleComparison.anyMismatch)
+  };
+}
+
+export function captureGpuCandidateScreenCoarseDryRunVisibleComparison({
+  gl,
+  raw,
+  camera,
+  screenSpaceCamera = null,
+  canvasWidth,
+  canvasHeight,
+  camPos,
+  tileGrid = null,
+  buildConfig,
+  candidateArgs,
+  referenceVisibleItems = null,
+  referencePackedPayload = null,
+  maxMismatches = 16,
+  maxMissingSamples = 32,
+  epsilon = 1e-6,
+  filterMode = 'all-valid',
+  readbackMode = 'sync-debug',
+  maxCount = 65536,
+  minRadiusPx = 0.25,
+  requireInViewport = true,
+  depthMode = 'positive',
+  metadata = {}
+} = {}) {
+  const referenceCandidateInfo = buildCandidateInfo(candidateArgs);
+  const runtimeConfig = buildScreenCoarseRuntimeConfig({
+    readbackMode,
+    maxCount,
+    minRadiusPx,
+    requireInViewport,
+    depthMode
+  });
+  const sourceComparison = buildGpuOwnedCandidateSourceComparison({
+    gl,
+    raw,
+    runtimeConfig,
+    referenceCandidateInfo,
+    filterMode,
+    camera,
+    screenSpaceCamera,
+    canvasWidth,
+    canvasHeight,
+    camPos,
+    tileGrid,
+    buildConfig,
+    metadata: {
+      candidateArgs: summarizeCandidateArgs(candidateArgs),
+      phase: 'step108-screen-coarse-dry-run-visible'
+    }
+  });
+  const gpuCandidateInfo = sourceComparison?.gpuCandidateInfo ?? null;
+  const dryRunArgs = {
+    raw,
+    camera,
+    screenSpaceCamera,
+    canvasWidth,
+    canvasHeight,
+    camPos,
+    tileGrid,
+    renderScale: buildConfig.renderScale,
+    maxVisible: buildConfig.maxVisible,
+    timestamp: buildConfig.timestamp,
+    scalingModifier: buildConfig.scalingModifier,
+    sigmaScale: buildConfig.sigmaScale,
+    prefilterVar: buildConfig.prefilterVar,
+    useSH: buildConfig.useSH,
+    useRot4d: buildConfig.useRot4d,
+    useNativeRot4d: buildConfig.useNativeRot4d,
+    useNativeMarginal: buildConfig.useNativeMarginal,
+    forceSh3d: buildConfig.forceSh3d,
+    timeDuration: buildConfig.timeDuration,
+    temporalSigmaThreshold: candidateArgs?.temporalSigmaThreshold ?? 3.0,
+    enablePackedVisiblePath: !!buildConfig.enablePackedVisiblePath
+  };
+  const gpuDryRun = buildVisibleAndPackedFromCandidateInfo({
+    ...dryRunArgs,
+    candidateInfo: gpuCandidateInfo,
+    label: 'gpu-screen-coarse-candidate-visible-dry-run'
+  });
+  const visibleComparison = buildVisibleComparisonSummary({
+    referenceItems: Array.isArray(referenceVisibleItems) ? referenceVisibleItems : [],
+    candidateItems: gpuDryRun.visible,
+    referencePackedPayload,
+    candidatePackedPayload: gpuDryRun.packedScreenSpace,
+    referenceLabel: 'cpu-reference-visible-render-result',
+    candidateLabel: 'gpu-screen-coarse-candidate-visible-dry-run',
+    options: { epsilon, maxMismatches },
+    metadata: {
+      comparisonMode: 'cpu-reference-visible-vs-gpu-screen-coarse-candidate-visible-dry-run',
+      referenceVisibleCount: Array.isArray(referenceVisibleItems) ? referenceVisibleItems.length : 0,
+      referencePackedCount: Number.isFinite(referencePackedPayload?.packedCount)
+        ? referencePackedPayload.packedCount
+        : null,
+      candidateBuildStats: gpuDryRun.buildStats
+    }
+  });
+  const coverageSummary = buildVisibleCoverageAgainstCandidate(
+    referenceVisibleItems,
+    gpuCandidateInfo,
+    maxMissingSamples
+  );
+  const mismatchClassification = classifyDryRunMismatch({
+    candidateComparison: sourceComparison?.candidateComparison ?? null,
+    visibleComparison,
+    coverageSummary
+  });
+  return {
+    schemaVersion: 'step108-gpu-candidate-screen-coarse-dryrun-visible-compare-v1',
+    timestamp: new Date().toISOString(),
+    status: sourceComparison?.status === 'ok' ? 'ok' : 'fallback',
+    reason: sourceComparison?.reason ?? 'ok',
+    purpose: 'Build visible items and packed payloads from screenCoarse GPU candidate output in a dry-run path without changing rendering.',
+    sourceMode: 'screenCoarse',
+    displayCandidateSource: 'cpu-reference',
+    gpuCandidateUsedForDisplay: false,
+    limitedDrawUsedForCandidateSource: false,
+    metadata: {
+      ...metadata,
+      promotePolicy: 'never',
+      filterMode,
+      readbackMode,
+      screenCoarse: {
+        maxCount: runtimeConfig.screenCoarseMaxCount,
+        minRadiusPx: runtimeConfig.screenCoarseMinRadiusPx,
+        requireInViewport: runtimeConfig.screenCoarseRequireInViewport,
+        depthMode: runtimeConfig.screenCoarseDepthMode
+      },
+      candidateArgs: summarizeCandidateArgs(candidateArgs)
+    },
+    candidateSourceSummary: sourceComparison?.candidateSourceSummary ?? null,
+    candidateSourceComparison: sourceComparison,
+    candidateComparison: sourceComparison?.candidateComparison ?? null,
+    gpuCandidateSummary: sourceComparison?.gpuCandidateSummary ?? gpuCandidateInfo?.gpuCandidateSummary ?? null,
+    coverageSummary,
+    visibleComparison,
+    dryRunVisibleComparison: visibleComparison,
+    gpuDryRunSummary: gpuDryRun.buildStats,
+    mismatchClassification,
+    anyMismatch: mismatchClassification !== 'none'
   };
 }

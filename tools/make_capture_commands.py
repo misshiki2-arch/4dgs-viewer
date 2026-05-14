@@ -129,6 +129,27 @@ def build_coverage_command(args: argparse.Namespace) -> str:
     raise ValueError(f"Unsupported source mode: {args.source_mode}")
 
 
+def build_dryrun_visible_compare_command(args: argparse.Namespace) -> str:
+    if args.source_mode == "screenCoarse":
+        return f"""await window.gpuViewerDebug.downloadJsonDebug(
+  await window.gpuViewerDebug.captureGpuCandidateScreenCoarseDryRunVisibleComparisonDebug({{
+    ensureCurrentFrame: false,
+    readbackMode: {quote(args.readback_mode)},
+    maxCount: {args.screen_coarse_max_count},
+    minRadiusPx: {args.screen_coarse_min_radius_px},
+    requireInViewport: {js_bool(args.screen_coarse_require_in_viewport)},
+    depthMode: {quote(args.screen_coarse_depth_mode)},
+    filterMode: {quote(args.filter_mode)},
+    epsilon: {args.epsilon},
+    maxMismatches: {args.max_mismatches},
+    maxMisses: {args.max_misses}
+  }}),
+  {quote(args.step + '_gpu_candidate_screen_coarse_dryrun_visible_compare.json')}
+);"""
+
+    return ""
+
+
 def build_runtime_summary_command(args: argparse.Namespace) -> str:
     return f"""var runtime = await window.gpuViewerDebug.captureGpuCandidateRuntimeSummaryDebug();
 
@@ -198,6 +219,11 @@ def build_commands(args: argparse.Namespace) -> str:
 
     if args.include_source_compare:
         parts.append(build_source_compare_command(args))
+
+    if args.include_dryrun_visible:
+        command = build_dryrun_visible_compare_command(args)
+        if command:
+            parts.append(command)
 
     if args.include_coverage:
         parts.append(build_coverage_command(args))
@@ -269,6 +295,11 @@ def parse_args() -> argparse.Namespace:
         help="Include coverage capture. Default: true.",
     )
     parser.add_argument(
+        "--include-dryrun-visible",
+        default="true",
+        help="Include screenCoarse dry-run visible / packed compare capture. Default: true.",
+    )
+    parser.add_argument(
         "--include-runtime",
         default="true",
         help="Include runtime and limited draw summary captures. Default: true.",
@@ -327,6 +358,7 @@ def parse_args() -> argparse.Namespace:
     # Convert include flags to bool after parsing.
     args.include_preamble = js_bool(args.include_preamble) == "true"
     args.include_source_compare = js_bool(args.include_source_compare) == "true"
+    args.include_dryrun_visible = js_bool(args.include_dryrun_visible) == "true"
     args.include_coverage = js_bool(args.include_coverage) == "true"
     args.include_runtime = js_bool(args.include_runtime) == "true"
     args.include_visible_compare = js_bool(args.include_visible_compare) == "true"
