@@ -43,6 +43,22 @@ def quote(value: str) -> str:
     return f"'{escaped}'"
 
 
+def js_number_array(value: str) -> str:
+    items = [item.strip() for item in str(value).split(",") if item.strip()]
+    numbers = [str(float(item)).rstrip("0").rstrip(".") for item in items]
+    return "[" + ", ".join(numbers) + "]"
+
+
+def js_string_array(value: str) -> str:
+    items = [item.strip() for item in str(value).split(",") if item.strip()]
+    return "[" + ", ".join(quote(item) for item in items) + "]"
+
+
+def js_bool_array(value: str) -> str:
+    items = [item.strip() for item in str(value).split(",") if item.strip()]
+    return "[" + ", ".join(js_bool(item) for item in items) + "]"
+
+
 def build_source_compare_command(args: argparse.Namespace) -> str:
     step = args.step
 
@@ -150,6 +166,28 @@ def build_dryrun_visible_compare_command(args: argparse.Namespace) -> str:
     return ""
 
 
+def build_sweep_command(args: argparse.Namespace) -> str:
+    if args.source_mode != "screenCoarse":
+        return ""
+
+    return f"""await window.gpuViewerDebug.downloadJsonDebug(
+  await window.gpuViewerDebug.captureGpuCandidateScreenCoarseSweepComparisonDebug({{
+    ensureCurrentFrame: false,
+    readbackMode: {quote(args.readback_mode)},
+    maxCounts: {js_number_array(args.sweep_max_counts)},
+    minRadiusPxValues: {js_number_array(args.sweep_min_radius_px)},
+    requireInViewportValues: {js_bool_array(args.sweep_require_in_viewport)},
+    depthModes: {js_string_array(args.sweep_depth_modes)},
+    filterMode: {quote(args.filter_mode)},
+    epsilon: {args.epsilon},
+    maxMismatches: {args.max_mismatches},
+    maxMisses: {args.max_misses},
+    includeCaseResults: {js_bool(args.sweep_include_case_results)}
+  }}),
+  {quote(args.step + '_gpu_candidate_screen_coarse_sweep_summary.json')}
+);"""
+
+
 def build_runtime_summary_command(args: argparse.Namespace) -> str:
     return f"""var runtime = await window.gpuViewerDebug.captureGpuCandidateRuntimeSummaryDebug();
 
@@ -222,6 +260,11 @@ def build_commands(args: argparse.Namespace) -> str:
 
     if args.include_dryrun_visible:
         command = build_dryrun_visible_compare_command(args)
+        if command:
+            parts.append(command)
+
+    if args.include_sweep:
+        command = build_sweep_command(args)
         if command:
             parts.append(command)
 
@@ -300,6 +343,11 @@ def parse_args() -> argparse.Namespace:
         help="Include screenCoarse dry-run visible / packed compare capture. Default: true.",
     )
     parser.add_argument(
+        "--include-sweep",
+        default="false",
+        help="Include Step109 screenCoarse sweep capture. Default: false.",
+    )
+    parser.add_argument(
         "--include-runtime",
         default="true",
         help="Include runtime and limited draw summary captures. Default: true.",
@@ -336,6 +384,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--screen-coarse-require-in-viewport", default="true")
     parser.add_argument("--screen-coarse-depth-mode", default="positive")
 
+    # Step109 sweep.
+    parser.add_argument("--sweep-max-counts", default="4096,8192,16384,32768,65536")
+    parser.add_argument("--sweep-min-radius-px", default="0.25")
+    parser.add_argument("--sweep-require-in-viewport", default="true")
+    parser.add_argument("--sweep-depth-modes", default="positive")
+    parser.add_argument("--sweep-include-case-results", default="false")
+
     # visibleSrcIndices.
     parser.add_argument("--subset-count", type=int, default=1024)
     parser.add_argument("--filter-mode", default="all-valid")
@@ -359,6 +414,7 @@ def parse_args() -> argparse.Namespace:
     args.include_preamble = js_bool(args.include_preamble) == "true"
     args.include_source_compare = js_bool(args.include_source_compare) == "true"
     args.include_dryrun_visible = js_bool(args.include_dryrun_visible) == "true"
+    args.include_sweep = js_bool(args.include_sweep) == "true"
     args.include_coverage = js_bool(args.include_coverage) == "true"
     args.include_runtime = js_bool(args.include_runtime) == "true"
     args.include_visible_compare = js_bool(args.include_visible_compare) == "true"

@@ -657,3 +657,213 @@ export function captureGpuCandidateScreenCoarseDryRunVisibleComparison({
     anyMismatch: mismatchClassification !== 'none'
   };
 }
+
+function normalizeSweepValueList(value, fallback) {
+  if (Array.isArray(value)) {
+    const out = value
+      .map((item) => Number(item))
+      .filter((item) => Number.isFinite(item));
+    if (out.length > 0) return out;
+  }
+  return fallback;
+}
+
+function normalizeScreenCoarseSweepCases({
+  cases = null,
+  maxCounts = null,
+  minRadiusPxValues = null,
+  requireInViewportValues = null,
+  depthModes = null
+} = {}) {
+  if (Array.isArray(cases) && cases.length > 0) {
+    return cases.map((item, index) => ({
+      caseId: item.caseId ?? `case-${index}`,
+      maxCount: toFiniteInteger(item.maxCount ?? item.screenCoarseMaxCount, 65536),
+      minRadiusPx: Math.max(0, toFiniteNumber(item.minRadiusPx ?? item.screenCoarseMinRadiusPx, 0.25)),
+      requireInViewport: typeof (item.requireInViewport ?? item.screenCoarseRequireInViewport) === 'boolean'
+        ? (item.requireInViewport ?? item.screenCoarseRequireInViewport)
+        : true,
+      depthMode: item.depthMode ?? item.screenCoarseDepthMode ?? 'positive'
+    }));
+  }
+
+  const counts = normalizeSweepValueList(maxCounts, [4096, 8192, 16384, 32768, 65536]);
+  const radii = normalizeSweepValueList(minRadiusPxValues, [0.25]);
+  const viewportFlags = Array.isArray(requireInViewportValues) && requireInViewportValues.length > 0
+    ? requireInViewportValues.map((item) => item !== false)
+    : [true];
+  const modes = Array.isArray(depthModes) && depthModes.length > 0 ? depthModes : ['positive'];
+  const out = [];
+  for (const minRadiusPx of radii) {
+    for (const requireInViewport of viewportFlags) {
+      for (const depthMode of modes) {
+        for (const maxCount of counts) {
+          out.push({
+            caseId: `max${maxCount}_r${minRadiusPx}_${requireInViewport ? 'viewport' : 'noViewport'}_${depthMode}`,
+            maxCount,
+            minRadiusPx,
+            requireInViewport,
+            depthMode
+          });
+        }
+      }
+    }
+  }
+  return out;
+}
+
+function summarizeScreenCoarseSweepCase(result, caseConfig) {
+  const visibleItems = result?.visibleComparison?.visibleItems ?? {};
+  const packedPayload = result?.visibleComparison?.packedPayload ?? {};
+  const candidateIndices = result?.candidateComparison?.candidateIndices ?? {};
+  const coverage = result?.coverageSummary ?? {};
+  const gpuTiming = result?.gpuCandidateSummary?.timing ??
+    result?.candidateSourceSummary?.timing ??
+    null;
+  const dryRunStats = result?.gpuDryRunSummary ?? {};
+  return {
+    caseId: caseConfig.caseId,
+    config: {
+      maxCount: caseConfig.maxCount,
+      minRadiusPx: caseConfig.minRadiusPx,
+      requireInViewport: caseConfig.requireInViewport,
+      depthMode: caseConfig.depthMode
+    },
+    status: result?.status ?? 'unknown',
+    reason: result?.reason ?? null,
+    sourceMode: 'screenCoarse',
+    candidateCount: coverage.gpuCandidateCount ?? result?.gpuCandidateSummary?.candidateCount ?? null,
+    visibleCoverageRatio: coverage.visibleCoverageRatio ?? null,
+    visibleHitCount: coverage.visibleHitCount ?? null,
+    visibleMissCount: coverage.visibleMissCount ?? null,
+    candidateAnyMismatch: !!candidateIndices.anyMismatch,
+    candidateOrderMismatchCount: candidateIndices.orderMismatchCount ?? null,
+    visibleItemsAnyMismatch: !!visibleItems.anyMismatch,
+    visibleItemsReferenceCount: visibleItems.referenceCount ?? null,
+    visibleItemsCandidateCount: visibleItems.candidateCount ?? null,
+    visibleItemsOrderMismatchCount: visibleItems.orderMismatchCount ?? null,
+    visibleItemsItemMismatchCount: visibleItems.itemMismatchCount ?? null,
+    packedPayloadAnyMismatch: !!packedPayload.anyMismatch,
+    packedPayloadReferenceCount: packedPayload.referenceCount ?? null,
+    packedPayloadCandidateCount: packedPayload.candidateCount ?? null,
+    packedPayloadMismatchCount: packedPayload.mismatchCount ?? null,
+    packedPayloadMaxAbs: packedPayload.maxAbs ?? null,
+    mismatchClassification: result?.mismatchClassification ?? 'unknown',
+    anyMismatch: !!result?.anyMismatch,
+    displayCandidateSource: result?.displayCandidateSource ?? 'cpu-reference',
+    gpuCandidateUsedForDisplay: !!result?.gpuCandidateUsedForDisplay,
+    limitedDrawUsedForCandidateSource: !!result?.limitedDrawUsedForCandidateSource,
+    timing: {
+      candidateSourceTotalMs: gpuTiming?.gpuCandidateTotalMs ?? null,
+      cpuSourceTotalMs: gpuTiming?.cpuSourceTotalMs ?? null,
+      cpuSourceLoopMs: gpuTiming?.cpuSourceLoopMs ?? null,
+      transformFeedbackSetupMs: gpuTiming?.transformFeedbackSetupMs ?? null,
+      transformFeedbackDrawMs: gpuTiming?.transformFeedbackDrawMs ?? null,
+      readbackMs: gpuTiming?.readbackMs ?? null,
+      collectAcceptedMs: gpuTiming?.collectAcceptedMs ?? null,
+      uploadAndSetupMs: gpuTiming?.uploadAndSetupMs ?? null,
+      dryRunVisibleBuildMs: dryRunStats.visibleBuildMs ?? null,
+      dryRunPackedBuildMs: dryRunStats.screenSpaceBuildMs ?? null,
+      dryRunTotalMs: dryRunStats.totalBuildMs ?? null
+    }
+  };
+}
+
+export function captureGpuCandidateScreenCoarseSweepComparison({
+  gl,
+  raw,
+  camera,
+  screenSpaceCamera = null,
+  canvasWidth,
+  canvasHeight,
+  camPos,
+  tileGrid = null,
+  buildConfig,
+  candidateArgs,
+  referenceVisibleItems = null,
+  referencePackedPayload = null,
+  cases = null,
+  maxCounts = null,
+  minRadiusPxValues = null,
+  requireInViewportValues = null,
+  depthModes = null,
+  maxMismatches = 16,
+  maxMissingSamples = 32,
+  epsilon = 1e-6,
+  filterMode = 'all-valid',
+  readbackMode = 'sync-debug',
+  includeCaseResults = false,
+  metadata = {}
+} = {}) {
+  const totalStartMs = nowMs();
+  const normalizedCases = normalizeScreenCoarseSweepCases({
+    cases,
+    maxCounts,
+    minRadiusPxValues,
+    requireInViewportValues,
+    depthModes
+  });
+  const summaries = [];
+  const caseResults = [];
+  for (const caseConfig of normalizedCases) {
+    const result = captureGpuCandidateScreenCoarseDryRunVisibleComparison({
+      gl,
+      raw,
+      camera,
+      screenSpaceCamera,
+      canvasWidth,
+      canvasHeight,
+      camPos,
+      tileGrid,
+      buildConfig,
+      candidateArgs,
+      referenceVisibleItems,
+      referencePackedPayload,
+      maxMismatches,
+      maxMissingSamples,
+      epsilon,
+      filterMode,
+      readbackMode,
+      maxCount: caseConfig.maxCount,
+      minRadiusPx: caseConfig.minRadiusPx,
+      requireInViewport: caseConfig.requireInViewport,
+      depthMode: caseConfig.depthMode,
+      metadata: {
+        comparisonMode: 'gpu-screen-coarse-candidate-sweep-case',
+        caseId: caseConfig.caseId
+      }
+    });
+    summaries.push(summarizeScreenCoarseSweepCase(result, caseConfig));
+    if (includeCaseResults) caseResults.push(result);
+  }
+
+  const successCases = summaries.filter((item) => item.mismatchClassification === 'none');
+  const shortageCases = summaries.filter((item) => item.mismatchClassification === 'candidate-shortage');
+  return {
+    schemaVersion: 'step109-gpu-candidate-screen-coarse-sweep-summary-v1',
+    timestamp: new Date().toISOString(),
+    status: summaries.length > 0 ? 'ok' : 'empty',
+    reason: summaries.length > 0 ? 'ok' : 'no-sweep-cases',
+    purpose: 'Compare screenCoarse candidate settings in dry-run visible and packed payload generation without changing rendering.',
+    sourceMode: 'screenCoarse',
+    displayCandidateSource: 'cpu-reference',
+    gpuCandidateUsedForDisplay: false,
+    limitedDrawUsedForCandidateSource: false,
+    readbackMode,
+    metadata: {
+      ...metadata,
+      filterMode,
+      caseCount: summaries.length,
+      candidateArgs: summarizeCandidateArgs(candidateArgs)
+    },
+    summary: {
+      caseCount: summaries.length,
+      successCaseCount: successCases.length,
+      shortageCaseCount: shortageCases.length,
+      mismatchCaseCount: summaries.length - successCases.length,
+      totalMs: nowMs() - totalStartMs
+    },
+    cases: summaries,
+    caseResults: includeCaseResults ? caseResults : undefined
+  };
+}

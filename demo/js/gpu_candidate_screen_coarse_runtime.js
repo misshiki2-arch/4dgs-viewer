@@ -17,6 +17,12 @@ function compileShader(gl, type, source) {
   return shader;
 }
 
+function nowMs() {
+  return typeof performance !== 'undefined' && typeof performance.now === 'function'
+    ? performance.now()
+    : Date.now();
+}
+
 function createScreenCoarseState(gl) {
   const vertexSource = `#version 300 es
 precision highp float;
@@ -301,6 +307,7 @@ export function buildCpuScreenCoarseCandidateSourceInfo({
   buildConfig = {},
   candidateMode = 'cpu-screen-coarse-candidate-source-reference'
 } = {}) {
+  const totalStartMs = nowMs();
   if (!raw || !camera || !buildConfig) {
     return buildFailureCandidateInfo({
       raw,
@@ -333,6 +340,7 @@ export function buildCpuScreenCoarseCandidateSourceInfo({
   let coarseRejectedCount = 0;
   let filterRejectedCount = 0;
 
+  const loopStartMs = nowMs();
   for (let k = 0; k < sourceIndices.length; k++) {
     const index = sourceIndices[k] >>> 0;
     const item = buildVisibleItemForCandidate({
@@ -383,6 +391,7 @@ export function buildCpuScreenCoarseCandidateSourceInfo({
       if (accepted.length >= config.maxCount) break;
     }
   }
+  const sourceLoopMs = nowMs() - loopStartMs;
 
   const candidateIndices = Uint32Array.from(accepted);
   const emittedCount = emittedCandidateIndices.length;
@@ -404,7 +413,11 @@ export function buildCpuScreenCoarseCandidateSourceInfo({
     sourceCandidateMode: referenceCandidateInfo?.candidateMode ?? 'unknown',
     sourceCandidateCount: sourceIndices.length,
     candidateOrder: 'source-candidate-order',
-    promotePolicy: 'never'
+    promotePolicy: 'never',
+    timing: {
+      cpuSourceTotalMs: nowMs() - totalStartMs,
+      cpuSourceLoopMs: sourceLoopMs
+    }
   };
   const filterSummary = buildFilterSummary({
     filterMode,
@@ -482,6 +495,7 @@ export function buildGpuScreenCoarseCandidateInfo({
   const config = payload.config ?? buildScreenCoarseSourceConfig(runtimeConfig);
   const emittedCount = emittedCandidateIndices.length;
   try {
+    const totalStartMs = nowMs();
     const state = getScreenCoarseState(gl);
     const bytesPerOutput = 2 * Uint32Array.BYTES_PER_ELEMENT;
     const outputBytes = Math.max(bytesPerOutput, emittedCount * bytesPerOutput);
@@ -495,6 +509,7 @@ export function buildGpuScreenCoarseCandidateInfo({
       gl.useProgram(null);
     };
     drainWebGlErrors(gl);
+    const uploadStartMs = nowMs();
     gl.bindVertexArray(state.vao);
     gl.useProgram(state.program);
 
@@ -519,7 +534,9 @@ export function buildGpuScreenCoarseCandidateInfo({
     gl.uniform1ui(state.uRequireInViewport, config.requireInViewport ? 1 : 0);
     gl.uniform1ui(state.uDepthMode, depthModeToShaderCode(config.depthMode));
     gl.uniform1ui(state.uFilterMode, filterModeToShaderCode(filterMode));
+    const uploadAndSetupMs = nowMs() - uploadStartMs;
 
+    const transformFeedbackSetupStartMs = nowMs();
     gl.bindBuffer(gl.TRANSFORM_FEEDBACK_BUFFER, state.outputBuffer);
     gl.bufferData(gl.TRANSFORM_FEEDBACK_BUFFER, outputBytes, gl.DYNAMIC_READ);
     gl.bindBuffer(gl.TRANSFORM_FEEDBACK_BUFFER, null);
@@ -530,6 +547,8 @@ export function buildGpuScreenCoarseCandidateInfo({
       cleanupTransformFeedback();
       throwForWebGlErrorCode(gl, 'screen-coarse-transform-feedback-bind', bindError);
     }
+    const transformFeedbackSetupMs = nowMs() - transformFeedbackSetupStartMs;
+    const transformFeedbackDrawStartMs = nowMs();
     gl.enable(gl.RASTERIZER_DISCARD);
     gl.beginTransformFeedback(gl.POINTS);
     gl.drawArrays(gl.POINTS, 0, emittedCount);
@@ -542,7 +561,9 @@ export function buildGpuScreenCoarseCandidateInfo({
       cleanupTransformFeedback();
       throwForWebGlErrorCode(gl, 'screen-coarse-transform-feedback-draw', drawError);
     }
+    const transformFeedbackDrawMs = nowMs() - transformFeedbackDrawStartMs;
     const rawOut = new Uint32Array(emittedCount * 2);
+    const readbackStartMs = nowMs();
     gl.bindBuffer(gl.TRANSFORM_FEEDBACK_BUFFER, state.outputBuffer);
     gl.getBufferSubData(gl.TRANSFORM_FEEDBACK_BUFFER, 0, rawOut);
     gl.bindBuffer(gl.TRANSFORM_FEEDBACK_BUFFER, null);
@@ -551,6 +572,8 @@ export function buildGpuScreenCoarseCandidateInfo({
       cleanupTransformFeedback();
       throwForWebGlErrorCode(gl, 'screen-coarse-transform-feedback-readback', readbackError);
     }
+    const readbackMs = nowMs() - readbackStartMs;
+    const collectAcceptedStartMs = nowMs();
     const accepted = [];
     let rejectedCount = 0;
     for (let i = 0; i < emittedCount; i++) {
@@ -562,17 +585,31 @@ export function buildGpuScreenCoarseCandidateInfo({
         rejectedCount++;
       }
     }
+    const collectAcceptedMs = nowMs() - collectAcceptedStartMs;
     gl.bindBuffer(gl.ARRAY_BUFFER, null);
     gl.bindVertexArray(null);
     gl.useProgram(null);
 
     const candidateIndices = Uint32Array.from(accepted);
+    const cpuTiming = clonePlainObject(cpuScreenCoarseSourceInfo?.screenCoarseSummary?.timing) ?? {};
+    const timing = {
+      ...cpuTiming,
+      gpuCandidateTotalMs: nowMs() - totalStartMs,
+      uploadAndSetupMs,
+      transformFeedbackSetupMs,
+      transformFeedbackDrawMs,
+      readbackMs,
+      collectAcceptedMs,
+      emittedCount,
+      outputBytes
+    };
     const screenCoarseSummary = {
       ...(clonePlainObject(cpuScreenCoarseSourceInfo?.screenCoarseSummary) ?? {}),
       generatedOnGpu: true,
       emittedCount,
       candidateCount: candidateIndices.length,
-      rejectedCount
+      rejectedCount,
+      timing
     };
     const filterSummary = buildFilterSummary({
       filterMode,
@@ -608,6 +645,7 @@ export function buildGpuScreenCoarseCandidateInfo({
         candidateCount: candidateIndices.length,
         emittedCount,
         rejectedCount,
+        timing,
         screenCoarseSummary,
         filterSummary
       }
