@@ -23,6 +23,7 @@ import {
   buildGpuOwnedCandidateSourceComparison,
   isGpuOwnedCandidateSourceMode
 } from './gpu_candidate_source_runtime.js';
+import { runGpuVisibleRecordDryRun } from './gpu_visible_record_dry_run_runtime.js';
 
 function nowMs() {
   return typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -995,6 +996,39 @@ export function resolveGpuCandidateLimitedDrawRuntime({
     totalLimitedDrawMs: nowMs() - totalStartMs,
     useGpuCandidate
   });
+  const gpuVisibleRecordDryRunSummary = runtimeConfig.visibleRecordDryRun &&
+    runtimeConfig.visibleRecordSource === 'screenCoarse' &&
+    gpuOwnedSourceMode &&
+    sourceMode === 'screenCoarse' &&
+    runtimeConfig.visibleRecordCompare !== false
+    ? runGpuVisibleRecordDryRun({
+        gl,
+        candidateInfo: gpuCandidateInfo,
+        raw,
+        camera,
+        screenSpaceCamera,
+        canvasWidth,
+        canvasHeight,
+        camPos,
+        tileGrid,
+        buildConfig,
+        temporalSigmaThreshold: candidateArgs?.temporalSigmaThreshold ?? 3.0,
+        referenceVisibleItems: visibleSourceItems,
+        maxRecords: runtimeConfig.visibleRecordMaxCount,
+        epsilon: 1e-6,
+        maxMismatches: 32,
+        sourceMode,
+        readbackMode: runtimeConfig.visibleRecordReadback,
+        displayCandidateSource: finalFallback.displayCandidateSource,
+        gpuCandidateUsedForDisplay: useGpuCandidate,
+        limitedDrawUsedForCandidateSource: useGpuCandidate,
+        metadata: {
+          comparisonMode: 'gpu-visible-fixed-record-dry-run-vs-cpu-visible-record',
+          promotePolicy: runtimeConfig.promotePolicy,
+          candidateSourceMode: sourceMode
+        }
+      })
+    : null;
 
   return {
     candidateInfoOverride: useGpuCandidate ? gpuCandidateInfo : null,
@@ -1012,6 +1046,7 @@ export function resolveGpuCandidateLimitedDrawRuntime({
       candidateInfoOverrideProvided: useGpuCandidate,
       promotionDecision: useGpuCandidate ? 'promoted' : 'fallback',
       promotionValidation,
+      gpuVisibleRecordDryRunSummary,
       step111TimingSummary,
       remainingCpuDependencies: step111TimingSummary.remainingCpuDependencies,
       status: useGpuCandidate ? 'using-gpu-candidate' : 'fallback',

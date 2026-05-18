@@ -22,6 +22,7 @@ const DEFAULT_SCREEN_COARSE_DEPTH_MODE = 'positive';
 const DEFAULT_PROMOTE_POLICY = 'never';
 const DEFAULT_READBACK_MODE = 'sync-debug';
 const DEFAULT_COVERAGE_MAX_MISSES = 32;
+const DEFAULT_VISIBLE_RECORD_MAX_COUNT = 65536;
 
 function normalizeRuntime(value) {
   return RUNTIME_VALUES.has(value) ? value : DEFAULT_RUNTIME;
@@ -158,6 +159,24 @@ export function buildGpuCandidateRuntimeConfig(queryState = {}, overrides = {}) 
     overrides.coverageMaxMisses ?? overrides.gpuCandidateCoverageMaxMisses ?? queryState.gpuCandidateCoverageMaxMisses,
     DEFAULT_COVERAGE_MAX_MISSES
   );
+  const visibleRecordDryRun = toBoolean(
+    overrides.visibleRecordDryRun ?? overrides.gpuVisibleRecordDryRun ?? queryState.gpuVisibleRecordDryRun,
+    false
+  );
+  const visibleRecordSource = normalizeSourceMode(
+    overrides.visibleRecordSource ?? overrides.gpuVisibleRecordSource ?? queryState.gpuVisibleRecordSource ?? sourceMode
+  );
+  const visibleRecordReadback = normalizeReadbackMode(
+    overrides.visibleRecordReadback ?? overrides.gpuVisibleRecordReadback ?? queryState.gpuVisibleRecordReadback ?? readbackMode
+  );
+  const visibleRecordMaxCount = toFiniteInteger(
+    overrides.visibleRecordMaxCount ?? overrides.gpuVisibleRecordMaxCount ?? queryState.gpuVisibleRecordMaxCount,
+    DEFAULT_VISIBLE_RECORD_MAX_COUNT
+  );
+  const visibleRecordCompare = toBoolean(
+    overrides.visibleRecordCompare ?? overrides.gpuVisibleRecordCompare ?? queryState.gpuVisibleRecordCompare,
+    true
+  );
 
   const limitedDrawRequested = requestedRuntime === 'limited-draw';
   const shadowCompareRequested = requestedRuntime === 'shadow-compare';
@@ -203,6 +222,11 @@ export function buildGpuCandidateRuntimeConfig(queryState = {}, overrides = {}) 
     readbackMode,
     coverageCompare,
     coverageMaxMisses,
+    visibleRecordDryRun,
+    visibleRecordSource,
+    visibleRecordReadback,
+    visibleRecordMaxCount,
+    visibleRecordCompare,
     readbackPolicy: {
       allowReadbackInDraw,
       debugReadback,
@@ -255,6 +279,13 @@ export function buildGpuCandidateRuntimeSummary(runtimeConfig = {}) {
     coverageMaxMisses: Number.isFinite(runtimeConfig.coverageMaxMisses)
       ? runtimeConfig.coverageMaxMisses
       : DEFAULT_COVERAGE_MAX_MISSES,
+    visibleRecordDryRun: !!runtimeConfig.visibleRecordDryRun,
+    visibleRecordSource: runtimeConfig.visibleRecordSource ?? runtimeConfig.sourceMode ?? DEFAULT_SOURCE_MODE,
+    visibleRecordReadback: runtimeConfig.visibleRecordReadback ?? runtimeConfig.readbackMode ?? DEFAULT_READBACK_MODE,
+    visibleRecordMaxCount: Number.isFinite(runtimeConfig.visibleRecordMaxCount)
+      ? runtimeConfig.visibleRecordMaxCount
+      : DEFAULT_VISIBLE_RECORD_MAX_COUNT,
+    visibleRecordCompare: runtimeConfig.visibleRecordCompare !== false,
     readbackPolicy: runtimeConfig.readbackPolicy ?? null
   };
 }

@@ -95,6 +95,16 @@ def build_gpu_candidate_params(args: argparse.Namespace) -> dict[str, str]:
         "gpuCandidateCoverageCompare": parse_bool(args.coverage_compare),
         "gpuCandidateCompare": parse_bool(args.candidate_compare),
     }
+    if parse_bool(args.visible_record_dry_run) == "true":
+        params.update(
+            {
+                "gpuVisibleRecordDryRun": "true",
+                "gpuVisibleRecordSource": args.visible_record_source,
+                "gpuVisibleRecordReadback": args.visible_record_readback,
+                "gpuVisibleRecordMaxCount": str(args.visible_record_max_count),
+                "gpuVisibleRecordCompare": parse_bool(args.visible_record_compare),
+            }
+        )
 
     if args.source_mode:
         params["gpuCandidateSourceMode"] = args.source_mode
@@ -221,6 +231,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--readback-mode", default="sync-debug")
     parser.add_argument("--coverage-compare", default="true")
     parser.add_argument("--candidate-compare", default="true")
+    parser.add_argument("--visible-record-dry-run", default="false")
+    parser.add_argument("--visible-record-source", default="screenCoarse")
+    parser.add_argument("--visible-record-readback", default="sync-debug")
+    parser.add_argument("--visible-record-max-count", type=int, default=65536)
+    parser.add_argument("--visible-record-compare", default="true")
 
     # Range options.
     parser.add_argument("--range-start", type=int, default=0)

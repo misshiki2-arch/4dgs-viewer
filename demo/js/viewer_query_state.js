@@ -196,6 +196,11 @@ function buildDeterministicQueryString(state) {
   appendDeterministicQueryParam(params, 'gpuCandidateCompare', state?.gpuCandidateCompare, formatDeterministicBoolean);
   appendDeterministicQueryParam(params, 'gpuCandidateAllowReadbackInDraw', state?.gpuCandidateAllowReadbackInDraw, formatDeterministicBoolean);
   appendDeterministicQueryParam(params, 'gpuCandidateDebugReadback', state?.gpuCandidateDebugReadback, formatDeterministicBoolean);
+  appendDeterministicQueryParam(params, 'gpuVisibleRecordDryRun', state?.gpuVisibleRecordDryRun, formatDeterministicBoolean);
+  appendDeterministicQueryParam(params, 'gpuVisibleRecordSource', state?.gpuVisibleRecordSource);
+  appendDeterministicQueryParam(params, 'gpuVisibleRecordReadback', state?.gpuVisibleRecordReadback);
+  appendDeterministicQueryParam(params, 'gpuVisibleRecordMaxCount', state?.gpuVisibleRecordMaxCount);
+  appendDeterministicQueryParam(params, 'gpuVisibleRecordCompare', state?.gpuVisibleRecordCompare, formatDeterministicBoolean);
   appendDeterministicQueryParam(params, 'bgGray', state?.bgGray);
   return params.toString();
 }
@@ -220,6 +225,8 @@ export function parseViewerQueryState(search = window.location.search) {
   const gpuCandidatePromotePolicy = params.get('gpuCandidatePromotePolicy');
   const gpuCandidateReadbackMode = params.get('gpuCandidateReadbackMode');
   const gpuCandidateScreenCoarseDepthMode = params.get('gpuCandidateScreenCoarseDepthMode');
+  const gpuVisibleRecordSource = params.get('gpuVisibleRecordSource');
+  const gpuVisibleRecordReadback = params.get('gpuVisibleRecordReadback');
 
   const state = {
     active: false,
@@ -329,6 +336,15 @@ export function parseViewerQueryState(search = window.location.search) {
     gpuCandidateCompare: parseBoolean(params.get('gpuCandidateCompare'), null),
     gpuCandidateAllowReadbackInDraw: parseBoolean(params.get('gpuCandidateAllowReadbackInDraw'), null),
     gpuCandidateDebugReadback: parseBoolean(params.get('gpuCandidateDebugReadback'), null),
+    gpuVisibleRecordDryRun: parseBoolean(params.get('gpuVisibleRecordDryRun'), null),
+    gpuVisibleRecordSource: QUERY_GPU_CANDIDATE_SOURCE_MODE_VALUES.has(gpuVisibleRecordSource)
+      ? gpuVisibleRecordSource
+      : null,
+    gpuVisibleRecordReadback: QUERY_GPU_CANDIDATE_READBACK_MODE_VALUES.has(gpuVisibleRecordReadback)
+      ? gpuVisibleRecordReadback
+      : null,
+    gpuVisibleRecordMaxCount: parseInteger(params.get('gpuVisibleRecordMaxCount'), null),
+    gpuVisibleRecordCompare: parseBoolean(params.get('gpuVisibleRecordCompare'), null),
     bgGray: parseInteger(params.get('bgGray'), null)
   };
 
@@ -403,6 +419,11 @@ export function parseViewerQueryState(search = window.location.search) {
     'gpuCandidateCompare',
     'gpuCandidateAllowReadbackInDraw',
     'gpuCandidateDebugReadback',
+    'gpuVisibleRecordDryRun',
+    'gpuVisibleRecordSource',
+    'gpuVisibleRecordReadback',
+    'gpuVisibleRecordMaxCount',
+    'gpuVisibleRecordCompare',
     'bgGray'
   ].some((key) => params.has(key));
 
@@ -506,6 +527,17 @@ export function buildViewerDeterministicSummary(queryState) {
       : null,
     gpuCandidateDebugReadback: typeof state.gpuCandidateDebugReadback === 'boolean'
       ? state.gpuCandidateDebugReadback
+      : null,
+    gpuVisibleRecordDryRun: typeof state.gpuVisibleRecordDryRun === 'boolean'
+      ? state.gpuVisibleRecordDryRun
+      : null,
+    gpuVisibleRecordSource: state.gpuVisibleRecordSource ?? null,
+    gpuVisibleRecordReadback: state.gpuVisibleRecordReadback ?? null,
+    gpuVisibleRecordMaxCount: Number.isFinite(state.gpuVisibleRecordMaxCount)
+      ? Number(state.gpuVisibleRecordMaxCount)
+      : null,
+    gpuVisibleRecordCompare: typeof state.gpuVisibleRecordCompare === 'boolean'
+      ? state.gpuVisibleRecordCompare
       : null,
     rawQueryString: state.rawQueryString ?? '',
     deterministicQueryString: state.deterministicQueryString ?? '',

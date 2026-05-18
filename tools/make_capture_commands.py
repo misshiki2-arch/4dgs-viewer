@@ -188,6 +188,23 @@ def build_sweep_command(args: argparse.Namespace) -> str:
 );"""
 
 
+def build_visible_record_dryrun_command(args: argparse.Namespace) -> str:
+    if args.source_mode != "screenCoarse":
+        return ""
+
+    return f"""await window.gpuViewerDebug.downloadJsonDebug(
+  await window.gpuViewerDebug.captureGpuVisibleRecordDryRunDebug({{
+    ensureCurrentFrame: false,
+    sourceMode: 'screenCoarse',
+    readbackMode: {quote(args.visible_record_readback)},
+    maxRecords: {args.visible_record_max_count},
+    epsilon: {args.epsilon},
+    maxMismatches: {args.max_mismatches}
+  }}),
+  {quote(args.step + '_gpu_visible_record_dryrun_compare.json')}
+);"""
+
+
 def build_runtime_summary_command(args: argparse.Namespace) -> str:
     return f"""var runtime = await window.gpuViewerDebug.captureGpuCandidateRuntimeSummaryDebug();
 
@@ -272,6 +289,11 @@ def build_commands(args: argparse.Namespace) -> str:
         if command:
             parts.append(command)
 
+    if args.include_visible_record_dryrun:
+        command = build_visible_record_dryrun_command(args)
+        if command:
+            parts.append(command)
+
     if args.include_coverage:
         parts.append(build_coverage_command(args))
 
@@ -352,6 +374,11 @@ def parse_args() -> argparse.Namespace:
         help="Include Step109 screenCoarse sweep capture. Default: false.",
     )
     parser.add_argument(
+        "--include-visible-record-dryrun",
+        default="false",
+        help="Include Step114 GPU visible fixed-record dry-run capture. Default: false.",
+    )
+    parser.add_argument(
         "--include-runtime",
         default="true",
         help="Include runtime, limited draw, and Step111 timing summary captures. Default: true.",
@@ -401,6 +428,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sweep-depth-modes", default="positive")
     parser.add_argument("--sweep-include-case-results", default="false")
 
+    # Step114 visible fixed-record dry-run.
+    parser.add_argument("--visible-record-readback", default="sync-debug")
+    parser.add_argument("--visible-record-max-count", type=int, default=65536)
+
     # visibleSrcIndices.
     parser.add_argument("--subset-count", type=int, default=1024)
     parser.add_argument("--filter-mode", default="all-valid")
@@ -425,6 +456,7 @@ def parse_args() -> argparse.Namespace:
     args.include_source_compare = js_bool(args.include_source_compare) == "true"
     args.include_dryrun_visible = js_bool(args.include_dryrun_visible) == "true"
     args.include_sweep = js_bool(args.include_sweep) == "true"
+    args.include_visible_record_dryrun = js_bool(args.include_visible_record_dryrun) == "true"
     args.include_coverage = js_bool(args.include_coverage) == "true"
     args.include_runtime = js_bool(args.include_runtime) == "true"
     args.include_visible_compare = js_bool(args.include_visible_compare) == "true"

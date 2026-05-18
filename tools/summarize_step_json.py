@@ -34,6 +34,7 @@ KNOWN_SUFFIXES = [
     "gpu_candidate_screen_coarse_compare",
     "gpu_candidate_screen_coarse_dryrun_visible_compare",
     "gpu_candidate_screen_coarse_sweep_summary",
+    "gpu_visible_record_dryrun_compare",
     "gpu_candidate_source_compare",
     "gpu_candidate_coverage",
     "gpu_candidate_runtime_summary",
@@ -497,6 +498,47 @@ def extract_step111_timing(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def extract_gpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]:
+    summary = get_path(
+        data,
+        [
+            "gpuVisibleRecordDryRunSummary",
+            "limitedDrawSummary.gpuVisibleRecordDryRunSummary",
+            "runtimeSummary.limitedDrawSummary.gpuVisibleRecordDryRunSummary",
+        ],
+        None,
+    )
+    if not isinstance(summary, dict):
+        summary = data if get_path(data, ["schemaVersion"]) == "step114-gpu-visible-record-dry-run-v1" else {}
+    timing = get_path(summary, ["timing"], {})
+    record_comparison = get_path(summary, ["recordComparison"], {})
+    reference_visible = get_path(summary, ["referenceVisibleComparison"], {})
+    return {
+        "status": get_path(summary, ["status"]),
+        "reason": get_path(summary, ["reason"]),
+        "sourceMode": get_path(summary, ["sourceMode"]),
+        "computeMode": get_path(summary, ["computeMode"]),
+        "candidateCount": get_path(summary, ["candidateCount"]),
+        "recordCount": get_path(summary, ["recordCount"]),
+        "validRecordCount": get_path(summary, ["validRecordCount"]),
+        "mismatchClassification": get_path(summary, ["mismatchClassification"]),
+        "anyMismatch": get_path(summary, ["anyMismatch"]),
+        "recordAnyMismatch": get_path(record_comparison, ["anyMismatch"]),
+        "recordFieldMismatchCount": get_path(record_comparison, ["fieldMismatchCount"]),
+        "referenceVisibleAnyMismatch": get_path(reference_visible, ["anyMismatch"]),
+        "referenceVisibleMissingRecordCount": get_path(reference_visible, ["missingRecordCount"]),
+        "referenceVisibleInvalidRecordCount": get_path(reference_visible, ["invalidRecordCount"]),
+        "referenceVisibleFieldMismatchCount": get_path(reference_visible, ["fieldMismatchCount"]),
+        "displayCandidateSource": get_path(summary, ["displayCandidateSource"]),
+        "gpuCandidateUsedForDisplay": get_path(summary, ["gpuCandidateUsedForDisplay"]),
+        "limitedDrawUsedForCandidateSource": get_path(summary, ["limitedDrawUsedForCandidateSource"]),
+        "transformFeedbackDrawMs": get_path(timing, ["transformFeedbackDrawMs"]),
+        "readbackMs": get_path(timing, ["readbackMs"]),
+        "compareMs": get_path(timing, ["compareMs"]),
+        "totalMs": get_path(timing, ["totalMs"]),
+    }
+
+
 def extract_association(data: Dict[str, Any]) -> Dict[str, Any]:
     summary = get_path(data, ["summary"], data)
 
@@ -583,6 +625,7 @@ def summarize_step(base_dir: Path, prefix: str) -> Dict[str, Any]:
         "screenCoarseSweep": None,
         "promotionValidation": None,
         "step111Timing": None,
+        "gpuVisibleRecordDryRun": None,
         "association": None,
         "renderSummary": None,
         "loadErrors": {},
@@ -619,6 +662,9 @@ def summarize_step(base_dir: Path, prefix: str) -> Dict[str, Any]:
         result["step111Timing"] = extract_step111_timing(
             loaded["limited_draw_summary"]
         )
+        result["gpuVisibleRecordDryRun"] = extract_gpu_visible_record_dryrun(
+            loaded["limited_draw_summary"]
+        )
         if result.get("coverage") is None:
             result["coverage"] = extract_coverage(loaded["limited_draw_summary"])
 
@@ -633,6 +679,11 @@ def summarize_step(base_dir: Path, prefix: str) -> Dict[str, Any]:
     if "gpu_candidate_screen_coarse_sweep_summary" in loaded:
         result["screenCoarseSweep"] = extract_screen_coarse_sweep(
             loaded["gpu_candidate_screen_coarse_sweep_summary"]
+        )
+
+    if "gpu_visible_record_dryrun_compare" in loaded:
+        result["gpuVisibleRecordDryRun"] = extract_gpu_visible_record_dryrun(
+            loaded["gpu_visible_record_dryrun_compare"]
         )
 
     if "association" in loaded:
@@ -689,6 +740,7 @@ def print_human_summary(summary: Dict[str, Any]) -> None:
     print_section("ScreenCoarse sweep", summary.get("screenCoarseSweep"))
     print_section("Promotion validation", summary.get("promotionValidation"))
     print_section("Step111 timing", summary.get("step111Timing"))
+    print_section("GPU visible record dry-run", summary.get("gpuVisibleRecordDryRun"))
     print_section("Association", summary.get("association"))
     print_section("Render summary", summary.get("renderSummary"))
 
