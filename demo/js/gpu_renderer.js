@@ -840,7 +840,8 @@ export async function renderGpuFrame({
     visibleSourceItems: Array.isArray(referenceVisibleResult?.visible)
       ? referenceVisibleResult.visible
       : null,
-    referencePackedPayload: referenceVisibleResult?.packedScreenSpace ?? null
+    referencePackedPayload: referenceVisibleResult?.packedScreenSpace ?? null,
+    referenceDisplayBuildStats: referenceVisibleResult?.buildStats ?? null
   });
 
   const visibleResult = await buildVisibleSplats({
@@ -1023,6 +1024,17 @@ export async function renderGpuFrame({
     !!limitedDrawRuntime.summary?.limitedDrawUsedForCandidateSource;
   buildStats.displayCandidateSource =
     limitedDrawRuntime.summary?.displayCandidateSource ?? 'cpu-reference';
+  if (limitedDrawRuntime.summary?.step111TimingSummary) {
+    limitedDrawRuntime.summary.step111TimingSummary.actualDisplayVisibleBuildMs =
+      Number.isFinite(buildStats.visibleBuildMs) ? buildStats.visibleBuildMs : null;
+    limitedDrawRuntime.summary.step111TimingSummary.actualDisplayPackedBuildMs =
+      Number.isFinite(buildStats.screenSpaceBuildMs) ? buildStats.screenSpaceBuildMs : null;
+    limitedDrawRuntime.summary.step111TimingSummary.actualDisplayTotalBuildMs =
+      Number.isFinite(buildStats.totalBuildMs) ? buildStats.totalBuildMs : null;
+    limitedDrawRuntime.summary.step111TimingSummary.actualDisplayVisibleCount = visible.length;
+    limitedDrawRuntime.summary.step111TimingSummary.actualDisplayPackedVisibleCount =
+      Number.isFinite(packedScreenSpace?.packedCount) ? packedScreenSpace.packedCount : null;
+  }
   const avgRefsPerVisible = visible.length > 0 ? (tileSummary.totalRefs / visible.length) : 0;
 
   const tileDebugText = formatTileDebugSummary({

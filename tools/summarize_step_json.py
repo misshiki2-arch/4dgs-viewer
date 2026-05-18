@@ -465,6 +465,38 @@ def extract_promotion_validation(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def extract_step111_timing(data: Dict[str, Any]) -> Dict[str, Any]:
+    timing = get_path(
+        data,
+        [
+            "step111TimingSummary",
+            "limitedDrawSummary.step111TimingSummary",
+            "runtimeSummary.limitedDrawSummary.step111TimingSummary",
+        ],
+        {},
+    )
+    return {
+        "displayCandidateSource": get_path(timing, ["displayCandidateSource"]),
+        "promotionDecision": get_path(timing, ["promotionDecision"]),
+        "fallbackReason": get_path(timing, ["fallbackReason"]),
+        "gpuCandidateCount": get_path(timing, ["gpuCandidateCount"]),
+        "visibleCoverageRatio": get_path(timing, ["visibleCoverageRatio"]),
+        "candidateSourceMs": get_path(timing, ["candidateSourceMs"]),
+        "cpuCandidateSourceMs": get_path(timing, ["cpuCandidateSourceMs"]),
+        "transformFeedbackDrawMs": get_path(timing, ["transformFeedbackDrawMs"]),
+        "readbackMs": get_path(timing, ["readbackMs"]),
+        "promotionValidationMs": get_path(timing, ["promotionValidationMs"]),
+        "visibleBuildMs": get_path(timing, ["visibleBuildMs"]),
+        "packedBuildMs": get_path(timing, ["packedBuildMs"]),
+        "totalVisiblePackedBuildMs": get_path(timing, ["totalVisiblePackedBuildMs"]),
+        "actualDisplayVisibleBuildMs": get_path(timing, ["actualDisplayVisibleBuildMs"]),
+        "actualDisplayPackedBuildMs": get_path(timing, ["actualDisplayPackedBuildMs"]),
+        "actualDisplayTotalBuildMs": get_path(timing, ["actualDisplayTotalBuildMs"]),
+        "totalLimitedDrawMs": get_path(timing, ["totalLimitedDrawMs"]),
+        "remainingCpuDependencies": get_path(timing, ["remainingCpuDependencies"], []),
+    }
+
+
 def extract_association(data: Dict[str, Any]) -> Dict[str, Any]:
     summary = get_path(data, ["summary"], data)
 
@@ -550,6 +582,7 @@ def summarize_step(base_dir: Path, prefix: str) -> Dict[str, Any]:
         "dryRunVisibleCompare": None,
         "screenCoarseSweep": None,
         "promotionValidation": None,
+        "step111Timing": None,
         "association": None,
         "renderSummary": None,
         "loadErrors": {},
@@ -581,6 +614,9 @@ def summarize_step(base_dir: Path, prefix: str) -> Dict[str, Any]:
     if "limited_draw_summary" in loaded:
         result["limitedDraw"] = extract_runtime(loaded["limited_draw_summary"])
         result["promotionValidation"] = extract_promotion_validation(
+            loaded["limited_draw_summary"]
+        )
+        result["step111Timing"] = extract_step111_timing(
             loaded["limited_draw_summary"]
         )
         if result.get("coverage") is None:
@@ -652,6 +688,7 @@ def print_human_summary(summary: Dict[str, Any]) -> None:
     print_section("Dry-run visible compare", summary.get("dryRunVisibleCompare"))
     print_section("ScreenCoarse sweep", summary.get("screenCoarseSweep"))
     print_section("Promotion validation", summary.get("promotionValidation"))
+    print_section("Step111 timing", summary.get("step111Timing"))
     print_section("Association", summary.get("association"))
     print_section("Render summary", summary.get("renderSummary"))
 

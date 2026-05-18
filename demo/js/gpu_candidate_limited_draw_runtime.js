@@ -24,6 +24,12 @@ import {
   isGpuOwnedCandidateSourceMode
 } from './gpu_candidate_source_runtime.js';
 
+function nowMs() {
+  return typeof performance !== 'undefined' && typeof performance.now === 'function'
+    ? performance.now()
+    : Date.now();
+}
+
 function clonePlainObject(value) {
   if (!value || typeof value !== 'object') return value;
   if (Array.isArray(value)) return value.map((item) => clonePlainObject(item));
@@ -174,6 +180,7 @@ function buildVisibleAndPackedFromCandidateInfo({
   temporalSigmaThreshold = 3.0,
   label = 'limited-draw-candidate'
 } = {}) {
+  const totalStartMs = nowMs();
   const renderScale = Number.isFinite(buildConfig.renderScale) ? buildConfig.renderScale : 1;
   const renderW = Math.max(1, Math.round(canvasWidth * renderScale));
   const renderH = Math.max(1, Math.round(canvasHeight * renderScale));
@@ -195,6 +202,7 @@ function buildVisibleAndPackedFromCandidateInfo({
   let temporalRejected = 0;
   let temporalPassed = 0;
 
+  const visibleLoopStartMs = nowMs();
   for (let k = 0; k < candidateIndices.length; k++) {
     const index = candidateIndices[k];
     processed++;
@@ -234,7 +242,11 @@ function buildVisibleAndPackedFromCandidateInfo({
     visible.push(item);
     if (visible.length >= maxVisible) break;
   }
+  const visibleLoopMs = nowMs() - visibleLoopStartMs;
+  const sortStartMs = nowMs();
   visible.sort((a, b) => b.depth - a.depth);
+  const visibleSortMs = nowMs() - sortStartMs;
+  const packedStartMs = nowMs();
   const packedScreenSpace = buildConfig.enablePackedVisiblePath !== false
     ? buildPackedScreenSpaceWithContext(createScreenSpaceBuildContext(), visible, {
         renderW,
@@ -243,6 +255,9 @@ function buildVisibleAndPackedFromCandidateInfo({
         sy
       })
     : null;
+  const packedBuildMs = nowMs() - packedStartMs;
+  const totalBuildMs = nowMs() - totalStartMs;
+  const visibleBuildMs = totalBuildMs - packedBuildMs;
   return {
     label,
     candidateInfo,
@@ -259,7 +274,13 @@ function buildVisibleAndPackedFromCandidateInfo({
       candidateCount: candidateIndices.length,
       packedVisibleCount: packedScreenSpace?.packedCount ?? 0,
       packedVisibleLength: packedScreenSpace?.packed?.length ?? 0,
-      packedVisibleFloatsPerItem: packedScreenSpace?.floatsPerItem ?? 0
+      packedVisibleFloatsPerItem: packedScreenSpace?.floatsPerItem ?? 0,
+      visibleLoopMs,
+      visibleSortMs,
+      visibleBuildMs,
+      packedBuildMs,
+      screenSpaceBuildMs: packedBuildMs,
+      totalBuildMs
     }
   };
 }
@@ -441,6 +462,113 @@ function buildSkippedSummary({
   };
 }
 
+function buildRemainingCpuDependencies({
+  runtimeConfig,
+  promotionValidation,
+  useGpuCandidate
+} = {}) {
+  const out = [];
+  if (runtimeConfig?.readbackMode === 'sync-debug') out.push('sync-debug-readback');
+  if (promotionValidation) out.push('cpu-reference-visible-packed-for-validation');
+  if (useGpuCandidate) {
+    out.push('cpu-visible-build-from-gpu-candidate');
+    out.push('cpu-packed-build-from-gpu-candidate');
+    out.push('cpu-tile-list-build');
+  }
+  if (runtimeConfig?.coverageCompare) out.push('cpu-coverage-compare');
+  if (runtimeConfig?.requireCompare) out.push('cpu-candidate-visible-packed-compare');
+  return out;
+}
+
+function buildStep111TimingSummary({
+  runtimeConfig,
+  finalFallback,
+  sourceComparison,
+  sourceComparisonMs = null,
+  candidateComparisonMs = null,
+  referenceVisibleBuild = null,
+  referenceDisplayBuildStats = null,
+  gpuVisibleBuild = null,
+  promotionValidation = null,
+  promotionValidationMs = null,
+  screenCoarsePromotionCompareMs = null,
+  visibleComparisonMs = null,
+  totalLimitedDrawMs = null,
+  useGpuCandidate = false
+} = {}) {
+  const gpuTiming = sourceComparison?.gpuCandidateSummary?.timing ?? {};
+  const sourceTiming = sourceComparison?.candidateSourceSummary?.timing ?? {};
+  const referenceBuildStats = referenceDisplayBuildStats ?? referenceVisibleBuild?.buildStats ?? null;
+  const gpuBuildStats = gpuVisibleBuild?.buildStats ?? null;
+  const timingUnavailableReasons = [];
+  const sourceComparisonTimingMs = Number.isFinite(sourceComparisonMs) ? sourceComparisonMs : null;
+  if (sourceComparisonTimingMs === null) {
+    timingUnavailableReasons.push('sourceComparisonMs');
+  }
+  return {
+    schemaVersion: 'step111-gpu-candidate-display-timing-summary-v1',
+    displayCandidateSource: finalFallback?.displayCandidateSource ?? 'cpu-reference',
+    promotionDecision: useGpuCandidate ? 'promoted' : 'fallback',
+    gpuCandidateUsedForDisplay: !!useGpuCandidate,
+    limitedDrawUsedForCandidateSource: !!useGpuCandidate,
+    candidateInfoOverrideProvided: !!useGpuCandidate,
+    fallbackReason: finalFallback?.reason ?? 'unknown',
+    sourceMode: runtimeConfig?.sourceMode ?? 'unknown',
+    promotePolicy: runtimeConfig?.promotePolicy ?? 'never',
+    readbackMode: runtimeConfig?.readbackMode ?? null,
+    gpuCandidateCount: promotionValidation?.gpuCandidateCount ??
+      sourceComparison?.gpuCandidateSummary?.candidateCount ??
+      null,
+    visibleCoverageRatio: promotionValidation?.visibleCoverageRatio ?? null,
+    candidateSourceMs: Number.isFinite(gpuTiming.gpuCandidateTotalMs)
+      ? gpuTiming.gpuCandidateTotalMs
+      : null,
+    cpuCandidateSourceMs: Number.isFinite(sourceTiming.cpuSourceTotalMs)
+      ? sourceTiming.cpuSourceTotalMs
+      : null,
+    uploadAndSetupMs: Number.isFinite(gpuTiming.uploadAndSetupMs) ? gpuTiming.uploadAndSetupMs : null,
+    transformFeedbackSetupMs: Number.isFinite(gpuTiming.transformFeedbackSetupMs)
+      ? gpuTiming.transformFeedbackSetupMs
+      : null,
+    transformFeedbackDrawMs: Number.isFinite(gpuTiming.transformFeedbackDrawMs)
+      ? gpuTiming.transformFeedbackDrawMs
+      : null,
+    readbackMs: Number.isFinite(gpuTiming.readbackMs) ? gpuTiming.readbackMs : null,
+    collectAcceptedMs: Number.isFinite(gpuTiming.collectAcceptedMs) ? gpuTiming.collectAcceptedMs : null,
+    sourceComparisonMs: sourceComparisonTimingMs,
+    candidateComparisonMs,
+    promotionValidationMs,
+    screenCoarsePromotionCompareMs,
+    visibleComparisonMs,
+    referenceVisibleBuildMs: Number.isFinite(referenceBuildStats?.visibleBuildMs)
+      ? referenceBuildStats.visibleBuildMs
+      : null,
+    referencePackedBuildMs: Number.isFinite(referenceBuildStats?.screenSpaceBuildMs)
+      ? referenceBuildStats.screenSpaceBuildMs
+      : (Number.isFinite(referenceBuildStats?.packedBuildMs) ? referenceBuildStats.packedBuildMs : null),
+    referenceTotalBuildMs: Number.isFinite(referenceBuildStats?.totalBuildMs)
+      ? referenceBuildStats.totalBuildMs
+      : null,
+    visibleBuildMs: Number.isFinite(gpuBuildStats?.visibleBuildMs) ? gpuBuildStats.visibleBuildMs : null,
+    packedBuildMs: Number.isFinite(gpuBuildStats?.screenSpaceBuildMs)
+      ? gpuBuildStats.screenSpaceBuildMs
+      : (Number.isFinite(gpuBuildStats?.packedBuildMs) ? gpuBuildStats.packedBuildMs : null),
+    totalVisiblePackedBuildMs: Number.isFinite(gpuBuildStats?.totalBuildMs) ? gpuBuildStats.totalBuildMs : null,
+    totalLimitedDrawMs,
+    candidateCount: Number.isFinite(gpuBuildStats?.candidateCount) ? gpuBuildStats.candidateCount : null,
+    visibleCount: Number.isFinite(gpuBuildStats?.accepted) ? gpuBuildStats.accepted : null,
+    packedVisibleCount: Number.isFinite(gpuBuildStats?.packedVisibleCount)
+      ? gpuBuildStats.packedVisibleCount
+      : null,
+    remainingCpuDependencies: buildRemainingCpuDependencies({
+      runtimeConfig,
+      promotionValidation,
+      useGpuCandidate
+    }),
+    timingUnavailableReasons
+  };
+}
+
 function buildLimitedDrawFallbackReasons(
   runtimeConfig,
   gpuCandidateInfo,
@@ -565,6 +693,7 @@ export function resolveGpuCandidateLimitedDrawRuntime({
   candidateArgs,
   visibleSourceItems = null,
   referencePackedPayload = null,
+  referenceDisplayBuildStats = null,
   shadowCompare = null,
   camera = null,
   screenSpaceCamera = null,
@@ -574,6 +703,7 @@ export function resolveGpuCandidateLimitedDrawRuntime({
   tileGrid = null,
   buildConfig = null
 } = {}) {
+  const totalStartMs = nowMs();
   const runtimeConfig = buildGpuCandidateRuntimeConfig(queryState, overrides);
   const runtimeSummary = buildGpuCandidateRuntimeSummary(runtimeConfig);
   const preflightFallback = buildGpuCandidateRuntimeFallbackSummary({
@@ -645,6 +775,7 @@ export function resolveGpuCandidateLimitedDrawRuntime({
   }
 
   const referenceCandidateInfo = buildCandidateInfo(candidateArgs);
+  const sourceCompareStartMs = nowMs();
   const sourceComparison = gpuOwnedSourceMode
     ? buildGpuOwnedCandidateSourceComparison({
         gl,
@@ -664,6 +795,7 @@ export function resolveGpuCandidateLimitedDrawRuntime({
         }
       })
     : null;
+  const sourceComparisonMs = nowMs() - sourceCompareStartMs;
   const referenceSubsetCandidateInfo = gpuOwnedSourceMode
     ? sourceComparison?.cpuMirrorCandidateInfo
     : buildReferenceSubsetCandidateInfo({
@@ -701,6 +833,7 @@ export function resolveGpuCandidateLimitedDrawRuntime({
           startIndex: runtimeConfig.startIndex,
           filterMode: runtimeConfig.filterMode
         }));
+  const candidateComparisonStartMs = nowMs();
   const candidateComparison = buildCandidateComparisonSummary({
     referenceCandidateInfo: referenceFilteredCandidateInfo,
     candidateCandidateInfo: gpuCandidateInfo,
@@ -726,6 +859,7 @@ export function resolveGpuCandidateLimitedDrawRuntime({
       candidateArgs: summarizeCandidateArgs(candidateArgs)
     }
   });
+  const candidateComparisonMs = nowMs() - candidateComparisonStartMs;
   const canBuildVisibleComparison = raw &&
     camera &&
     Number.isFinite(canvasWidth) &&
@@ -766,6 +900,7 @@ export function resolveGpuCandidateLimitedDrawRuntime({
     runtimeConfig.promotePolicy === 'validated-only' &&
     canBuildVisibleComparison &&
     Array.isArray(visibleSourceItems);
+  const screenCoarsePromotionCompareStartMs = nowMs();
   const screenCoarsePromotionVisibleComparison = canBuildScreenCoarsePromotionValidation
     ? buildVisibleComparisonSummary({
         referenceItems: visibleSourceItems,
@@ -785,6 +920,10 @@ export function resolveGpuCandidateLimitedDrawRuntime({
         }
       })
     : null;
+  const screenCoarsePromotionCompareMs = canBuildScreenCoarsePromotionValidation
+    ? nowMs() - screenCoarsePromotionCompareStartMs
+    : null;
+  const visibleComparisonStartMs = nowMs();
   const visibleComparison = canBuildVisibleComparison
     ? buildVisibleComparisonSummary({
         referenceItems: referenceVisibleBuild.visible,
@@ -801,6 +940,8 @@ export function resolveGpuCandidateLimitedDrawRuntime({
         }
       })
     : null;
+  const visibleComparisonMs = canBuildVisibleComparison ? nowMs() - visibleComparisonStartMs : null;
+  const promotionValidationStartMs = nowMs();
   const promotionValidation = gpuOwnedSourceMode && sourceMode === 'screenCoarse'
     ? buildScreenCoarsePromotionValidation({
         runtimeConfig,
@@ -811,6 +952,7 @@ export function resolveGpuCandidateLimitedDrawRuntime({
         referenceVisibleItems: visibleSourceItems
       })
     : null;
+  const promotionValidationMs = promotionValidation ? nowMs() - promotionValidationStartMs : null;
   const visibleComparisonForFallback = promotionValidation
     ? screenCoarsePromotionVisibleComparison
     : visibleComparison;
@@ -837,6 +979,22 @@ export function resolveGpuCandidateLimitedDrawRuntime({
     )
   });
   const useGpuCandidate = finalFallback.action === 'use-gpu-candidate';
+  const step111TimingSummary = buildStep111TimingSummary({
+    runtimeConfig,
+    finalFallback,
+    sourceComparison,
+    sourceComparisonMs,
+    candidateComparisonMs,
+    referenceVisibleBuild,
+    referenceDisplayBuildStats,
+    gpuVisibleBuild,
+    promotionValidation,
+    promotionValidationMs,
+    screenCoarsePromotionCompareMs,
+    visibleComparisonMs,
+    totalLimitedDrawMs: nowMs() - totalStartMs,
+    useGpuCandidate
+  });
 
   return {
     candidateInfoOverride: useGpuCandidate ? gpuCandidateInfo : null,
@@ -854,6 +1012,8 @@ export function resolveGpuCandidateLimitedDrawRuntime({
       candidateInfoOverrideProvided: useGpuCandidate,
       promotionDecision: useGpuCandidate ? 'promoted' : 'fallback',
       promotionValidation,
+      step111TimingSummary,
+      remainingCpuDependencies: step111TimingSummary.remainingCpuDependencies,
       status: useGpuCandidate ? 'using-gpu-candidate' : 'fallback',
       reason: finalFallback.reason,
       runtimeSummary,

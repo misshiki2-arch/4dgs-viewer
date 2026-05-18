@@ -354,7 +354,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--include-runtime",
         default="true",
-        help="Include runtime and limited draw summary captures. Default: true.",
+        help="Include runtime, limited draw, and Step111 timing summary captures. Default: true.",
     )
     parser.add_argument(
         "--include-visible-compare",
