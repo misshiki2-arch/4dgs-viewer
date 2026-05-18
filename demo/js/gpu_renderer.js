@@ -805,11 +805,20 @@ export async function renderGpuFrame({
   };
   const subsetMode = deterministicStateSummary?.gpuCandidateSubsetMode ?? 'visibleSrcIndices';
   const candidateSourceMode = deterministicStateSummary?.gpuCandidateSourceMode ?? 'visibleSrcIndices';
+  const promotePolicy = deterministicStateSummary?.gpuCandidatePromotePolicy ?? 'never';
   const limitedDrawNeedsReferenceVisible =
     deterministicStateSummary?.gpuCandidateRuntime === 'limited-draw' &&
     deterministicStateSummary?.gpuCandidateAllowReadbackInDraw === true &&
-    candidateSourceMode === 'visibleSrcIndices' &&
-    (subsetMode === 'visibleSrcIndices' || subsetMode === 'fromVisible' || subsetMode === 'visibleReachable');
+    (
+      (
+        candidateSourceMode === 'visibleSrcIndices' &&
+        (subsetMode === 'visibleSrcIndices' || subsetMode === 'fromVisible' || subsetMode === 'visibleReachable')
+      ) ||
+      (
+        candidateSourceMode === 'screenCoarse' &&
+        promotePolicy === 'validated-only'
+      )
+    );
   let referenceVisibleResult = null;
   if (limitedDrawNeedsReferenceVisible) {
     referenceVisibleResult = await buildVisibleSplats(buildVisibleInput);
@@ -830,7 +839,8 @@ export async function renderGpuFrame({
     buildConfig,
     visibleSourceItems: Array.isArray(referenceVisibleResult?.visible)
       ? referenceVisibleResult.visible
-      : null
+      : null,
+    referencePackedPayload: referenceVisibleResult?.packedScreenSpace ?? null
   });
 
   const visibleResult = await buildVisibleSplats({

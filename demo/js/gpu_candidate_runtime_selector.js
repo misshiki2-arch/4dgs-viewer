@@ -3,7 +3,7 @@ const FALLBACK_VALUES = new Set(['cpu-on-error', 'cpu-always', 'none']);
 const SUBSET_MODE_VALUES = new Set(['firstN', 'visibleSrcIndices', 'fromVisible', 'visibleReachable']);
 const FILTER_MODE_VALUES = new Set(['all-valid', 'evenIndex']);
 const SOURCE_MODE_VALUES = new Set(['visibleSrcIndices', 'firstN', 'range', 'screenCoarse']);
-const PROMOTE_POLICY_VALUES = new Set(['never', 'compare-ok', 'async-ready']);
+const PROMOTE_POLICY_VALUES = new Set(['never', 'compare-ok', 'async-ready', 'validated-only']);
 const READBACK_MODE_VALUES = new Set(['sync-debug', 'async-fence', 'none']);
 const SCREEN_COARSE_DEPTH_MODE_VALUES = new Set(['positive', 'any']);
 

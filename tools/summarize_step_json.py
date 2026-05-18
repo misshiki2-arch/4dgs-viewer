@@ -285,6 +285,14 @@ def extract_runtime(data: Dict[str, Any]) -> Dict[str, Any]:
             limited,
             ["candidateInfoOverrideProvided"],
         ),
+        "promotionDecision": get_path(
+            data,
+            [
+                "promotionDecision",
+                "limitedDrawSummary.promotionDecision",
+                "runtimeSummary.limitedDrawSummary.promotionDecision",
+            ],
+        ),
     }
 
 
@@ -408,6 +416,55 @@ def extract_screen_coarse_sweep(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def extract_promotion_validation(data: Dict[str, Any]) -> Dict[str, Any]:
+    validation = get_path(
+        data,
+        [
+            "promotionValidation",
+            "limitedDrawSummary.promotionValidation",
+            "runtimeSummary.limitedDrawSummary.promotionValidation",
+        ],
+        {},
+    )
+    failure_reasons = get_path(validation, ["failureReasons"], [])
+    if isinstance(failure_reasons, list):
+        failure_reasons = [
+            item.get("code") if isinstance(item, dict) else item
+            for item in failure_reasons
+        ]
+    return {
+        "promotionDecision": get_path(
+            data,
+            [
+                "promotionDecision",
+                "limitedDrawSummary.promotionDecision",
+                "runtimeSummary.limitedDrawSummary.promotionDecision",
+                "promotionValidation.promotionDecision",
+            ],
+        ),
+        "sourceMode": get_path(validation, ["sourceMode"]),
+        "promotePolicy": get_path(validation, ["promotePolicy"]),
+        "gpuCandidateCount": get_path(validation, ["gpuCandidateCount"]),
+        "visibleCoverageRatio": get_path(validation, ["visibleCoverageRatio"]),
+        "visibleMissCount": get_path(validation, ["visibleMissCount"]),
+        "candidateAnyMismatch": get_path(validation, ["candidateAnyMismatch"]),
+        "visibleItemsAnyMismatch": get_path(validation, ["visibleItemsAnyMismatch"]),
+        "packedPayloadAnyMismatch": get_path(validation, ["packedPayloadAnyMismatch"]),
+        "mismatchClassification": get_path(validation, ["mismatchClassification"]),
+        "failureReasons": failure_reasons,
+        "displayCandidateSource": get_path(validation, ["displayCandidateSource"]),
+        "gpuCandidateUsedForDisplay": get_path(validation, ["gpuCandidateUsedForDisplay"]),
+        "limitedDrawUsedForCandidateSource": get_path(
+            validation,
+            ["limitedDrawUsedForCandidateSource"],
+        ),
+        "candidateInfoOverrideProvided": get_path(
+            validation,
+            ["candidateInfoOverrideProvided"],
+        ),
+    }
+
+
 def extract_association(data: Dict[str, Any]) -> Dict[str, Any]:
     summary = get_path(data, ["summary"], data)
 
@@ -492,6 +549,7 @@ def summarize_step(base_dir: Path, prefix: str) -> Dict[str, Any]:
         "visibleCompare": None,
         "dryRunVisibleCompare": None,
         "screenCoarseSweep": None,
+        "promotionValidation": None,
         "association": None,
         "renderSummary": None,
         "loadErrors": {},
@@ -522,6 +580,9 @@ def summarize_step(base_dir: Path, prefix: str) -> Dict[str, Any]:
 
     if "limited_draw_summary" in loaded:
         result["limitedDraw"] = extract_runtime(loaded["limited_draw_summary"])
+        result["promotionValidation"] = extract_promotion_validation(
+            loaded["limited_draw_summary"]
+        )
         if result.get("coverage") is None:
             result["coverage"] = extract_coverage(loaded["limited_draw_summary"])
 
@@ -590,6 +651,7 @@ def print_human_summary(summary: Dict[str, Any]) -> None:
     print_section("Visible compare", summary.get("visibleCompare"))
     print_section("Dry-run visible compare", summary.get("dryRunVisibleCompare"))
     print_section("ScreenCoarse sweep", summary.get("screenCoarseSweep"))
+    print_section("Promotion validation", summary.get("promotionValidation"))
     print_section("Association", summary.get("association"))
     print_section("Render summary", summary.get("renderSummary"))
 

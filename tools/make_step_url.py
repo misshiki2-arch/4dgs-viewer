@@ -212,7 +212,12 @@ def parse_args() -> argparse.Namespace:
         help="GPU candidate source mode.",
     )
     parser.add_argument("--allow-readback-in-draw", default="true")
-    parser.add_argument("--promote-policy", default="never")
+    parser.add_argument(
+        "--promote-policy",
+        default="never",
+        choices=["never", "compare-ok", "async-ready", "validated-only"],
+        help="GPU candidate promotion policy. Use validated-only for Step110 gated screenCoarse promotion.",
+    )
     parser.add_argument("--readback-mode", default="sync-debug")
     parser.add_argument("--coverage-compare", default="true")
     parser.add_argument("--candidate-compare", default="true")

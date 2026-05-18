@@ -33,7 +33,8 @@ const QUERY_GPU_CANDIDATE_SOURCE_MODE_VALUES = new Set([
 const QUERY_GPU_CANDIDATE_PROMOTE_POLICY_VALUES = new Set([
   'never',
   'compare-ok',
-  'async-ready'
+  'async-ready',
+  'validated-only'
 ]);
 const QUERY_GPU_CANDIDATE_READBACK_MODE_VALUES = new Set([
   'sync-debug',

@@ -250,6 +250,10 @@ await new Promise(r => setTimeout(r, {args.render_wait_ms}));
 
 def build_commands(args: argparse.Namespace) -> str:
     parts: List[str] = []
+    parts.append(
+        f"// Step capture expects gpuCandidatePromotePolicy={args.promote_policy}; "
+        "open the matching URL before running these commands."
+    )
 
     preamble = build_preamble(args)
     if preamble:
@@ -373,6 +377,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-mismatches", type=int, default=32)
     parser.add_argument("--max-misses", type=int, default=32)
     parser.add_argument("--readback-mode", default="sync-debug")
+    parser.add_argument(
+        "--promote-policy",
+        default="never",
+        choices=["never", "compare-ok", "async-ready", "validated-only"],
+        help="Expected gpuCandidatePromotePolicy in the already-open viewer URL.",
+    )
 
     # Range.
     parser.add_argument("--range-start", type=int, default=0)

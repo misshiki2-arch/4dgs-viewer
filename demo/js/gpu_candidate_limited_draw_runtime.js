@@ -264,6 +264,153 @@ function buildVisibleAndPackedFromCandidateInfo({
   };
 }
 
+function toUint32Array(value) {
+  if (value instanceof Uint32Array) return value;
+  if (Array.isArray(value)) return Uint32Array.from(value);
+  return new Uint32Array(0);
+}
+
+function getVisibleSrcIndex(item) {
+  const value = Number(item?.srcIndex);
+  return Number.isFinite(value) && value >= 0 ? (value >>> 0) : null;
+}
+
+function buildVisibleCoverageAgainstCandidate(visibleItems, candidateInfo) {
+  const candidateIndices = toUint32Array(candidateInfo?.candidateIndices);
+  const candidateSet = new Set();
+  for (let i = 0; i < candidateIndices.length; i++) {
+    candidateSet.add(candidateIndices[i] >>> 0);
+  }
+  const visible = Array.isArray(visibleItems) ? visibleItems : [];
+  let hitCount = 0;
+  let missCount = 0;
+  for (const item of visible) {
+    const srcIndex = getVisibleSrcIndex(item);
+    if (srcIndex === null) continue;
+    if (candidateSet.has(srcIndex)) {
+      hitCount++;
+    } else {
+      missCount++;
+    }
+  }
+  const count = hitCount + missCount;
+  return {
+    schemaVersion: 'step110-screen-coarse-promotion-coverage-v1',
+    sourceMode: 'screenCoarse',
+    gpuCandidateCount: candidateIndices.length,
+    cpuVisibleCount: count,
+    visibleHitCount: hitCount,
+    visibleMissCount: missCount,
+    visibleCoverageRatio: count > 0 ? hitCount / count : 1
+  };
+}
+
+function getVisibleItemsMismatch(visibleComparison) {
+  return !!visibleComparison?.visibleItems?.anyMismatch;
+}
+
+function getVisibleCountMismatch(visibleComparison) {
+  return visibleComparison?.visibleItems?.countEqual === false;
+}
+
+function getPackedMismatch(visibleComparison) {
+  const packedPayload = visibleComparison?.packedPayload;
+  if (!packedPayload) return true;
+  return !!(packedPayload.anyMismatch ?? packedPayload.packedAnyMismatch);
+}
+
+function classifyScreenCoarsePromotionMismatch({
+  candidateComparison = null,
+  visibleComparison = null,
+  coverageSummary = null
+} = {}) {
+  if (!coverageSummary || !visibleComparison) return 'promotion-validation-missing';
+  if ((coverageSummary?.gpuCandidateCount ?? 0) <= 0) return 'empty-gpu-candidate';
+  if ((coverageSummary?.visibleMissCount ?? 0) > 0 || coverageSummary?.visibleCoverageRatio !== 1) {
+    return 'coverage-not-full';
+  }
+  if (candidateComparison?.anyMismatch) return 'candidate-mismatch';
+  if (getVisibleItemsMismatch(visibleComparison) || getVisibleCountMismatch(visibleComparison)) {
+    return 'visible-dryrun-mismatch';
+  }
+  if (getPackedMismatch(visibleComparison)) return 'packed-dryrun-mismatch';
+  return 'none';
+}
+
+function buildScreenCoarsePromotionValidation({
+  runtimeConfig,
+  gpuCandidateInfo,
+  candidateComparison,
+  sourceComparison,
+  visibleComparison,
+  referenceVisibleItems
+} = {}) {
+  const sourceMode = runtimeConfig.sourceMode ?? 'visibleSrcIndices';
+  const promotePolicy = runtimeConfig.promotePolicy ?? 'never';
+  const hasReferenceVisible = Array.isArray(referenceVisibleItems);
+  const coverageSummary = hasReferenceVisible
+    ? buildVisibleCoverageAgainstCandidate(referenceVisibleItems, gpuCandidateInfo)
+    : null;
+  const failureReasons = [];
+
+  if (sourceMode !== 'screenCoarse' || promotePolicy !== 'validated-only') {
+    failureReasons.push({
+      code: 'promotion-validation-missing',
+      message: 'validated-only promotion applies only to screenCoarse candidate source.'
+    });
+  }
+  if (!hasReferenceVisible || !visibleComparison) {
+    failureReasons.push({
+      code: 'promotion-validation-missing',
+      message: 'CPU reference visible/packed comparison was not available for validated-only promotion.'
+    });
+  }
+  if (sourceComparison?.status && sourceComparison.status !== 'ok') {
+    failureReasons.push({
+      code: 'gpu-error',
+      message: 'screenCoarse GPU candidate source did not complete successfully.',
+      details: {
+        status: sourceComparison.status,
+        reason: sourceComparison.reason ?? null
+      }
+    });
+  }
+
+  const mismatchClassification = classifyScreenCoarsePromotionMismatch({
+    candidateComparison,
+    visibleComparison,
+    coverageSummary
+  });
+  if (mismatchClassification !== 'none') {
+    failureReasons.push({
+      code: mismatchClassification,
+      message: `validated-only promotion rejected: ${mismatchClassification}`
+    });
+  }
+
+  const promoted = failureReasons.length === 0;
+  return {
+    schemaVersion: 'step110-screen-coarse-promotion-validation-v1',
+    sourceMode,
+    promotePolicy,
+    promotionDecision: promoted ? 'promoted' : 'fallback',
+    promoted,
+    displayCandidateSource: promoted ? 'gpu-candidate' : 'cpu-reference',
+    gpuCandidateUsedForDisplay: promoted,
+    limitedDrawUsedForCandidateSource: promoted,
+    candidateInfoOverrideProvided: promoted,
+    gpuCandidateCount: coverageSummary?.gpuCandidateCount ?? (gpuCandidateInfo?.candidateIndices?.length ?? 0),
+    visibleCoverageRatio: coverageSummary?.visibleCoverageRatio ?? null,
+    visibleMissCount: coverageSummary?.visibleMissCount ?? null,
+    candidateAnyMismatch: !!candidateComparison?.anyMismatch,
+    visibleItemsAnyMismatch: getVisibleItemsMismatch(visibleComparison),
+    packedPayloadAnyMismatch: getPackedMismatch(visibleComparison),
+    mismatchClassification,
+    coverageSummary,
+    failureReasons
+  };
+}
+
 function buildSkippedSummary({
   runtimeConfig,
   runtimeSummary,
@@ -300,12 +447,16 @@ function buildLimitedDrawFallbackReasons(
   visibleComparison,
   shadowCompare,
   referenceSubsetCandidateInfo,
-  candidateSourceComparison
+  candidateSourceComparison,
+  promotionValidation = null
 ) {
   const reasons = [];
   const sourceMode = runtimeConfig.sourceMode ?? 'visibleSrcIndices';
   const isGpuOwnedSource = isGpuOwnedCandidateSourceMode(sourceMode);
-  if (isGpuOwnedSource) {
+  const validatedScreenCoarsePromotion = isGpuOwnedSource &&
+    sourceMode === 'screenCoarse' &&
+    runtimeConfig.promotePolicy === 'validated-only';
+  if (isGpuOwnedSource && !validatedScreenCoarsePromotion) {
     reasons.push({
       code: 'source-mode-display-not-allowed',
       message: 'GPU-owned candidate source mode is compare-only in Step103 and is not allowed to replace the normal display candidate source.',
@@ -320,7 +471,11 @@ function buildLimitedDrawFallbackReasons(
         screenCoarseDepthMode: runtimeConfig.screenCoarseDepthMode ?? null
       }
     });
-  } else if (referenceSubsetCandidateInfo?.candidateSubsetSummary?.enabled) {
+  } else if (validatedScreenCoarsePromotion && promotionValidation?.promotionDecision !== 'promoted') {
+    for (const reason of promotionValidation?.failureReasons ?? []) {
+      if (reason?.code) reasons.push(reason);
+    }
+  } else if (!isGpuOwnedSource && referenceSubsetCandidateInfo?.candidateSubsetSummary?.enabled) {
     reasons.push({
       code: 'subset-display-not-allowed',
       message: 'Subset limited-draw is compare-only and is not allowed to replace the normal display candidate source.',
@@ -352,7 +507,7 @@ function buildLimitedDrawFallbackReasons(
       details: { filterMode: runtimeConfig.filterMode }
     });
   }
-  if (isGpuOwnedSource && runtimeConfig.promotePolicy !== 'never') {
+  if (isGpuOwnedSource && runtimeConfig.promotePolicy !== 'never' && !validatedScreenCoarsePromotion) {
     reasons.push({
       code: 'unsupported-promote-policy',
       message: 'Step103 keeps GPU-owned candidate source modes compare-only.',
@@ -365,12 +520,12 @@ function buildLimitedDrawFallbackReasons(
       message: 'limited-draw subset path requires candidate/visible comparison.'
     });
   }
-  if (!runtimeConfig.requireShadowOk) {
+  if (!runtimeConfig.requireShadowOk && !validatedScreenCoarsePromotion) {
     reasons.push({
       code: 'shadow-ok-required-for-limited-draw',
       message: 'limited-draw subset path requires shadow compare gating.'
     });
-  } else if (shadowCompare?.status !== 'ok') {
+  } else if (!validatedScreenCoarsePromotion && shadowCompare?.status !== 'ok') {
     reasons.push({
       code: 'shadow-compare-required-for-limited-draw',
       message: 'limited-draw subset path requires a latest shadow compare with status ok.',
@@ -409,6 +564,7 @@ export function resolveGpuCandidateLimitedDrawRuntime({
   overrides = {},
   candidateArgs,
   visibleSourceItems = null,
+  referencePackedPayload = null,
   shadowCompare = null,
   camera = null,
   screenSpaceCamera = null,
@@ -605,6 +761,30 @@ export function resolveGpuCandidateLimitedDrawRuntime({
         label: 'gpu-candidate-visible-limited-draw'
       })
     : null;
+  const canBuildScreenCoarsePromotionValidation = gpuOwnedSourceMode &&
+    sourceMode === 'screenCoarse' &&
+    runtimeConfig.promotePolicy === 'validated-only' &&
+    canBuildVisibleComparison &&
+    Array.isArray(visibleSourceItems);
+  const screenCoarsePromotionVisibleComparison = canBuildScreenCoarsePromotionValidation
+    ? buildVisibleComparisonSummary({
+        referenceItems: visibleSourceItems,
+        candidateItems: gpuVisibleBuild.visible,
+        referencePackedPayload,
+        candidatePackedPayload: gpuVisibleBuild.packedScreenSpace,
+        referenceLabel: 'cpu-reference-visible-render-result',
+        candidateLabel: 'gpu-screen-coarse-candidate-visible-limited-draw',
+        options: { epsilon: 1e-6, maxMismatches: 16 },
+        metadata: {
+          comparisonMode: 'cpu-reference-visible-vs-gpu-screen-coarse-candidate-limited-draw',
+          referenceVisibleCount: visibleSourceItems.length,
+          referencePackedCount: Number.isFinite(referencePackedPayload?.packedCount)
+            ? referencePackedPayload.packedCount
+            : null,
+          candidateBuildStats: gpuVisibleBuild.buildStats
+        }
+      })
+    : null;
   const visibleComparison = canBuildVisibleComparison
     ? buildVisibleComparisonSummary({
         referenceItems: referenceVisibleBuild.visible,
@@ -621,21 +801,39 @@ export function resolveGpuCandidateLimitedDrawRuntime({
         }
       })
     : null;
+  const promotionValidation = gpuOwnedSourceMode && sourceMode === 'screenCoarse'
+    ? buildScreenCoarsePromotionValidation({
+        runtimeConfig,
+        gpuCandidateInfo,
+        candidateComparison,
+        sourceComparison,
+        visibleComparison: screenCoarsePromotionVisibleComparison,
+        referenceVisibleItems: visibleSourceItems
+      })
+    : null;
+  const visibleComparisonForFallback = promotionValidation
+    ? screenCoarsePromotionVisibleComparison
+    : visibleComparison;
   const finalFallback = buildGpuCandidateRuntimeFallbackSummary({
     runtimeConfig,
     shadowCompare: {
-      status: shadowCompare?.status ?? 'ok',
-      candidateComparison,
-      visibleComparison,
-      summary: { anyMismatch: !!(candidateComparison.anyMismatch || visibleComparison?.anyMismatch) }
+      status: promotionValidation ? 'ok' : (shadowCompare?.status ?? 'ok'),
+      candidateComparison: promotionValidation ? null : candidateComparison,
+      visibleComparison: promotionValidation ? null : visibleComparison,
+      summary: {
+        anyMismatch: promotionValidation
+          ? false
+          : !!(candidateComparison.anyMismatch || visibleComparison?.anyMismatch)
+      }
     },
     extraReasons: buildLimitedDrawFallbackReasons(
       runtimeConfig,
       gpuCandidateInfo,
-      visibleComparison,
+      visibleComparisonForFallback,
       shadowCompare,
       referenceSubsetCandidateInfo,
-      sourceComparison
+      sourceComparison,
+      promotionValidation
     )
   });
   const useGpuCandidate = finalFallback.action === 'use-gpu-candidate';
@@ -654,13 +852,15 @@ export function resolveGpuCandidateLimitedDrawRuntime({
       limitedDrawUsedForCandidateSource: useGpuCandidate,
       gpuCandidateUsedForDisplay: useGpuCandidate,
       candidateInfoOverrideProvided: useGpuCandidate,
+      promotionDecision: useGpuCandidate ? 'promoted' : 'fallback',
+      promotionValidation,
       status: useGpuCandidate ? 'using-gpu-candidate' : 'fallback',
       reason: finalFallback.reason,
       runtimeSummary,
       fallback: finalFallback,
       candidateArgs: summarizeCandidateArgs(candidateArgs),
       candidateSourceSummary: sourceComparison?.candidateSourceSummary ?? null,
-      candidateCoverageSummary: null,
+      candidateCoverageSummary: promotionValidation?.coverageSummary ?? null,
       candidateSourceComparison: sourceComparison
         ? {
             schemaVersion: sourceComparison.schemaVersion,
@@ -677,6 +877,7 @@ export function resolveGpuCandidateLimitedDrawRuntime({
       gpuCandidateSummary: summarizeCandidateInfo(gpuCandidateInfo),
       candidateComparison,
       visibleComparison,
+      screenCoarsePromotionVisibleComparison,
       referenceVisibleBuildSummary: referenceVisibleBuild?.buildStats ?? null,
       gpuVisibleBuildSummary: gpuVisibleBuild?.buildStats ?? null
     }
