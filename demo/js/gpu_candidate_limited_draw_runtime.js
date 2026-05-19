@@ -24,6 +24,7 @@ import {
   isGpuOwnedCandidateSourceMode
 } from './gpu_candidate_source_runtime.js';
 import { runGpuVisibleRecordDryRun } from './gpu_visible_record_dry_run_runtime.js';
+import { runGpuRawVisibleRecordDryRun } from './gpu_visible_record_raw_dry_run_runtime.js';
 
 function nowMs() {
   return typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -1029,6 +1030,37 @@ export function resolveGpuCandidateLimitedDrawRuntime({
         }
       })
     : null;
+  const gpuRawVisibleRecordDryRunSummary = runtimeConfig.rawVisibleRecordDryRun &&
+    runtimeConfig.rawAttributeTexture &&
+    runtimeConfig.rawVisibleRecordMode === 'minimal' &&
+    gpuOwnedSourceMode &&
+    sourceMode === 'screenCoarse'
+    ? runGpuRawVisibleRecordDryRun({
+        gl,
+        candidateInfo: gpuCandidateInfo,
+        raw,
+        camera,
+        screenSpaceCamera,
+        canvasWidth,
+        canvasHeight,
+        camPos,
+        tileGrid,
+        buildConfig,
+        temporalSigmaThreshold: candidateArgs?.temporalSigmaThreshold ?? 3.0,
+        maxRecords: runtimeConfig.visibleRecordMaxCount,
+        epsilon: 1e-3,
+        maxMismatches: 32,
+        readbackMode: runtimeConfig.rawVisibleRecordReadback,
+        displayCandidateSource: finalFallback.displayCandidateSource,
+        gpuCandidateUsedForDisplay: useGpuCandidate,
+        limitedDrawUsedForCandidateSource: useGpuCandidate,
+        metadata: {
+          comparisonMode: 'gpu-raw-attribute-texture-minimal-visible-record-vs-cpu-visible-record',
+          promotePolicy: runtimeConfig.promotePolicy,
+          implementedFields: runtimeConfig.rawVisibleRecordFields
+        }
+      })
+    : null;
 
   return {
     candidateInfoOverride: useGpuCandidate ? gpuCandidateInfo : null,
@@ -1047,6 +1079,7 @@ export function resolveGpuCandidateLimitedDrawRuntime({
       promotionDecision: useGpuCandidate ? 'promoted' : 'fallback',
       promotionValidation,
       gpuVisibleRecordDryRunSummary,
+      gpuRawVisibleRecordDryRunSummary,
       step111TimingSummary,
       remainingCpuDependencies: step111TimingSummary.remainingCpuDependencies,
       status: useGpuCandidate ? 'using-gpu-candidate' : 'fallback',

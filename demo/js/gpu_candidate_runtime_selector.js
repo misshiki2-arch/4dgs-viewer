@@ -23,6 +23,7 @@ const DEFAULT_PROMOTE_POLICY = 'never';
 const DEFAULT_READBACK_MODE = 'sync-debug';
 const DEFAULT_COVERAGE_MAX_MISSES = 32;
 const DEFAULT_VISIBLE_RECORD_MAX_COUNT = 65536;
+const RAW_VISIBLE_RECORD_MODE_VALUES = new Set(['minimal']);
 
 function normalizeRuntime(value) {
   return RUNTIME_VALUES.has(value) ? value : DEFAULT_RUNTIME;
@@ -57,11 +58,13 @@ function normalizeScreenCoarseDepthMode(value) {
 }
 
 function toFiniteInteger(value, fallback) {
+  if (value == null || value === '') return fallback;
   const n = Number(value);
   return Number.isFinite(n) ? Math.max(0, n | 0) : fallback;
 }
 
 function toFiniteNumber(value, fallback) {
+  if (value == null || value === '') return fallback;
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
 }
@@ -177,6 +180,24 @@ export function buildGpuCandidateRuntimeConfig(queryState = {}, overrides = {}) 
     overrides.visibleRecordCompare ?? overrides.gpuVisibleRecordCompare ?? queryState.gpuVisibleRecordCompare,
     true
   );
+  const rawVisibleRecordDryRun = toBoolean(
+    overrides.rawVisibleRecordDryRun ?? overrides.gpuRawVisibleRecordDryRun ?? queryState.gpuRawVisibleRecordDryRun,
+    false
+  );
+  const rawVisibleRecordModeValue =
+    overrides.rawVisibleRecordMode ?? overrides.gpuRawVisibleRecordMode ?? queryState.gpuRawVisibleRecordMode;
+  const rawVisibleRecordMode = RAW_VISIBLE_RECORD_MODE_VALUES.has(rawVisibleRecordModeValue)
+    ? rawVisibleRecordModeValue
+    : 'minimal';
+  const rawVisibleRecordReadback = normalizeReadbackMode(
+    overrides.rawVisibleRecordReadback ?? overrides.gpuRawVisibleRecordReadback ?? queryState.gpuRawVisibleRecordReadback ?? readbackMode
+  );
+  const rawVisibleRecordFields =
+    overrides.rawVisibleRecordFields ?? overrides.gpuRawVisibleRecordFields ?? queryState.gpuRawVisibleRecordFields ?? 'srcIndex,valid,px,py,depth,aabb';
+  const rawAttributeTexture = toBoolean(
+    overrides.rawAttributeTexture ?? overrides.gpuRawAttributeTexture ?? queryState.gpuRawAttributeTexture,
+    rawVisibleRecordDryRun
+  );
 
   const limitedDrawRequested = requestedRuntime === 'limited-draw';
   const shadowCompareRequested = requestedRuntime === 'shadow-compare';
@@ -227,6 +248,11 @@ export function buildGpuCandidateRuntimeConfig(queryState = {}, overrides = {}) 
     visibleRecordReadback,
     visibleRecordMaxCount,
     visibleRecordCompare,
+    rawVisibleRecordDryRun,
+    rawVisibleRecordMode,
+    rawVisibleRecordReadback,
+    rawVisibleRecordFields,
+    rawAttributeTexture,
     readbackPolicy: {
       allowReadbackInDraw,
       debugReadback,
@@ -286,6 +312,11 @@ export function buildGpuCandidateRuntimeSummary(runtimeConfig = {}) {
       ? runtimeConfig.visibleRecordMaxCount
       : DEFAULT_VISIBLE_RECORD_MAX_COUNT,
     visibleRecordCompare: runtimeConfig.visibleRecordCompare !== false,
+    rawVisibleRecordDryRun: !!runtimeConfig.rawVisibleRecordDryRun,
+    rawVisibleRecordMode: runtimeConfig.rawVisibleRecordMode ?? 'minimal',
+    rawVisibleRecordReadback: runtimeConfig.rawVisibleRecordReadback ?? runtimeConfig.readbackMode ?? DEFAULT_READBACK_MODE,
+    rawVisibleRecordFields: runtimeConfig.rawVisibleRecordFields ?? 'srcIndex,valid,px,py,depth,aabb',
+    rawAttributeTexture: !!runtimeConfig.rawAttributeTexture,
     readbackPolicy: runtimeConfig.readbackPolicy ?? null
   };
 }

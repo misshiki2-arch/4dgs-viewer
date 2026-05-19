@@ -105,6 +105,16 @@ def build_gpu_candidate_params(args: argparse.Namespace) -> dict[str, str]:
                 "gpuVisibleRecordCompare": parse_bool(args.visible_record_compare),
             }
         )
+    if parse_bool(args.raw_visible_record_dry_run) == "true":
+        params.update(
+            {
+                "gpuRawVisibleRecordDryRun": "true",
+                "gpuRawVisibleRecordMode": args.raw_visible_record_mode,
+                "gpuRawVisibleRecordFields": args.raw_visible_record_fields,
+                "gpuRawAttributeTexture": parse_bool(args.raw_attribute_texture),
+                "gpuRawVisibleRecordReadback": args.raw_visible_record_readback,
+            }
+        )
 
     if args.source_mode:
         params["gpuCandidateSourceMode"] = args.source_mode
@@ -236,6 +246,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--visible-record-readback", default="sync-debug")
     parser.add_argument("--visible-record-max-count", type=int, default=65536)
     parser.add_argument("--visible-record-compare", default="true")
+    parser.add_argument("--raw-visible-record-dry-run", default="false")
+    parser.add_argument("--raw-visible-record-mode", default="minimal")
+    parser.add_argument("--raw-visible-record-fields", default="srcIndex,valid,px,py,depth,aabb")
+    parser.add_argument("--raw-attribute-texture", default="true")
+    parser.add_argument("--raw-visible-record-readback", default="sync-debug")
 
     # Range options.
     parser.add_argument("--range-start", type=int, default=0)

@@ -80,6 +80,7 @@ import {
   captureGpuCandidateScreenCoarseSweepComparison
 } from './gpu_candidate_compare_runner.js';
 import { runGpuVisibleRecordDryRun } from './gpu_visible_record_dry_run_runtime.js';
+import { runGpuRawVisibleRecordDryRun } from './gpu_visible_record_raw_dry_run_runtime.js';
 import {
   buildGpuCandidateShadowOptionsFromQuery,
   isGpuCandidateShadowCompareEnabled,
@@ -1733,6 +1734,63 @@ async function captureGpuVisibleRecordDryRunDebug(options = {}) {
     limitedDrawUsedForCandidateSource: !!runtimeSummary.limitedDrawUsedForCandidateSource,
     metadata: {
       comparisonMode: options.comparisonMode ?? 'gpu-visible-fixed-record-dry-run-vs-cpu-visible-record',
+      deterministicState: buildSlimDeterministicStateSummary(deterministicState),
+      renderAttempts: debugRender.attempts,
+      lastRenderResultSummary: buildRenderResultInspectionSummary(debugRender.renderResult),
+      captureSource: 'forced-rebuild'
+    }
+  });
+}
+
+async function captureGpuRawVisibleRecordDryRunDebug(options = {}) {
+  const ensureCurrentFrame = options.ensureCurrentFrame !== false;
+  const debugRender = ensureCurrentFrame || !latestRenderResult
+    ? await renderCurrentFrameForDebugPayload(options)
+    : {
+        renderResult: latestRenderResult,
+        attempts: [{ stage: 'reuse-latest-render-result' }]
+      };
+  const existingSummary = debugRender.renderResult?.limitedDrawRuntimeSummary?.gpuRawVisibleRecordDryRunSummary;
+  if (existingSummary && options.forceRebuild !== true) {
+    return {
+      ...existingSummary,
+      metadata: {
+        ...(existingSummary.metadata ?? {}),
+        renderAttempts: debugRender.attempts,
+        captureSource: 'latest-render-result'
+      }
+    };
+  }
+  ensureGpu();
+  camera.updateMatrixWorld(true);
+  const deterministicState = buildDeterministicStateSummary();
+  const buildConfig = getVisibleBuildConfig(ui, buildRenderOverrides());
+  const candidateArgs = buildCandidateComparisonArgs(options);
+  const tileGrid = computeTileGrid(canvas.width, canvas.height, 32);
+  const screenSpaceCamera = buildScreenSpaceCameraProxy(camera, deterministicState);
+  const runtimeSummary = debugRender.renderResult?.limitedDrawRuntimeSummary ?? {};
+  const candidateInfo = runtimeSummary?.candidateSourceComparison?.gpuCandidateInfo ?? null;
+  return runGpuRawVisibleRecordDryRun({
+    gl: getGpu()?.gl,
+    candidateInfo,
+    raw,
+    camera,
+    screenSpaceCamera,
+    canvasWidth: canvas.width,
+    canvasHeight: canvas.height,
+    camPos: camera.position.clone(),
+    tileGrid,
+    buildConfig,
+    temporalSigmaThreshold: candidateArgs.temporalSigmaThreshold ?? 3.0,
+    maxRecords: Number.isFinite(options.maxRecords) ? options.maxRecords : 65536,
+    epsilon: Number.isFinite(options.epsilon) ? options.epsilon : 1e-3,
+    maxMismatches: Number.isFinite(options.maxMismatches) ? options.maxMismatches : 32,
+    readbackMode: options.readbackMode ?? 'sync-debug',
+    displayCandidateSource: runtimeSummary.displayCandidateSource ?? 'cpu-reference',
+    gpuCandidateUsedForDisplay: !!runtimeSummary.gpuCandidateUsedForDisplay,
+    limitedDrawUsedForCandidateSource: !!runtimeSummary.limitedDrawUsedForCandidateSource,
+    metadata: {
+      comparisonMode: options.comparisonMode ?? 'gpu-raw-attribute-texture-minimal-visible-record-vs-cpu-visible-record',
       deterministicState: buildSlimDeterministicStateSummary(deterministicState),
       renderAttempts: debugRender.attempts,
       lastRenderResultSummary: buildRenderResultInspectionSummary(debugRender.renderResult),
@@ -4171,6 +4229,7 @@ function installViewerDebugApi() {
     captureGpuCandidateScreenCoarseDryRunVisibleComparisonDebug,
     captureGpuCandidateScreenCoarseSweepComparisonDebug,
     captureGpuVisibleRecordDryRunDebug,
+    captureGpuRawVisibleRecordDryRunDebug,
     captureGpuCandidateShadowCompareDebug,
     captureGpuCandidateSourceCompareDebug,
     captureGpuCandidateScreenCoarseCompareDebug,

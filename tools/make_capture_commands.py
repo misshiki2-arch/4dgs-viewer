@@ -205,6 +205,22 @@ def build_visible_record_dryrun_command(args: argparse.Namespace) -> str:
 );"""
 
 
+def build_raw_visible_record_dryrun_command(args: argparse.Namespace) -> str:
+    if args.source_mode != "screenCoarse":
+        return ""
+
+    return f"""await window.gpuViewerDebug.downloadJsonDebug(
+  await window.gpuViewerDebug.captureGpuRawVisibleRecordDryRunDebug({{
+    ensureCurrentFrame: false,
+    readbackMode: {quote(args.raw_visible_record_readback)},
+    maxRecords: {args.raw_visible_record_max_count},
+    epsilon: {args.raw_visible_record_epsilon},
+    maxMismatches: {args.max_mismatches}
+  }}),
+  {quote(args.step + '_gpu_raw_visible_record_dryrun_compare.json')}
+);"""
+
+
 def build_runtime_summary_command(args: argparse.Namespace) -> str:
     return f"""var runtime = await window.gpuViewerDebug.captureGpuCandidateRuntimeSummaryDebug();
 
@@ -294,6 +310,11 @@ def build_commands(args: argparse.Namespace) -> str:
         if command:
             parts.append(command)
 
+    if args.include_raw_visible_record_dryrun:
+        command = build_raw_visible_record_dryrun_command(args)
+        if command:
+            parts.append(command)
+
     if args.include_coverage:
         parts.append(build_coverage_command(args))
 
@@ -379,6 +400,11 @@ def parse_args() -> argparse.Namespace:
         help="Include Step114 GPU visible fixed-record dry-run capture. Default: false.",
     )
     parser.add_argument(
+        "--include-raw-visible-record-dryrun",
+        default="false",
+        help="Include Step116 raw attribute texture minimal visible-record dry-run capture. Default: false.",
+    )
+    parser.add_argument(
         "--include-runtime",
         default="true",
         help="Include runtime, limited draw, and Step111 timing summary captures. Default: true.",
@@ -431,6 +457,9 @@ def parse_args() -> argparse.Namespace:
     # Step114 visible fixed-record dry-run.
     parser.add_argument("--visible-record-readback", default="sync-debug")
     parser.add_argument("--visible-record-max-count", type=int, default=65536)
+    parser.add_argument("--raw-visible-record-readback", default="sync-debug")
+    parser.add_argument("--raw-visible-record-max-count", type=int, default=65536)
+    parser.add_argument("--raw-visible-record-epsilon", default="1e-3")
 
     # visibleSrcIndices.
     parser.add_argument("--subset-count", type=int, default=1024)
@@ -457,6 +486,7 @@ def parse_args() -> argparse.Namespace:
     args.include_dryrun_visible = js_bool(args.include_dryrun_visible) == "true"
     args.include_sweep = js_bool(args.include_sweep) == "true"
     args.include_visible_record_dryrun = js_bool(args.include_visible_record_dryrun) == "true"
+    args.include_raw_visible_record_dryrun = js_bool(args.include_raw_visible_record_dryrun) == "true"
     args.include_coverage = js_bool(args.include_coverage) == "true"
     args.include_runtime = js_bool(args.include_runtime) == "true"
     args.include_visible_compare = js_bool(args.include_visible_compare) == "true"
