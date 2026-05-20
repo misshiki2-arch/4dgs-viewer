@@ -402,7 +402,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--include-raw-visible-record-dryrun",
         default="false",
-        help="Include Step116 raw attribute texture minimal visible-record dry-run capture. Default: false.",
+        help="Include Step118A raw attribute texture richer visible-record dry-run capture. Default: false.",
     )
     parser.add_argument(
         "--include-runtime",

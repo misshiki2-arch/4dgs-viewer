@@ -247,8 +247,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--visible-record-max-count", type=int, default=65536)
     parser.add_argument("--visible-record-compare", default="true")
     parser.add_argument("--raw-visible-record-dry-run", default="false")
-    parser.add_argument("--raw-visible-record-mode", default="minimal")
-    parser.add_argument("--raw-visible-record-fields", default="srcIndex,valid,px,py,depth,aabb")
+    parser.add_argument("--raw-visible-record-mode", default="richer")
+    parser.add_argument("--raw-visible-record-fields", default="srcIndex,valid,px,py,depth,aabb,radius,conic,alpha,tileRange")
     parser.add_argument("--raw-attribute-texture", default="true")
     parser.add_argument("--raw-visible-record-readback", default="sync-debug")
 

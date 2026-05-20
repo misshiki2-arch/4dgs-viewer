@@ -1790,7 +1790,7 @@ async function captureGpuRawVisibleRecordDryRunDebug(options = {}) {
     gpuCandidateUsedForDisplay: !!runtimeSummary.gpuCandidateUsedForDisplay,
     limitedDrawUsedForCandidateSource: !!runtimeSummary.limitedDrawUsedForCandidateSource,
     metadata: {
-      comparisonMode: options.comparisonMode ?? 'gpu-raw-attribute-texture-minimal-visible-record-vs-cpu-visible-record',
+      comparisonMode: options.comparisonMode ?? 'gpu-raw-attribute-texture-richer-visible-record-vs-cpu-visible-record',
       deterministicState: buildSlimDeterministicStateSummary(deterministicState),
       renderAttempts: debugRender.attempts,
       lastRenderResultSummary: buildRenderResultInspectionSummary(debugRender.renderResult),

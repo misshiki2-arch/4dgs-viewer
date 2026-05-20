@@ -1032,7 +1032,7 @@ export function resolveGpuCandidateLimitedDrawRuntime({
     : null;
   const gpuRawVisibleRecordDryRunSummary = runtimeConfig.rawVisibleRecordDryRun &&
     runtimeConfig.rawAttributeTexture &&
-    runtimeConfig.rawVisibleRecordMode === 'minimal' &&
+    ['minimal', 'richer'].includes(runtimeConfig.rawVisibleRecordMode) &&
     gpuOwnedSourceMode &&
     sourceMode === 'screenCoarse'
     ? runGpuRawVisibleRecordDryRun({
@@ -1055,7 +1055,9 @@ export function resolveGpuCandidateLimitedDrawRuntime({
         gpuCandidateUsedForDisplay: useGpuCandidate,
         limitedDrawUsedForCandidateSource: useGpuCandidate,
         metadata: {
-          comparisonMode: 'gpu-raw-attribute-texture-minimal-visible-record-vs-cpu-visible-record',
+          comparisonMode: runtimeConfig.rawVisibleRecordMode === 'richer'
+            ? 'gpu-raw-attribute-texture-richer-visible-record-vs-cpu-visible-record'
+            : 'gpu-raw-attribute-texture-minimal-visible-record-vs-cpu-visible-record',
           promotePolicy: runtimeConfig.promotePolicy,
           implementedFields: runtimeConfig.rawVisibleRecordFields
         }

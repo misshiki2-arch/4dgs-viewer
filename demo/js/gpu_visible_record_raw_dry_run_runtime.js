@@ -3,24 +3,24 @@ import { computeGaussianState } from './rot4d_math.js';
 import { ensureRawAttributeTextures } from './gpu_raw_attribute_texture_runtime.js';
 
 const stateByGl = new WeakMap();
-const RAW_RECORD_FLOATS = 38;
+const RAW_RECORD_FLOATS = 48;
 const DEFAULT_MAX_RECORDS = 65536;
 const DEFAULT_EPSILON = 1e-3;
 const DEFAULT_DEBUG_SAMPLE_COUNT = 4;
-const IMPLEMENTED_FIELDS = ['srcIndex', 'valid', 'px', 'py', 'depth', 'aabb'];
-const DEFERRED_FIELDS = ['radius', 'conic', 'colorAlpha', 'tileRange', 'SH', '4D conditional covariance full parity'];
+const IMPLEMENTED_FIELDS = ['srcIndex', 'valid', 'px', 'py', 'depth', 'aabb', 'radius', 'conic', 'alpha', 'tileRange'];
+const DEFERRED_FIELDS = ['colorRgb', 'colorAlpha.rgb', 'SH', '4D conditional covariance full parity', 'depth sort', 'variable packing', 'tile-list GPU generation'];
 const DEBUG_LAYOUT = {
-  rawTexCoord: 9,
-  rawXyzOpacity: 11,
-  rawScaleTime: 15,
-  rawTimeScale: 19,
-  rawRotation: 21,
-  rawRotationR: 25,
-  computedPosition: 29,
-  marginalT: 32,
-  viewSpacePosition: 33,
-  radius: 36,
-  shaderRejectBits: 37
+  rawTexCoord: 18,
+  rawXyzOpacity: 20,
+  rawScaleTime: 24,
+  rawTimeScale: 28,
+  rawRotation: 30,
+  rawRotationR: 34,
+  computedPosition: 38,
+  marginalT: 41,
+  viewSpacePosition: 42,
+  radius: 45,
+  shaderRejectBits: 46
 };
 const FIELD_LAYOUT = [
   ['srcIndex', 0, 1],
@@ -28,7 +28,11 @@ const FIELD_LAYOUT = [
   ['px', 2, 1],
   ['py', 3, 1],
   ['depth', 4, 1],
-  ['aabb', 5, 4]
+  ['aabb', 5, 4],
+  ['radius', 9, 1],
+  ['conic', 10, 3],
+  ['alpha', 13, 1],
+  ['tileRange', 14, 4]
 ];
 const MINIMAL_FETCH_RECORD_FLOATS = 8;
 const FIXED_RECORD_COMPARISON_REFERENCE = Object.freeze({
@@ -95,9 +99,15 @@ uniform vec4 uViewRow2;
 uniform vec3 uViewRotRow0;
 uniform vec3 uViewRotRow1;
 uniform vec3 uViewRotRow2;
+uniform float uTileRangeEnabled;
+uniform float uTileCols;
+uniform float uTileRows;
+uniform float uTileSize;
 out vec4 vRecord0;
 out vec4 vRecord1;
-out float vRecord2;
+out vec4 vRecord2;
+out vec4 vRecord3;
+out vec4 vRecord4;
 out vec4 vDebug0;
 out vec4 vDebug1;
 out vec4 vDebug2;
@@ -105,7 +115,6 @@ out vec4 vDebug3;
 out vec4 vDebug4;
 out vec4 vDebug5;
 out vec4 vDebug6;
-out float vDebug7;
 
 vec4 fetchRaw(sampler2D tex, vec2 coord) {
   ivec2 size = ivec2(max(1, int(uTextureWidth)), max(1, int(uTextureHeight)));
@@ -120,6 +129,10 @@ vec4 fetchRaw(sampler2D tex, vec2 coord) {
 vec4 normalizeQuat(vec4 q) {
   float n = max(length(q), 1e-8);
   return q / n;
+}
+
+float sigmoid(float x) {
+  return 1.0 / (1.0 + exp(-x));
 }
 
 void buildRotationRows(vec4 qLIn, vec4 qRIn, out vec4 r0, out vec4 r1, out vec4 r2, out vec4 r3) {
@@ -194,6 +207,10 @@ void main() {
   float py = 0.0;
   float depth = 0.0;
   vec4 aabb = vec4(0.0);
+  float recordRadius = 0.0;
+  vec3 recordConic = vec3(0.0);
+  float recordAlpha = 0.0;
+  vec4 recordTileRange = vec4(0.0);
   vec4 debugXyzOpacity = vec4(0.0);
   vec4 debugScaleTime = vec4(0.0);
   vec4 debugTimeScale = vec4(0.0);
@@ -255,6 +272,12 @@ void main() {
     ok = ok && det > 0.0 && abs(det) < 1.0e30;
     if (!(det > 0.0 && abs(det) < 1.0e30)) debugRejectBits += 8.0;
     float mid = 0.5 * (covA + covC);
+    float invDet = 1.0 / max(det, 1.0e-30);
+    recordConic = vec3(
+      covC * invDet / max(uSx * uSx, 1.0e-30),
+      -covB * invDet / max(uSx * uSy, 1.0e-30),
+      covA * invDet / max(uSy * uSy, 1.0e-30)
+    );
     float lambda1 = mid + sqrt(max(0.1, mid * mid - det));
     float lambda2 = mid - sqrt(max(0.1, mid * mid - det));
     float radius = ceil(3.0 * sqrt(max(lambda1, lambda2)));
@@ -265,25 +288,37 @@ void main() {
     py = (uFy * (mv4.y / depth) + uCy) * uSy;
     float drawRadius = radius * max(uSx, uSy);
     float coverageRadius = max(1.0, drawRadius);
+    recordRadius = drawRadius;
+    recordAlpha = sigmoid(xyzOpacity.w) * marginalT;
     aabb = vec4(
       clamp(floor(px - coverageRadius), 0.0, uCanvasW - 1.0),
       clamp(floor(py - coverageRadius), 0.0, uCanvasH - 1.0),
       clamp(ceil(px + coverageRadius), 0.0, uCanvasW - 1.0),
       clamp(ceil(py + coverageRadius), 0.0, uCanvasH - 1.0)
     );
+    if (uTileRangeEnabled > 0.5) {
+      float safeTileSize = max(1.0, uTileSize);
+      recordTileRange = vec4(
+        clamp(floor(aabb.x / safeTileSize), 0.0, uTileCols - 1.0),
+        clamp(floor(aabb.y / safeTileSize), 0.0, uTileRows - 1.0),
+        clamp(floor(aabb.z / safeTileSize), 0.0, uTileCols - 1.0),
+        clamp(floor(aabb.w / safeTileSize), 0.0, uTileRows - 1.0)
+      );
+    }
     valid = ok ? 1.0 : 0.0;
   }
   vRecord0 = vec4(srcIndex, valid, px, py);
   vRecord1 = vec4(depth, aabb.xyz);
-  vRecord2 = aabb.w;
-  vDebug0 = vec4(aRawTexCoord, debugXyzOpacity.xy);
-  vDebug1 = vec4(debugXyzOpacity.zw, debugScaleTime.xy);
-  vDebug2 = vec4(debugScaleTime.zw, debugTimeScale.xy);
-  vDebug3 = debugQL;
-  vDebug4 = debugQR;
-  vDebug5 = vec4(debugPos, debugMarginalT);
-  vDebug6 = vec4(debugView, debugRadius);
-  vDebug7 = debugRejectBits;
+  vRecord2 = vec4(aabb.w, recordRadius, recordConic.xy);
+  vRecord3 = vec4(recordConic.z, recordAlpha, recordTileRange.xy);
+  vRecord4 = vec4(recordTileRange.zw, aRawTexCoord);
+  vDebug0 = debugXyzOpacity;
+  vDebug1 = debugScaleTime;
+  vDebug2 = vec4(debugTimeScale.xy, debugQL.xy);
+  vDebug3 = vec4(debugQL.zw, debugQR.xy);
+  vDebug4 = vec4(debugQR.zw, debugPos.xy);
+  vDebug5 = vec4(debugPos.z, debugMarginalT, debugView.xy);
+  vDebug6 = vec4(debugView.z, debugRadius, debugRejectBits, 0.0);
   gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
 }`;
   const fragmentSource = `#version 300 es
@@ -301,14 +336,15 @@ void main() {
     'vRecord0',
     'vRecord1',
     'vRecord2',
+    'vRecord3',
+    'vRecord4',
     'vDebug0',
     'vDebug1',
     'vDebug2',
     'vDebug3',
     'vDebug4',
     'vDebug5',
-    'vDebug6',
-    'vDebug7'
+    'vDebug6'
   ], gl.INTERLEAVED_ATTRIBS);
   gl.linkProgram(program);
   gl.deleteShader(vertex);
@@ -325,7 +361,8 @@ void main() {
     'uTimestamp', 'uScalingModifier', 'uSigmaScale', 'uPrefilterVar', 'uTemporalSigmaThreshold',
     'uRenderW', 'uRenderH', 'uCanvasW', 'uCanvasH', 'uSx', 'uSy', 'uFx', 'uFy', 'uCx', 'uCy',
     'uCovFocalX', 'uCovFocalY', 'uCovTanFovX', 'uCovTanFovY', 'uPixelXSign',
-    'uViewRow0', 'uViewRow1', 'uViewRow2', 'uViewRotRow0', 'uViewRotRow1', 'uViewRotRow2'
+    'uViewRow0', 'uViewRow1', 'uViewRow2', 'uViewRotRow0', 'uViewRotRow1', 'uViewRotRow2',
+    'uTileRangeEnabled', 'uTileCols', 'uTileRows', 'uTileSize'
   ]) {
     uniforms[name] = gl.getUniformLocation(program, name);
   }
@@ -514,7 +551,11 @@ function buildCpuDebugForRow({
       px: finiteOrNull(records[row * RAW_RECORD_FLOATS + 2]),
       py: finiteOrNull(records[row * RAW_RECORD_FLOATS + 3]),
       depth: finiteOrNull(records[row * RAW_RECORD_FLOATS + 4]),
-      aabb: readRecordVec(records, row, 5, 4)
+      aabb: readRecordVec(records, row, 5, 4),
+      radius: finiteOrNull(records[row * RAW_RECORD_FLOATS + 9]),
+      conic: readRecordVec(records, row, 10, 3),
+      alpha: finiteOrNull(records[row * RAW_RECORD_FLOATS + 13]),
+      tileRange: readRecordVec(records, row, 14, 4)
     }
   };
 }
@@ -528,7 +569,11 @@ function buildGpuDebugForRow(records, row) {
       px: finiteOrNull(records[recordBase + 2]),
       py: finiteOrNull(records[recordBase + 3]),
       depth: finiteOrNull(records[recordBase + 4]),
-      aabb: readRecordVec(records, row, 5, 4)
+      aabb: readRecordVec(records, row, 5, 4),
+      radius: finiteOrNull(records[recordBase + 9]),
+      conic: readRecordVec(records, row, 10, 3),
+      alpha: finiteOrNull(records[recordBase + 13]),
+      tileRange: readRecordVec(records, row, 14, 4)
     },
     rawTexCoord: readRecordVec(records, row, DEBUG_LAYOUT.rawTexCoord, 2),
     raw: {
@@ -609,7 +654,11 @@ function buildRawVisibleDebugSamples({
       'record.py',
       'record.depth',
       'record.valid',
-      'record.aabb'
+      'record.aabb',
+      'record.radius',
+      'record.conic',
+      'record.alpha',
+      'record.tileRange'
     ],
     samples
   };
@@ -666,15 +715,15 @@ function classifyFirstDebugDivergence(debugSamples, epsilon = DEFAULT_EPSILON) {
 
     const cpuRecord = sample.cpu?.record ?? {};
     const gpuRecord = sample.gpu?.record ?? {};
-    for (const field of ['valid', 'px', 'py', 'depth', 'aabb']) {
-      const a = field === 'aabb' ? cpuRecord.aabb : [cpuRecord[field]];
-      const b = field === 'aabb' ? gpuRecord.aabb : [gpuRecord[field]];
+    for (const field of ['valid', 'px', 'py', 'depth', 'aabb', 'radius', 'conic', 'alpha', 'tileRange']) {
+      const a = ['aabb', 'conic', 'tileRange'].includes(field) ? cpuRecord[field] : [cpuRecord[field]];
+      const b = ['aabb', 'conic', 'tileRange'].includes(field) ? gpuRecord[field] : [gpuRecord[field]];
       const n = Math.max(a?.length ?? 0, b?.length ?? 0);
       for (let i = 0; i < n; i++) {
         const abs = Math.abs(Number(a[i]) - Number(b[i]));
         if (!(abs <= epsilon)) {
           return {
-            stage: field === 'aabb' ? 'aabb' : 'screen-record',
+            stage: ['aabb', 'tileRange'].includes(field) ? field : 'screen-record',
             row: sample.row,
             srcIndex: sample.srcIndex,
             field,
@@ -760,6 +809,20 @@ function buildCpuMinimalRecords({
     records[base + 6] = clampInt(Math.floor(recordPy - recordCoverageRadius), 0, canvasHeight - 1);
     records[base + 7] = clampInt(Math.ceil(recordPx + recordCoverageRadius), 0, canvasWidth - 1);
     records[base + 8] = clampInt(Math.ceil(recordPy + recordCoverageRadius), 0, canvasHeight - 1);
+    records[base + 9] = Math.fround(item.radius);
+    records[base + 10] = Math.fround(Array.isArray(item.conic) ? item.conic[0] : 0);
+    records[base + 11] = Math.fround(Array.isArray(item.conic) ? item.conic[1] : 0);
+    records[base + 12] = Math.fround(Array.isArray(item.conic) ? item.conic[2] : 0);
+    const alpha = Array.isArray(item.colorAlpha) && Number.isFinite(item.colorAlpha[3])
+      ? item.colorAlpha[3]
+      : (Number.isFinite(item.opacity) ? item.opacity : 0);
+    records[base + 13] = Math.fround(alpha);
+    if (Array.isArray(item.tileRange) && item.tileRange.length >= 4) {
+      records[base + 14] = item.tileRange[0];
+      records[base + 15] = item.tileRange[1];
+      records[base + 16] = item.tileRange[2];
+      records[base + 17] = item.tileRange[3];
+    }
   }
   return {
     records,
@@ -993,6 +1056,7 @@ function runTransformFeedback({
   screenSpaceCamera,
   canvasWidth,
   canvasHeight,
+  tileGrid,
   buildConfig,
   temporalSigmaThreshold
 }) {
@@ -1098,6 +1162,14 @@ function runTransformFeedback({
   gl.uniform3fv(state.uniforms.uViewRotRow0, cudaUniforms.viewRotRows[0]);
   gl.uniform3fv(state.uniforms.uViewRotRow1, cudaUniforms.viewRotRows[1]);
   gl.uniform3fv(state.uniforms.uViewRotRow2, cudaUniforms.viewRotRows[2]);
+  const tileRangeEnabled = tileGrid &&
+    Number.isFinite(tileGrid.tileCols) &&
+    Number.isFinite(tileGrid.tileRows) &&
+    Number.isFinite(tileGrid.tileSize);
+  gl.uniform1f(state.uniforms.uTileRangeEnabled, tileRangeEnabled ? 1 : 0);
+  gl.uniform1f(state.uniforms.uTileCols, tileRangeEnabled ? tileGrid.tileCols : 1);
+  gl.uniform1f(state.uniforms.uTileRows, tileRangeEnabled ? tileGrid.tileRows : 1);
+  gl.uniform1f(state.uniforms.uTileSize, tileRangeEnabled ? tileGrid.tileSize : 1);
   const setupMs = nowMs() - setupStartMs;
 
   const tfSetupStartMs = nowMs();
@@ -1149,6 +1221,17 @@ function runTransformFeedback({
       textureHeight,
       rawCount: raw.N,
       recordCount: cpuRecords.count,
+      tileRangeEnabled: !!(tileGrid &&
+        Number.isFinite(tileGrid.tileCols) &&
+        Number.isFinite(tileGrid.tileRows) &&
+        Number.isFinite(tileGrid.tileSize)),
+      tileGrid: tileGrid
+        ? {
+            tileCols: tileGrid.tileCols ?? null,
+            tileRows: tileGrid.tileRows ?? null,
+            tileSize: tileGrid.tileSize ?? null
+          }
+        : null,
       firstSourceIndices: Array.from(cpuRecords.sourceIndices.slice(0, Math.min(4, cpuRecords.sourceIndices.length))).map((value) => value >>> 0),
       firstRawTexCoords: Array.from(rawTexCoords.slice(0, Math.min(8, rawTexCoords.length)))
     },
@@ -1211,9 +1294,23 @@ function classifyRecordComparison(recordComparison) {
       mismatch?.field === 'aabb' &&
       Math.abs(Number(mismatch?.absError)) === 1
     ));
+  const allKnownTileRangeBoundaryDiff = fieldMismatchCount > 0 &&
+    mismatches.length > 0 &&
+    mismatches.every((mismatch) => (
+      mismatch?.field === 'tileRange' &&
+      Math.abs(Number(mismatch?.absError)) === 1
+    ));
+  const allKnownAabbOrTileBoundaryDiff = fieldMismatchCount > 0 &&
+    mismatches.length > 0 &&
+    mismatches.every((mismatch) => (
+      ['aabb', 'tileRange'].includes(mismatch?.field) &&
+      Math.abs(Number(mismatch?.absError)) === 1
+    ));
   return allKnownAabbBoundaryDiff
     ? 'known-aabb-rounding-boundary-diff'
-    : 'raw-visible-record-field-mismatch';
+    : (allKnownTileRangeBoundaryDiff
+      ? 'known-tile-range-rounding-boundary-diff'
+      : (allKnownAabbOrTileBoundaryDiff ? 'known-aabb-tile-range-rounding-boundary-diff' : 'raw-visible-record-field-mismatch'));
 }
 
 function fallback(reason, extra = {}) {
@@ -1221,7 +1318,7 @@ function fallback(reason, extra = {}) {
     schemaVersion: 'step116-raw-visible-record-dry-run-v1',
     status: 'fallback',
     reason,
-    computeMode: 'raw-attribute-texture-tf-minimal-visible-record',
+    computeMode: 'raw-attribute-texture-tf-richer-visible-record',
     implementedFields: IMPLEMENTED_FIELDS,
     deferredFields: DEFERRED_FIELDS,
     candidateCount: Number.isFinite(extra.candidateCount) ? extra.candidateCount : null,
@@ -1342,6 +1439,7 @@ export function runGpuRawVisibleRecordDryRun({
       screenSpaceCamera,
       canvasWidth,
       canvasHeight,
+      tileGrid,
       buildConfig,
       temporalSigmaThreshold
     });
@@ -1366,7 +1464,7 @@ export function runGpuRawVisibleRecordDryRun({
       schemaVersion: 'step116-raw-visible-record-dry-run-v1',
       status: 'ok',
       reason: 'ok',
-      computeMode: 'raw-attribute-texture-tf-minimal-visible-record',
+      computeMode: 'raw-attribute-texture-tf-richer-visible-record',
       implementedFields: IMPLEMENTED_FIELDS,
       deferredFields: DEFERRED_FIELDS,
       candidateCount: cpuRecords.candidateCount,

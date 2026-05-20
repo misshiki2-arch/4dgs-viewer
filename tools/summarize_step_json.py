@@ -555,6 +555,12 @@ def extract_gpu_raw_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any
     timing = get_path(summary, ["timing"], {})
     record_comparison = get_path(summary, ["recordComparison"], {})
     comparison_reference = get_path(summary, ["comparisonReference"], {})
+    first_mismatches = get_path(record_comparison, ["firstMismatches"], [])
+    mismatch_fields = sorted({
+        item.get("field")
+        for item in first_mismatches
+        if isinstance(item, dict) and item.get("field") is not None
+    })
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -572,7 +578,8 @@ def extract_gpu_raw_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any
         "anyMismatch": get_path(summary, ["anyMismatch"]),
         "recordAnyMismatch": get_path(record_comparison, ["anyMismatch"]),
         "fieldMismatchCount": get_path(record_comparison, ["fieldMismatchCount"]),
-        "firstMismatches": get_path(record_comparison, ["firstMismatches"], []),
+        "fieldMismatchFields": mismatch_fields,
+        "firstMismatches": first_mismatches,
         "displayCandidateSource": get_path(summary, ["displayCandidateSource"]),
         "gpuCandidateUsedForDisplay": get_path(summary, ["gpuCandidateUsedForDisplay"]),
         "limitedDrawUsedForCandidateSource": get_path(summary, ["limitedDrawUsedForCandidateSource"]),
