@@ -1032,7 +1032,7 @@ export function resolveGpuCandidateLimitedDrawRuntime({
     : null;
   const gpuRawVisibleRecordDryRunSummary = runtimeConfig.rawVisibleRecordDryRun &&
     runtimeConfig.rawAttributeTexture &&
-    ['minimal', 'richer'].includes(runtimeConfig.rawVisibleRecordMode) &&
+    ['minimal', 'richer', 'packed-like'].includes(runtimeConfig.rawVisibleRecordMode) &&
     gpuOwnedSourceMode &&
     sourceMode === 'screenCoarse'
     ? runGpuRawVisibleRecordDryRun({
@@ -1051,14 +1051,18 @@ export function resolveGpuCandidateLimitedDrawRuntime({
         epsilon: 1e-3,
         maxMismatches: 32,
         readbackMode: runtimeConfig.rawVisibleRecordReadback,
+        recordMode: runtimeConfig.rawVisibleRecordMode,
         displayCandidateSource: finalFallback.displayCandidateSource,
         gpuCandidateUsedForDisplay: useGpuCandidate,
         limitedDrawUsedForCandidateSource: useGpuCandidate,
         metadata: {
-          comparisonMode: runtimeConfig.rawVisibleRecordMode === 'richer'
-            ? 'gpu-raw-attribute-texture-richer-visible-record-vs-cpu-visible-record'
-            : 'gpu-raw-attribute-texture-minimal-visible-record-vs-cpu-visible-record',
+          comparisonMode: runtimeConfig.rawVisibleRecordMode === 'packed-like'
+            ? 'gpu-raw-attribute-texture-packed-like-fixed-record-vs-cpu-packed-like-record'
+            : (runtimeConfig.rawVisibleRecordMode === 'richer'
+              ? 'gpu-raw-attribute-texture-richer-visible-record-vs-cpu-visible-record'
+              : 'gpu-raw-attribute-texture-minimal-visible-record-vs-cpu-visible-record'),
           promotePolicy: runtimeConfig.promotePolicy,
+          rawVisibleRecordMode: runtimeConfig.rawVisibleRecordMode,
           implementedFields: runtimeConfig.rawVisibleRecordFields
         }
       })

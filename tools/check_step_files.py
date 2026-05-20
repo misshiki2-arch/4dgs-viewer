@@ -31,15 +31,26 @@ from typing import Any, Dict, List, Tuple
 
 
 DEFAULT_JSON_SUFFIXES = [
-    "gpu_candidate_screen_coarse_compare",
     "gpu_candidate_coverage",
-    "gpu_candidate_source_compare",
     "gpu_candidate_runtime_summary",
     "limited_draw_summary",
     "visible_compare",
     "live_same_state",
     "association",
     "summary",
+]
+
+DEFAULT_JSON_ONE_OF_GROUPS = [
+    [
+        "gpu_candidate_screen_coarse_compare",
+        "gpu_candidate_source_compare",
+    ],
+]
+
+DEFAULT_OPTIONAL_JSON_SUFFIXES = [
+    "gpu_candidate_screen_coarse_dryrun_visible_compare",
+    "gpu_visible_record_dryrun_compare",
+    "gpu_raw_visible_record_dryrun_compare",
 ]
 
 DEFAULT_PNG_SUFFIXES = [
@@ -79,11 +90,15 @@ def check_expected_files(
     prefix: str,
     json_suffixes: List[str],
     png_suffixes: List[str],
+    json_one_of_groups: List[List[str]] | None = None,
+    optional_json_suffixes: List[str] | None = None,
 ) -> Dict[str, Any]:
     results: Dict[str, Any] = {
         "baseDir": str(base_dir),
         "prefix": prefix,
         "jsonChecks": [],
+        "jsonOneOfChecks": [],
+        "optionalJsonChecks": [],
         "pngChecks": [],
         "unexpectedJsonPngFiles": [],
         "allRequiredPresent": True,
@@ -125,6 +140,92 @@ def check_expected_files(
                     results["allJsonValid"] = False
 
         results["jsonChecks"].append(entry)
+
+    for group in json_one_of_groups or []:
+        group_entries = []
+        present_valid_suffixes = []
+        present_suffixes = []
+
+        for suffix in group:
+            path = base_dir / f"{prefix}_{suffix}.json"
+            entry = {
+                "suffix": suffix,
+                "path": str(path),
+                "exists": path.exists(),
+                "sizeBytes": None,
+                "sizeHuman": None,
+                "jsonValid": None,
+                "error": None,
+            }
+
+            if path.exists():
+                present_suffixes.append(suffix)
+                size = path.stat().st_size
+                entry["sizeBytes"] = size
+                entry["sizeHuman"] = file_size_human(size)
+
+                if size == 0:
+                    results["allJsonValid"] = False
+                    entry["jsonValid"] = False
+                    entry["error"] = "empty file"
+                else:
+                    valid, error = validate_json(path)
+                    entry["jsonValid"] = valid
+                    entry["error"] = error
+                    if valid:
+                        present_valid_suffixes.append(suffix)
+                    else:
+                        results["allJsonValid"] = False
+            else:
+                entry["jsonValid"] = False
+                entry["error"] = "missing"
+
+            group_entries.append(entry)
+
+        if not present_valid_suffixes:
+            results["allRequiredPresent"] = False
+            if not present_suffixes:
+                results["allJsonValid"] = False
+
+        results["jsonOneOfChecks"].append(
+            {
+                "suffixes": group,
+                "satisfied": bool(present_valid_suffixes),
+                "presentSuffixes": present_suffixes,
+                "presentValidSuffixes": present_valid_suffixes,
+                "entries": group_entries,
+            }
+        )
+
+    for suffix in optional_json_suffixes or []:
+        path = base_dir / f"{prefix}_{suffix}.json"
+        entry = {
+            "suffix": suffix,
+            "path": str(path),
+            "exists": path.exists(),
+            "sizeBytes": None,
+            "sizeHuman": None,
+            "jsonValid": None,
+            "error": None,
+        }
+
+        if path.exists():
+            size = path.stat().st_size
+            entry["sizeBytes"] = size
+            entry["sizeHuman"] = file_size_human(size)
+
+            if size == 0:
+                results["allJsonValid"] = False
+                entry["jsonValid"] = False
+                entry["error"] = "empty file"
+            else:
+                valid, error = validate_json(path)
+                entry["jsonValid"] = valid
+                entry["error"] = error
+                if not valid:
+                    results["allJsonValid"] = False
+
+        results["optionalJsonChecks"].append(entry)
 
     for suffix in png_suffixes:
         path = base_dir / f"{prefix}_{suffix}.png"
@@ -191,6 +292,30 @@ def print_summary(results: Dict[str, Any]) -> None:
         size = entry["sizeHuman"] if entry["sizeHuman"] else "-"
         error = f" error={entry['error']}" if entry["error"] else ""
         print(f"- [{mark}] {Path(entry['path']).name} size={size}{error}")
+
+    if results["jsonOneOfChecks"]:
+        print("\nJSON one-of required groups:")
+        for group in results["jsonOneOfChecks"]:
+            suffixes = ", ".join(group["suffixes"])
+            present = ", ".join(group["presentValidSuffixes"]) or "-"
+            mark = "OK" if group["satisfied"] else "NG"
+            print(f"- [{mark}] one of: {suffixes} presentValid={present}")
+            for entry in group["entries"]:
+                mark = "OK" if entry["exists"] and entry["jsonValid"] else "NG"
+                size = entry["sizeHuman"] if entry["sizeHuman"] else "-"
+                error = f" error={entry['error']}" if entry["error"] else ""
+                print(f"  - [{mark}] {Path(entry['path']).name} size={size}{error}")
+
+    if results["optionalJsonChecks"]:
+        print("\nOptional JSON files:")
+        for entry in results["optionalJsonChecks"]:
+            if not entry["exists"]:
+                mark = "MISS"
+            else:
+                mark = "OK" if entry["jsonValid"] else "NG"
+            size = entry["sizeHuman"] if entry["sizeHuman"] else "-"
+            error = f" error={entry['error']}" if entry["error"] else ""
+            print(f"- [{mark}] {Path(entry['path']).name} size={size}{error}")
 
     print("\nPNG files:")
     for entry in results["pngChecks"]:
@@ -268,15 +393,37 @@ def main() -> int:
     allow_missing = set(parse_csv_list(args.allow_missing_json_suffixes))
     if allow_missing:
         json_suffixes = [suffix for suffix in json_suffixes if suffix not in allow_missing]
+    json_one_of_groups = (
+        []
+        if args.json_suffixes is not None
+        else [
+            [suffix for suffix in group if suffix not in allow_missing]
+            for group in DEFAULT_JSON_ONE_OF_GROUPS
+        ]
+    )
+    json_one_of_groups = [group for group in json_one_of_groups if group]
+    optional_json_suffixes = (
+        []
+        if args.json_suffixes is not None
+        else [
+            suffix
+            for suffix in DEFAULT_OPTIONAL_JSON_SUFFIXES
+            if suffix not in allow_missing
+        ]
+    )
 
     results = check_expected_files(
         base_dir=base_dir,
         prefix=prefix,
         json_suffixes=json_suffixes,
         png_suffixes=png_suffixes,
+        json_one_of_groups=json_one_of_groups,
+        optional_json_suffixes=optional_json_suffixes,
     )
     results["status"] = build_overall_status(results)
     results["requiredJsonSuffixes"] = json_suffixes
+    results["requiredJsonOneOfGroups"] = json_one_of_groups
+    results["optionalJsonSuffixes"] = optional_json_suffixes
     results["requiredPngSuffixes"] = png_suffixes
 
     if args.json:

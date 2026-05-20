@@ -212,6 +212,7 @@ def build_raw_visible_record_dryrun_command(args: argparse.Namespace) -> str:
     return f"""await window.gpuViewerDebug.downloadJsonDebug(
   await window.gpuViewerDebug.captureGpuRawVisibleRecordDryRunDebug({{
     ensureCurrentFrame: false,
+    recordMode: {quote(args.raw_visible_record_mode)},
     readbackMode: {quote(args.raw_visible_record_readback)},
     maxRecords: {args.raw_visible_record_max_count},
     epsilon: {args.raw_visible_record_epsilon},
@@ -402,7 +403,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--include-raw-visible-record-dryrun",
         default="false",
-        help="Include Step118A raw attribute texture richer visible-record dry-run capture. Default: false.",
+        help="Include Step120A raw attribute texture packed-like fixed-record dry-run capture. Default: false.",
     )
     parser.add_argument(
         "--include-runtime",
@@ -458,6 +459,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--visible-record-readback", default="sync-debug")
     parser.add_argument("--visible-record-max-count", type=int, default=65536)
     parser.add_argument("--raw-visible-record-readback", default="sync-debug")
+    parser.add_argument("--raw-visible-record-mode", default="packed-like")
     parser.add_argument("--raw-visible-record-max-count", type=int, default=65536)
     parser.add_argument("--raw-visible-record-epsilon", default="1e-3")
 

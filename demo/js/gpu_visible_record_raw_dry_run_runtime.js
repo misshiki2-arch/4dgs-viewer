@@ -9,6 +9,32 @@ const DEFAULT_EPSILON = 1e-3;
 const DEFAULT_DEBUG_SAMPLE_COUNT = 4;
 const IMPLEMENTED_FIELDS = ['srcIndex', 'valid', 'px', 'py', 'depth', 'aabb', 'radius', 'conic', 'alpha', 'tileRange'];
 const DEFERRED_FIELDS = ['colorRgb', 'colorAlpha.rgb', 'SH', '4D conditional covariance full parity', 'depth sort', 'variable packing', 'tile-list GPU generation'];
+const PACKED_LIKE_FLOATS_PER_ITEM = 16;
+const PACKED_LIKE_IMPLEMENTED_FIELDS = [
+  'centerPx',
+  'radiusPx',
+  'depth',
+  'colorAlpha.a',
+  'conic',
+  'misc.aabb'
+];
+const PACKED_LIKE_DEFERRED_FIELDS = [
+  'colorAlpha.rgb',
+  'sorted-visible-order',
+  'variable packing',
+  'tile-list GPU generation',
+  'tile composite connection'
+];
+const PACKED_LIKE_FIELD_LAYOUT = [
+  ['centerPx', 0, 2],
+  ['radiusPx', 2, 1],
+  ['depth', 3, 1],
+  ['colorAlpha.rgb', 4, 3],
+  ['colorAlpha.a', 7, 1],
+  ['conic', 8, 3],
+  ['reserved', 11, 1],
+  ['misc.aabb', 12, 4]
+];
 const DEBUG_LAYOUT = {
   rawTexCoord: 18,
   rawXyzOpacity: 20,
@@ -40,6 +66,16 @@ const FIXED_RECORD_COMPARISON_REFERENCE = Object.freeze({
   aabbReferenceMode: 'recomputed-from-f32-px-py-radius',
   canonicalCpuAabbMode: 'buildVisibleItemForCandidate.aabb',
   note: 'CPU canonical aabb and GPU/f32 fixed-record aabb can differ by 1px on integer rounding boundaries.'
+});
+const PACKED_LIKE_COMPARISON_REFERENCE = Object.freeze({
+  cpuReferenceMode: 'packed-like-f32-fixed-record-materialized',
+  packedLayoutVersion: 2,
+  packedFloatsPerItem: PACKED_LIKE_FLOATS_PER_ITEM,
+  orderMode: 'candidate-order-unsorted',
+  colorRgbMode: 'deferred-zero-filled',
+  alphaMode: 'colorAlpha.a',
+  miscMode: 'aabb',
+  note: 'Packed-like dry-run follows the v2 16-float layout shape in candidate order; RGB/SH, sorting, compaction, and tile-list generation remain deferred.'
 });
 
 function nowMs() {
@@ -1282,6 +1318,74 @@ function compareRecords(referenceRecords, candidateRecords, count, options = {})
   };
 }
 
+function buildPackedLikeRecords(sourceRecords, count) {
+  const packed = new Float32Array(Math.max(0, count | 0) * PACKED_LIKE_FLOATS_PER_ITEM);
+  for (let row = 0; row < count; row++) {
+    const srcBase = row * RAW_RECORD_FLOATS;
+    const dstBase = row * PACKED_LIKE_FLOATS_PER_ITEM;
+    packed[dstBase + 0] = sourceRecords[srcBase + 2]; // centerPx.x
+    packed[dstBase + 1] = sourceRecords[srcBase + 3]; // centerPx.y
+    packed[dstBase + 2] = sourceRecords[srcBase + 9]; // radiusPx
+    packed[dstBase + 3] = sourceRecords[srcBase + 4]; // depth
+    packed[dstBase + 4] = 0; // colorAlpha.r deferred
+    packed[dstBase + 5] = 0; // colorAlpha.g deferred
+    packed[dstBase + 6] = 0; // colorAlpha.b deferred
+    packed[dstBase + 7] = sourceRecords[srcBase + 13]; // colorAlpha.a
+    packed[dstBase + 8] = sourceRecords[srcBase + 10]; // conic.x
+    packed[dstBase + 9] = sourceRecords[srcBase + 11]; // conic.y
+    packed[dstBase + 10] = sourceRecords[srcBase + 12]; // conic.z
+    packed[dstBase + 11] = 0; // reserved
+    packed[dstBase + 12] = sourceRecords[srcBase + 5]; // misc/aabb.x
+    packed[dstBase + 13] = sourceRecords[srcBase + 6]; // misc/aabb.y
+    packed[dstBase + 14] = sourceRecords[srcBase + 7]; // misc/aabb.z
+    packed[dstBase + 15] = sourceRecords[srcBase + 8]; // misc/aabb.w
+  }
+  return packed;
+}
+
+function comparePackedLikeRecords(referenceRecords, candidateRecords, count, options = {}) {
+  const epsilon = toFiniteNumber(options.epsilon, DEFAULT_EPSILON);
+  const maxMismatches = toFiniteInteger(options.maxMismatches, 32);
+  let fieldMismatchCount = 0;
+  let maxAbsError = 0;
+  const firstMismatches = [];
+  for (let row = 0; row < count; row++) {
+    for (const [field, offset, length] of PACKED_LIKE_FIELD_LAYOUT) {
+      for (let i = 0; i < length; i++) {
+        const ref = referenceRecords[row * PACKED_LIKE_FLOATS_PER_ITEM + offset + i];
+        const got = candidateRecords[row * PACKED_LIKE_FLOATS_PER_ITEM + offset + i];
+        const abs = Math.abs(Number(ref) - Number(got));
+        maxAbsError = Math.max(maxAbsError, abs);
+        if (!(abs <= epsilon)) {
+          fieldMismatchCount++;
+          if (firstMismatches.length < maxMismatches) {
+            firstMismatches.push({
+              row,
+              field,
+              component: length > 1 ? i : null,
+              reference: ref,
+              candidate: got,
+              absError: abs
+            });
+          }
+        }
+      }
+    }
+  }
+  return {
+    schemaVersion: 'step120a-packed-like-fixed-record-comparison-v1',
+    packedLayoutVersion: 2,
+    floatsPerItem: PACKED_LIKE_FLOATS_PER_ITEM,
+    orderMode: 'candidate-order-unsorted',
+    implementedFields: PACKED_LIKE_IMPLEMENTED_FIELDS,
+    deferredFields: PACKED_LIKE_DEFERRED_FIELDS,
+    anyMismatch: fieldMismatchCount > 0,
+    fieldMismatchCount,
+    maxAbsError,
+    firstMismatches
+  };
+}
+
 function classifyRecordComparison(recordComparison) {
   if (!recordComparison?.anyMismatch) return 'none';
   const mismatches = Array.isArray(recordComparison.firstMismatches)
@@ -1313,14 +1417,48 @@ function classifyRecordComparison(recordComparison) {
       : (allKnownAabbOrTileBoundaryDiff ? 'known-aabb-tile-range-rounding-boundary-diff' : 'raw-visible-record-field-mismatch'));
 }
 
+function classifyPackedLikeComparison(packedLikeComparison) {
+  if (!packedLikeComparison?.anyMismatch) return 'none';
+  const mismatches = Array.isArray(packedLikeComparison.firstMismatches)
+    ? packedLikeComparison.firstMismatches
+    : [];
+  const fieldMismatchCount = toFiniteInteger(packedLikeComparison.fieldMismatchCount, -1);
+  const allKnownMiscAabbBoundaryDiff = fieldMismatchCount > 0 &&
+    mismatches.length > 0 &&
+    mismatches.every((mismatch) => (
+      mismatch?.field === 'misc.aabb' &&
+      Math.abs(Number(mismatch?.absError)) === 1
+    ));
+  return allKnownMiscAabbBoundaryDiff
+    ? 'known-packed-like-aabb-rounding-boundary-diff'
+    : 'packed-like-field-mismatch';
+}
+
+function resolveRecordMode(mode) {
+  return mode === 'packed-like' ? 'packed-like' : (mode === 'minimal' ? 'minimal' : 'richer');
+}
+
+function computeModeForRecordMode(recordMode) {
+  return recordMode === 'packed-like'
+    ? 'raw-attribute-texture-tf-packed-like-fixed-record'
+    : (recordMode === 'minimal'
+      ? 'raw-attribute-texture-tf-minimal-visible-record'
+      : 'raw-attribute-texture-tf-richer-visible-record');
+}
+
 function fallback(reason, extra = {}) {
+  const recordMode = resolveRecordMode(extra.recordMode);
   return {
     schemaVersion: 'step116-raw-visible-record-dry-run-v1',
     status: 'fallback',
     reason,
-    computeMode: 'raw-attribute-texture-tf-richer-visible-record',
+    computeMode: computeModeForRecordMode(recordMode),
+    recordMode,
+    rawVisibleRecordMode: recordMode,
     implementedFields: IMPLEMENTED_FIELDS,
     deferredFields: DEFERRED_FIELDS,
+    packedLikeImplementedFields: recordMode === 'packed-like' ? PACKED_LIKE_IMPLEMENTED_FIELDS : [],
+    packedLikeDeferredFields: recordMode === 'packed-like' ? PACKED_LIKE_DEFERRED_FIELDS : [],
     candidateCount: Number.isFinite(extra.candidateCount) ? extra.candidateCount : null,
     recordCount: Number.isFinite(extra.recordCount) ? extra.recordCount : null,
     validRecordCount: Number.isFinite(extra.validRecordCount) ? extra.validRecordCount : null,
@@ -1331,6 +1469,8 @@ function fallback(reason, extra = {}) {
       firstMismatches: Array.isArray(extra.firstMismatches) ? extra.firstMismatches : []
     },
     mismatchClassification: extra.mismatchClassification ?? 'raw-visible-record-unavailable',
+    packedLikeComparison: extra.packedLikeComparison ?? null,
+    packedLikeMismatchClassification: extra.packedLikeMismatchClassification ?? null,
     anyMismatch: true,
     displayCandidateSource: extra.displayCandidateSource ?? 'cpu-reference',
     gpuCandidateUsedForDisplay: !!extra.gpuCandidateUsedForDisplay,
@@ -1356,16 +1496,19 @@ export function runGpuRawVisibleRecordDryRun({
   epsilon = DEFAULT_EPSILON,
   maxMismatches = 32,
   readbackMode = 'sync-debug',
+  recordMode = 'richer',
   displayCandidateSource = 'cpu-reference',
   gpuCandidateUsedForDisplay = false,
   limitedDrawUsedForCandidateSource = false,
   metadata = null
 } = {}) {
   const totalStartMs = nowMs();
+  const resolvedRecordMode = resolveRecordMode(recordMode ?? metadata?.rawVisibleRecordMode);
   const fallbackExtra = {
     displayCandidateSource,
     gpuCandidateUsedForDisplay,
     limitedDrawUsedForCandidateSource,
+    recordMode: resolvedRecordMode,
     metadata
   };
   if (!gl) return fallback('webgl-unavailable', fallbackExtra);
@@ -1449,6 +1592,20 @@ export function runGpuRawVisibleRecordDryRun({
       maxMismatches
     });
     const compareMs = nowMs() - compareStartMs;
+    let packedLikeComparison = null;
+    let packedLikeMismatchClassification = null;
+    let packedLikeCompareMs = 0;
+    if (resolvedRecordMode === 'packed-like') {
+      const packedLikeCompareStartMs = nowMs();
+      const packedLikeReference = buildPackedLikeRecords(cpuRecords.records, cpuRecords.count);
+      const packedLikeCandidate = buildPackedLikeRecords(tfResult.records, cpuRecords.count);
+      packedLikeComparison = comparePackedLikeRecords(packedLikeReference, packedLikeCandidate, cpuRecords.count, {
+        epsilon,
+        maxMismatches
+      });
+      packedLikeMismatchClassification = classifyPackedLikeComparison(packedLikeComparison);
+      packedLikeCompareMs = nowMs() - packedLikeCompareStartMs;
+    }
     const debugSamples = buildRawVisibleDebugSamples({
       raw,
       cpuRecords,
@@ -1464,15 +1621,22 @@ export function runGpuRawVisibleRecordDryRun({
       schemaVersion: 'step116-raw-visible-record-dry-run-v1',
       status: 'ok',
       reason: 'ok',
-      computeMode: 'raw-attribute-texture-tf-richer-visible-record',
+      computeMode: computeModeForRecordMode(resolvedRecordMode),
+      recordMode: resolvedRecordMode,
+      rawVisibleRecordMode: resolvedRecordMode,
       implementedFields: IMPLEMENTED_FIELDS,
       deferredFields: DEFERRED_FIELDS,
+      packedLikeImplementedFields: resolvedRecordMode === 'packed-like' ? PACKED_LIKE_IMPLEMENTED_FIELDS : [],
+      packedLikeDeferredFields: resolvedRecordMode === 'packed-like' ? PACKED_LIKE_DEFERRED_FIELDS : [],
       candidateCount: cpuRecords.candidateCount,
       recordCount: cpuRecords.count,
       validRecordCount: cpuRecords.validCount,
       recordComparison,
       comparisonReference: cpuRecords.comparisonReference,
+      packedLikeComparisonReference: resolvedRecordMode === 'packed-like' ? PACKED_LIKE_COMPARISON_REFERENCE : null,
+      packedLikeComparison,
       mismatchClassification,
+      packedLikeMismatchClassification,
       anyMismatch: !!recordComparison.anyMismatch,
       rawTextureSummary: rawTextureResult.summary,
       minimalFetchProbe: tfResult.minimalFetchProbe,
@@ -1491,6 +1655,7 @@ export function runGpuRawVisibleRecordDryRun({
         minimalFetchProbeMs: tfResult.minimalFetchProbe?.probeMs ?? 0,
         ...tfResult.timing,
         compareMs,
+        packedLikeCompareMs,
         totalMs: nowMs() - totalStartMs
       },
       metadata

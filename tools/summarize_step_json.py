@@ -554,7 +554,9 @@ def extract_gpu_raw_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any
         summary = data if get_path(data, ["schemaVersion"]) == "step116-raw-visible-record-dry-run-v1" else {}
     timing = get_path(summary, ["timing"], {})
     record_comparison = get_path(summary, ["recordComparison"], {})
+    packed_like_comparison = get_path(summary, ["packedLikeComparison"], {})
     comparison_reference = get_path(summary, ["comparisonReference"], {})
+    packed_like_reference = get_path(summary, ["packedLikeComparisonReference"], {})
     first_mismatches = get_path(record_comparison, ["firstMismatches"], [])
     mismatch_fields = sorted({
         item.get("field")
@@ -565,12 +567,19 @@ def extract_gpu_raw_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
         "computeMode": get_path(summary, ["computeMode"]),
+        "recordMode": get_path(summary, ["recordMode"]),
+        "rawVisibleRecordMode": get_path(summary, ["rawVisibleRecordMode"]),
         "cpuReferenceMode": get_path(comparison_reference, ["cpuReferenceMode"]),
         "aabbReferenceMode": get_path(comparison_reference, ["aabbReferenceMode"]),
         "canonicalCpuAabbMode": get_path(comparison_reference, ["canonicalCpuAabbMode"]),
         "comparisonReferenceNote": get_path(comparison_reference, ["note"]),
         "implementedFields": get_path(summary, ["implementedFields"], []),
         "deferredFields": get_path(summary, ["deferredFields"], []),
+        "packedLikeImplementedFields": get_path(summary, ["packedLikeImplementedFields"], []),
+        "packedLikeDeferredFields": get_path(summary, ["packedLikeDeferredFields"], []),
+        "packedLikeReferenceMode": get_path(packed_like_reference, ["cpuReferenceMode"]),
+        "packedLikeOrderMode": get_path(packed_like_reference, ["orderMode"]),
+        "packedLikeColorRgbMode": get_path(packed_like_reference, ["colorRgbMode"]),
         "candidateCount": get_path(summary, ["candidateCount"]),
         "recordCount": get_path(summary, ["recordCount"]),
         "validRecordCount": get_path(summary, ["validRecordCount"]),
@@ -580,6 +589,10 @@ def extract_gpu_raw_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any
         "fieldMismatchCount": get_path(record_comparison, ["fieldMismatchCount"]),
         "fieldMismatchFields": mismatch_fields,
         "firstMismatches": first_mismatches,
+        "packedLikeMismatchClassification": get_path(summary, ["packedLikeMismatchClassification"]),
+        "packedLikeAnyMismatch": get_path(packed_like_comparison, ["anyMismatch"]),
+        "packedLikeFieldMismatchCount": get_path(packed_like_comparison, ["fieldMismatchCount"]),
+        "packedLikeFirstMismatches": get_path(packed_like_comparison, ["firstMismatches"], []),
         "displayCandidateSource": get_path(summary, ["displayCandidateSource"]),
         "gpuCandidateUsedForDisplay": get_path(summary, ["gpuCandidateUsedForDisplay"]),
         "limitedDrawUsedForCandidateSource": get_path(summary, ["limitedDrawUsedForCandidateSource"]),
@@ -588,6 +601,7 @@ def extract_gpu_raw_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any
         "transformFeedbackDrawMs": get_path(timing, ["transformFeedbackDrawMs"]),
         "readbackMs": get_path(timing, ["readbackMs"]),
         "compareMs": get_path(timing, ["compareMs"]),
+        "packedLikeCompareMs": get_path(timing, ["packedLikeCompareMs"]),
         "totalMs": get_path(timing, ["totalMs"]),
     }
 

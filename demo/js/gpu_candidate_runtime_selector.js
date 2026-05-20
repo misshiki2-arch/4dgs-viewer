@@ -23,7 +23,7 @@ const DEFAULT_PROMOTE_POLICY = 'never';
 const DEFAULT_READBACK_MODE = 'sync-debug';
 const DEFAULT_COVERAGE_MAX_MISSES = 32;
 const DEFAULT_VISIBLE_RECORD_MAX_COUNT = 65536;
-const RAW_VISIBLE_RECORD_MODE_VALUES = new Set(['minimal', 'richer']);
+const RAW_VISIBLE_RECORD_MODE_VALUES = new Set(['minimal', 'richer', 'packed-like']);
 
 function normalizeRuntime(value) {
   return RUNTIME_VALUES.has(value) ? value : DEFAULT_RUNTIME;
@@ -188,7 +188,7 @@ export function buildGpuCandidateRuntimeConfig(queryState = {}, overrides = {}) 
     overrides.rawVisibleRecordMode ?? overrides.gpuRawVisibleRecordMode ?? queryState.gpuRawVisibleRecordMode;
   const rawVisibleRecordMode = RAW_VISIBLE_RECORD_MODE_VALUES.has(rawVisibleRecordModeValue)
     ? rawVisibleRecordModeValue
-    : 'minimal';
+    : 'richer';
   const rawVisibleRecordReadback = normalizeReadbackMode(
     overrides.rawVisibleRecordReadback ?? overrides.gpuRawVisibleRecordReadback ?? queryState.gpuRawVisibleRecordReadback ?? readbackMode
   );
@@ -313,7 +313,7 @@ export function buildGpuCandidateRuntimeSummary(runtimeConfig = {}) {
       : DEFAULT_VISIBLE_RECORD_MAX_COUNT,
     visibleRecordCompare: runtimeConfig.visibleRecordCompare !== false,
     rawVisibleRecordDryRun: !!runtimeConfig.rawVisibleRecordDryRun,
-    rawVisibleRecordMode: runtimeConfig.rawVisibleRecordMode ?? 'minimal',
+    rawVisibleRecordMode: runtimeConfig.rawVisibleRecordMode ?? 'richer',
     rawVisibleRecordReadback: runtimeConfig.rawVisibleRecordReadback ?? runtimeConfig.readbackMode ?? DEFAULT_READBACK_MODE,
     rawVisibleRecordFields: runtimeConfig.rawVisibleRecordFields ?? 'srcIndex,valid,px,py,depth,aabb,radius,conic,alpha,tileRange',
     rawAttributeTexture: !!runtimeConfig.rawAttributeTexture,
