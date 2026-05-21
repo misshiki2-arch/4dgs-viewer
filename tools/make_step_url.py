@@ -27,6 +27,8 @@ Output:
 from __future__ import annotations
 
 import argparse
+import json
+from pathlib import Path
 from urllib.parse import urlencode
 
 
@@ -174,6 +176,59 @@ def build_url(args: argparse.Namespace) -> str:
     return f"http://{host}{viewer_path}?{query}"
 
 
+def flatten_matrix(matrix: object) -> str:
+    if not isinstance(matrix, list):
+        raise ValueError("camera meta transform_matrix must be a list")
+
+    values: list[float] = []
+    for row in matrix:
+        if isinstance(row, list):
+            values.extend(float(value) for value in row)
+        else:
+            values.append(float(row))
+
+    if len(values) != 16:
+        raise ValueError(f"camera meta transform_matrix must contain 16 values, got {len(values)}")
+
+    return ",".join(str(value) for value in values)
+
+
+def resolve_camera_meta_path(args: argparse.Namespace) -> Path | None:
+    if args.camera_meta_json:
+        return Path(args.camera_meta_json)
+
+    if args.camera_name:
+        return Path(args.camera_meta_dir) / f"{args.camera_name}_meta.json"
+
+    return None
+
+
+def apply_camera_meta(args: argparse.Namespace) -> None:
+    meta_path = resolve_camera_meta_path(args)
+    if meta_path is None:
+        return
+
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    image_name = str(meta["image_name"])
+
+    args.canvas_width = int(meta.get("width", args.canvas_width))
+    args.canvas_height = int(meta.get("height", args.canvas_height))
+    args.time = float(meta.get("timestamp", args.time))
+    args.dataset_time = float(meta.get("timestamp", args.dataset_time))
+    args.dataset_camera_label = image_name
+    args.dataset_image_name = image_name
+    args.dataset_frame_number = int(meta.get("frame_number", args.dataset_frame_number))
+    args.dataset_view_id = int(meta.get("view_id", args.dataset_view_id))
+    args.dataset_transform_matrix = flatten_matrix(meta["transform_matrix"])
+    args.camera_fovy_rad = float(meta.get("FoVy", args.camera_fovy_rad))
+    args.camera_fovx_rad = float(meta.get("FoVx", args.camera_fovx_rad))
+    args.dataset_fx = float(meta.get("fx", args.dataset_fx))
+    args.dataset_fy = float(meta.get("fy", args.dataset_fy))
+    args.dataset_cx = float(meta.get("cx", args.dataset_cx))
+    args.dataset_cy = float(meta.get("cy", args.dataset_cy))
+    args.cuda_reference_label = image_name
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Generate deterministic 4DGS Viewer URLs."
@@ -222,6 +277,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cuda-reference-label", default="000151_v13")
     parser.add_argument("--use-native-rot4d", default="true")
     parser.add_argument("--use-native-marginal", default="true")
+    parser.add_argument(
+        "--camera-meta-json",
+        default=None,
+        help="Optional CUDA reference camera meta JSON. Overrides dataset camera/time/intrinsics parameters.",
+    )
+    parser.add_argument(
+        "--camera-meta-dir",
+        default="/home/demo/work/outputs/sph_scene_4dgs/cuda_reference_named_current_render/iter_012000",
+        help="Directory used with --camera-name to locate <camera>_meta.json.",
+    )
+    parser.add_argument(
+        "--camera-name",
+        default=None,
+        help="Camera/image name such as 000151_v13. Loads <camera>_meta.json from --camera-meta-dir.",
+    )
 
     # GPU candidate options.
     parser.add_argument("--runtime", default="limited-draw")
@@ -278,6 +348,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    apply_camera_meta(args)
     print(build_url(args))
     return 0
 
