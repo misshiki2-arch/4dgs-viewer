@@ -300,9 +300,121 @@ function buildSafeBuildStats(rawBuildStats, visible, packedScreenSpace, elapsedM
         ? rawBuildStats.packedVisibleFloatsPerItem
         : (Number.isFinite(packedScreenSpace?.floatsPerItem) ? packedScreenSpace.floatsPerItem : 0),
     visibleBuildMs: Number.isFinite(rawBuildStats?.visibleBuildMs) ? rawBuildStats.visibleBuildMs : elapsedMs,
+    visibleLoopMs: Number.isFinite(rawBuildStats?.visibleLoopMs)
+      ? rawBuildStats.visibleLoopMs
+      : (Number.isFinite(rawBuildStats?.visibleBuildMs) ? rawBuildStats.visibleBuildMs : elapsedMs),
+    visibleSortMs: Number.isFinite(rawBuildStats?.visibleSortMs) ? rawBuildStats.visibleSortMs : 0,
     candidateBuildMs: Number.isFinite(rawBuildStats?.candidateBuildMs) ? rawBuildStats.candidateBuildMs : 0,
     screenSpaceBuildMs: Number.isFinite(rawBuildStats?.screenSpaceBuildMs) ? rawBuildStats.screenSpaceBuildMs : 0,
     totalBuildMs: Number.isFinite(rawBuildStats?.totalBuildMs) ? rawBuildStats.totalBuildMs : elapsedMs
+  };
+}
+
+function finiteNumber(value, fallback = 0) {
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function chooseDominantCpuStage(timing) {
+  const stages = [
+    ['visible-loop', finiteNumber(timing.visibleLoopMs)],
+    ['sort', finiteNumber(timing.visibleSortMs)],
+    ['packed', finiteNumber(timing.packedBuildMs)],
+    ['tile-list', finiteNumber(timing.tileListBuildMs)],
+    ['tile-select', finiteNumber(timing.tileSelectionMs)]
+  ];
+  let best = ['none', 0];
+  for (const stage of stages) {
+    if (stage[1] > best[1]) best = stage;
+  }
+  return best[0];
+}
+
+function buildCpuPostCandidateBreakdown({
+  buildStats,
+  tileData,
+  tileSummary,
+  tileGrid,
+  visible,
+  packedScreenSpace,
+  tileSummaryMs = 0,
+  tileSelectionMs = 0
+}) {
+  const visibleCount = Array.isArray(visible) ? visible.length : 0;
+  const candidateCount = finiteNumber(buildStats?.processed, finiteNumber(buildStats?.accepted, visibleCount));
+  const packedVisibleCount = Number.isFinite(packedScreenSpace?.packedCount)
+    ? packedScreenSpace.packedCount
+    : finiteNumber(buildStats?.packedVisibleCount, visibleCount);
+  const packedFloatsPerItem = Number.isFinite(packedScreenSpace?.floatsPerItem)
+    ? packedScreenSpace.floatsPerItem
+    : finiteNumber(buildStats?.packedVisibleFloatsPerItem);
+  const totalTileRefs = finiteNumber(tileSummary?.totalRefs);
+  const tileListTiming = tileData?.timing ?? {};
+  const timing = {
+    candidateBuildMs: finiteNumber(buildStats?.candidateBuildMs),
+    visibleLoopMs: finiteNumber(buildStats?.visibleLoopMs, finiteNumber(buildStats?.visibleBuildMs)),
+    visibleSortMs: finiteNumber(buildStats?.visibleSortMs),
+    visibleBuildMs: finiteNumber(buildStats?.visibleBuildMs),
+    packedBuildMs: finiteNumber(buildStats?.screenSpaceBuildMs),
+    tileListBuildMs: finiteNumber(tileListTiming.tileListBuildMs),
+    tileCountsPassMs: finiteNumber(tileListTiming.tileCountsPassMs),
+    tileOffsetsPrefixMs: finiteNumber(tileListTiming.tileOffsetsPrefixMs),
+    tileIndicesScatterMs: finiteNumber(tileListTiming.tileIndicesScatterMs),
+    tileSummaryMs: finiteNumber(tileSummaryMs),
+    tileSelectionMs: finiteNumber(tileSelectionMs)
+  };
+  timing.cpuPostCandidateTotalMs =
+    timing.visibleLoopMs +
+    timing.visibleSortMs +
+    timing.packedBuildMs +
+    timing.tileListBuildMs +
+    timing.tileSummaryMs +
+    timing.tileSelectionMs;
+
+  const scale = {
+    candidateCount,
+    processedCount: finiteNumber(buildStats?.processed),
+    visibleCount,
+    culledCount: finiteNumber(buildStats?.culled),
+    temporalRejectedCount: finiteNumber(buildStats?.temporalRejected),
+    packedVisibleCount,
+    packedFloatsPerItem,
+    packedFloatCount: packedVisibleCount * packedFloatsPerItem,
+    tileCols: finiteNumber(tileGrid?.tileCols),
+    tileRows: finiteNumber(tileGrid?.tileRows),
+    tileCount: finiteNumber(tileGrid?.tileCols) * finiteNumber(tileGrid?.tileRows),
+    tileSize: finiteNumber(tileGrid?.tileSize),
+    nonEmptyTiles: finiteNumber(tileSummary?.nonEmptyTiles),
+    totalTileRefs,
+    maxRefsPerTile: finiteNumber(tileSummary?.maxPerTile),
+    avgRefsPerVisible: visibleCount > 0 ? totalTileRefs / visibleCount : 0,
+    avgRefsPerNonEmptyTile: finiteNumber(tileSummary?.avgPerNonEmptyTile),
+    tileRefsPerVisibleRatio: visibleCount > 0 ? totalTileRefs / visibleCount : 0,
+    tileListIndicesLength: Number.isFinite(tileData?.indices?.length) ? tileData.indices.length : 0,
+    countEnergy: finiteNumber(tileSummary?.countEnergy)
+  };
+  const classification = {
+    dominantStage: chooseDominantCpuStage(timing),
+    debugReadbackIncluded: false,
+    webgl2LimitSignals: [
+      'cpu-depth-sort',
+      'cpu-variable-tile-list',
+      'cpu-prefix-sum-offsets',
+      'cpu-scatter-indices'
+    ],
+    webgpuMigrationSignals: [
+      'gpu-sort-candidate',
+      'compute-prefix-sum-candidate',
+      'gpu-tile-binning-candidate',
+      'storage-buffer-packed-record-candidate'
+    ]
+  };
+  return {
+    schemaVersion: 'step124-cpu-post-candidate-breakdown-v1',
+    source: 'normal-display',
+    debugReadbackIncluded: false,
+    timing,
+    scale,
+    classification
   };
 }
 
@@ -882,16 +994,19 @@ export async function renderGpuFrame({
   }
 
   const tileData = buildTileLists(visible, tileGrid.tileCols, tileGrid.tileRows);
+  const tileSummaryStartMs = performance.now();
   const tileSummary = summarizeTileLists(
     tileData,
     tileGrid.tileCols,
     tileGrid.tileRows,
     activeTileBox
   );
+  const tileSummaryMs = performance.now() - tileSummaryStartMs;
 
   const legacySample = buildLegacySample(visible);
   const packedSample = buildPackedSample(packedScreenSpace);
 
+  const tileSelectionStartMs = performance.now();
   const focusTileId = chooseFocusTileId(tileData, mode);
   const focusTileIds = mode.drawSelectedOnly
     ? buildNeighborTileIds(focusTileId, tileGrid.tileCols, tileGrid.tileRows, mode.tileRadius)
@@ -912,6 +1027,7 @@ export async function renderGpuFrame({
   const perTileDrawSummary = mode.drawSelectedOnly
     ? summarizePerTileDrawBatches(perTileDrawBatches)
     : null;
+  const tileSelectionMs = performance.now() - tileSelectionStartMs;
 
   const effectiveTileSummary = perTileDrawSummary || tileBatchSummary;
   const focusTileRects = mode.drawSelectedOnly
@@ -1024,6 +1140,16 @@ export async function renderGpuFrame({
     !!limitedDrawRuntime.summary?.limitedDrawUsedForCandidateSource;
   buildStats.displayCandidateSource =
     limitedDrawRuntime.summary?.displayCandidateSource ?? 'cpu-reference';
+  buildStats.cpuPostCandidateBreakdown = buildCpuPostCandidateBreakdown({
+    buildStats,
+    tileData,
+    tileSummary,
+    tileGrid,
+    visible,
+    packedScreenSpace,
+    tileSummaryMs,
+    tileSelectionMs
+  });
   if (limitedDrawRuntime.summary?.step111TimingSummary) {
     limitedDrawRuntime.summary.step111TimingSummary.actualDisplayVisibleBuildMs =
       Number.isFinite(buildStats.visibleBuildMs) ? buildStats.visibleBuildMs : null;
@@ -1031,9 +1157,23 @@ export async function renderGpuFrame({
       Number.isFinite(buildStats.screenSpaceBuildMs) ? buildStats.screenSpaceBuildMs : null;
     limitedDrawRuntime.summary.step111TimingSummary.actualDisplayTotalBuildMs =
       Number.isFinite(buildStats.totalBuildMs) ? buildStats.totalBuildMs : null;
+    limitedDrawRuntime.summary.step111TimingSummary.actualDisplayVisibleLoopMs =
+      Number.isFinite(buildStats.visibleLoopMs) ? buildStats.visibleLoopMs : null;
+    limitedDrawRuntime.summary.step111TimingSummary.actualDisplayVisibleSortMs =
+      Number.isFinite(buildStats.visibleSortMs) ? buildStats.visibleSortMs : null;
+    limitedDrawRuntime.summary.step111TimingSummary.actualDisplayTileListBuildMs =
+      Number.isFinite(buildStats.cpuPostCandidateBreakdown?.timing?.tileListBuildMs)
+        ? buildStats.cpuPostCandidateBreakdown.timing.tileListBuildMs
+        : null;
+    limitedDrawRuntime.summary.step111TimingSummary.actualDisplayCpuPostCandidateTotalMs =
+      Number.isFinite(buildStats.cpuPostCandidateBreakdown?.timing?.cpuPostCandidateTotalMs)
+        ? buildStats.cpuPostCandidateBreakdown.timing.cpuPostCandidateTotalMs
+        : null;
     limitedDrawRuntime.summary.step111TimingSummary.actualDisplayVisibleCount = visible.length;
     limitedDrawRuntime.summary.step111TimingSummary.actualDisplayPackedVisibleCount =
       Number.isFinite(packedScreenSpace?.packedCount) ? packedScreenSpace.packedCount : null;
+    limitedDrawRuntime.summary.step111TimingSummary.cpuPostCandidateBreakdown =
+      buildStats.cpuPostCandidateBreakdown;
   }
   const avgRefsPerVisible = visible.length > 0 ? (tileSummary.totalRefs / visible.length) : 0;
 

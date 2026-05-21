@@ -545,6 +545,12 @@ function buildStep111TimingSummary({
     referenceVisibleBuildMs: Number.isFinite(referenceBuildStats?.visibleBuildMs)
       ? referenceBuildStats.visibleBuildMs
       : null,
+    referenceVisibleLoopMs: Number.isFinite(referenceBuildStats?.visibleLoopMs)
+      ? referenceBuildStats.visibleLoopMs
+      : null,
+    referenceVisibleSortMs: Number.isFinite(referenceBuildStats?.visibleSortMs)
+      ? referenceBuildStats.visibleSortMs
+      : null,
     referencePackedBuildMs: Number.isFinite(referenceBuildStats?.screenSpaceBuildMs)
       ? referenceBuildStats.screenSpaceBuildMs
       : (Number.isFinite(referenceBuildStats?.packedBuildMs) ? referenceBuildStats.packedBuildMs : null),
@@ -552,6 +558,8 @@ function buildStep111TimingSummary({
       ? referenceBuildStats.totalBuildMs
       : null,
     visibleBuildMs: Number.isFinite(gpuBuildStats?.visibleBuildMs) ? gpuBuildStats.visibleBuildMs : null,
+    visibleLoopMs: Number.isFinite(gpuBuildStats?.visibleLoopMs) ? gpuBuildStats.visibleLoopMs : null,
+    visibleSortMs: Number.isFinite(gpuBuildStats?.visibleSortMs) ? gpuBuildStats.visibleSortMs : null,
     packedBuildMs: Number.isFinite(gpuBuildStats?.screenSpaceBuildMs)
       ? gpuBuildStats.screenSpaceBuildMs
       : (Number.isFinite(gpuBuildStats?.packedBuildMs) ? gpuBuildStats.packedBuildMs : null),

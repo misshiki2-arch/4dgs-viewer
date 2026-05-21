@@ -19,10 +19,18 @@ export function computeTileRangeFromAABB(aabb, tileCols, tileRows, tileSize = 32
   return [tminX, tminY, tmaxX, tmaxY];
 }
 
+function nowMs() {
+  return typeof performance !== 'undefined' && typeof performance.now === 'function'
+    ? performance.now()
+    : Date.now();
+}
+
 export function buildTileLists(visible, tileCols, tileRows) {
+  const totalStartMs = nowMs();
   const tileCount = tileCols * tileRows;
   const counts = new Uint32Array(tileCount);
 
+  const countsStartMs = nowMs();
   for (let i = 0; i < visible.length; i++) {
     const tr = visible[i].tileRange;
     for (let ty = tr[1]; ty <= tr[3]; ty++) {
@@ -32,16 +40,20 @@ export function buildTileLists(visible, tileCols, tileRows) {
       }
     }
   }
+  const tileCountsPassMs = nowMs() - countsStartMs;
 
+  const offsetsStartMs = nowMs();
   const offsets = new Uint32Array(tileCount + 1);
   for (let i = 0; i < tileCount; i++) {
     offsets[i + 1] = offsets[i] + counts[i];
   }
+  const tileOffsetsPrefixMs = nowMs() - offsetsStartMs;
 
   const totalRefs = offsets[tileCount];
   const indices = new Uint32Array(totalRefs);
   const write = offsets.slice(0, tileCount);
 
+  const scatterStartMs = nowMs();
   for (let i = 0; i < visible.length; i++) {
     const tr = visible[i].tileRange;
     for (let ty = tr[1]; ty <= tr[3]; ty++) {
@@ -52,8 +64,20 @@ export function buildTileLists(visible, tileCols, tileRows) {
       }
     }
   }
+  const tileIndicesScatterMs = nowMs() - scatterStartMs;
 
-  return { counts, offsets, indices, totalRefs };
+  return {
+    counts,
+    offsets,
+    indices,
+    totalRefs,
+    timing: {
+      tileCountsPassMs,
+      tileOffsetsPrefixMs,
+      tileIndicesScatterMs,
+      tileListBuildMs: nowMs() - totalStartMs
+    }
+  };
 }
 
 export function summarizeTileLists(tileData, tileCols, tileRows, activeTileBox = null) {
