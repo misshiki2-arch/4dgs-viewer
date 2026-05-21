@@ -557,6 +557,7 @@ def extract_gpu_raw_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any
     packed_like_comparison = get_path(summary, ["packedLikeComparison"], {})
     comparison_reference = get_path(summary, ["comparisonReference"], {})
     packed_like_reference = get_path(summary, ["packedLikeComparisonReference"], {})
+    display_readiness = get_path(summary, ["displayConnectionReadiness"], {})
     first_mismatches = get_path(record_comparison, ["firstMismatches"], [])
     mismatch_fields = sorted({
         item.get("field")
@@ -593,6 +594,26 @@ def extract_gpu_raw_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any
         "packedLikeAnyMismatch": get_path(packed_like_comparison, ["anyMismatch"]),
         "packedLikeFieldMismatchCount": get_path(packed_like_comparison, ["fieldMismatchCount"]),
         "packedLikeFirstMismatches": get_path(packed_like_comparison, ["firstMismatches"], []),
+        "displayConnectionStatus": get_path(display_readiness, ["status"]),
+        "displayConnectionAllowed": get_path(display_readiness, ["displayConnectionAllowed"]),
+        "displayConnectionClassification": get_path(
+            display_readiness,
+            ["displayConnectionClassification"],
+        ),
+        "displayConnectionReason": get_path(display_readiness, ["reason"]),
+        "displayConnectionSatisfied": get_path(display_readiness, ["satisfied"], []),
+        "displayConnectionUnresolved": get_path(display_readiness, ["unresolved"], []),
+        "displayConnectionBlocked": get_path(display_readiness, ["blocked"], []),
+        "displayConnectionWebgl2Limits": get_path(
+            display_readiness,
+            ["webgl2LimitCandidates"],
+            [],
+        ),
+        "displayConnectionWebgpuSignals": get_path(
+            display_readiness,
+            ["webgpuMigrationSignals"],
+            [],
+        ),
         "displayCandidateSource": get_path(summary, ["displayCandidateSource"]),
         "gpuCandidateUsedForDisplay": get_path(summary, ["gpuCandidateUsedForDisplay"]),
         "limitedDrawUsedForCandidateSource": get_path(summary, ["limitedDrawUsedForCandidateSource"]),

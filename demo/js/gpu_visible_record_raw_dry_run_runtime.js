@@ -78,6 +78,44 @@ const PACKED_LIKE_COMPARISON_REFERENCE = Object.freeze({
   note: 'Packed-like dry-run follows the v2 16-float layout shape in candidate order; RGB/SH, sorting, compaction, and tile-list generation remain deferred.'
 });
 
+const DISPLAY_CONNECTION_SATISFIED_ITEMS = [
+  'raw-attribute-texture-fetch',
+  'transform-feedback-fixed-record-output',
+  'packed-layout-v2-shape',
+  'centerPx-radius-depth-alpha-conic-miscAabb-fields',
+  'validated-only-gpu-candidate-display-source',
+  'cpu-fallback-available'
+];
+
+const DISPLAY_CONNECTION_UNRESOLVED_ITEMS = [
+  'colorAlpha.rgb-deferred',
+  'SH-color-parity-deferred',
+  'cpu-tile-list-index-contract',
+  'known-aabb-rounding-boundary-diff'
+];
+
+const DISPLAY_CONNECTION_BLOCKED_ITEMS = [
+  'candidate-order-unsorted',
+  'variable-packing-not-implemented',
+  'gpu-tile-list-generation-not-implemented',
+  'tile-composite-input-contract-not-switched'
+];
+
+const DISPLAY_CONNECTION_WEBGL2_LIMIT_CANDIDATES = [
+  'depth-sort',
+  'variable-packing-compaction',
+  'prefix-sum-tile-list-build',
+  'tile-composite-rewire'
+];
+
+const DISPLAY_CONNECTION_WEBGPU_MIGRATION_SIGNALS = [
+  'storage-buffer-visible-records',
+  'compute-prefix-sum-compaction',
+  'gpu-depth-sort',
+  'gpu-tile-binning',
+  'compute-driven-tile-list-generation'
+];
+
 function nowMs() {
   return typeof performance !== 'undefined' && typeof performance.now === 'function'
     ? performance.now()
@@ -1434,6 +1472,73 @@ function classifyPackedLikeComparison(packedLikeComparison) {
     : 'packed-like-field-mismatch';
 }
 
+function buildDisplayConnectionReadinessSummary({
+  status = 'ok',
+  reason = 'ok',
+  recordMode = 'richer',
+  recordComparison = null,
+  packedLikeComparison = null,
+  mismatchClassification = null,
+  packedLikeMismatchClassification = null,
+  displayCandidateSource = 'cpu-reference',
+  gpuCandidateUsedForDisplay = false,
+  limitedDrawUsedForCandidateSource = false,
+  fallbackReason = 'none',
+  candidateCount = null,
+  recordCount = null,
+  validRecordCount = null
+} = {}) {
+  const isPackedLike = recordMode === 'packed-like';
+  const hasRecords = (toFiniteInteger(candidateCount, 0) > 0) &&
+    (toFiniteInteger(recordCount, 0) > 0) &&
+    (toFiniteInteger(validRecordCount, 0) > 0);
+  const rawMismatchKnown = !recordComparison?.anyMismatch ||
+    mismatchClassification === 'known-aabb-rounding-boundary-diff' ||
+    mismatchClassification === 'known-aabb-tile-range-rounding-boundary-diff';
+  const packedMismatchKnown = !isPackedLike ||
+    !packedLikeComparison?.anyMismatch ||
+    packedLikeMismatchClassification === 'known-packed-like-aabb-rounding-boundary-diff';
+  const fixedRecordReady = status === 'ok' && isPackedLike && hasRecords && rawMismatchKnown && packedMismatchKnown;
+
+  const satisfied = fixedRecordReady ? DISPLAY_CONNECTION_SATISFIED_ITEMS : [];
+  const unresolved = fixedRecordReady ? DISPLAY_CONNECTION_UNRESOLVED_ITEMS : [
+    'packed-like-fixed-record-not-validated'
+  ];
+  const blocked = fixedRecordReady ? DISPLAY_CONNECTION_BLOCKED_ITEMS : [
+    'raw-visible-record-dry-run-not-ready'
+  ];
+
+  return {
+    schemaVersion: 'step122a-display-connection-readiness-v1',
+    status: fixedRecordReady ? 'not-ready' : 'blocked',
+    reason: fixedRecordReady
+      ? 'packed-like-fixed-record-ready-but-display-connection-blocked-by-order-color-and-tile-list-contracts'
+      : reason,
+    displayConnectionAllowed: false,
+    displayConnectionClassification: fixedRecordReady ? 'webgl2-fixed-record-ready-display-not-ready' : 'dry-run-not-ready',
+    recordMode,
+    packedLikeFixedRecordReady: fixedRecordReady,
+    packedLikeComparisonUsable: isPackedLike && !!packedLikeComparison,
+    currentDisplayCandidateSource: displayCandidateSource,
+    gpuCandidateUsedForDisplay: !!gpuCandidateUsedForDisplay,
+    limitedDrawUsedForCandidateSource: !!limitedDrawUsedForCandidateSource,
+    fallbackRequired: true,
+    fallbackMode: 'cpu-reference-display-path',
+    fallbackReason,
+    satisfied,
+    unresolved,
+    blocked,
+    webgl2LimitCandidates: DISPLAY_CONNECTION_WEBGL2_LIMIT_CANDIDATES,
+    webgpuMigrationSignals: DISPLAY_CONNECTION_WEBGPU_MIGRATION_SIGNALS,
+    notes: [
+      'Step122A does not connect GPU packed-like records to display.',
+      'Candidate-order fixed records are not equivalent to sorted visible order.',
+      'CPU tile-list remains valid only while display continues using the existing CPU packed/visible path.',
+      'AABB 1px boundary diffs are classified and should not be used as a visual correction.'
+    ]
+  };
+}
+
 function resolveRecordMode(mode) {
   return mode === 'packed-like' ? 'packed-like' : (mode === 'minimal' ? 'minimal' : 'richer');
 }
@@ -1448,6 +1553,22 @@ function computeModeForRecordMode(recordMode) {
 
 function fallback(reason, extra = {}) {
   const recordMode = resolveRecordMode(extra.recordMode);
+  const displayConnectionReadiness = buildDisplayConnectionReadinessSummary({
+    status: 'fallback',
+    reason,
+    recordMode,
+    recordComparison: null,
+    packedLikeComparison: extra.packedLikeComparison ?? null,
+    mismatchClassification: extra.mismatchClassification ?? 'raw-visible-record-unavailable',
+    packedLikeMismatchClassification: extra.packedLikeMismatchClassification ?? null,
+    displayCandidateSource: extra.displayCandidateSource ?? 'cpu-reference',
+    gpuCandidateUsedForDisplay: !!extra.gpuCandidateUsedForDisplay,
+    limitedDrawUsedForCandidateSource: !!extra.limitedDrawUsedForCandidateSource,
+    fallbackReason: reason,
+    candidateCount: extra.candidateCount,
+    recordCount: extra.recordCount,
+    validRecordCount: extra.validRecordCount
+  });
   return {
     schemaVersion: 'step116-raw-visible-record-dry-run-v1',
     status: 'fallback',
@@ -1471,6 +1592,7 @@ function fallback(reason, extra = {}) {
     mismatchClassification: extra.mismatchClassification ?? 'raw-visible-record-unavailable',
     packedLikeComparison: extra.packedLikeComparison ?? null,
     packedLikeMismatchClassification: extra.packedLikeMismatchClassification ?? null,
+    displayConnectionReadiness,
     anyMismatch: true,
     displayCandidateSource: extra.displayCandidateSource ?? 'cpu-reference',
     gpuCandidateUsedForDisplay: !!extra.gpuCandidateUsedForDisplay,
@@ -1617,6 +1739,22 @@ export function runGpuRawVisibleRecordDryRun({
     });
     const firstDebugDivergence = classifyFirstDebugDivergence(debugSamples, epsilon);
     const mismatchClassification = classifyRecordComparison(recordComparison);
+    const displayConnectionReadiness = buildDisplayConnectionReadinessSummary({
+      status: 'ok',
+      reason: 'ok',
+      recordMode: resolvedRecordMode,
+      recordComparison,
+      packedLikeComparison,
+      mismatchClassification,
+      packedLikeMismatchClassification,
+      displayCandidateSource,
+      gpuCandidateUsedForDisplay,
+      limitedDrawUsedForCandidateSource,
+      fallbackReason: 'none',
+      candidateCount: cpuRecords.candidateCount,
+      recordCount: cpuRecords.count,
+      validRecordCount: cpuRecords.validCount
+    });
     return {
       schemaVersion: 'step116-raw-visible-record-dry-run-v1',
       status: 'ok',
@@ -1637,6 +1775,7 @@ export function runGpuRawVisibleRecordDryRun({
       packedLikeComparison,
       mismatchClassification,
       packedLikeMismatchClassification,
+      displayConnectionReadiness,
       anyMismatch: !!recordComparison.anyMismatch,
       rawTextureSummary: rawTextureResult.summary,
       minimalFetchProbe: tfResult.minimalFetchProbe,
