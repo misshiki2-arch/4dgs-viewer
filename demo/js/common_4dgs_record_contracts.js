@@ -9,18 +9,12 @@ export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step4';
 export const WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE =
   'partial-wgsl-screen-projection-with-cpu-state-reference';
 
-export const WEBGPU_PROJECTION_CONTRACT_SCHEMA_VERSION =
-  'phase3-step4-webgpu-projection-contract-v1';
-
-export const WEBGPU_PROJECTION_PARAM_MODES = Object.freeze({
-  CUDA_ALIGNED: 'cuda-aligned',
-  THREEJS: 'threejs'
-});
-
-export const WEBGPU_PROJECTION_CONTRACT_NAMES = Object.freeze({
-  CUDA_ALIGNED: 'cuda-plus-z-forward-fx-fy-cx-cy',
-  THREEJS: 'threejs-view-projection-ndc'
-});
+export {
+  WEBGPU_PROJECTION_CONTRACT_NAMES,
+  WEBGPU_PROJECTION_CONTRACT_SCHEMA_VERSION,
+  WEBGPU_PROJECTION_PARAM_MODES,
+  WEBGPU_PROJECTION_SOURCE_POSITION_MODE
+} from './common_4dgs_projection_contracts.js';
 
 export const WEBGPU_VISIBLE_RECORD_FLOATS = 12;
 
