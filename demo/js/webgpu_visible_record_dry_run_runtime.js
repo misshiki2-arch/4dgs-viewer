@@ -5,6 +5,17 @@ const DEFAULT_MAX_RECORDS = 65536;
 const DEFAULT_EPSILON = 1e-3;
 const RECORD_FLOATS = 12;
 const IMPLEMENTED_FIELDS = ['srcIndex', 'valid', 'px', 'py', 'depth', 'aabb'];
+const WGSL_COMPUTED_FIELDS = ['srcIndex'];
+const WGSL_REFERENCE_ASSISTED_FIELDS = ['valid'];
+const CPU_MATERIALIZED_FIELDS = ['px', 'py', 'depth', 'aabb'];
+const FIELD_COMPUTE_MODES = {
+  srcIndex: 'wgsl-candidate-buffer',
+  valid: 'wgsl-reference-valid-and-candidate-bounds-gate',
+  px: 'cpu-materialized-reference-buffer',
+  py: 'cpu-materialized-reference-buffer',
+  depth: 'cpu-materialized-reference-buffer',
+  aabb: 'cpu-materialized-reference-buffer'
+};
 const DEFERRED_FIELDS = [
   'radius',
   'conic',
@@ -39,10 +50,16 @@ function toFiniteInteger(value, fallback) {
 function makeFallback(reason, extra = {}) {
   return {
     schemaVersion: 'phase3-step2-webgpu-visible-record-dry-run-v1',
+    phaseStep: 'phase3-step3',
     status: 'fallback',
     reason,
     computeMode: 'webgpu-storage-buffer-compute-fixed-record',
+    scaffoldMode: 'partial-wgsl-fixed-record-with-cpu-materialized-reference',
     implementedFields: IMPLEMENTED_FIELDS,
+    wgslComputedFields: WGSL_COMPUTED_FIELDS,
+    wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
+    cpuMaterializedFields: CPU_MATERIALIZED_FIELDS,
+    fieldComputeModes: FIELD_COMPUTE_MODES,
     deferredFields: DEFERRED_FIELDS,
     candidateCount: extra.candidateCount ?? null,
     recordCount: extra.recordCount ?? null,
@@ -240,14 +257,14 @@ function createBuffer(device, data, usage) {
   return buffer;
 }
 
-async function runCompute({ device, cpuReference, rawXyzOpacity }) {
+async function runCompute({ device, cpuReference, rawXyzOpacity, rawCount }) {
   const shader = device.createShaderModule({
-    label: 'phase3-step2-visible-record-copy-scaffold',
+    label: 'phase3-step3-visible-record-partial-wgsl',
     code: `
 struct Params {
   count: u32,
   recordFloats: u32,
-  _pad0: u32,
+  rawCount: u32,
   _pad1: u32,
 };
 
@@ -268,9 +285,27 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let raw0 = rawXyzOpacity[row];
   var r0 = referenceRecords[base + 0u];
   let r1 = referenceRecords[base + 1u];
-  let r2 = referenceRecords[base + 2u];
+  var r2 = referenceRecords[base + 2u];
+
+  // Phase 3 Step3: srcIndex is now produced directly from the candidate
+  // storage buffer. The remaining screen-space fields are intentionally still
+  // reference materialized until the corresponding 4DGS math moves into WGSL.
   r0.x = f32(srcIndex);
-  r0.y = r0.y + raw0.x * 0.0;
+
+  // valid is reference-assisted for now: WGSL applies the raw-index bounds
+  // gate, while the expensive Gaussian/screen validity remains in the CPU
+  // reference record. This keeps the field contract explicit without claiming
+  // full WGSL parity for the visibility test yet.
+  let referenceValid = r0.y > 0.5;
+  let rawIndexInBounds = srcIndex < params.rawCount;
+  r0.y = select(0.0, 1.0, referenceValid && rawIndexInBounds);
+
+  // Reserved lanes carry a tiny raw-buffer fetch probe for future diagnostics.
+  // They are outside the compared fixed-record fields.
+  r2.y = raw0.x;
+  r2.z = raw0.y;
+  r2.w = raw0.z;
+
   outputRecords[base + 0u] = r0;
   outputRecords[base + 1u] = r1;
   outputRecords[base + 2u] = r2;
@@ -293,7 +328,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   });
   const paramsBuffer = createBuffer(
     device,
-    new Uint32Array([cpuReference.count, RECORD_FLOATS, 0, 0]),
+    new Uint32Array([cpuReference.count, RECORD_FLOATS, rawCount, 0]),
     GPUBufferUsage.UNIFORM
   );
   const readbackBuffer = device.createBuffer({
@@ -384,7 +419,8 @@ export async function runWebGpuVisibleRecordDryRun({
   const uploadStartMs = nowMs();
   const rawXyzOpacity = buildRawXyzOpacityForCandidates(raw, cpuReference.candidateIndices);
   const bufferUploadPrepareMs = nowMs() - uploadStartMs;
-  const computeResult = await runCompute({ device, cpuReference, rawXyzOpacity });
+  const rawCount = toFiniteInteger(raw.count ?? (raw.xyz?.length / Math.max(1, raw.xyzDim || 3)), 0);
+  const computeResult = await runCompute({ device, cpuReference, rawXyzOpacity, rawCount });
   const compareStartMs = nowMs();
   const recordComparison = compareRecords(cpuReference.records, computeResult.records, cpuReference.count, {
     epsilon,
@@ -394,12 +430,17 @@ export async function runWebGpuVisibleRecordDryRun({
   const mismatchClassification = classifyComparison(recordComparison);
   return {
     schemaVersion: 'phase3-step2-webgpu-visible-record-dry-run-v1',
+    phaseStep: 'phase3-step3',
     status: 'ok',
     reason: 'ok',
     computeMode: 'webgpu-storage-buffer-compute-fixed-record',
-    scaffoldMode: 'storage-buffer-fixed-record-copy-with-raw-buffer-bind',
-    scaffoldNote: 'Phase 3 Step2 validates WebGPU storage buffer, compute dispatch, readback, and fixed-record comparison plumbing. Full raw 4DGS math in WGSL is deferred.',
+    scaffoldMode: 'partial-wgsl-fixed-record-with-cpu-materialized-reference',
+    scaffoldNote: 'Phase 3 Step3 computes srcIndex directly in WGSL and gates valid in WGSL with CPU reference validity plus raw-index bounds. px/py/depth/aabb remain CPU-materialized reference fields until 4DGS projection and screen math are ported.',
     implementedFields: IMPLEMENTED_FIELDS,
+    wgslComputedFields: WGSL_COMPUTED_FIELDS,
+    wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
+    cpuMaterializedFields: CPU_MATERIALIZED_FIELDS,
+    fieldComputeModes: FIELD_COMPUTE_MODES,
     deferredFields: DEFERRED_FIELDS,
     candidateCount: cpuReference.candidateCount,
     recordCount: cpuReference.count,
@@ -429,8 +470,9 @@ export async function runWebGpuVisibleRecordDryRun({
     },
     webgpu: {
       adapterInfoAvailable: typeof adapter.requestAdapterInfo === 'function',
-      rawBufferUploadMode: 'candidate-xyz-opacity-scaffold',
+      rawBufferUploadMode: 'candidate-xyz-opacity-step3-fetch-probe',
       candidateBufferCount: cpuReference.count,
+      rawCount,
       outputBufferBytes: cpuReference.records.byteLength
     },
     metadata

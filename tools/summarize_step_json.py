@@ -660,7 +660,14 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
         "reason": get_path(summary, ["reason"]),
         "computeMode": get_path(summary, ["computeMode"]),
         "scaffoldMode": get_path(summary, ["scaffoldMode"]),
+        "phaseStep": get_path(summary, ["phaseStep"]),
         "implementedFields": get_path(summary, ["implementedFields"], []),
+        "wgslComputedFields": get_path(summary, ["wgslComputedFields"], []),
+        "wgslReferenceAssistedFields": get_path(
+            summary, ["wgslReferenceAssistedFields"], []
+        ),
+        "cpuMaterializedFields": get_path(summary, ["cpuMaterializedFields"], []),
+        "fieldComputeModes": get_path(summary, ["fieldComputeModes"], {}),
         "deferredFields": get_path(summary, ["deferredFields"], []),
         "candidateCount": get_path(summary, ["candidateCount"]),
         "recordCount": get_path(summary, ["recordCount"]),
