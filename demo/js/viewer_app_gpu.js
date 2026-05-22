@@ -81,6 +81,7 @@ import {
 } from './gpu_candidate_compare_runner.js';
 import { runGpuVisibleRecordDryRun } from './gpu_visible_record_dry_run_runtime.js';
 import { runGpuRawVisibleRecordDryRun } from './gpu_visible_record_raw_dry_run_runtime.js';
+import { runWebGpuVisibleRecordDryRun } from './webgpu_visible_record_dry_run_runtime.js';
 import {
   buildGpuCandidateShadowOptionsFromQuery,
   isGpuCandidateShadowCompareEnabled,
@@ -91,6 +92,7 @@ import {
   buildGpuCandidateRuntimeSummary
 } from './gpu_candidate_runtime_selector.js';
 import { buildGpuCandidateRuntimeFallbackSummary } from './gpu_candidate_runtime_fallback.js';
+import { buildGpuOwnedCandidateSourceComparison } from './gpu_candidate_source_runtime.js';
 
 const canvas = document.getElementById('glCanvas');
 
@@ -1906,6 +1908,144 @@ async function captureGpuRawVisibleRecordDryRunDebug(options = {}) {
       renderAttempts: debugRender.attempts,
       lastRenderResultSummary: buildRenderResultInspectionSummary(debugRender.renderResult),
       captureSource: 'forced-rebuild'
+    }
+  });
+}
+
+function buildScreenCoarseRuntimeConfigForDebug(options = {}) {
+  return {
+    sourceMode: 'screenCoarse',
+    promotePolicy: 'never',
+    readbackMode: options.readbackMode ?? 'sync-debug',
+    screenCoarseMaxCount: Number.isFinite(options.maxCount) ? options.maxCount : 65536,
+    screenCoarseMinRadiusPx: Number.isFinite(options.minRadiusPx) ? options.minRadiusPx : 0.25,
+    screenCoarseRequireInViewport: typeof options.requireInViewport === 'boolean' ? options.requireInViewport : true,
+    screenCoarseDepthMode: options.depthMode ?? 'positive'
+  };
+}
+
+function resolveCandidateInfoForWebGpuDryRun({
+  existingCandidateInfo = null,
+  gl = null,
+  raw = null,
+  camera = null,
+  screenSpaceCamera = null,
+  canvasWidth = 0,
+  canvasHeight = 0,
+  camPos = null,
+  tileGrid = null,
+  buildConfig = null,
+  candidateArgs = null,
+  options = {}
+} = {}) {
+  if (existingCandidateInfo?.candidateIndices?.length > 0) {
+    return {
+      candidateInfo: existingCandidateInfo,
+      source: 'latest-render-result-limited-draw-summary'
+    };
+  }
+  if (!gl || !raw || !camera || !buildConfig || !candidateArgs) {
+    return {
+      candidateInfo: null,
+      source: 'unavailable',
+      reason: [
+        !gl ? 'webgl-context-missing-for-screen-coarse-candidate-rebuild' : null,
+        !raw ? 'raw-missing' : null,
+        !camera ? 'camera-missing' : null,
+        !buildConfig ? 'build-config-missing' : null,
+        !candidateArgs ? 'candidate-args-missing' : null
+      ].filter(Boolean).join(',')
+    };
+  }
+  const sourceComparison = buildGpuOwnedCandidateSourceComparison({
+    gl,
+    raw,
+    runtimeConfig: buildScreenCoarseRuntimeConfigForDebug(options),
+    referenceCandidateInfo: buildCandidateInfo(candidateArgs),
+    filterMode: options.filterMode ?? 'all-valid',
+    camera,
+    screenSpaceCamera,
+    canvasWidth,
+    canvasHeight,
+    camPos,
+    tileGrid,
+    buildConfig,
+    metadata: {
+      comparisonMode: 'phase3-step2-webgpu-dry-run-screen-coarse-candidate-input-rebuild'
+    }
+  });
+  return {
+    candidateInfo: sourceComparison?.gpuCandidateInfo ?? null,
+    source: 'rebuilt-screen-coarse-candidate-source',
+    sourceComparisonSummary: sourceComparison
+      ? {
+          status: sourceComparison.status,
+          reason: sourceComparison.reason,
+          sourceConfig: sourceComparison.sourceConfig,
+          gpuCandidateSummary: sourceComparison.gpuCandidateSummary,
+          candidateComparison: sourceComparison.candidateComparison
+            ? {
+                anyMismatch: !!sourceComparison.candidateComparison.anyMismatch,
+                mismatchCount: sourceComparison.candidateComparison.mismatchCount ?? null,
+                countEqual: sourceComparison.candidateComparison.countEqual ?? null
+              }
+            : null
+        }
+      : null
+  };
+}
+
+async function captureWebGpuVisibleRecordDryRunDebug(options = {}) {
+  const ensureCurrentFrame = options.ensureCurrentFrame !== false;
+  const debugRender = ensureCurrentFrame || !latestRenderResult
+    ? await renderCurrentFrameForDebugPayload(options)
+    : {
+        renderResult: latestRenderResult,
+        attempts: [{ stage: 'reuse-latest-render-result' }]
+      };
+  camera.updateMatrixWorld(true);
+  const deterministicState = buildDeterministicStateSummary();
+  const buildConfig = getVisibleBuildConfig(ui, buildRenderOverrides());
+  const tileGrid = computeTileGrid(canvas.width, canvas.height, 32);
+  const screenSpaceCamera = buildScreenSpaceCameraProxy(camera, deterministicState);
+  const runtimeSummary = debugRender.renderResult?.limitedDrawRuntimeSummary ?? {};
+  const candidateInput = resolveCandidateInfoForWebGpuDryRun({
+    existingCandidateInfo: runtimeSummary?.candidateSourceComparison?.gpuCandidateInfo ?? null,
+    gl: getGpu()?.gl,
+    raw,
+    camera,
+    screenSpaceCamera,
+    canvasWidth: canvas.width,
+    canvasHeight: canvas.height,
+    camPos: camera.position.clone(),
+    tileGrid,
+    buildConfig,
+    candidateArgs: buildCandidateComparisonArgs(options),
+    options
+  });
+  return runWebGpuVisibleRecordDryRun({
+    candidateInfo: candidateInput.candidateInfo,
+    raw,
+    camera,
+    screenSpaceCamera,
+    canvasWidth: canvas.width,
+    canvasHeight: canvas.height,
+    camPos: camera.position.clone(),
+    tileGrid,
+    buildConfig,
+    maxRecords: Number.isFinite(options.maxRecords) ? options.maxRecords : 65536,
+    epsilon: Number.isFinite(options.epsilon) ? options.epsilon : 1e-3,
+    maxMismatches: Number.isFinite(options.maxMismatches) ? options.maxMismatches : 32,
+    metadata: {
+      comparisonMode: options.comparisonMode ?? 'webgpu-storage-buffer-compute-fixed-record-vs-cpu-fixed-record',
+      deterministicState: buildSlimDeterministicStateSummary(deterministicState),
+      renderAttempts: debugRender.attempts,
+      lastRenderResultSummary: buildRenderResultInspectionSummary(debugRender.renderResult),
+      captureSource: 'forced-rebuild',
+      phase: 'phase3-step2',
+      candidateInputSource: candidateInput.source,
+      candidateInputReason: candidateInput.reason ?? null,
+      candidateInputSummary: candidateInput.sourceComparisonSummary ?? null
     }
   });
 }
@@ -4424,6 +4564,7 @@ function installViewerDebugApi() {
     captureGpuCandidateScreenCoarseSweepComparisonDebug,
     captureGpuVisibleRecordDryRunDebug,
     captureGpuRawVisibleRecordDryRunDebug,
+    captureWebGpuVisibleRecordDryRunDebug,
     captureGpuCandidateShadowCompareDebug,
     captureGpuCandidateSourceCompareDebug,
     captureGpuCandidateScreenCoarseCompareDebug,

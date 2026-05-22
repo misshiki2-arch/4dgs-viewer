@@ -51,6 +51,7 @@ DEFAULT_OPTIONAL_JSON_SUFFIXES = [
     "gpu_candidate_screen_coarse_dryrun_visible_compare",
     "gpu_visible_record_dryrun_compare",
     "gpu_raw_visible_record_dryrun_compare",
+    "webgpu_visible_record_dryrun_compare",
 ]
 
 DEFAULT_PNG_SUFFIXES = [
@@ -355,7 +356,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--png-suffixes",
         default=None,
-        help="Comma-separated PNG suffix list. Default: canvas.",
+        help="Comma-separated PNG suffix list. Default: canvas. Use an empty string for JSON-only captures.",
+    )
+    parser.add_argument(
+        "--allow-missing-png",
+        action="store_true",
+        help="Do not require PNG files. Useful for compute-only or JSON-only captures.",
     )
     parser.add_argument(
         "--json",
@@ -389,6 +395,8 @@ def main() -> int:
         if args.png_suffixes is not None
         else list(DEFAULT_PNG_SUFFIXES)
     )
+    if args.allow_missing_png:
+        png_suffixes = []
 
     allow_missing = set(parse_csv_list(args.allow_missing_json_suffixes))
     if allow_missing:

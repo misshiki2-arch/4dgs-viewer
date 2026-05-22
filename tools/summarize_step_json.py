@@ -36,6 +36,7 @@ KNOWN_SUFFIXES = [
     "gpu_candidate_screen_coarse_sweep_summary",
     "gpu_visible_record_dryrun_compare",
     "gpu_raw_visible_record_dryrun_compare",
+    "webgpu_visible_record_dryrun_compare",
     "gpu_candidate_source_compare",
     "gpu_candidate_coverage",
     "gpu_candidate_runtime_summary",
@@ -639,6 +640,45 @@ def extract_gpu_raw_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any
     }
 
 
+def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]:
+    summary = get_path(
+        data,
+        [
+            "webgpuVisibleRecordDryRun",
+            "webgpuVisibleRecordDryRunSummary",
+            "limitedDrawSummary.webgpuVisibleRecordDryRunSummary",
+            "runtimeSummary.limitedDrawSummary.webgpuVisibleRecordDryRunSummary",
+        ],
+        None,
+    )
+    if not isinstance(summary, dict):
+        summary = data if get_path(data, ["schemaVersion"]) == "phase3-step2-webgpu-visible-record-dry-run-v1" else {}
+    timing = get_path(summary, ["timing"], {})
+    record_comparison = get_path(summary, ["recordComparison"], {})
+    return {
+        "status": get_path(summary, ["status"]),
+        "reason": get_path(summary, ["reason"]),
+        "computeMode": get_path(summary, ["computeMode"]),
+        "scaffoldMode": get_path(summary, ["scaffoldMode"]),
+        "implementedFields": get_path(summary, ["implementedFields"], []),
+        "deferredFields": get_path(summary, ["deferredFields"], []),
+        "candidateCount": get_path(summary, ["candidateCount"]),
+        "recordCount": get_path(summary, ["recordCount"]),
+        "validRecordCount": get_path(summary, ["validRecordCount"]),
+        "mismatchClassification": get_path(summary, ["mismatchClassification"]),
+        "anyMismatch": get_path(summary, ["anyMismatch"]),
+        "recordAnyMismatch": get_path(record_comparison, ["anyMismatch"]),
+        "fieldMismatchCount": get_path(record_comparison, ["fieldMismatchCount"]),
+        "firstMismatches": get_path(record_comparison, ["firstMismatches"], []),
+        "adapterDeviceMs": get_path(timing, ["adapterDeviceMs"]),
+        "bufferUploadMs": get_path(timing, ["bufferUploadMs"]),
+        "computeDispatchMs": get_path(timing, ["computeDispatchMs"]),
+        "readbackMs": get_path(timing, ["readbackMs"]),
+        "compareMs": get_path(timing, ["compareMs"]),
+        "totalMs": get_path(timing, ["totalMs"]),
+    }
+
+
 def extract_association(data: Dict[str, Any]) -> Dict[str, Any]:
     summary = get_path(data, ["summary"], data)
 
@@ -727,6 +767,7 @@ def summarize_step(base_dir: Path, prefix: str) -> Dict[str, Any]:
         "step111Timing": None,
         "gpuVisibleRecordDryRun": None,
         "gpuRawVisibleRecordDryRun": None,
+        "webgpuVisibleRecordDryRun": None,
         "association": None,
         "renderSummary": None,
         "loadErrors": {},
@@ -795,6 +836,11 @@ def summarize_step(base_dir: Path, prefix: str) -> Dict[str, Any]:
             loaded["gpu_raw_visible_record_dryrun_compare"]
         )
 
+    if "webgpu_visible_record_dryrun_compare" in loaded:
+        result["webgpuVisibleRecordDryRun"] = extract_webgpu_visible_record_dryrun(
+            loaded["webgpu_visible_record_dryrun_compare"]
+        )
+
     if "association" in loaded:
         result["association"] = extract_association(loaded["association"])
 
@@ -851,6 +897,7 @@ def print_human_summary(summary: Dict[str, Any]) -> None:
     print_section("Step111 timing", summary.get("step111Timing"))
     print_section("GPU visible record dry-run", summary.get("gpuVisibleRecordDryRun"))
     print_section("GPU raw visible record dry-run", summary.get("gpuRawVisibleRecordDryRun"))
+    print_section("WebGPU visible record dry-run", summary.get("webgpuVisibleRecordDryRun"))
     print_section("Association", summary.get("association"))
     print_section("Render summary", summary.get("renderSummary"))
 

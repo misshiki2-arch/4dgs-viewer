@@ -223,6 +223,21 @@ def build_raw_visible_record_dryrun_command(args: argparse.Namespace) -> str:
 );"""
 
 
+def build_webgpu_visible_record_dryrun_command(args: argparse.Namespace) -> str:
+    if args.source_mode != "screenCoarse":
+        return ""
+
+    return f"""await window.gpuViewerDebug.downloadJsonDebug(
+  await window.gpuViewerDebug.captureWebGpuVisibleRecordDryRunDebug({{
+    ensureCurrentFrame: false,
+    maxRecords: {args.webgpu_visible_record_max_count},
+    epsilon: {args.webgpu_visible_record_epsilon},
+    maxMismatches: {args.max_mismatches}
+  }}),
+  {quote(args.step + '_webgpu_visible_record_dryrun_compare.json')}
+);"""
+
+
 def build_runtime_summary_command(args: argparse.Namespace) -> str:
     return f"""var runtime = await window.gpuViewerDebug.captureGpuCandidateRuntimeSummaryDebug();
 
@@ -336,6 +351,11 @@ def build_commands(args: argparse.Namespace) -> str:
         if command:
             parts.append(command)
 
+    if args.include_webgpu_visible_record_dryrun:
+        command = build_webgpu_visible_record_dryrun_command(args)
+        if command:
+            parts.append(command)
+
     if args.include_coverage:
         parts.append(build_coverage_command(args))
 
@@ -395,6 +415,7 @@ def apply_preset(args: argparse.Namespace, argv: list[str]) -> None:
             "include_sweep": "false",
             "include_visible_record_dryrun": "false",
             "include_raw_visible_record_dryrun": "false",
+            "include_webgpu_visible_record_dryrun": "false",
             "include_runtime": "false",
             "include_visible_compare": "false",
             "include_live_same_state": "false",
@@ -411,6 +432,7 @@ def apply_preset(args: argparse.Namespace, argv: list[str]) -> None:
             "include_sweep": "false",
             "include_visible_record_dryrun": "false",
             "include_raw_visible_record_dryrun": "false",
+            "include_webgpu_visible_record_dryrun": "false",
             "include_runtime": "true",
             "include_visible_compare": "false",
             "include_live_same_state": "false",
@@ -427,6 +449,7 @@ def apply_preset(args: argparse.Namespace, argv: list[str]) -> None:
             "include_sweep": "false",
             "include_visible_record_dryrun": "false",
             "include_raw_visible_record_dryrun": "true",
+            "include_webgpu_visible_record_dryrun": "false",
             "include_runtime": "true",
             "include_visible_compare": "true",
             "include_live_same_state": "true",
@@ -448,6 +471,7 @@ def apply_preset(args: argparse.Namespace, argv: list[str]) -> None:
         "include_sweep": ("--include-sweep",),
         "include_visible_record_dryrun": ("--include-visible-record-dryrun",),
         "include_raw_visible_record_dryrun": ("--include-raw-visible-record-dryrun",),
+        "include_webgpu_visible_record_dryrun": ("--include-webgpu-visible-record-dryrun",),
         "include_runtime": ("--include-runtime",),
         "include_visible_compare": ("--include-visible-compare",),
         "include_live_same_state": ("--include-live-same-state",),
@@ -535,6 +559,11 @@ def parse_args() -> argparse.Namespace:
         help="Include Step120A raw attribute texture packed-like fixed-record dry-run capture. Default: false.",
     )
     parser.add_argument(
+        "--include-webgpu-visible-record-dryrun",
+        default="false",
+        help="Include Phase 3 WebGPU fixed-record compute dry-run capture. Default: false.",
+    )
+    parser.add_argument(
         "--include-runtime",
         default="true",
         help="Include runtime, limited draw, and Step111 timing summary captures. Default: true.",
@@ -596,6 +625,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--raw-visible-record-mode", default="packed-like")
     parser.add_argument("--raw-visible-record-max-count", type=int, default=65536)
     parser.add_argument("--raw-visible-record-epsilon", default="1e-3")
+    parser.add_argument("--webgpu-visible-record-max-count", type=int, default=65536)
+    parser.add_argument("--webgpu-visible-record-epsilon", default="1e-3")
 
     # visibleSrcIndices.
     parser.add_argument("--subset-count", type=int, default=1024)
@@ -624,11 +655,13 @@ def parse_args() -> argparse.Namespace:
     args.include_sweep = js_bool(args.include_sweep) == "true"
     args.include_visible_record_dryrun = js_bool(args.include_visible_record_dryrun) == "true"
     args.include_raw_visible_record_dryrun = js_bool(args.include_raw_visible_record_dryrun) == "true"
+    args.include_webgpu_visible_record_dryrun = js_bool(args.include_webgpu_visible_record_dryrun) == "true"
     args.include_coverage = js_bool(args.include_coverage) == "true"
     args.include_runtime = js_bool(args.include_runtime) == "true"
     args.include_visible_compare = js_bool(args.include_visible_compare) == "true"
     args.include_live_same_state = js_bool(args.include_live_same_state) == "true"
     args.include_png = js_bool(args.include_png) == "true"
+    args.include_camera_control_debug = js_bool(args.include_camera_control_debug) == "true"
 
     return args
 

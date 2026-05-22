@@ -131,6 +131,14 @@ def build_gpu_candidate_params(args: argparse.Namespace) -> dict[str, str]:
                 "gpuRawVisibleRecordReadback": args.raw_visible_record_readback,
             }
         )
+    if parse_bool(args.webgpu_visible_record_dry_run) == "true":
+        params.update(
+            {
+                "webgpuVisibleRecordDryRun": "true",
+                "webgpuVisibleRecordMaxCount": str(args.webgpu_visible_record_max_count),
+                "webgpuVisibleRecordFields": args.webgpu_visible_record_fields,
+            }
+        )
 
     if args.source_mode:
         params["gpuCandidateSourceMode"] = args.source_mode
@@ -325,6 +333,7 @@ def apply_preset(args: argparse.Namespace, argv: list[str]) -> None:
             "candidate_compare": "false",
             "visible_record_dry_run": "false",
             "raw_visible_record_dry_run": "false",
+            "webgpu_visible_record_dry_run": "false",
         }
     elif args.preset == "validation":
         values = {
@@ -345,6 +354,7 @@ def apply_preset(args: argparse.Namespace, argv: list[str]) -> None:
             "raw_visible_record_mode": "packed-like",
             "raw_attribute_texture": "true",
             "raw_visible_record_readback": "sync-debug",
+            "webgpu_visible_record_dry_run": "false",
         }
     else:
         raise ValueError(f"Unsupported preset: {args.preset}")
@@ -368,6 +378,7 @@ def apply_preset(args: argparse.Namespace, argv: list[str]) -> None:
         "raw_visible_record_mode": ("--raw-visible-record-mode",),
         "raw_attribute_texture": ("--raw-attribute-texture",),
         "raw_visible_record_readback": ("--raw-visible-record-readback",),
+        "webgpu_visible_record_dry_run": ("--webgpu-visible-record-dry-run",),
     }
 
     for dest, value in values.items():
@@ -488,6 +499,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--raw-visible-record-fields", default="srcIndex,valid,px,py,depth,aabb,radius,conic,alpha,tileRange")
     parser.add_argument("--raw-attribute-texture", default="true")
     parser.add_argument("--raw-visible-record-readback", default="sync-debug")
+    parser.add_argument("--webgpu-visible-record-dry-run", default="false")
+    parser.add_argument("--webgpu-visible-record-max-count", type=int, default=65536)
+    parser.add_argument("--webgpu-visible-record-fields", default="srcIndex,valid,px,py,depth,aabb")
 
     # Range options.
     parser.add_argument("--range-start", type=int, default=0)

@@ -208,6 +208,9 @@ function buildDeterministicQueryString(state) {
   appendDeterministicQueryParam(params, 'gpuRawVisibleRecordFields', state?.gpuRawVisibleRecordFields);
   appendDeterministicQueryParam(params, 'gpuRawAttributeTexture', state?.gpuRawAttributeTexture, formatDeterministicBoolean);
   appendDeterministicQueryParam(params, 'gpuRawVisibleRecordReadback', state?.gpuRawVisibleRecordReadback);
+  appendDeterministicQueryParam(params, 'webgpuVisibleRecordDryRun', state?.webgpuVisibleRecordDryRun, formatDeterministicBoolean);
+  appendDeterministicQueryParam(params, 'webgpuVisibleRecordMaxCount', state?.webgpuVisibleRecordMaxCount);
+  appendDeterministicQueryParam(params, 'webgpuVisibleRecordFields', state?.webgpuVisibleRecordFields);
   appendDeterministicQueryParam(params, 'bgGray', state?.bgGray);
   return params.toString();
 }
@@ -364,6 +367,9 @@ export function parseViewerQueryState(search = window.location.search) {
     gpuRawVisibleRecordReadback: QUERY_GPU_CANDIDATE_READBACK_MODE_VALUES.has(gpuRawVisibleRecordReadback)
       ? gpuRawVisibleRecordReadback
       : null,
+    webgpuVisibleRecordDryRun: parseBoolean(params.get('webgpuVisibleRecordDryRun'), null),
+    webgpuVisibleRecordMaxCount: parseInteger(params.get('webgpuVisibleRecordMaxCount'), null),
+    webgpuVisibleRecordFields: params.get('webgpuVisibleRecordFields') ?? null,
     bgGray: parseInteger(params.get('bgGray'), null)
   };
 
@@ -450,6 +456,9 @@ export function parseViewerQueryState(search = window.location.search) {
     'gpuRawVisibleRecordFields',
     'gpuRawAttributeTexture',
     'gpuRawVisibleRecordReadback',
+    'webgpuVisibleRecordDryRun',
+    'webgpuVisibleRecordMaxCount',
+    'webgpuVisibleRecordFields',
     'bgGray'
   ].some((key) => params.has(key));
 
@@ -576,6 +585,13 @@ export function buildViewerDeterministicSummary(queryState) {
       ? state.gpuRawAttributeTexture
       : null,
     gpuRawVisibleRecordReadback: state.gpuRawVisibleRecordReadback ?? null,
+    webgpuVisibleRecordDryRun: typeof state.webgpuVisibleRecordDryRun === 'boolean'
+      ? state.webgpuVisibleRecordDryRun
+      : null,
+    webgpuVisibleRecordMaxCount: Number.isFinite(state.webgpuVisibleRecordMaxCount)
+      ? Number(state.webgpuVisibleRecordMaxCount)
+      : null,
+    webgpuVisibleRecordFields: state.webgpuVisibleRecordFields ?? null,
     rawQueryString: state.rawQueryString ?? '',
     deterministicQueryString: state.deterministicQueryString ?? '',
     deterministicUrlSummary: state.deterministicUrlSummary ?? ''
