@@ -21,6 +21,7 @@ Output:
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 from typing import List
 
@@ -273,6 +274,19 @@ def build_png_command(args: argparse.Namespace) -> str:
 }});"""
 
 
+def build_camera_control_debug_command(args: argparse.Namespace) -> str:
+    return f"""await window.gpuViewerDebug.downloadJsonDebug(
+  window.gpuViewerDebug.getCameraDebugState(),
+  {quote(args.step + '_camera_control_initial.json')}
+);
+
+// After manual pan/rotate/zoom testing, run this second command to capture the post-interaction state:
+// await window.gpuViewerDebug.downloadJsonDebug(
+//   window.gpuViewerDebug.getCameraDebugState(),
+//   {quote(args.step + '_camera_control_after_manual.json')}
+// );"""
+
+
 def build_preamble(args: argparse.Namespace) -> str:
     if not args.include_preamble:
         return ""
@@ -285,9 +299,15 @@ await new Promise(r => setTimeout(r, {args.render_wait_ms}));
 def build_commands(args: argparse.Namespace) -> str:
     parts: List[str] = []
     parts.append(
-        f"// Step capture expects gpuCandidatePromotePolicy={args.promote_policy}; "
-        "open the matching URL before running these commands."
+        f"// Capture preset={args.preset or 'legacy'} expects "
+        f"gpuCandidatePromotePolicy={args.promote_policy}; open the matching URL first."
     )
+    if args.preset == "stable" and js_bool(args.include_png) == "true":
+        parts.append(
+            "// Stable URLs normally use debugPreserveDrawingBuffer=false; "
+            "PNG capture can be black unless the page was opened with "
+            "debugPreserveDrawingBuffer=true or the capture renders immediately before reading."
+        )
 
     preamble = build_preamble(args)
     if preamble:
@@ -331,6 +351,9 @@ def build_commands(args: argparse.Namespace) -> str:
     if args.include_png:
         parts.append(build_png_command(args))
 
+    if args.include_camera_control_debug:
+        parts.append(build_camera_control_debug_command(args))
+
     return "\n\n".join(parts)
 
 
@@ -338,6 +361,106 @@ def parse_indices(value: str) -> List[int]:
     if not value.strip():
         return []
     return [int(item.strip()) for item in value.split(",") if item.strip()]
+
+
+def option_was_provided(argv: list[str], option_names: tuple[str, ...]) -> bool:
+    for item in argv[1:]:
+        for name in option_names:
+            if item == name or item.startswith(name + "="):
+                return True
+    return False
+
+
+def set_if_not_provided(
+    args: argparse.Namespace,
+    argv: list[str],
+    dest: str,
+    option_names: tuple[str, ...],
+    value: object,
+) -> None:
+    if not option_was_provided(argv, option_names):
+        setattr(args, dest, value)
+
+
+def apply_preset(args: argparse.Namespace, argv: list[str]) -> None:
+    if args.preset is None:
+        return
+
+    if args.preset == "stable":
+        values = {
+            "include_preamble": "false",
+            "include_source_compare": "false",
+            "include_coverage": "false",
+            "include_dryrun_visible": "false",
+            "include_sweep": "false",
+            "include_visible_record_dryrun": "false",
+            "include_raw_visible_record_dryrun": "false",
+            "include_runtime": "false",
+            "include_visible_compare": "false",
+            "include_live_same_state": "false",
+            "include_png": "false",
+            "include_camera_control_debug": "false",
+            "promote_policy": "validated-only",
+        }
+    elif args.preset == "runtime-only":
+        values = {
+            "include_preamble": "true",
+            "include_source_compare": "false",
+            "include_coverage": "false",
+            "include_dryrun_visible": "false",
+            "include_sweep": "false",
+            "include_visible_record_dryrun": "false",
+            "include_raw_visible_record_dryrun": "false",
+            "include_runtime": "true",
+            "include_visible_compare": "false",
+            "include_live_same_state": "false",
+            "include_png": "false",
+            "include_camera_control_debug": "true",
+            "promote_policy": "validated-only",
+        }
+    elif args.preset == "validation":
+        values = {
+            "include_preamble": "true",
+            "include_source_compare": "true",
+            "include_coverage": "true",
+            "include_dryrun_visible": "true",
+            "include_sweep": "false",
+            "include_visible_record_dryrun": "false",
+            "include_raw_visible_record_dryrun": "true",
+            "include_runtime": "true",
+            "include_visible_compare": "true",
+            "include_live_same_state": "true",
+            "include_png": "true",
+            "include_camera_control_debug": "true",
+            "readback_mode": "sync-debug",
+            "raw_visible_record_readback": "sync-debug",
+            "raw_visible_record_mode": "packed-like",
+            "promote_policy": "validated-only",
+        }
+    else:
+        raise ValueError(f"Unsupported preset: {args.preset}")
+
+    option_names = {
+        "include_preamble": ("--include-preamble",),
+        "include_source_compare": ("--include-source-compare",),
+        "include_coverage": ("--include-coverage",),
+        "include_dryrun_visible": ("--include-dryrun-visible",),
+        "include_sweep": ("--include-sweep",),
+        "include_visible_record_dryrun": ("--include-visible-record-dryrun",),
+        "include_raw_visible_record_dryrun": ("--include-raw-visible-record-dryrun",),
+        "include_runtime": ("--include-runtime",),
+        "include_visible_compare": ("--include-visible-compare",),
+        "include_live_same_state": ("--include-live-same-state",),
+        "include_png": ("--include-png",),
+        "include_camera_control_debug": ("--include-camera-control-debug",),
+        "readback_mode": ("--readback-mode",),
+        "raw_visible_record_readback": ("--raw-visible-record-readback",),
+        "raw_visible_record_mode": ("--raw-visible-record-mode",),
+        "promote_policy": ("--promote-policy",),
+    }
+
+    for dest, value in values.items():
+        set_if_not_provided(args, argv, dest, option_names[dest], value)
 
 
 def parse_args() -> argparse.Namespace:
@@ -349,6 +472,12 @@ def parse_args() -> argparse.Namespace:
         "--step",
         required=True,
         help="Step prefix, e.g. step107_000151_v13.",
+    )
+    parser.add_argument(
+        "--preset",
+        choices=["stable", "runtime-only", "validation"],
+        default=None,
+        help="Optional capture preset. Individual CLI arguments override preset values.",
     )
     parser.add_argument(
         "--source-mode",
@@ -425,6 +554,11 @@ def parse_args() -> argparse.Namespace:
         default="true",
         help="Include canvas PNG capture. Default: true.",
     )
+    parser.add_argument(
+        "--include-camera-control-debug",
+        default="false",
+        help="Include Step131 camera/control contract debug capture. Default: false.",
+    )
 
     # Common debug values.
     parser.add_argument("--epsilon", default="1e-6")
@@ -481,6 +615,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--include-all-entries", default="true")
 
     args = parser.parse_args()
+    apply_preset(args, sys.argv)
 
     # Convert include flags to bool after parsing.
     args.include_preamble = js_bool(args.include_preamble) == "true"

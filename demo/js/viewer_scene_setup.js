@@ -29,6 +29,7 @@ export function createViewerScene(canvas, options = {}) {
 
   const controls = new OrbitControls(camera, canvas);
   controls.target.set(35, 20, 2);
+  controls.screenSpacePanning = true;
   controls.enableDamping = true;
   controls.dampingFactor = 0.08;
   controls.update();

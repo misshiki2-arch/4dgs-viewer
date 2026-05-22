@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -56,8 +57,11 @@ def parse_bool(value: str | bool | None) -> str:
 
 
 def build_base_params(args: argparse.Namespace) -> dict[str, str]:
-    return {
-        "debugPreserveDrawingBuffer": "1",
+    camera_control_contract = args.camera_control_contract
+    if args.dataset_view_matrix_mode == "cuda-aligned" and camera_control_contract == "interactive-from-reference":
+        camera_control_contract = "reference-fixed"
+    params = {
+        "debugPreserveDrawingBuffer": parse_bool(args.debug_preserve_drawing_buffer),
         "datasetViewMatrixMode": args.dataset_view_matrix_mode,
         "drawPath": args.draw_path,
         "tileCompositePath": args.tile_composite_path,
@@ -73,8 +77,9 @@ def build_base_params(args: argparse.Namespace) -> dict[str, str]:
         "datasetImageName": args.dataset_image_name,
         "datasetFrameNumber": str(args.dataset_frame_number),
         "datasetViewId": str(args.dataset_view_id),
-        "datasetTransformMatrix": args.dataset_transform_matrix,
         "datasetCameraConvention": args.dataset_camera_convention,
+        "cameraControlContract": camera_control_contract,
+        "cameraOrientationPolicy": args.camera_orientation_policy,
         "cameraFoVyRad": str(args.camera_fovy_rad),
         "cameraFoVxRad": str(args.camera_fovx_rad),
         "datasetFx": str(args.dataset_fx),
@@ -87,6 +92,15 @@ def build_base_params(args: argparse.Namespace) -> dict[str, str]:
         "useNativeRot4d": parse_bool(args.use_native_rot4d),
         "useNativeMarginal": parse_bool(args.use_native_marginal),
     }
+    if args.dataset_transform_matrix:
+        params["datasetTransformMatrix"] = args.dataset_transform_matrix
+    if args.camera_position:
+        params["cameraPosition"] = args.camera_position
+    if args.camera_target:
+        params["cameraTarget"] = args.camera_target
+    if args.camera_up:
+        params["cameraUp"] = args.camera_up
+    return params
 
 
 def build_gpu_candidate_params(args: argparse.Namespace) -> dict[str, str]:
@@ -193,6 +207,39 @@ def flatten_matrix(matrix: object) -> str:
     return ",".join(str(value) for value in values)
 
 
+def vector_to_query(values: list[float]) -> str:
+    if len(values) < 3:
+        raise ValueError("camera vector must contain at least 3 values")
+    return ",".join(str(float(values[index])) for index in range(3))
+
+
+def compute_orbit_pose_from_nerf_blender_c2w(matrix: object) -> tuple[str, str, str]:
+    if not isinstance(matrix, list) or len(matrix) < 3:
+        raise ValueError("camera meta transform_matrix must contain at least 3 rows")
+    rows = []
+    for row in matrix[:3]:
+        if not isinstance(row, list) or len(row) < 4:
+            raise ValueError("camera meta transform_matrix rows must contain at least 4 values")
+        rows.append([float(value) for value in row[:4]])
+
+    position = [rows[0][3], rows[1][3], rows[2][3]]
+    # NeRF/Blender camera-to-world matrices use local -Z as the viewing
+    # direction. For the current CUDA reference camera convention, the
+    # roll-free interactive controls axis that preserves the reference image
+    # orientation is global -Z: projecting -Z onto the view plane matches the
+    # CUDA camera's screen-up direction, while passing the raw camera-local up
+    # vector would make OrbitControls inherit camera roll.
+    up = [0.0, 0.0, -1.0]
+    forward = [-rows[0][2], -rows[1][2], -rows[2][2]]
+    target_distance = 10.0
+    target = [
+        position[0] + forward[0] * target_distance,
+        position[1] + forward[1] * target_distance,
+        position[2] + forward[2] * target_distance,
+    ]
+    return vector_to_query(position), vector_to_query(target), vector_to_query(up)
+
+
 def resolve_camera_meta_path(args: argparse.Namespace) -> Path | None:
     if args.camera_meta_json:
         return Path(args.camera_meta_json)
@@ -219,7 +266,17 @@ def apply_camera_meta(args: argparse.Namespace) -> None:
     args.dataset_image_name = image_name
     args.dataset_frame_number = int(meta.get("frame_number", args.dataset_frame_number))
     args.dataset_view_id = int(meta.get("view_id", args.dataset_view_id))
-    args.dataset_transform_matrix = flatten_matrix(meta["transform_matrix"])
+    if (
+        args.camera_meta_pose_mode == "orbit-initial" and
+        args.dataset_view_matrix_mode != "cuda-aligned"
+    ):
+        position, target, up = compute_orbit_pose_from_nerf_blender_c2w(meta["transform_matrix"])
+        args.dataset_transform_matrix = None
+        args.camera_position = position
+        args.camera_target = target
+        args.camera_up = up
+    else:
+        args.dataset_transform_matrix = flatten_matrix(meta["transform_matrix"])
     args.camera_fovy_rad = float(meta.get("FoVy", args.camera_fovy_rad))
     args.camera_fovx_rad = float(meta.get("FoVx", args.camera_fovx_rad))
     args.dataset_fx = float(meta.get("fx", args.dataset_fx))
@@ -227,6 +284,94 @@ def apply_camera_meta(args: argparse.Namespace) -> None:
     args.dataset_cx = float(meta.get("cx", args.dataset_cx))
     args.dataset_cy = float(meta.get("cy", args.dataset_cy))
     args.cuda_reference_label = image_name
+
+
+def option_was_provided(argv: list[str], option_names: tuple[str, ...]) -> bool:
+    for item in argv[1:]:
+        for name in option_names:
+            if item == name or item.startswith(name + "="):
+                return True
+    return False
+
+
+def set_if_not_provided(
+    args: argparse.Namespace,
+    argv: list[str],
+    dest: str,
+    option_names: tuple[str, ...],
+    value: object,
+) -> None:
+    if not option_was_provided(argv, option_names):
+        setattr(args, dest, value)
+
+
+def apply_preset(args: argparse.Namespace, argv: list[str]) -> None:
+    if args.preset is None:
+        return
+
+    if args.preset == "stable":
+        values = {
+            "dataset_view_matrix_mode": "threejs",
+            "camera_control_contract": "interactive-from-reference",
+            "camera_orientation_policy": "roll-free-reference-screen-up",
+            "camera_meta_pose_mode": "dataset-transform",
+            "debug_preserve_drawing_buffer": "false",
+            "runtime": "limited-draw",
+            "source_mode": "screenCoarse",
+            "promote_policy": "validated-only",
+            "allow_readback_in_draw": "false",
+            "readback_mode": None,
+            "coverage_compare": "false",
+            "candidate_compare": "false",
+            "visible_record_dry_run": "false",
+            "raw_visible_record_dry_run": "false",
+        }
+    elif args.preset == "validation":
+        values = {
+            "dataset_view_matrix_mode": "threejs",
+            "camera_control_contract": "interactive-from-reference",
+            "camera_orientation_policy": "roll-free-reference-screen-up",
+            "camera_meta_pose_mode": "dataset-transform",
+            "debug_preserve_drawing_buffer": "true",
+            "runtime": "limited-draw",
+            "source_mode": "screenCoarse",
+            "promote_policy": "validated-only",
+            "allow_readback_in_draw": "true",
+            "readback_mode": "sync-debug",
+            "coverage_compare": "true",
+            "candidate_compare": "true",
+            "visible_record_dry_run": "false",
+            "raw_visible_record_dry_run": "true",
+            "raw_visible_record_mode": "packed-like",
+            "raw_attribute_texture": "true",
+            "raw_visible_record_readback": "sync-debug",
+        }
+    else:
+        raise ValueError(f"Unsupported preset: {args.preset}")
+
+    option_names = {
+        "dataset_view_matrix_mode": ("--dataset-view-matrix-mode",),
+        "camera_control_contract": ("--camera-control-contract",),
+        "camera_orientation_policy": ("--camera-orientation-policy",),
+        "camera_meta_pose_mode": ("--camera-meta-pose-mode",),
+        "dataset_transform_matrix": ("--dataset-transform-matrix",),
+        "debug_preserve_drawing_buffer": ("--debug-preserve-drawing-buffer",),
+        "runtime": ("--runtime",),
+        "source_mode": ("--source-mode",),
+        "promote_policy": ("--promote-policy",),
+        "allow_readback_in_draw": ("--allow-readback-in-draw",),
+        "readback_mode": ("--readback-mode",),
+        "coverage_compare": ("--coverage-compare",),
+        "candidate_compare": ("--candidate-compare",),
+        "visible_record_dry_run": ("--visible-record-dry-run",),
+        "raw_visible_record_dry_run": ("--raw-visible-record-dry-run",),
+        "raw_visible_record_mode": ("--raw-visible-record-mode",),
+        "raw_attribute_texture": ("--raw-attribute-texture",),
+        "raw_visible_record_readback": ("--raw-visible-record-readback",),
+    }
+
+    for dest, value in values.items():
+        set_if_not_provided(args, argv, dest, option_names[dest], value)
 
 
 def parse_args() -> argparse.Namespace:
@@ -244,12 +389,19 @@ def parse_args() -> argparse.Namespace:
         default="/4dgs_gpu_viewer.html",
         help="Viewer HTML path. Default: /4dgs_gpu_viewer.html",
     )
+    parser.add_argument(
+        "--preset",
+        choices=["stable", "validation"],
+        default=None,
+        help="Optional WebGL2 preset. Individual CLI arguments override preset values.",
+    )
 
     # Dataset / camera defaults for 000151_v13.
     parser.add_argument("--dataset-view-matrix-mode", default="cuda-aligned")
     parser.add_argument("--draw-path", default="gpu-screen")
     parser.add_argument("--tile-composite-path", default="accumulation")
     parser.add_argument("--tile-composite-primitive", default="quad")
+    parser.add_argument("--debug-preserve-drawing-buffer", default="true")
     parser.add_argument("--inspect-source", default="actual-draw")
     parser.add_argument("--inspect-json-mode", default="slim")
     parser.add_argument("--gpu-frame-policy-override", default="auto")
@@ -265,7 +417,12 @@ def parse_args() -> argparse.Namespace:
         "--dataset-transform-matrix",
         default=DEFAULT_DATASET_TRANSFORM_MATRIX,
     )
+    parser.add_argument("--camera-position", default=None)
+    parser.add_argument("--camera-target", default=None)
+    parser.add_argument("--camera-up", default=None)
     parser.add_argument("--dataset-camera-convention", default="nerf-blender-c2w")
+    parser.add_argument("--camera-control-contract", default="reference-fixed")
+    parser.add_argument("--camera-orientation-policy", default="reference-camera-local-up")
     parser.add_argument("--camera-fovy-rad", type=float, default=0.3995964924806295)
     parser.add_argument("--camera-fovx-rad", type=float, default=0.6911111611634243)
     parser.add_argument("--dataset-fx", type=float, default=1777.7777777777778)
@@ -291,6 +448,16 @@ def parse_args() -> argparse.Namespace:
         "--camera-name",
         default=None,
         help="Camera/image name such as 000151_v13. Loads <camera>_meta.json from --camera-meta-dir.",
+    )
+    parser.add_argument(
+        "--camera-meta-pose-mode",
+        default="dataset-transform",
+        choices=["dataset-transform", "orbit-initial"],
+        help=(
+            "How --camera-name/--camera-meta-json initializes the viewer camera. "
+            "dataset-transform preserves CUDA reference matrix params; orbit-initial emits "
+            "cameraPosition/cameraTarget/cameraUp for natural OrbitControls interaction."
+        ),
     )
 
     # GPU candidate options.
@@ -348,6 +515,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    apply_preset(args, sys.argv)
     apply_camera_meta(args)
     print(build_url(args))
     return 0

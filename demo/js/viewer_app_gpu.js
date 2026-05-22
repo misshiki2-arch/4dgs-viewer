@@ -243,10 +243,17 @@ function buildRenderOverrides() {
 
 function buildDeterministicStateSummary() {
   const summary = buildViewerDeterministicSummary(deterministicQueryState);
-  const convertedPose = convertDatasetTransformMatrixToViewerPose(
+  const referencePose = convertDatasetTransformMatrixToViewerPose(
     summary.datasetTransformMatrix,
     summary.datasetCameraConvention ?? 'nerf-blender-c2w'
   );
+  const convertedPose = summary.cameraControlContract === 'interactive-from-reference' &&
+    summary.datasetViewMatrixMode !== 'cuda-aligned'
+    ? buildInteractiveCameraPoseFromReferencePose(
+        referencePose,
+        summary.cameraOrientationPolicy ?? 'roll-free-reference-screen-up'
+      )
+    : referencePose;
   const cameraFoVyRad = Number.isFinite(summary.datasetCameraFoVyRad)
     ? Number(summary.datasetCameraFoVyRad)
     : (Number.isFinite(summary.datasetCameraFoVy) ? Number(summary.datasetCameraFoVy) : null);
@@ -256,6 +263,10 @@ function buildDeterministicStateSummary() {
   const cameraFoVyDeg = Number.isFinite(cameraFoVyRad) ? (cameraFoVyRad * 180 / Math.PI) : null;
   const cameraFoVxDeg = Number.isFinite(cameraFoVxRad) ? (cameraFoVxRad * 180 / Math.PI) : null;
   const cudaAlignedScreenSpaceCamera = buildCudaAlignedScreenSpaceCameraSummary(summary, convertedPose);
+  const fixedReferenceScreenSpaceCamera = buildCudaAlignedScreenSpaceCameraSummary(
+    { ...summary, datasetViewMatrixMode: 'cuda-aligned' },
+    referencePose
+  );
   return {
     ...summary,
     appliedCameraPresetName,
@@ -265,6 +276,8 @@ function buildDeterministicStateSummary() {
     cameraSource: summary.cameraSource ?? 'camera-preset',
     datasetCameraConvention: summary.datasetCameraConvention ?? null,
     datasetViewMatrixMode: summary.datasetViewMatrixMode ?? 'threejs',
+    cameraControlContract: summary.cameraControlContract ?? null,
+    cameraOrientationPolicy: summary.cameraOrientationPolicy ?? null,
     datasetPixelXSign: [-1, 1].includes(summary.datasetPixelXSign) ? Number(summary.datasetPixelXSign) : 1,
     datasetCameraLabel: summary.datasetCameraLabel ?? null,
     imageName: summary.datasetImageName ?? null,
@@ -282,6 +295,16 @@ function buildDeterministicStateSummary() {
           convertedMatrix: convertedPose.convertedMatrix.map((row) => [...row])
         }
       : null,
+    referenceCameraPose: referencePose
+      ? {
+          position: [...referencePose.position],
+          target: [...referencePose.target],
+          up: [...referencePose.up],
+          forward: [...referencePose.forward],
+          targetDistance: referencePose.targetDistance
+        }
+      : null,
+    screenAxisMapping: convertedPose?.screenAxisMapping ?? null,
     cameraPosition: convertedPose
       ? [...convertedPose.position]
       : (Array.isArray(summary.datasetCameraPosition) ? [...summary.datasetCameraPosition] : null),
@@ -321,6 +344,7 @@ function buildDeterministicStateSummary() {
     actualCameraMatrixWorld: matrix4ToRows(camera?.matrixWorld),
     actualCameraRight: column3(matrix4ToRows(camera?.matrixWorld), 0),
     cudaAlignedScreenSpaceCamera,
+    fixedReferenceScreenSpaceCamera,
     snapshotApiAvailable: true,
     snapshotCaptureSource: lastSnapshotSummary.source,
     snapshotRenderWaitMode: lastSnapshotSummary.renderWaitMode,
@@ -616,19 +640,104 @@ function buildActualCameraSummary() {
   };
 }
 
+function subtract3(a, b) {
+  return Array.isArray(a) && Array.isArray(b) && a.length >= 3 && b.length >= 3
+    ? [Number(a[0]) - Number(b[0]), Number(a[1]) - Number(b[1]), Number(a[2]) - Number(b[2])]
+    : null;
+}
+
+function vectorLengthSummary(v) {
+  return Array.isArray(v) && v.length >= 3 ? length3(v.map(Number)) : null;
+}
+
+function referenceRightFromPose(pose) {
+  const forward = normalize3(pose?.forward ?? []);
+  const up = normalize3(pose?.up ?? []);
+  return forward && up ? normalize3([
+    forward[1] * up[2] - forward[2] * up[1],
+    forward[2] * up[0] - forward[0] * up[2],
+    forward[0] * up[1] - forward[1] * up[0]
+  ]) : null;
+}
+
+function buildCameraControlContractComparison({ deterministicState, actualCamera, controlsSummary }) {
+  const referencePose = deterministicState?.referenceCameraPose ?? null;
+  const interactivePose = deterministicState?.convertedCameraPose ?? null;
+  const actualForward = normalize3(actualCamera?.forward ?? []);
+  const actualUp = normalize3(actualCamera?.up ?? []);
+  const actualRight = normalize3(deterministicState?.actualCameraRight ?? []);
+  const referenceForward = normalize3(referencePose?.forward ?? []);
+  const referenceUp = normalize3(referencePose?.up ?? []);
+  const referenceRight = referenceRightFromPose(referencePose);
+  const interactiveUp = normalize3(interactivePose?.up ?? []);
+  const positionDelta = subtract3(actualCamera?.position, referencePose?.position);
+  const targetDelta = subtract3(controlsSummary?.target, referencePose?.target);
+  return {
+    schemaVersion: 'step131-camera-control-contract-comparison-v1',
+    purpose: 'Compare fixed CUDA reference camera contract against current interactive Three.js/OrbitControls state without changing rendering.',
+    cameraControlContract: deterministicState?.cameraControlContract ?? null,
+    cameraOrientationPolicy: deterministicState?.cameraOrientationPolicy ?? null,
+    activeDatasetViewMatrixMode: deterministicState?.datasetViewMatrixMode ?? 'threejs',
+    fixedReference: {
+      cameraSource: 'dataset-transform-matrix',
+      datasetViewMatrixMode: 'cuda-aligned',
+      referencePose,
+      screenSpaceCamera: deterministicState?.fixedReferenceScreenSpaceCamera ?? null
+    },
+    interactive: {
+      cameraSource: deterministicState?.cameraSource ?? null,
+      datasetViewMatrixMode: deterministicState?.datasetViewMatrixMode ?? 'threejs',
+      pose: interactivePose,
+      actualCamera,
+      controls: controlsSummary,
+      screenSpaceCamera: deterministicState?.cudaAlignedScreenSpaceCamera ?? null
+    },
+    basisDotProducts: {
+      actualForwardVsReferenceForward: actualForward && referenceForward ? dot3(actualForward, referenceForward) : null,
+      actualUpVsReferenceUp: actualUp && referenceUp ? dot3(actualUp, referenceUp) : null,
+      actualRightVsReferenceRight: actualRight && referenceRight ? dot3(actualRight, referenceRight) : null,
+      interactiveUpVsReferenceUp: interactiveUp && referenceUp ? dot3(interactiveUp, referenceUp) : null
+    },
+    deltas: {
+      actualPositionMinusReferencePosition: positionDelta,
+      actualPositionDeltaLength: vectorLengthSummary(positionDelta),
+      controlsTargetMinusReferenceTarget: targetDelta,
+      controlsTargetDeltaLength: vectorLengthSummary(targetDelta)
+    },
+    screenAxisMapping: deterministicState?.screenAxisMapping ?? null,
+    interpretationHints: {
+      nearOneDotMeansAligned: true,
+      nearMinusOneDotMeansFlipped: true,
+      positionAndTargetShouldMatchBeforeManualInteraction: true,
+      fixedReferenceUsesCudaAlignedProjectionSigns: true,
+      interactiveUsesThreeJsCameraProjection: true
+    }
+  };
+}
+
 function getCameraDebugState() {
   const deterministicState = buildDeterministicStateSummary();
+  const actualCamera = buildActualCameraSummary();
+  const controlsSummary = {
+    target: vector3ToArray(controls?.target),
+    enabled: typeof controls?.enabled === 'boolean' ? controls.enabled : null,
+    enableDamping: typeof controls?.enableDamping === 'boolean' ? controls.enableDamping : null,
+    screenSpacePanning: typeof controls?.screenSpacePanning === 'boolean' ? controls.screenSpacePanning : null,
+    panSpeed: Number.isFinite(controls?.panSpeed) ? Number(controls.panSpeed) : null,
+    rotateSpeed: Number.isFinite(controls?.rotateSpeed) ? Number(controls.rotateSpeed) : null
+  };
   return {
     timestamp: new Date().toISOString(),
     locationHref: window.location.href,
     rawQueryString: window.location.search.replace(/^\?/, ''),
-    camera: buildActualCameraSummary(),
-    controls: {
-      target: vector3ToArray(controls?.target),
-      enabled: typeof controls?.enabled === 'boolean' ? controls.enabled : null,
-      enableDamping: typeof controls?.enableDamping === 'boolean' ? controls.enableDamping : null
-    },
+    camera: actualCamera,
+    controls: controlsSummary,
     deterministicState,
+    cameraControlContractComparison: buildCameraControlContractComparison({
+      deterministicState,
+      actualCamera,
+      controlsSummary
+    }),
     convertedCameraPose: deterministicState.convertedCameraPose ?? null,
     lastRenderResultSummary: buildRenderResultInspectionSummary(latestRenderResult),
     canvasSizeSummary: buildCanvasSizeSummary(),
@@ -3087,6 +3196,8 @@ function buildSlimDeterministicStateSummary(summary) {
     cameraSource: summary?.cameraSource ?? 'camera-preset',
     datasetCameraConvention: summary?.datasetCameraConvention ?? null,
     datasetViewMatrixMode: summary?.datasetViewMatrixMode ?? 'threejs',
+    cameraControlContract: summary?.cameraControlContract ?? null,
+    cameraOrientationPolicy: summary?.cameraOrientationPolicy ?? null,
     datasetPixelXSign: [-1, 1].includes(summary?.datasetPixelXSign) ? Number(summary.datasetPixelXSign) : 1,
     datasetCameraLabel: summary?.datasetCameraLabel ?? null,
     imageName: summary?.imageName ?? null,
@@ -3095,6 +3206,8 @@ function buildSlimDeterministicStateSummary(summary) {
     datasetTime: Number.isFinite(summary?.datasetTime) ? Number(summary.datasetTime) : null,
     rawTransformMatrix: Array.isArray(summary?.rawTransformMatrix) ? summary.rawTransformMatrix.map((row) => [...row]) : null,
     convertedCameraPose: summary?.convertedCameraPose ?? null,
+    referenceCameraPose: summary?.referenceCameraPose ?? null,
+    screenAxisMapping: summary?.screenAxisMapping ?? null,
     cameraPosition: Array.isArray(summary?.cameraPosition) ? [...summary.cameraPosition] : null,
     cameraTarget: Array.isArray(summary?.cameraTarget) ? [...summary.cameraTarget] : null,
     cameraUp: Array.isArray(summary?.cameraUp) ? [...summary.cameraUp] : null,
@@ -3125,6 +3238,7 @@ function buildSlimDeterministicStateSummary(summary) {
       : null,
     actualCameraRight: Array.isArray(summary?.actualCameraRight) ? [...summary.actualCameraRight] : null,
     cudaAlignedScreenSpaceCamera: summary?.cudaAlignedScreenSpaceCamera ?? null,
+    fixedReferenceScreenSpaceCamera: summary?.fixedReferenceScreenSpaceCamera ?? null,
     drawPath: summary?.drawPath ?? 'none',
     tileCompositePath: summary?.tileCompositePath ?? 'baseline',
     tileCompositePrimitive: summary?.tileCompositePrimitive ?? 'point',
@@ -3896,12 +4010,89 @@ function convertDatasetTransformMatrixToViewerPose(rawMatrix, convention = 'nerf
   };
 }
 
+function dot3(a, b) {
+  return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+}
+
+function length3(v) {
+  return Math.hypot(v[0], v[1], v[2]);
+}
+
+function normalize3(v) {
+  const len = length3(v);
+  return len > 1e-8 ? [v[0] / len, v[1] / len, v[2] / len] : null;
+}
+
+function projectOntoViewPlane(axis, forward) {
+  const d = dot3(axis, forward);
+  return normalize3([
+    axis[0] - forward[0] * d,
+    axis[1] - forward[1] * d,
+    axis[2] - forward[2] * d
+  ]);
+}
+
+function buildInteractiveCameraPoseFromReferencePose(referencePose, orientationPolicy = 'roll-free-reference-screen-up') {
+  if (!referencePose || !Array.isArray(referencePose.forward) || !Array.isArray(referencePose.up)) {
+    return null;
+  }
+  if (orientationPolicy !== 'roll-free-reference-screen-up') {
+    return referencePose;
+  }
+
+  const forward = normalize3(referencePose.forward);
+  const referenceScreenUp = normalize3(referencePose.up);
+  if (!forward || !referenceScreenUp) return referencePose;
+
+  const candidateAxes = [
+    [1, 0, 0],
+    [-1, 0, 0],
+    [0, 1, 0],
+    [0, -1, 0],
+    [0, 0, 1],
+    [0, 0, -1]
+  ];
+  let best = null;
+  for (const axis of candidateAxes) {
+    const projected = projectOntoViewPlane(axis, forward);
+    if (!projected) continue;
+    const alignment = dot3(projected, referenceScreenUp);
+    if (!best || alignment > best.alignment) {
+      best = { axis, projected, alignment };
+    }
+  }
+  if (!best) return referencePose;
+
+  return {
+    ...referencePose,
+    up: [...best.axis],
+    referenceUp: [...referencePose.up],
+    orientationPolicy,
+    screenAxisMapping: {
+      source: 'reference-camera-pose',
+      selectedWorldUpAxis: [...best.axis],
+      projectedScreenUp: [...best.projected],
+      referenceScreenUp: [...referenceScreenUp],
+      alignment: best.alignment
+    }
+  };
+}
+
 function applyDeterministicDatasetCameraPose() {
   if (!raw) return false;
-  const convertedPose = convertDatasetTransformMatrixToViewerPose(
+  const referencePose = convertDatasetTransformMatrixToViewerPose(
     deterministicQueryState.datasetTransformMatrix,
     deterministicQueryState.datasetCameraConvention ?? 'nerf-blender-c2w'
   );
+  const useInteractiveReferenceContract =
+    deterministicQueryState.cameraControlContract === 'interactive-from-reference' &&
+    deterministicQueryState.datasetViewMatrixMode !== 'cuda-aligned';
+  const convertedPose = useInteractiveReferenceContract
+    ? buildInteractiveCameraPoseFromReferencePose(
+        referencePose,
+        deterministicQueryState.cameraOrientationPolicy ?? 'roll-free-reference-screen-up'
+      )
+    : referencePose;
   const position = Array.isArray(convertedPose?.position)
     ? convertedPose.position
     : deterministicQueryState.datasetCameraPosition;
@@ -3933,6 +4124,7 @@ function applyDeterministicDatasetCameraPose() {
 
   camera.lookAt(Number(target[0]), Number(target[1]), Number(target[2]));
   camera.updateProjectionMatrix();
+  camera.updateMatrixWorld(true);
   controls.update();
   appliedCameraPresetName = deterministicQueryState.datasetCameraLabel ?? deterministicQueryState.datasetImageName ?? 'dataset-camera';
   return true;

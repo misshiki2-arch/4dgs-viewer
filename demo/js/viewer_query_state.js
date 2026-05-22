@@ -126,6 +126,8 @@ function buildDeterministicQueryString(state) {
   appendDeterministicQueryParam(params, 'datasetTransformMatrix', state?.datasetTransformMatrix, (value) => value.flat().join(','));
   appendDeterministicQueryParam(params, 'datasetCameraConvention', state?.datasetCameraConvention);
   appendDeterministicQueryParam(params, 'datasetViewMatrixMode', state?.datasetViewMatrixMode);
+  appendDeterministicQueryParam(params, 'cameraControlContract', state?.cameraControlContract);
+  appendDeterministicQueryParam(params, 'cameraOrientationPolicy', state?.cameraOrientationPolicy);
   appendDeterministicQueryParam(params, 'datasetPixelXSign', state?.datasetPixelXSign, (value) => String(value));
   appendDeterministicQueryParam(params, 'cameraPosition', state?.datasetCameraPosition, (value) => value.join(','));
   appendDeterministicQueryParam(params, 'cameraTarget', state?.datasetCameraTarget, (value) => value.join(','));
@@ -221,6 +223,8 @@ export function parseViewerQueryState(search = window.location.search) {
   const inspectJsonMode = params.get('inspectJsonMode');
   const gpuFramePolicyOverride = params.get('gpuFramePolicyOverride');
   const datasetViewMatrixMode = params.get('datasetViewMatrixMode');
+  const cameraControlContract = params.get('cameraControlContract');
+  const cameraOrientationPolicy = params.get('cameraOrientationPolicy');
   const datasetPixelXSign = parseInteger(params.get('datasetPixelXSign'), null);
   const gpuCandidateRuntime = params.get('gpuCandidateRuntime');
   const gpuCandidateFallback = params.get('gpuCandidateFallback');
@@ -243,6 +247,8 @@ export function parseViewerQueryState(search = window.location.search) {
     datasetViewMatrixMode: QUERY_DATASET_VIEW_MATRIX_MODE_VALUES.has(datasetViewMatrixMode)
       ? datasetViewMatrixMode
       : null,
+    cameraControlContract: cameraControlContract || null,
+    cameraOrientationPolicy: cameraOrientationPolicy || null,
     datasetPixelXSign: [-1, 1].includes(datasetPixelXSign)
       ? datasetPixelXSign
       : null,
@@ -366,6 +372,8 @@ export function parseViewerQueryState(search = window.location.search) {
     'datasetTransformMatrix',
     'datasetCameraConvention',
     'datasetViewMatrixMode',
+    'cameraControlContract',
+    'cameraOrientationPolicy',
     'datasetPixelXSign',
     'cameraPosition',
     'cameraTarget',
@@ -467,6 +475,8 @@ export function buildViewerDeterministicSummary(queryState) {
     datasetTransformMatrix: Array.isArray(state.datasetTransformMatrix) ? state.datasetTransformMatrix.map((row) => [...row]) : null,
     datasetCameraConvention: state.datasetCameraConvention ?? null,
     datasetViewMatrixMode: state.datasetViewMatrixMode ?? 'threejs',
+    cameraControlContract: state.cameraControlContract ?? null,
+    cameraOrientationPolicy: state.cameraOrientationPolicy ?? null,
     datasetPixelXSign: [-1, 1].includes(state.datasetPixelXSign) ? Number(state.datasetPixelXSign) : 1,
     datasetCameraLabel: state.datasetCameraLabel ?? null,
     datasetImageName: state.datasetImageName ?? null,

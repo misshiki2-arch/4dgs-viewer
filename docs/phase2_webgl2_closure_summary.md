@@ -143,12 +143,19 @@ reuse those contracts and reference comparisons rather than rediscovering them.
 The WebGL2 stable/fallback preset should avoid validation readbacks and heavy
 debug captures.
 
+Generate it with:
+
+```bash
+python3 tools/make_step_url.py --preset stable --camera-name 000151_v13
+```
+
 Recommended URL conditions:
 
 ```text
 drawPath=gpu-screen
 tileCompositePath=accumulation
 tileCompositePrimitive=quad
+datasetViewMatrixMode=threejs
 gpuCandidateRuntime=limited-draw
 gpuCandidateSourceMode=screenCoarse
 gpuCandidateScreenCoarseMaxCount=65536
@@ -170,6 +177,15 @@ Stable mode should keep CPU fallback available. If the runtime cannot safely use
 GPU candidates without readback in a given browser/session, it should fall back
 instead of silently entering a debug validation path.
 
+Stable mode is not a CUDA reference-capture mode. Step131 showed that the
+reference image match is established by the `cuda-aligned` projection/sign
+contract, while the stable viewer uses the normal Three.js interactive camera
+path. As a result, stable mode prioritizes natural controls, fallback behavior,
+and public/outreach usability over exact CUDA reference image orientation.
+Projection and screen-axis contract differences should be carried into Phase 3's
+common camera/control design rather than solved by trial-and-error `cameraUp`
+changes in WebGL2.
+
 ## Stable Mode Disabled Items
 
 Disable these by default:
@@ -186,9 +202,46 @@ Disable these by default:
 - `debugPreserveDrawingBuffer`.
 - Large debug JSON capture.
 
+If a stable session needs a one-off screenshot, open it with
+`debugPreserveDrawingBuffer=true` or use a capture path that renders immediately
+before reading the canvas. With the default stable URL
+`debugPreserveDrawingBuffer=false`, a saved PNG may be black even when the page
+is visibly rendered.
+
+## Fixed Reference Mode
+
+Fixed reference mode is the Phase 2 CUDA comparison path. Generate it by using
+the validation preset with an explicit CUDA-aligned view:
+
+```bash
+python3 tools/make_step_url.py \
+  --preset validation \
+  --camera-name 000151_v13 \
+  --dataset-view-matrix-mode cuda-aligned
+```
+
+This mode keeps `datasetTransformMatrix`, intrinsics, and the CUDA-aligned
+projection/sign contract together. It is appropriate for PNG/JSON evidence and
+reference comparison, but it is not the public interactive camera contract.
+
 ## Validation / Debug Mode Preset
 
 Validation mode should keep the full Phase 2 evidence path available.
+
+Generate the matching URL with:
+
+```bash
+python3 tools/make_step_url.py --preset validation --camera-name 000151_v13
+```
+
+Generate the matching capture commands with:
+
+```bash
+python3 tools/make_capture_commands.py \
+  --preset validation \
+  --step step_validation_000151_v13 \
+  --source-mode screenCoarse
+```
 
 Recommended URL conditions:
 
@@ -197,6 +250,7 @@ debugPreserveDrawingBuffer=1
 drawPath=gpu-screen
 tileCompositePath=accumulation
 tileCompositePrimitive=quad
+datasetViewMatrixMode=threejs
 inspectSource=actual-draw
 inspectJsonMode=slim
 gpuCandidateRuntime=limited-draw
@@ -234,6 +288,44 @@ Validation mode should preserve:
 - Display connection readiness.
 - CPU post-candidate breakdown.
 - Multi-view breakdown aggregation.
+
+## Tool Preset Override Rules
+
+`tools/make_step_url.py` and `tools/make_capture_commands.py` both support
+presets as defaults. Explicit CLI arguments override the preset values. This
+allows a stable URL to be generated and then selectively adjusted without adding
+viewer-side preset state.
+
+The stable and validation presets use dataset camera metadata as the initial
+viewer camera only. With `--camera-name` or `--camera-meta-json`, they keep
+`datasetTransformMatrix` in the URL but set
+`cameraControlContract=interactive-from-reference` and
+`cameraOrientationPolicy=roll-free-reference-screen-up`. The viewer then derives
+an OrbitControls-friendly interactive camera from the reference camera contract,
+instead of having the tools guess `cameraPosition`, `cameraTarget`, and
+`cameraUp`. They also set `datasetViewMatrixMode=threejs` so mouse interaction
+continues to drive the rendered camera. If a fixed CUDA reference view is needed
+for a specific validation capture, pass `--dataset-view-matrix-mode cuda-aligned`
+explicitly.
+
+Useful commands:
+
+```bash
+# Stable/fallback URL with heavy debug features off.
+python3 tools/make_step_url.py --preset stable --camera-name 000151_v13
+
+# Validation URL with Phase 2 compare/readback/dry-run enabled.
+python3 tools/make_step_url.py --preset validation --camera-name 000151_v13
+
+# No capture commands for stable mode.
+python3 tools/make_capture_commands.py --preset stable --step stable_000151_v13
+
+# Runtime-only lightweight capture for quick sanity checks.
+python3 tools/make_capture_commands.py --preset runtime-only --step runtime_000151_v13
+
+# Full validation capture.
+python3 tools/make_capture_commands.py --preset validation --step validation_000151_v13
+```
 
 ## Phase 2 Completion Criteria
 
