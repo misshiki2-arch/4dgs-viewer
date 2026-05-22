@@ -1,35 +1,32 @@
 import { buildVisibleItemForCandidate } from './gpu_visible_item_builder.js';
 import { clampInt } from './gpu_tile_utils.js';
 import { computeGaussianState } from './rot4d_math.js';
+import {
+  WEBGPU_PROJECTION_CONTRACT_NAMES,
+  WEBGPU_PROJECTION_CONTRACT_SCHEMA_VERSION,
+  WEBGPU_PROJECTION_PARAM_MODES,
+  WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
+  WEBGPU_VISIBLE_RECORD_CPU_MATERIALIZED_FIELDS,
+  WEBGPU_VISIBLE_RECORD_DEFERRED_FIELDS,
+  WEBGPU_VISIBLE_RECORD_FIELDS,
+  WEBGPU_VISIBLE_RECORD_FLOATS,
+  WEBGPU_VISIBLE_RECORD_IMPLEMENTED_FIELDS,
+  WEBGPU_VISIBLE_RECORD_PHASE_STEP,
+  WEBGPU_VISIBLE_RECORD_REFERENCE_ASSISTED_FIELDS,
+  WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
+  WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION,
+  WEBGPU_VISIBLE_RECORD_WGSL_COMPUTED_FIELDS,
+  cloneWebGpuVisibleRecordFieldComputeModes
+} from './common_4dgs_record_contracts.js';
 
 const DEFAULT_MAX_RECORDS = 65536;
 const DEFAULT_EPSILON = 1e-3;
-const RECORD_FLOATS = 12;
-const IMPLEMENTED_FIELDS = ['srcIndex', 'valid', 'px', 'py', 'depth', 'aabb'];
-const WGSL_COMPUTED_FIELDS = ['srcIndex', 'px', 'py', 'depth'];
-const WGSL_REFERENCE_ASSISTED_FIELDS = ['valid'];
-const CPU_MATERIALIZED_FIELDS = ['aabb'];
-const FIELD_COMPUTE_MODES = {
-  srcIndex: 'wgsl-candidate-buffer',
-  valid: 'wgsl-reference-valid-candidate-bounds-and-projection-gate',
-  px: 'wgsl-state-position-projection-contract',
-  py: 'wgsl-state-position-projection-contract',
-  depth: 'wgsl-state-position-projection-contract',
-  aabb: 'cpu-materialized-reference-buffer'
-};
-const DEFERRED_FIELDS = [
-  'radius',
-  'conic',
-  'alpha',
-  'tileRange',
-  'colorAlpha.rgb',
-  'SH',
-  '4D conditional covariance full parity',
-  'compaction',
-  'depth sort',
-  'tile-list GPU generation',
-  'display connection'
-];
+const RECORD_FLOATS = WEBGPU_VISIBLE_RECORD_FLOATS;
+const IMPLEMENTED_FIELDS = WEBGPU_VISIBLE_RECORD_IMPLEMENTED_FIELDS;
+const WGSL_COMPUTED_FIELDS = WEBGPU_VISIBLE_RECORD_WGSL_COMPUTED_FIELDS;
+const WGSL_REFERENCE_ASSISTED_FIELDS = WEBGPU_VISIBLE_RECORD_REFERENCE_ASSISTED_FIELDS;
+const CPU_MATERIALIZED_FIELDS = WEBGPU_VISIBLE_RECORD_CPU_MATERIALIZED_FIELDS;
+const DEFERRED_FIELDS = WEBGPU_VISIBLE_RECORD_DEFERRED_FIELDS;
 
 function nowMs() {
   return typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -50,17 +47,17 @@ function toFiniteInteger(value, fallback) {
 
 function makeFallback(reason, extra = {}) {
   return {
-    schemaVersion: 'phase3-step2-webgpu-visible-record-dry-run-v1',
-    phaseStep: 'phase3-step4',
+    schemaVersion: WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION,
+    phaseStep: WEBGPU_VISIBLE_RECORD_PHASE_STEP,
     status: 'fallback',
     reason,
-    computeMode: 'webgpu-storage-buffer-compute-fixed-record',
-    scaffoldMode: 'partial-wgsl-screen-projection-with-cpu-state-reference',
+    computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
+    scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
     cpuMaterializedFields: CPU_MATERIALIZED_FIELDS,
-    fieldComputeModes: FIELD_COMPUTE_MODES,
+    fieldComputeModes: cloneWebGpuVisibleRecordFieldComputeModes(),
     deferredFields: DEFERRED_FIELDS,
     candidateCount: extra.candidateCount ?? null,
     recordCount: extra.recordCount ?? null,
@@ -270,7 +267,8 @@ function buildProjectionContract({
 }) {
   if (typeof camera?.updateMatrixWorld === 'function') camera.updateMatrixWorld(true);
   const override = screenSpaceCamera?.screenSpaceTransformOverride;
-  const isCudaAligned = override?.mode === 'cuda-aligned' && Array.isArray(override.viewMatrix);
+  const isCudaAligned = override?.mode === WEBGPU_PROJECTION_PARAM_MODES.CUDA_ALIGNED &&
+    Array.isArray(override.viewMatrix);
   const mode = isCudaAligned ? 1 : 0;
   const viewRows = isCudaAligned
     ? flattenRows4(override.viewMatrix, true)
@@ -307,11 +305,13 @@ function buildProjectionContract({
   return {
     data,
     summary: {
-      schemaVersion: 'phase3-step4-webgpu-projection-contract-v1',
-      mode: isCudaAligned ? 'cuda-aligned' : 'threejs',
+      schemaVersion: WEBGPU_PROJECTION_CONTRACT_SCHEMA_VERSION,
+      mode: isCudaAligned
+        ? WEBGPU_PROJECTION_PARAM_MODES.CUDA_ALIGNED
+        : WEBGPU_PROJECTION_PARAM_MODES.THREEJS,
       projectionContract: isCudaAligned
-        ? 'cuda-plus-z-forward-fx-fy-cx-cy'
-        : 'threejs-view-projection-ndc',
+        ? WEBGPU_PROJECTION_CONTRACT_NAMES.CUDA_ALIGNED
+        : WEBGPU_PROJECTION_CONTRACT_NAMES.THREEJS,
       sourcePositionMode: 'cpu-materialized-4d-state-position',
       renderW,
       renderH,
@@ -333,14 +333,7 @@ function compareRecords(reference, candidate, count, { epsilon, maxMismatches })
   const firstMismatches = [];
   let fieldMismatchCount = 0;
   let maxAbsError = 0;
-  const fields = [
-    ['srcIndex', 0, 1],
-    ['valid', 1, 1],
-    ['px', 2, 1],
-    ['py', 3, 1],
-    ['depth', 4, 1],
-    ['aabb', 5, 4]
-  ];
+  const fields = WEBGPU_VISIBLE_RECORD_FIELDS.filter(([field]) => field !== 'reserved');
   for (let row = 0; row < count; row += 1) {
     const base = row * RECORD_FLOATS;
     for (const [field, offset, components] of fields) {
@@ -639,32 +632,24 @@ export async function runWebGpuVisibleRecordDryRun({
   const compareMs = nowMs() - compareStartMs;
   const mismatchClassification = classifyComparison(recordComparison);
   return {
-    schemaVersion: 'phase3-step2-webgpu-visible-record-dry-run-v1',
-    phaseStep: 'phase3-step4',
+    schemaVersion: WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION,
+    phaseStep: WEBGPU_VISIBLE_RECORD_PHASE_STEP,
     status: 'ok',
     reason: 'ok',
-    computeMode: 'webgpu-storage-buffer-compute-fixed-record',
-    scaffoldMode: 'partial-wgsl-screen-projection-with-cpu-state-reference',
+    computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
+    scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
     scaffoldNote: 'Phase 3 Step4 computes srcIndex and minimal screen-space projection fields (px/py/depth) in WGSL from CPU-materialized 4D state positions. valid is still reference-assisted; aabb remains CPU-materialized until radius/covariance moves to WGSL.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
     cpuMaterializedFields: CPU_MATERIALIZED_FIELDS,
-    fieldComputeModes: FIELD_COMPUTE_MODES,
+    fieldComputeModes: cloneWebGpuVisibleRecordFieldComputeModes(),
     deferredFields: DEFERRED_FIELDS,
     candidateCount: cpuReference.candidateCount,
     recordCount: cpuReference.count,
     validRecordCount: cpuReference.validCount,
     recordFloats: RECORD_FLOATS,
-    recordLayout: [
-      ['srcIndex', 0, 1],
-      ['valid', 1, 1],
-      ['px', 2, 1],
-      ['py', 3, 1],
-      ['depth', 4, 1],
-      ['aabb', 5, 4],
-      ['reserved', 9, 3]
-    ],
+    recordLayout: WEBGPU_VISIBLE_RECORD_FIELDS,
     recordComparison,
     fieldMismatchCount: recordComparison.fieldMismatchCount,
     firstMismatches: recordComparison.firstMismatches,

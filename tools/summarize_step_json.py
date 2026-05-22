@@ -47,6 +47,10 @@ KNOWN_SUFFIXES = [
     "summary",
 ]
 
+WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION = (
+    "phase3-step2-webgpu-visible-record-dry-run-v1"
+)
+
 
 def load_json_if_exists(path: Path) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     if not path.exists():
@@ -652,7 +656,11 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
         None,
     )
     if not isinstance(summary, dict):
-        summary = data if get_path(data, ["schemaVersion"]) == "phase3-step2-webgpu-visible-record-dry-run-v1" else {}
+        summary = (
+            data
+            if get_path(data, ["schemaVersion"]) == WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION
+            else {}
+        )
     timing = get_path(summary, ["timing"], {})
     record_comparison = get_path(summary, ["recordComparison"], {})
     webgpu = get_path(summary, ["webgpu"], {})
