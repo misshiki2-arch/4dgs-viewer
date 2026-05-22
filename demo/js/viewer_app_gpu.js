@@ -2042,7 +2042,7 @@ async function captureWebGpuVisibleRecordDryRunDebug(options = {}) {
       renderAttempts: debugRender.attempts,
       lastRenderResultSummary: buildRenderResultInspectionSummary(debugRender.renderResult),
       captureSource: 'forced-rebuild',
-      phase: 'phase3-step2',
+      phase: 'phase3-step4',
       candidateInputSource: candidateInput.source,
       candidateInputReason: candidateInput.reason ?? null,
       candidateInputSummary: candidateInput.sourceComparisonSummary ?? null

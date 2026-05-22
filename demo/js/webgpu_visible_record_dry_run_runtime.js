@@ -1,19 +1,20 @@
 import { buildVisibleItemForCandidate } from './gpu_visible_item_builder.js';
 import { clampInt } from './gpu_tile_utils.js';
+import { computeGaussianState } from './rot4d_math.js';
 
 const DEFAULT_MAX_RECORDS = 65536;
 const DEFAULT_EPSILON = 1e-3;
 const RECORD_FLOATS = 12;
 const IMPLEMENTED_FIELDS = ['srcIndex', 'valid', 'px', 'py', 'depth', 'aabb'];
-const WGSL_COMPUTED_FIELDS = ['srcIndex'];
+const WGSL_COMPUTED_FIELDS = ['srcIndex', 'px', 'py', 'depth'];
 const WGSL_REFERENCE_ASSISTED_FIELDS = ['valid'];
-const CPU_MATERIALIZED_FIELDS = ['px', 'py', 'depth', 'aabb'];
+const CPU_MATERIALIZED_FIELDS = ['aabb'];
 const FIELD_COMPUTE_MODES = {
   srcIndex: 'wgsl-candidate-buffer',
-  valid: 'wgsl-reference-valid-and-candidate-bounds-gate',
-  px: 'cpu-materialized-reference-buffer',
-  py: 'cpu-materialized-reference-buffer',
-  depth: 'cpu-materialized-reference-buffer',
+  valid: 'wgsl-reference-valid-candidate-bounds-and-projection-gate',
+  px: 'wgsl-state-position-projection-contract',
+  py: 'wgsl-state-position-projection-contract',
+  depth: 'wgsl-state-position-projection-contract',
   aabb: 'cpu-materialized-reference-buffer'
 };
 const DEFERRED_FIELDS = [
@@ -50,11 +51,11 @@ function toFiniteInteger(value, fallback) {
 function makeFallback(reason, extra = {}) {
   return {
     schemaVersion: 'phase3-step2-webgpu-visible-record-dry-run-v1',
-    phaseStep: 'phase3-step3',
+    phaseStep: 'phase3-step4',
     status: 'fallback',
     reason,
     computeMode: 'webgpu-storage-buffer-compute-fixed-record',
-    scaffoldMode: 'partial-wgsl-fixed-record-with-cpu-materialized-reference',
+    scaffoldMode: 'partial-wgsl-screen-projection-with-cpu-state-reference',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
@@ -193,6 +194,141 @@ function buildRawXyzOpacityForCandidates(raw, candidateIndices) {
   return out;
 }
 
+function buildStatePositionsForCandidates(raw, candidateIndices, buildConfig) {
+  const count = candidateIndices.length;
+  const out = new Float32Array(count * 4);
+  const flags = {
+    nativeRot4d: !!buildConfig.useNativeRot4d,
+    nativeMarginal: !!buildConfig.useNativeMarginal
+  };
+  for (let i = 0; i < count; i += 1) {
+    const srcIndex = candidateIndices[i];
+    const state = computeGaussianState(
+      raw,
+      srcIndex,
+      buildConfig.timestamp,
+      buildConfig.scalingModifier,
+      buildConfig.sigmaScale,
+      buildConfig.prefilterVar,
+      buildConfig.useRot4d,
+      flags
+    );
+    const o = i * 4;
+    if (state?.pos) {
+      out[o + 0] = state.pos[0] ?? 0;
+      out[o + 1] = state.pos[1] ?? 0;
+      out[o + 2] = state.pos[2] ?? 0;
+      out[o + 3] = 1;
+    } else {
+      out[o + 0] = 0;
+      out[o + 1] = 0;
+      out[o + 2] = 0;
+      out[o + 3] = 0;
+    }
+  }
+  return out;
+}
+
+function matrixToRows4(matrix) {
+  const e = matrix?.elements;
+  if (!e || e.length < 16) return null;
+  return [
+    [e[0], e[4], e[8], e[12]],
+    [e[1], e[5], e[9], e[13]],
+    [e[2], e[6], e[10], e[14]],
+    [e[3], e[7], e[11], e[15]]
+  ];
+}
+
+function flattenRows4(rows, fallbackIdentity = false) {
+  const source = Array.isArray(rows) && rows.length >= 4
+    ? rows
+    : (fallbackIdentity ? [
+      [1, 0, 0, 0],
+      [0, 1, 0, 0],
+      [0, 0, 1, 0],
+      [0, 0, 0, 1]
+    ] : null);
+  if (!source) return null;
+  const out = [];
+  for (let r = 0; r < 4; r += 1) {
+    for (let c = 0; c < 4; c += 1) {
+      const value = Number(source[r]?.[c]);
+      out.push(Number.isFinite(value) ? value : (r === c ? 1 : 0));
+    }
+  }
+  return out;
+}
+
+function buildProjectionContract({
+  camera,
+  screenSpaceCamera,
+  renderW,
+  renderH,
+  sx,
+  sy
+}) {
+  if (typeof camera?.updateMatrixWorld === 'function') camera.updateMatrixWorld(true);
+  const override = screenSpaceCamera?.screenSpaceTransformOverride;
+  const isCudaAligned = override?.mode === 'cuda-aligned' && Array.isArray(override.viewMatrix);
+  const mode = isCudaAligned ? 1 : 0;
+  const viewRows = isCudaAligned
+    ? flattenRows4(override.viewMatrix, true)
+    : flattenRows4(matrixToRows4(camera?.matrixWorldInverse), true);
+  const projectionRows = isCudaAligned
+    ? flattenRows4(null, true)
+    : flattenRows4(matrixToRows4(camera?.projectionMatrix), true);
+  const fov = Number.isFinite(camera?.fov) ? Number(camera.fov) : 60;
+  const aspect = Number.isFinite(camera?.aspect) ? Number(camera.aspect) : (renderW / Math.max(1, renderH));
+  const tanFovY = Math.tan((fov * Math.PI / 180) * 0.5);
+  const tanFovX = tanFovY * aspect;
+  const fx = isCudaAligned && Number.isFinite(override?.intrinsics?.fx)
+    ? Number(override.intrinsics.fx)
+    : renderW / (2 * tanFovX);
+  const fy = isCudaAligned && Number.isFinite(override?.intrinsics?.fy)
+    ? Number(override.intrinsics.fy)
+    : renderH / (2 * tanFovY);
+  const cx = isCudaAligned && Number.isFinite(override?.intrinsics?.cx)
+    ? Number(override.intrinsics.cx) - 0.5
+    : (renderW - 1) * 0.5;
+  const cy = isCudaAligned && Number.isFinite(override?.intrinsics?.cy)
+    ? Number(override.intrinsics.cy) - 0.5
+    : (renderH - 1) * 0.5;
+  const pixelXSign = isCudaAligned && [-1, 1].includes(override?.pixelXSign)
+    ? Number(override.pixelXSign)
+    : 1;
+  const data = new Float32Array([
+    mode, renderW, renderH, 0,
+    sx, sy, pixelXSign, 0,
+    fx, fy, cx, cy,
+    ...viewRows,
+    ...projectionRows
+  ]);
+  return {
+    data,
+    summary: {
+      schemaVersion: 'phase3-step4-webgpu-projection-contract-v1',
+      mode: isCudaAligned ? 'cuda-aligned' : 'threejs',
+      projectionContract: isCudaAligned
+        ? 'cuda-plus-z-forward-fx-fy-cx-cy'
+        : 'threejs-view-projection-ndc',
+      sourcePositionMode: 'cpu-materialized-4d-state-position',
+      renderW,
+      renderH,
+      sx,
+      sy,
+      pixelXSign,
+      intrinsics: { fx, fy, cx, cy },
+      viewMatrixSource: isCudaAligned
+        ? (override.viewMatrixSource ?? 'cuda-aligned-view-matrix')
+        : 'threejs-camera-matrixWorldInverse',
+      projectionMatrixSource: isCudaAligned
+        ? 'intrinsics-fx-fy-cx-cy'
+        : 'threejs-camera-projectionMatrix'
+    }
+  };
+}
+
 function compareRecords(reference, candidate, count, { epsilon, maxMismatches }) {
   const firstMismatches = [];
   let fieldMismatchCount = 0;
@@ -257,9 +393,9 @@ function createBuffer(device, data, usage) {
   return buffer;
 }
 
-async function runCompute({ device, cpuReference, rawXyzOpacity, rawCount }) {
+async function runCompute({ device, cpuReference, rawXyzOpacity, statePositions, projectionParams, rawCount }) {
   const shader = device.createShaderModule({
-    label: 'phase3-step3-visible-record-partial-wgsl',
+    label: 'phase3-step4-visible-record-projection-wgsl',
     code: `
 struct Params {
   count: u32,
@@ -273,6 +409,20 @@ struct Params {
 @group(0) @binding(2) var<storage, read> referenceRecords: array<vec4f>;
 @group(0) @binding(3) var<storage, read_write> outputRecords: array<vec4f>;
 @group(0) @binding(4) var<uniform> params: Params;
+@group(0) @binding(5) var<storage, read> statePositions: array<vec4f>;
+@group(0) @binding(6) var<storage, read> projectionParams: array<vec4f>;
+
+fn rowDot(row: vec4f, value: vec4f) -> f32 {
+  return dot(row, value);
+}
+
+fn viewRow(index: u32) -> vec4f {
+  return projectionParams[3u + index];
+}
+
+fn projectionRow(index: u32) -> vec4f {
+  return projectionParams[7u + index];
+}
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) id: vec3u) {
@@ -283,22 +433,64 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let base = row * 3u;
   let srcIndex = candidates[row];
   let raw0 = rawXyzOpacity[row];
+  let statePos = statePositions[row];
   var r0 = referenceRecords[base + 0u];
-  let r1 = referenceRecords[base + 1u];
+  var r1 = referenceRecords[base + 1u];
   var r2 = referenceRecords[base + 2u];
 
-  // Phase 3 Step3: srcIndex is now produced directly from the candidate
-  // storage buffer. The remaining screen-space fields are intentionally still
-  // reference materialized until the corresponding 4DGS math moves into WGSL.
+  // Phase 3 Step4: srcIndex and the minimal screen projection fields are
+  // produced in WGSL. The 4D Gaussian state and AABB remain CPU materialized.
   r0.x = f32(srcIndex);
 
-  // valid is reference-assisted for now: WGSL applies the raw-index bounds
-  // gate, while the expensive Gaussian/screen validity remains in the CPU
-  // reference record. This keeps the field contract explicit without claiming
-  // full WGSL parity for the visibility test yet.
+  let header = projectionParams[0u];
+  let scale = projectionParams[1u];
+  let intrinsics = projectionParams[2u];
+  let mode = header.x;
+  let renderW = header.y;
+  let renderH = header.z;
+  let sx = scale.x;
+  let sy = scale.y;
+  let pixelXSign = scale.z;
+  let pos4 = vec4f(statePos.x, statePos.y, statePos.z, 1.0);
+  let mv4 = vec4f(
+    rowDot(viewRow(0u), pos4),
+    rowDot(viewRow(1u), pos4),
+    rowDot(viewRow(2u), pos4),
+    rowDot(viewRow(3u), pos4)
+  );
+
+  var projectedPx = 0.0;
+  var projectedPy = 0.0;
+  var projectedDepth = 0.0;
+  var projectionOk = false;
+  if (mode > 0.5) {
+    projectedDepth = mv4.z;
+    projectionOk = projectedDepth > 1e-6;
+    projectedPx = (pixelXSign * intrinsics.x * (mv4.x / max(projectedDepth, 1e-8)) + intrinsics.z) * sx;
+    projectedPy = (intrinsics.y * (mv4.y / max(projectedDepth, 1e-8)) + intrinsics.w) * sy;
+  } else {
+    projectedDepth = -mv4.z;
+    let clip = vec4f(
+      rowDot(projectionRow(0u), mv4),
+      rowDot(projectionRow(1u), mv4),
+      rowDot(projectionRow(2u), mv4),
+      rowDot(projectionRow(3u), mv4)
+    );
+    let invW = 1.0 / (clip.w + 1e-7);
+    let ndcX = clip.x * invW;
+    let ndcY = clip.y * invW;
+    projectionOk = projectedDepth > 1e-6;
+    projectedPx = (((ndcX + 1.0) * renderW - 1.0) * 0.5) * sx;
+    projectedPy = (((ndcY + 1.0) * renderH - 1.0) * 0.5) * sy;
+  }
+
   let referenceValid = r0.y > 0.5;
   let rawIndexInBounds = srcIndex < params.rawCount;
-  r0.y = select(0.0, 1.0, referenceValid && rawIndexInBounds);
+  let outputValid = referenceValid && rawIndexInBounds && statePos.w > 0.5 && projectionOk;
+  r0.y = select(0.0, 1.0, outputValid);
+  r0.z = select(0.0, projectedPx, outputValid);
+  r0.w = select(0.0, projectedPy, outputValid);
+  r1.x = select(0.0, projectedDepth, outputValid);
 
   // Reserved lanes carry a tiny raw-buffer fetch probe for future diagnostics.
   // They are outside the compared fixed-record fields.
@@ -321,6 +513,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   const outputByteLength = cpuReference.records.byteLength;
   const candidateBuffer = createBuffer(device, cpuReference.candidateIndices, GPUBufferUsage.STORAGE);
   const rawBuffer = createBuffer(device, rawXyzOpacity, GPUBufferUsage.STORAGE);
+  const statePositionBuffer = createBuffer(device, statePositions, GPUBufferUsage.STORAGE);
+  const projectionParamsBuffer = createBuffer(device, projectionParams, GPUBufferUsage.STORAGE);
   const referenceBuffer = createBuffer(device, cpuReference.records, GPUBufferUsage.STORAGE);
   const outputBuffer = device.createBuffer({
     size: outputByteLength,
@@ -342,7 +536,9 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       { binding: 1, resource: { buffer: rawBuffer } },
       { binding: 2, resource: { buffer: referenceBuffer } },
       { binding: 3, resource: { buffer: outputBuffer } },
-      { binding: 4, resource: { buffer: paramsBuffer } }
+      { binding: 4, resource: { buffer: paramsBuffer } },
+      { binding: 5, resource: { buffer: statePositionBuffer } },
+      { binding: 6, resource: { buffer: projectionParamsBuffer } }
     ]
   });
   const dispatchStartMs = nowMs();
@@ -418,9 +614,23 @@ export async function runWebGpuVisibleRecordDryRun({
   }
   const uploadStartMs = nowMs();
   const rawXyzOpacity = buildRawXyzOpacityForCandidates(raw, cpuReference.candidateIndices);
+  const statePositions = buildStatePositionsForCandidates(raw, cpuReference.candidateIndices, buildConfig);
+  const renderScale = Number.isFinite(buildConfig.renderScale) ? buildConfig.renderScale : 1;
+  const renderW = Math.max(1, Math.round(canvasWidth * renderScale));
+  const renderH = Math.max(1, Math.round(canvasHeight * renderScale));
+  const sx = canvasWidth / renderW;
+  const sy = canvasHeight / renderH;
+  const projectionContract = buildProjectionContract({ camera, screenSpaceCamera, renderW, renderH, sx, sy });
   const bufferUploadPrepareMs = nowMs() - uploadStartMs;
-  const rawCount = toFiniteInteger(raw.count ?? (raw.xyz?.length / Math.max(1, raw.xyzDim || 3)), 0);
-  const computeResult = await runCompute({ device, cpuReference, rawXyzOpacity, rawCount });
+  const rawCount = toFiniteInteger(raw.count ?? raw.N ?? (raw.xyz?.length / Math.max(1, raw.xyzDim || 3)), 0);
+  const computeResult = await runCompute({
+    device,
+    cpuReference,
+    rawXyzOpacity,
+    statePositions,
+    projectionParams: projectionContract.data,
+    rawCount
+  });
   const compareStartMs = nowMs();
   const recordComparison = compareRecords(cpuReference.records, computeResult.records, cpuReference.count, {
     epsilon,
@@ -430,12 +640,12 @@ export async function runWebGpuVisibleRecordDryRun({
   const mismatchClassification = classifyComparison(recordComparison);
   return {
     schemaVersion: 'phase3-step2-webgpu-visible-record-dry-run-v1',
-    phaseStep: 'phase3-step3',
+    phaseStep: 'phase3-step4',
     status: 'ok',
     reason: 'ok',
     computeMode: 'webgpu-storage-buffer-compute-fixed-record',
-    scaffoldMode: 'partial-wgsl-fixed-record-with-cpu-materialized-reference',
-    scaffoldNote: 'Phase 3 Step3 computes srcIndex directly in WGSL and gates valid in WGSL with CPU reference validity plus raw-index bounds. px/py/depth/aabb remain CPU-materialized reference fields until 4DGS projection and screen math are ported.',
+    scaffoldMode: 'partial-wgsl-screen-projection-with-cpu-state-reference',
+    scaffoldNote: 'Phase 3 Step4 computes srcIndex and minimal screen-space projection fields (px/py/depth) in WGSL from CPU-materialized 4D state positions. valid is still reference-assisted; aabb remains CPU-materialized until radius/covariance moves to WGSL.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
@@ -470,7 +680,10 @@ export async function runWebGpuVisibleRecordDryRun({
     },
     webgpu: {
       adapterInfoAvailable: typeof adapter.requestAdapterInfo === 'function',
-      rawBufferUploadMode: 'candidate-xyz-opacity-step3-fetch-probe',
+      rawBufferUploadMode: 'candidate-xyz-opacity-step4-fetch-probe',
+      statePositionUploadMode: 'cpu-materialized-4d-state-position',
+      projectionParamMode: projectionContract.summary.mode,
+      projectionContract: projectionContract.summary,
       candidateBufferCount: cpuReference.count,
       rawCount,
       outputBufferBytes: cpuReference.records.byteLength

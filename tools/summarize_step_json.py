@@ -655,6 +655,7 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
         summary = data if get_path(data, ["schemaVersion"]) == "phase3-step2-webgpu-visible-record-dry-run-v1" else {}
     timing = get_path(summary, ["timing"], {})
     record_comparison = get_path(summary, ["recordComparison"], {})
+    webgpu = get_path(summary, ["webgpu"], {})
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -683,6 +684,8 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
         "readbackMs": get_path(timing, ["readbackMs"]),
         "compareMs": get_path(timing, ["compareMs"]),
         "totalMs": get_path(timing, ["totalMs"]),
+        "projectionParamMode": get_path(webgpu, ["projectionParamMode"]),
+        "statePositionUploadMode": get_path(webgpu, ["statePositionUploadMode"]),
     }
 
 
