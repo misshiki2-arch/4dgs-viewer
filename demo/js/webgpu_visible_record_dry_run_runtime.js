@@ -353,7 +353,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   var r1 = referenceRecords[base + 1u];
   var r2 = referenceRecords[base + 2u];
 
-  // Phase 3 Step4: srcIndex and the minimal screen projection fields are
+  // Phase 3 Step11: srcIndex, valid, and minimal screen projection fields are
   // produced in WGSL. The 4D Gaussian state and AABB remain CPU materialized.
   r0.x = f32(srcIndex);
 
@@ -399,9 +399,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     projectedPy = (((ndcY + 1.0) * renderH - 1.0) * 0.5) * sy;
   }
 
-  let referenceValid = r0.y > 0.5;
   let rawIndexInBounds = srcIndex < params.rawCount;
-  let outputValid = referenceValid && rawIndexInBounds && statePos.w > 0.5 && projectionOk;
+  let outputValid = rawIndexInBounds && statePos.w > 0.5 && projectionOk;
   r0.y = select(0.0, 1.0, outputValid);
   r0.z = select(0.0, projectedPx, outputValid);
   r0.w = select(0.0, projectedPy, outputValid);
@@ -569,7 +568,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step4 computes srcIndex and minimal screen-space projection fields (px/py/depth) in WGSL from CPU-materialized 4D state positions. valid is still reference-assisted; aabb remains CPU-materialized until radius/covariance moves to WGSL.',
+    scaffoldNote: 'Phase 3 Step11 computes srcIndex, valid, and minimal screen-space projection fields (px/py/depth) in WGSL from CPU-materialized 4D state positions. aabb remains CPU-materialized until radius/covariance moves to WGSL.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,

@@ -4,10 +4,10 @@ export const WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION =
 export const WEBGPU_VISIBLE_RECORD_COMPUTE_MODE =
   'webgpu-storage-buffer-compute-fixed-record';
 
-export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step4';
+export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step11';
 
 export const WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE =
-  'partial-wgsl-screen-projection-with-cpu-state-reference';
+  'wgsl-valid-and-screen-projection-with-cpu-state-reference';
 
 export {
   WEBGPU_PROJECTION_CONTRACT_NAMES,
@@ -39,14 +39,13 @@ export const WEBGPU_VISIBLE_RECORD_IMPLEMENTED_FIELDS = Object.freeze([
 
 export const WEBGPU_VISIBLE_RECORD_WGSL_COMPUTED_FIELDS = Object.freeze([
   'srcIndex',
+  'valid',
   'px',
   'py',
   'depth'
 ]);
 
-export const WEBGPU_VISIBLE_RECORD_REFERENCE_ASSISTED_FIELDS = Object.freeze([
-  'valid'
-]);
+export const WEBGPU_VISIBLE_RECORD_REFERENCE_ASSISTED_FIELDS = Object.freeze([]);
 
 export const WEBGPU_VISIBLE_RECORD_CPU_MATERIALIZED_FIELDS = Object.freeze([
   'aabb'
@@ -54,7 +53,7 @@ export const WEBGPU_VISIBLE_RECORD_CPU_MATERIALIZED_FIELDS = Object.freeze([
 
 export const WEBGPU_VISIBLE_RECORD_FIELD_COMPUTE_MODES = Object.freeze({
   srcIndex: 'wgsl-candidate-buffer',
-  valid: 'wgsl-reference-valid-candidate-bounds-and-projection-gate',
+  valid: 'wgsl-candidate-bounds-state-position-projection-gate',
   px: 'wgsl-state-position-projection-contract',
   py: 'wgsl-state-position-projection-contract',
   depth: 'wgsl-state-position-projection-contract',

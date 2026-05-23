@@ -55,7 +55,7 @@ export function createWebGpuInputBufferContract({
       [WEBGPU_INPUT_BUFFER_NAMES.CANDIDATE_INDICES]: 'candidate index list for compute rows',
       [WEBGPU_INPUT_BUFFER_NAMES.RAW_XYZ_OPACITY]: 'raw xyz/opacity probe data for selected candidates',
       [WEBGPU_INPUT_BUFFER_NAMES.STATE_POSITIONS]: '4D state positions materialized on CPU for this scaffold stage',
-      [WEBGPU_INPUT_BUFFER_NAMES.CPU_REFERENCE_RECORDS]: 'CPU fixed-record reference used for validation and assisted fields',
+      [WEBGPU_INPUT_BUFFER_NAMES.CPU_REFERENCE_RECORDS]: 'CPU fixed-record reference used for validation and CPU materialized fields',
       [WEBGPU_INPUT_BUFFER_NAMES.OUTPUT_FIXED_RECORDS]: 'WGSL fixed-record output buffer',
       [WEBGPU_INPUT_BUFFER_NAMES.PROJECTION_PARAMS]: 'projection contract parameters consumed by WGSL',
       [WEBGPU_INPUT_BUFFER_NAMES.DISPATCH_PARAMS]: 'small uniform buffer for dispatch counts and raw bounds',
