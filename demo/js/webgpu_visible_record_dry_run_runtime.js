@@ -26,6 +26,11 @@ import {
   WEBGPU_VISIBLE_RECORD_WGSL_COMPUTED_FIELDS,
   cloneWebGpuVisibleRecordFieldComputeModes
 } from './common_4dgs_record_contracts.js';
+import {
+  WEBGPU_INPUT_BUFFER_MODES,
+  createWebGpuInputBufferContract,
+  createWebGpuInputBufferModes
+} from './common_4dgs_webgpu_input_contracts.js';
 
 const DEFAULT_MAX_RECORDS = 65536;
 const DEFAULT_EPSILON = DEFAULT_COMPARISON_EPSILON;
@@ -87,6 +92,9 @@ function makeFallback(reason, extra = {}) {
     mismatchClassification: extra.mismatchClassification ??
       MISMATCH_CLASSIFICATIONS.WEBGPU_VISIBLE_RECORD_UNAVAILABLE,
     timing: extra.timing ?? null,
+    inputContract: extra.inputContract ?? null,
+    bufferContract: extra.bufferContract ?? null,
+    inputBufferModes: extra.inputBufferModes ?? createWebGpuInputBufferModes(),
     webgpu: extra.webgpu ?? null,
     metadata: extra.metadata ?? null
   };
@@ -538,6 +546,14 @@ export async function runWebGpuVisibleRecordDryRun({
     projectionParams: projectionContract.data,
     rawCount
   });
+  const inputContract = createWebGpuInputBufferContract({
+    candidateCount: cpuReference.candidateCount,
+    recordCount: cpuReference.count,
+    rawCount,
+    recordFloats: RECORD_FLOATS,
+    outputBufferBytes: cpuReference.records.byteLength,
+    projectionParamMode: projectionContract.summary.mode
+  });
   const compareStartMs = nowMs();
   const comparisonTolerance = createComparisonToleranceMetadata({ epsilon, maxMismatches });
   const recordComparison = compareRecords(cpuReference.records, computeResult.records, cpuReference.count, {
@@ -571,6 +587,9 @@ export async function runWebGpuVisibleRecordDryRun({
       mismatchClassifications: MISMATCH_CLASSIFICATIONS
     },
     comparisonTolerance,
+    inputContract,
+    bufferContract: inputContract,
+    inputBufferModes: inputContract.inputBufferModes,
     recordComparison,
     fieldMismatchCount: recordComparison.fieldMismatchCount,
     firstMismatches: recordComparison.firstMismatches,
@@ -586,10 +605,13 @@ export async function runWebGpuVisibleRecordDryRun({
     },
     webgpu: {
       adapterInfoAvailable: typeof adapter.requestAdapterInfo === 'function',
-      rawBufferUploadMode: 'candidate-xyz-opacity-step4-fetch-probe',
-      statePositionUploadMode: 'cpu-materialized-4d-state-position',
+      rawBufferUploadMode: WEBGPU_INPUT_BUFFER_MODES.RAW_XYZ_OPACITY,
+      statePositionUploadMode: WEBGPU_INPUT_BUFFER_MODES.STATE_POSITIONS,
       projectionParamMode: projectionContract.summary.mode,
       projectionContract: projectionContract.summary,
+      inputContract,
+      bufferContract: inputContract,
+      inputBufferModes: inputContract.inputBufferModes,
       candidateBufferCount: cpuReference.count,
       rawCount,
       outputBufferBytes: cpuReference.records.byteLength
