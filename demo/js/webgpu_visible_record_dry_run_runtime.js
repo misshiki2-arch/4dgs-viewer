@@ -1,6 +1,16 @@
 import { buildVisibleItemForCandidate } from './gpu_visible_item_builder.js';
 import { clampInt } from './gpu_tile_utils.js';
 import { computeGaussianState } from './rot4d_math.js';
+import {
+  COMPARISON_CONTRACT_SCHEMA_VERSION,
+  DEFAULT_COMPARISON_EPSILON,
+  DEFAULT_MAX_MISMATCHES,
+  MISMATCH_CLASSIFICATIONS,
+  RECORD_COMPARISON_KEYS,
+  createComparisonToleranceMetadata,
+  createRecordComparisonResult,
+  createRecordMismatch
+} from './common_4dgs_comparison_contracts.js';
 import { buildWebGpuProjectionContract } from './common_4dgs_projection_contracts.js';
 import {
   WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
@@ -18,7 +28,7 @@ import {
 } from './common_4dgs_record_contracts.js';
 
 const DEFAULT_MAX_RECORDS = 65536;
-const DEFAULT_EPSILON = 1e-3;
+const DEFAULT_EPSILON = DEFAULT_COMPARISON_EPSILON;
 const RECORD_FLOATS = WEBGPU_VISIBLE_RECORD_FLOATS;
 const IMPLEMENTED_FIELDS = WEBGPU_VISIBLE_RECORD_IMPLEMENTED_FIELDS;
 const WGSL_COMPUTED_FIELDS = WEBGPU_VISIBLE_RECORD_WGSL_COMPUTED_FIELDS;
@@ -61,14 +71,21 @@ function makeFallback(reason, extra = {}) {
     recordCount: extra.recordCount ?? null,
     validRecordCount: extra.validRecordCount ?? null,
     recordComparison: {
-      anyMismatch: true,
-      fieldMismatchCount: null,
-      maxAbsError: null,
-      firstMismatches: extra.firstMismatches ?? []
+      [RECORD_COMPARISON_KEYS.ANY_MISMATCH]: true,
+      [RECORD_COMPARISON_KEYS.FIELD_MISMATCH_COUNT]: null,
+      [RECORD_COMPARISON_KEYS.MAX_ABS_ERROR]: null,
+      [RECORD_COMPARISON_KEYS.FIRST_MISMATCHES]: extra.firstMismatches ?? []
     },
+    comparisonContract: {
+      schemaVersion: COMPARISON_CONTRACT_SCHEMA_VERSION,
+      recordComparisonKeys: RECORD_COMPARISON_KEYS,
+      mismatchClassifications: MISMATCH_CLASSIFICATIONS
+    },
+    comparisonTolerance: createComparisonToleranceMetadata(),
     fieldMismatchCount: null,
     firstMismatches: extra.firstMismatches ?? [],
-    mismatchClassification: extra.mismatchClassification ?? 'webgpu-visible-record-unavailable',
+    mismatchClassification: extra.mismatchClassification ??
+      MISMATCH_CLASSIFICATIONS.WEBGPU_VISIBLE_RECORD_UNAVAILABLE,
     timing: extra.timing ?? null,
     webgpu: extra.webgpu ?? null,
     metadata: extra.metadata ?? null
@@ -240,33 +257,35 @@ function compareRecords(reference, candidate, count, { epsilon, maxMismatches })
         if (diff > epsilon) {
           fieldMismatchCount += 1;
           if (firstMismatches.length < maxMismatches) {
-            firstMismatches.push({
+            firstMismatches.push(createRecordMismatch({
               row,
               field,
               component: components > 1 ? c : null,
               expected: ref,
               actual: got,
               absError: diff
-            });
+            }));
           }
         }
       }
     }
   }
-  return {
+  return createRecordComparisonResult({
     anyMismatch: fieldMismatchCount > 0,
     fieldMismatchCount,
     maxAbsError,
     firstMismatches
-  };
+  });
 }
 
 function classifyComparison(comparison) {
-  if (!comparison) return 'webgpu-visible-record-compare-missing';
-  if (!comparison.anyMismatch) return 'none';
+  if (!comparison) return MISMATCH_CLASSIFICATIONS.WEBGPU_VISIBLE_RECORD_COMPARE_MISSING;
+  if (!comparison.anyMismatch) return MISMATCH_CLASSIFICATIONS.NONE;
   const fields = new Set((comparison.firstMismatches ?? []).map((item) => item.field));
-  if (fields.size === 1 && fields.has('aabb')) return 'webgpu-fixed-record-aabb-mismatch';
-  return 'webgpu-fixed-record-field-mismatch';
+  if (fields.size === 1 && fields.has('aabb')) {
+    return MISMATCH_CLASSIFICATIONS.WEBGPU_FIXED_RECORD_AABB_MISMATCH;
+  }
+  return MISMATCH_CLASSIFICATIONS.WEBGPU_FIXED_RECORD_FIELD_MISMATCH;
 }
 
 function createBuffer(device, data, usage) {
@@ -465,7 +484,7 @@ export async function runWebGpuVisibleRecordDryRun({
   buildConfig = {},
   maxRecords = DEFAULT_MAX_RECORDS,
   epsilon = DEFAULT_EPSILON,
-  maxMismatches = 32,
+  maxMismatches = DEFAULT_MAX_MISMATCHES,
   metadata = null
 } = {}) {
   const totalStartMs = nowMs();
@@ -520,6 +539,7 @@ export async function runWebGpuVisibleRecordDryRun({
     rawCount
   });
   const compareStartMs = nowMs();
+  const comparisonTolerance = createComparisonToleranceMetadata({ epsilon, maxMismatches });
   const recordComparison = compareRecords(cpuReference.records, computeResult.records, cpuReference.count, {
     epsilon,
     maxMismatches
@@ -545,6 +565,12 @@ export async function runWebGpuVisibleRecordDryRun({
     validRecordCount: cpuReference.validCount,
     recordFloats: RECORD_FLOATS,
     recordLayout: WEBGPU_VISIBLE_RECORD_FIELDS,
+    comparisonContract: {
+      schemaVersion: comparisonTolerance.schemaVersion,
+      recordComparisonKeys: RECORD_COMPARISON_KEYS,
+      mismatchClassifications: MISMATCH_CLASSIFICATIONS
+    },
+    comparisonTolerance,
     recordComparison,
     fieldMismatchCount: recordComparison.fieldMismatchCount,
     firstMismatches: recordComparison.firstMismatches,

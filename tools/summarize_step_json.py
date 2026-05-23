@@ -678,6 +678,8 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
         "cpuMaterializedFields": get_path(summary, ["cpuMaterializedFields"], []),
         "fieldComputeModes": get_path(summary, ["fieldComputeModes"], {}),
         "deferredFields": get_path(summary, ["deferredFields"], []),
+        "comparisonContract": get_path(summary, ["comparisonContract"], {}),
+        "comparisonTolerance": get_path(summary, ["comparisonTolerance"], {}),
         "candidateCount": get_path(summary, ["candidateCount"]),
         "recordCount": get_path(summary, ["recordCount"]),
         "validRecordCount": get_path(summary, ["validRecordCount"]),
