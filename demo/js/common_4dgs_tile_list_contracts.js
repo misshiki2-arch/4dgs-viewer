@@ -7,13 +7,18 @@ export const WEBGPU_TILE_LIST_CAPACITY_CONTRACT_SCHEMA_VERSION =
 export const WEBGPU_TILE_LIST_VALIDATION_CONTRACT_SCHEMA_VERSION =
   'phase3-step16-tile-list-validation-summary-contract-v1';
 
+export const WEBGPU_TILE_LIST_VALIDATION_UNIT_CONTRACT_SCHEMA_VERSION =
+  'phase3-step17-prefix-sum-scatter-validation-unit-contract-v1';
+
 export const WEBGPU_TILE_LIST_CONTRACT_NAMES = Object.freeze({
   PREFIX_SUM_SCATTER_TILE_LIST:
     'prefix-sum-scatter-tile-list-from-tile-range',
   CAPACITY_OVERFLOW_POLICY:
     'tile-list-capacity-overflow-policy',
   VALIDATION_SUMMARY:
-    'tile-list-validation-summary'
+    'tile-list-validation-summary',
+  PREFIX_SUM_SCATTER_VALIDATION_UNIT:
+    'prefix-sum-scatter-validation-unit'
 });
 
 export const WEBGPU_TILE_LIST_COMPUTE_MODES = Object.freeze({
@@ -21,6 +26,8 @@ export const WEBGPU_TILE_LIST_COMPUTE_MODES = Object.freeze({
     'deferred-prefix-sum-scatter-tile-list-generation',
   DEFERRED_CAPACITY_OVERFLOW_VALIDATION:
     'deferred-capacity-overflow-validation-summary',
+  DEFERRED_PREFIX_SUM_SCATTER_VALIDATION_UNIT:
+    'deferred-prefix-sum-scatter-validation-unit',
   CPU_REFERENCE_TILE_LIST:
     'cpu-reference-tile-list-build'
 });
@@ -61,6 +68,61 @@ export const WEBGPU_TILE_LIST_VALIDATION_CHECKS = Object.freeze([
   'scatter output validation',
   'totalTileRefs consistency'
 ]);
+
+export const WEBGPU_TILE_LIST_VALIDATION_UNITS = Object.freeze([
+  'tileCounts-from-tileRange',
+  'tileOffsets-from-tileCounts',
+  'scatter-indices-from-tileRange-and-offsets',
+  'tileListMetadata-from-counts-offsets-scatter'
+]);
+
+export function createWebGpuTileListValidationUnitContract({
+  computeMode = WEBGPU_TILE_LIST_COMPUTE_MODES.DEFERRED_PREFIX_SUM_SCATTER_VALIDATION_UNIT,
+  implementedInWgsl = false
+} = {}) {
+  return {
+    schemaVersion: WEBGPU_TILE_LIST_VALIDATION_UNIT_CONTRACT_SCHEMA_VERSION,
+    contractName: WEBGPU_TILE_LIST_CONTRACT_NAMES.PREFIX_SUM_SCATTER_VALIDATION_UNIT,
+    computeMode,
+    implementedInWgsl,
+    validationUnits: [...WEBGPU_TILE_LIST_VALIDATION_UNITS],
+    dependencyOrder: [
+      'visible records with tileRange',
+      'tile grid dimensions and tileCount',
+      'tileCounts pass',
+      'tileOffsets exclusive prefix sum',
+      'capacity status from totalTileRefs',
+      'scatter output using per-tile write cursors',
+      'tile-list metadata summary'
+    ],
+    recommendedStep18Unit: {
+      name: 'tileCounts-to-tileOffsets-dry-run',
+      scope: 'Generate or compare tileCounts and exclusive tileOffsets only; keep scatter deferred.',
+      compareAgainst: 'CPU buildTileLists counts/offsets reference',
+      successCriteria: [
+        'tileCounts match CPU reference',
+        'tileOffsets are monotonic and start at zero',
+        'tileOffsets[tileCount] equals sum(tileCounts)',
+        'capacityStatus can be derived without writing tileIndices'
+      ]
+    },
+    failureClassification: {
+      tileCountsMismatch:
+        'tileRange iteration, tile grid clamp, or visible record ordering problem',
+      prefixOffsetsMismatch:
+        'exclusive prefix sum implementation or tileCount bounds problem',
+      capacityMismatch:
+        'totalTileRefs, maxTileRefs, or overflow policy problem',
+      scatterMismatch:
+        'write cursor initialization, per-tile ordering, or index emission problem'
+    },
+    relationToStep16:
+      'Step17 defines the validation units consumed by tileListValidationContract before any WebGPU prefix-sum or scatter implementation is promoted.',
+    notes: [
+      'Scatter remains deferred. Step18 should begin with tileCounts and tileOffsets so failures can be isolated before tileIndices writes exist.'
+    ]
+  };
+}
 
 export function createWebGpuTileListCapacityContract({
   computeMode = WEBGPU_TILE_LIST_COMPUTE_MODES.DEFERRED_CAPACITY_OVERFLOW_VALIDATION,

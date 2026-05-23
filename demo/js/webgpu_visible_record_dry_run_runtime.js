@@ -8,6 +8,7 @@ import {
 import {
   createWebGpuTileListCapacityContract,
   createWebGpuTileListContract,
+  createWebGpuTileListValidationUnitContract,
   createWebGpuTileListValidationContract
 } from './common_4dgs_tile_list_contracts.js';
 import {
@@ -83,6 +84,8 @@ function makeFallback(reason, extra = {}) {
     extra.tileListCapacityContract ?? createWebGpuTileListCapacityContract();
   const tileListValidationContract =
     extra.tileListValidationContract ?? createWebGpuTileListValidationContract();
+  const tileListValidationUnitContract =
+    extra.tileListValidationUnitContract ?? createWebGpuTileListValidationUnitContract();
   return {
     schemaVersion: WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION,
     phaseStep: WEBGPU_VISIBLE_RECORD_PHASE_STEP,
@@ -128,6 +131,8 @@ function makeFallback(reason, extra = {}) {
     tileListCapacityComputeMode: tileListCapacityContract.computeMode,
     tileListValidationContract,
     tileListValidationComputeMode: tileListValidationContract.computeMode,
+    tileListValidationUnitContract,
+    tileListValidationUnitComputeMode: tileListValidationUnitContract.computeMode,
     fieldMismatchCount: null,
     firstMismatches: extra.firstMismatches ?? [],
     mismatchClassification: extra.mismatchClassification ??
@@ -584,6 +589,7 @@ export async function runWebGpuVisibleRecordDryRun({
   const tileListContract = createWebGpuTileListContract();
   const tileListCapacityContract = createWebGpuTileListCapacityContract();
   const tileListValidationContract = createWebGpuTileListValidationContract();
+  const tileListValidationUnitContract = createWebGpuTileListValidationUnitContract();
   const bufferUploadPrepareMs = nowMs() - uploadStartMs;
   const rawCount = toFiniteInteger(raw.count ?? raw.N ?? (raw.xyz?.length / Math.max(1, raw.xyzDim || 3)), 0);
   const computeResult = await runCompute({
@@ -617,7 +623,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step16 keeps tile-list generation deferred and adds explicit capacity, overflow, and validation summary contracts before any prefix-sum or scatter WGSL implementation.',
+    scaffoldNote: 'Phase 3 Step17 keeps prefix-sum and scatter deferred while documenting the validation units that split tileCounts, tileOffsets, scatter, and tile-list metadata checks.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
@@ -652,6 +658,8 @@ export async function runWebGpuVisibleRecordDryRun({
     tileListCapacityComputeMode: tileListCapacityContract.computeMode,
     tileListValidationContract,
     tileListValidationComputeMode: tileListValidationContract.computeMode,
+    tileListValidationUnitContract,
+    tileListValidationUnitComputeMode: tileListValidationUnitContract.computeMode,
     inputContract,
     bufferContract: inputContract,
     inputBufferModes: inputContract.inputBufferModes,
@@ -691,6 +699,8 @@ export async function runWebGpuVisibleRecordDryRun({
       tileListCapacityComputeMode: tileListCapacityContract.computeMode,
       tileListValidationContract,
       tileListValidationComputeMode: tileListValidationContract.computeMode,
+      tileListValidationUnitContract,
+      tileListValidationUnitComputeMode: tileListValidationUnitContract.computeMode,
       inputContract,
       bufferContract: inputContract,
       inputBufferModes: inputContract.inputBufferModes,
