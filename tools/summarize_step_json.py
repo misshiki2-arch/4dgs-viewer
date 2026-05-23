@@ -690,6 +690,18 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
         "boundsComputeMode": get_path(summary, ["boundsComputeMode"], {}),
         "tileListContract": get_path(summary, ["tileListContract"], {}),
         "tileListComputeMode": get_path(summary, ["tileListComputeMode"]),
+        "tileListCapacityContract": get_path(
+            summary, ["tileListCapacityContract"], {}
+        ),
+        "tileListCapacityComputeMode": get_path(
+            summary, ["tileListCapacityComputeMode"]
+        ),
+        "tileListValidationContract": get_path(
+            summary, ["tileListValidationContract"], {}
+        ),
+        "tileListValidationComputeMode": get_path(
+            summary, ["tileListValidationComputeMode"]
+        ),
         "inputContract": get_path(summary, ["inputContract"], {}),
         "bufferContract": get_path(summary, ["bufferContract"], {}),
         "inputBufferModes": get_path(summary, ["inputBufferModes"], {}),

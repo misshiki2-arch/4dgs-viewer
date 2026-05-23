@@ -4,10 +4,10 @@ export const WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION =
 export const WEBGPU_VISIBLE_RECORD_COMPUTE_MODE =
   'webgpu-storage-buffer-compute-fixed-record';
 
-export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step15';
+export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step16';
 
 export const WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE =
-  'wgsl-valid-screen-projection-with-tile-list-contract';
+  'wgsl-valid-screen-projection-with-tile-list-capacity-contracts';
 
 export const WEBGPU_RADIUS_FIELD_COMPUTE_MODE =
   'deferred-covariance-conic-dependent';
@@ -23,6 +23,9 @@ export const WEBGPU_TILE_RANGE_FIELD_COMPUTE_MODE =
 
 export const WEBGPU_TILE_LIST_GENERATION_COMPUTE_MODE =
   'deferred-prefix-sum-scatter-tile-list-generation';
+
+export const WEBGPU_TILE_LIST_CAPACITY_VALIDATION_COMPUTE_MODE =
+  'deferred-capacity-overflow-validation-summary';
 
 export {
   WEBGPU_PROJECTION_CONTRACT_NAMES,
@@ -76,7 +79,8 @@ export const WEBGPU_VISIBLE_RECORD_FIELD_COMPUTE_MODES = Object.freeze({
   radius: WEBGPU_RADIUS_FIELD_COMPUTE_MODE,
   conic: WEBGPU_CONIC_FIELD_COMPUTE_MODE,
   tileRange: WEBGPU_TILE_RANGE_FIELD_COMPUTE_MODE,
-  tileListGeneration: WEBGPU_TILE_LIST_GENERATION_COMPUTE_MODE
+  tileListGeneration: WEBGPU_TILE_LIST_GENERATION_COMPUTE_MODE,
+  tileListCapacityValidation: WEBGPU_TILE_LIST_CAPACITY_VALIDATION_COMPUTE_MODE
 });
 
 export const WEBGPU_VISIBLE_RECORD_DEFERRED_FIELDS = Object.freeze([
@@ -90,6 +94,7 @@ export const WEBGPU_VISIBLE_RECORD_DEFERRED_FIELDS = Object.freeze([
   'compaction',
   'depth sort',
   'tile-list GPU generation',
+  'tile-list capacity/overflow validation summary',
   'display connection'
 ]);
 

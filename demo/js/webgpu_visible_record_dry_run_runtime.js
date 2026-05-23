@@ -5,7 +5,11 @@ import {
   createWebGpuAabbContract,
   createWebGpuTileRangeContract
 } from './common_4dgs_bounds_contracts.js';
-import { createWebGpuTileListContract } from './common_4dgs_tile_list_contracts.js';
+import {
+  createWebGpuTileListCapacityContract,
+  createWebGpuTileListContract,
+  createWebGpuTileListValidationContract
+} from './common_4dgs_tile_list_contracts.js';
 import {
   COMPARISON_CONTRACT_SCHEMA_VERSION,
   DEFAULT_COMPARISON_EPSILON,
@@ -75,6 +79,10 @@ function makeFallback(reason, extra = {}) {
   const aabbContract = extra.aabbContract ?? createWebGpuAabbContract();
   const tileRangeContract = extra.tileRangeContract ?? createWebGpuTileRangeContract();
   const tileListContract = extra.tileListContract ?? createWebGpuTileListContract();
+  const tileListCapacityContract =
+    extra.tileListCapacityContract ?? createWebGpuTileListCapacityContract();
+  const tileListValidationContract =
+    extra.tileListValidationContract ?? createWebGpuTileListValidationContract();
   return {
     schemaVersion: WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION,
     phaseStep: WEBGPU_VISIBLE_RECORD_PHASE_STEP,
@@ -116,6 +124,10 @@ function makeFallback(reason, extra = {}) {
     },
     tileListContract,
     tileListComputeMode: tileListContract.computeMode,
+    tileListCapacityContract,
+    tileListCapacityComputeMode: tileListCapacityContract.computeMode,
+    tileListValidationContract,
+    tileListValidationComputeMode: tileListValidationContract.computeMode,
     fieldMismatchCount: null,
     firstMismatches: extra.firstMismatches ?? [],
     mismatchClassification: extra.mismatchClassification ??
@@ -570,6 +582,8 @@ export async function runWebGpuVisibleRecordDryRun({
   const aabbContract = createWebGpuAabbContract();
   const tileRangeContract = createWebGpuTileRangeContract();
   const tileListContract = createWebGpuTileListContract();
+  const tileListCapacityContract = createWebGpuTileListCapacityContract();
+  const tileListValidationContract = createWebGpuTileListValidationContract();
   const bufferUploadPrepareMs = nowMs() - uploadStartMs;
   const rawCount = toFiniteInteger(raw.count ?? raw.N ?? (raw.xyz?.length / Math.max(1, raw.xyzDim || 3)), 0);
   const computeResult = await runCompute({
@@ -603,7 +617,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step15 keeps srcIndex, valid, and minimal screen-space projection fields (px/py/depth) in WGSL, and adds an explicit tile-list generation contract. Tile counts, prefix offsets, and scatter remain deferred until a later WebGPU compute step.',
+    scaffoldNote: 'Phase 3 Step16 keeps tile-list generation deferred and adds explicit capacity, overflow, and validation summary contracts before any prefix-sum or scatter WGSL implementation.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
@@ -634,6 +648,10 @@ export async function runWebGpuVisibleRecordDryRun({
     },
     tileListContract,
     tileListComputeMode: tileListContract.computeMode,
+    tileListCapacityContract,
+    tileListCapacityComputeMode: tileListCapacityContract.computeMode,
+    tileListValidationContract,
+    tileListValidationComputeMode: tileListValidationContract.computeMode,
     inputContract,
     bufferContract: inputContract,
     inputBufferModes: inputContract.inputBufferModes,
@@ -669,6 +687,10 @@ export async function runWebGpuVisibleRecordDryRun({
       },
       tileListContract,
       tileListComputeMode: tileListContract.computeMode,
+      tileListCapacityContract,
+      tileListCapacityComputeMode: tileListCapacityContract.computeMode,
+      tileListValidationContract,
+      tileListValidationComputeMode: tileListValidationContract.computeMode,
       inputContract,
       bufferContract: inputContract,
       inputBufferModes: inputContract.inputBufferModes,
