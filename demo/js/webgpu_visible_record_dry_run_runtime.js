@@ -73,6 +73,140 @@ function toFiniteInteger(value, fallback) {
   return Number.isFinite(n) ? Math.max(0, Math.floor(n)) : fallback;
 }
 
+function createTileCountsOffsetsUnavailable(reason) {
+  return {
+    mode: 'cpu-reference-materialized-tile-counts-to-offsets-dry-run',
+    status: 'unavailable',
+    reason,
+    implementedInWgsl: false,
+    scatterImplemented: false,
+    tileCountsValid: false,
+    prefixOffsetsValid: false,
+    totalTileRefsConsistent: false,
+    capacityStatus: 'needs-resize-or-second-pass',
+    firstValidationFailures: [{ stage: 'input', reason }]
+  };
+}
+
+function buildTileCountsOffsetsDryRun({ tileRanges, tileGrid }) {
+  const startMs = nowMs();
+  const tileCols = toFiniteInteger(tileGrid?.tileCols, 0);
+  const tileRows = toFiniteInteger(tileGrid?.tileRows, 0);
+  const tileSize = toFiniteInteger(tileGrid?.tileSize, 32);
+  const tileCount = tileCols * tileRows;
+  if (tileCount <= 0) {
+    return createTileCountsOffsetsUnavailable('tile-grid-unavailable');
+  }
+
+  const countsStartMs = nowMs();
+  const tileCounts = new Uint32Array(tileCount);
+  const firstValidationFailures = [];
+  for (let i = 0; i < tileRanges.length; i += 1) {
+    const tr = tileRanges[i];
+    if (!tr || tr.length < 4) {
+      if (firstValidationFailures.length < 8) {
+        firstValidationFailures.push({ stage: 'tileCounts', index: i, reason: 'tileRange-unavailable' });
+      }
+      continue;
+    }
+    for (let ty = tr[1]; ty <= tr[3]; ty += 1) {
+      const rowBase = ty * tileCols;
+      for (let tx = tr[0]; tx <= tr[2]; tx += 1) {
+        const tileId = rowBase + tx;
+        if (tileId < 0 || tileId >= tileCount) {
+          if (firstValidationFailures.length < 8) {
+            firstValidationFailures.push({ stage: 'tileCounts', index: i, tileId, reason: 'tileId-out-of-range' });
+          }
+          continue;
+        }
+        tileCounts[tileId] += 1;
+      }
+    }
+  }
+  const tileCountsBuildMs = nowMs() - countsStartMs;
+
+  const offsetsStartMs = nowMs();
+  const tileOffsets = new Uint32Array(tileCount + 1);
+  for (let i = 0; i < tileCount; i += 1) {
+    tileOffsets[i + 1] = tileOffsets[i] + tileCounts[i];
+  }
+  const tileOffsetsBuildMs = nowMs() - offsetsStartMs;
+
+  let sumTileCounts = 0;
+  let maxRefsPerTile = 0;
+  let nonEmptyTiles = 0;
+  let tileCountsValid = firstValidationFailures.length === 0 && tileCounts.length === tileCount;
+  let prefixOffsetsValid = tileOffsets.length === tileCount + 1 && tileOffsets[0] === 0;
+  for (let i = 0; i < tileCount; i += 1) {
+    const count = tileCounts[i];
+    sumTileCounts += count;
+    if (count > 0) nonEmptyTiles += 1;
+    if (count > maxRefsPerTile) maxRefsPerTile = count;
+    if (tileOffsets[i + 1] < tileOffsets[i] || tileOffsets[i + 1] - tileOffsets[i] !== count) {
+      prefixOffsetsValid = false;
+      if (firstValidationFailures.length < 8) {
+        firstValidationFailures.push({ stage: 'tileOffsets', tileId: i, reason: 'exclusive-prefix-mismatch' });
+      }
+    }
+  }
+
+  const totalTileRefs = tileOffsets[tileCount] ?? 0;
+  const totalTileRefsConsistent = totalTileRefs === sumTileCounts;
+  if (!totalTileRefsConsistent && firstValidationFailures.length < 8) {
+    firstValidationFailures.push({ stage: 'totalTileRefs', reason: 'offset-terminal-does-not-match-count-sum' });
+  }
+
+  return {
+    mode: 'cpu-reference-materialized-tile-counts-to-offsets-dry-run',
+    status: firstValidationFailures.length === 0 ? 'ok' : 'validation-failed',
+    computeMode: 'cpu-reference-materialized',
+    implementedInWgsl: false,
+    scatterImplemented: false,
+    source: 'cpu-reference-visible-record-tileRange',
+    outputSchema: {
+      tileCounts: 'uint32[tileCount]',
+      tileOffsets: 'uint32[tileCount + 1], exclusive prefix sum of tileCounts'
+    },
+    tileGrid: { tileCols, tileRows, tileCount, tileSize },
+    recordCounts: {
+      tileRangeCount: tileRanges.length,
+      tileCountsLength: tileCounts.length,
+      tileOffsetsLength: tileOffsets.length
+    },
+    metadata: {
+      tileCountsType: 'uint32',
+      tileOffsetsType: 'uint32',
+      tileOffsetsPolicy: 'exclusive-prefix-sum',
+      tileOffsetsInitialValue: tileOffsets[0] ?? null,
+      tileOffsetsTerminalValue: totalTileRefs,
+      maxRefsPerTile,
+      nonEmptyTiles,
+      totalTileRefs
+    },
+    capacity: {
+      maxTileRefs: totalTileRefs,
+      maxRefsPerTile,
+      totalTileRefs,
+      nonEmptyTiles,
+      capacityStatus: 'no-overflow'
+    },
+    validationSummary: {
+      tileCountsValid,
+      prefixOffsetsValid,
+      totalTileRefsConsistent,
+      capacityStatus: 'no-overflow',
+      firstValidationFailures
+    },
+    tileCounts: Array.from(tileCounts),
+    tileOffsets: Array.from(tileOffsets),
+    timing: {
+      tileCountsBuildMs,
+      tileOffsetsBuildMs,
+      tileCountsToOffsetsDryRunMs: nowMs() - startMs
+    }
+  };
+}
+
 function makeFallback(reason, extra = {}) {
   const radiusContract = extra.radiusContract ?? createWebGpuRadiusContract();
   const covarianceContract = extra.covarianceContract ?? createWebGpuCovarianceContract();
@@ -86,6 +220,8 @@ function makeFallback(reason, extra = {}) {
     extra.tileListValidationContract ?? createWebGpuTileListValidationContract();
   const tileListValidationUnitContract =
     extra.tileListValidationUnitContract ?? createWebGpuTileListValidationUnitContract();
+  const tileCountsToOffsetsDryRun =
+    extra.tileCountsToOffsetsDryRun ?? createTileCountsOffsetsUnavailable(reason);
   return {
     schemaVersion: WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION,
     phaseStep: WEBGPU_VISIBLE_RECORD_PHASE_STEP,
@@ -133,6 +269,7 @@ function makeFallback(reason, extra = {}) {
     tileListValidationComputeMode: tileListValidationContract.computeMode,
     tileListValidationUnitContract,
     tileListValidationUnitComputeMode: tileListValidationUnitContract.computeMode,
+    tileCountsToOffsetsDryRun,
     fieldMismatchCount: null,
     firstMismatches: extra.firstMismatches ?? [],
     mismatchClassification: extra.mismatchClassification ??
@@ -187,6 +324,7 @@ function buildCpuReferenceRecords({
     nativeMarginal: !!buildConfig.useNativeMarginal
   };
   const records = new Float32Array(count * RECORD_FLOATS);
+  const tileRanges = [];
   let validCount = 0;
   for (let i = 0; i < count; i += 1) {
     const srcIndex = candidateIndices[i];
@@ -218,17 +356,29 @@ function buildCpuReferenceRecords({
       const recordPx = Math.fround(item.px);
       const recordPy = Math.fround(item.py);
       const recordCoverageRadius = Math.max(1.0, Math.fround(item.radius));
+      const recordAabb = [
+        clampInt(Math.floor(recordPx - recordCoverageRadius), 0, canvasWidth - 1),
+        clampInt(Math.floor(recordPy - recordCoverageRadius), 0, canvasHeight - 1),
+        clampInt(Math.ceil(recordPx + recordCoverageRadius), 0, canvasWidth - 1),
+        clampInt(Math.ceil(recordPy + recordCoverageRadius), 0, canvasHeight - 1)
+      ];
+      const tileCols = toFiniteInteger(tileGrid?.tileCols, 0);
+      const tileRows = toFiniteInteger(tileGrid?.tileRows, 0);
+      const tileSize = toFiniteInteger(tileGrid?.tileSize, 32);
+      if (tileCols > 0 && tileRows > 0) {
+        tileRanges.push(item.tileRange ?? [
+          clampInt(Math.floor(recordAabb[0] / tileSize), 0, tileCols - 1),
+          clampInt(Math.floor(recordAabb[1] / tileSize), 0, tileRows - 1),
+          clampInt(Math.floor(recordAabb[2] / tileSize), 0, tileCols - 1),
+          clampInt(Math.floor(recordAabb[3] / tileSize), 0, tileRows - 1)
+        ]);
+      }
       writeRecord(records, i, {
         ...item,
         px: recordPx,
         py: recordPy,
         depth: Math.fround(item.depth),
-        aabb: [
-          clampInt(Math.floor(recordPx - recordCoverageRadius), 0, canvasWidth - 1),
-          clampInt(Math.floor(recordPy - recordCoverageRadius), 0, canvasHeight - 1),
-          clampInt(Math.ceil(recordPx + recordCoverageRadius), 0, canvasWidth - 1),
-          clampInt(Math.ceil(recordPy + recordCoverageRadius), 0, canvasHeight - 1)
-        ]
+        aabb: recordAabb
       }, srcIndex);
     } else {
       writeRecord(records, i, null, srcIndex);
@@ -240,6 +390,7 @@ function buildCpuReferenceRecords({
     count,
     validCount,
     records,
+    tileRanges,
     timing: {
       cpuReferenceBuildMs: nowMs() - startMs
     }
@@ -590,6 +741,10 @@ export async function runWebGpuVisibleRecordDryRun({
   const tileListCapacityContract = createWebGpuTileListCapacityContract();
   const tileListValidationContract = createWebGpuTileListValidationContract();
   const tileListValidationUnitContract = createWebGpuTileListValidationUnitContract();
+  const tileCountsToOffsetsDryRun = buildTileCountsOffsetsDryRun({
+    tileRanges: cpuReference.tileRanges,
+    tileGrid
+  });
   const bufferUploadPrepareMs = nowMs() - uploadStartMs;
   const rawCount = toFiniteInteger(raw.count ?? raw.N ?? (raw.xyz?.length / Math.max(1, raw.xyzDim || 3)), 0);
   const computeResult = await runCompute({
@@ -623,7 +778,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step17 keeps prefix-sum and scatter deferred while documenting the validation units that split tileCounts, tileOffsets, scatter, and tile-list metadata checks.',
+    scaffoldNote: 'Phase 3 Step18 materializes CPU reference tileCounts and exclusive tileOffsets for the tileCounts-to-tileOffsets dry-run while keeping scatter and full tile-list GPU generation deferred.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
@@ -660,6 +815,7 @@ export async function runWebGpuVisibleRecordDryRun({
     tileListValidationComputeMode: tileListValidationContract.computeMode,
     tileListValidationUnitContract,
     tileListValidationUnitComputeMode: tileListValidationUnitContract.computeMode,
+    tileCountsToOffsetsDryRun,
     inputContract,
     bufferContract: inputContract,
     inputBufferModes: inputContract.inputBufferModes,
@@ -672,6 +828,7 @@ export async function runWebGpuVisibleRecordDryRun({
       adapterDeviceMs,
       bufferUploadMs: bufferUploadPrepareMs,
       ...cpuReference.timing,
+      ...tileCountsToOffsetsDryRun.timing,
       ...computeResult.timing,
       compareMs,
       totalMs: nowMs() - totalStartMs
@@ -701,6 +858,7 @@ export async function runWebGpuVisibleRecordDryRun({
       tileListValidationComputeMode: tileListValidationContract.computeMode,
       tileListValidationUnitContract,
       tileListValidationUnitComputeMode: tileListValidationUnitContract.computeMode,
+      tileCountsToOffsetsDryRun,
       inputContract,
       bufferContract: inputContract,
       inputBufferModes: inputContract.inputBufferModes,

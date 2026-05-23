@@ -664,6 +664,12 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
     timing = get_path(summary, ["timing"], {})
     record_comparison = get_path(summary, ["recordComparison"], {})
     webgpu = get_path(summary, ["webgpu"], {})
+    counts_offsets = get_path(summary, ["tileCountsToOffsetsDryRun"], {})
+    counts_offsets_validation = get_path(
+        counts_offsets, ["validationSummary"], {}
+    )
+    counts_offsets_metadata = get_path(counts_offsets, ["metadata"], {})
+    counts_offsets_capacity = get_path(counts_offsets, ["capacity"], {})
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -708,6 +714,41 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
         "tileListValidationUnitComputeMode": get_path(
             summary, ["tileListValidationUnitComputeMode"]
         ),
+        "tileCountsToOffsetsDryRun": {
+            "status": get_path(counts_offsets, ["status"]),
+            "mode": get_path(counts_offsets, ["mode"]),
+            "computeMode": get_path(counts_offsets, ["computeMode"]),
+            "implementedInWgsl": get_path(counts_offsets, ["implementedInWgsl"]),
+            "scatterImplemented": get_path(counts_offsets, ["scatterImplemented"]),
+            "tileGrid": get_path(counts_offsets, ["tileGrid"], {}),
+            "recordCounts": get_path(counts_offsets, ["recordCounts"], {}),
+            "tileCountsValid": get_path(
+                counts_offsets_validation, ["tileCountsValid"]
+            ),
+            "prefixOffsetsValid": get_path(
+                counts_offsets_validation, ["prefixOffsetsValid"]
+            ),
+            "totalTileRefsConsistent": get_path(
+                counts_offsets_validation, ["totalTileRefsConsistent"]
+            ),
+            "capacityStatus": get_path(
+                counts_offsets_validation, ["capacityStatus"]
+            ),
+            "firstValidationFailures": get_path(
+                counts_offsets_validation, ["firstValidationFailures"], []
+            ),
+            "tileOffsetsPolicy": get_path(
+                counts_offsets_metadata, ["tileOffsetsPolicy"]
+            ),
+            "tileOffsetsTerminalValue": get_path(
+                counts_offsets_metadata, ["tileOffsetsTerminalValue"]
+            ),
+            "totalTileRefs": get_path(counts_offsets_metadata, ["totalTileRefs"]),
+            "maxRefsPerTile": get_path(
+                counts_offsets_capacity, ["maxRefsPerTile"]
+            ),
+            "nonEmptyTiles": get_path(counts_offsets_capacity, ["nonEmptyTiles"]),
+        },
         "inputContract": get_path(summary, ["inputContract"], {}),
         "bufferContract": get_path(summary, ["bufferContract"], {}),
         "inputBufferModes": get_path(summary, ["inputBufferModes"], {}),

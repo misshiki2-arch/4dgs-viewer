@@ -4,10 +4,10 @@ export const WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION =
 export const WEBGPU_VISIBLE_RECORD_COMPUTE_MODE =
   'webgpu-storage-buffer-compute-fixed-record';
 
-export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step17';
+export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step18';
 
 export const WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE =
-  'wgsl-valid-screen-projection-with-prefix-sum-scatter-validation-unit-contract';
+  'wgsl-valid-screen-projection-with-tile-counts-offsets-dry-run';
 
 export const WEBGPU_RADIUS_FIELD_COMPUTE_MODE =
   'deferred-covariance-conic-dependent';
