@@ -680,6 +680,8 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
         "deferredFields": get_path(summary, ["deferredFields"], []),
         "comparisonContract": get_path(summary, ["comparisonContract"], {}),
         "comparisonTolerance": get_path(summary, ["comparisonTolerance"], {}),
+        "radiusContract": get_path(summary, ["radiusContract"], {}),
+        "radiusComputeMode": get_path(summary, ["radiusComputeMode"]),
         "inputContract": get_path(summary, ["inputContract"], {}),
         "bufferContract": get_path(summary, ["bufferContract"], {}),
         "inputBufferModes": get_path(summary, ["inputBufferModes"], {}),

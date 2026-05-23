@@ -4,10 +4,13 @@ export const WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION =
 export const WEBGPU_VISIBLE_RECORD_COMPUTE_MODE =
   'webgpu-storage-buffer-compute-fixed-record';
 
-export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step11';
+export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step12';
 
 export const WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE =
-  'wgsl-valid-and-screen-projection-with-cpu-state-reference';
+  'wgsl-valid-screen-projection-with-radius-contract';
+
+export const WEBGPU_RADIUS_FIELD_COMPUTE_MODE =
+  'deferred-covariance-conic-dependent';
 
 export {
   WEBGPU_PROJECTION_CONTRACT_NAMES,
@@ -57,7 +60,8 @@ export const WEBGPU_VISIBLE_RECORD_FIELD_COMPUTE_MODES = Object.freeze({
   px: 'wgsl-state-position-projection-contract',
   py: 'wgsl-state-position-projection-contract',
   depth: 'wgsl-state-position-projection-contract',
-  aabb: 'cpu-materialized-reference-buffer'
+  aabb: 'cpu-materialized-reference-buffer',
+  radius: WEBGPU_RADIUS_FIELD_COMPUTE_MODE
 });
 
 export const WEBGPU_VISIBLE_RECORD_DEFERRED_FIELDS = Object.freeze([

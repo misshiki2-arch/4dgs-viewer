@@ -12,6 +12,7 @@ import {
   createRecordMismatch
 } from './common_4dgs_comparison_contracts.js';
 import { buildWebGpuProjectionContract } from './common_4dgs_projection_contracts.js';
+import { createWebGpuRadiusContract } from './common_4dgs_radius_contracts.js';
 import {
   WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
   WEBGPU_VISIBLE_RECORD_CPU_MATERIALIZED_FIELDS,
@@ -59,6 +60,7 @@ function toFiniteInteger(value, fallback) {
 }
 
 function makeFallback(reason, extra = {}) {
+  const radiusContract = extra.radiusContract ?? createWebGpuRadiusContract();
   return {
     schemaVersion: WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION,
     phaseStep: WEBGPU_VISIBLE_RECORD_PHASE_STEP,
@@ -87,6 +89,8 @@ function makeFallback(reason, extra = {}) {
       mismatchClassifications: MISMATCH_CLASSIFICATIONS
     },
     comparisonTolerance: createComparisonToleranceMetadata(),
+    radiusContract,
+    radiusComputeMode: radiusContract.computeMode,
     fieldMismatchCount: null,
     firstMismatches: extra.firstMismatches ?? [],
     mismatchClassification: extra.mismatchClassification ??
@@ -535,6 +539,7 @@ export async function runWebGpuVisibleRecordDryRun({
   const sx = canvasWidth / renderW;
   const sy = canvasHeight / renderH;
   const projectionContract = buildWebGpuProjectionContract({ camera, screenSpaceCamera, renderW, renderH, sx, sy });
+  const radiusContract = createWebGpuRadiusContract();
   const bufferUploadPrepareMs = nowMs() - uploadStartMs;
   const rawCount = toFiniteInteger(raw.count ?? raw.N ?? (raw.xyz?.length / Math.max(1, raw.xyzDim || 3)), 0);
   const computeResult = await runCompute({
@@ -568,7 +573,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step11 computes srcIndex, valid, and minimal screen-space projection fields (px/py/depth) in WGSL from CPU-materialized 4D state positions. aabb remains CPU-materialized until radius/covariance moves to WGSL.',
+    scaffoldNote: 'Phase 3 Step12 keeps srcIndex, valid, and minimal screen-space projection fields (px/py/depth) in WGSL, and adds an explicit radius contract. Radius remains deferred because it depends on screen-space covariance/conic parity; aabb remains CPU materialized.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
@@ -586,6 +591,8 @@ export async function runWebGpuVisibleRecordDryRun({
       mismatchClassifications: MISMATCH_CLASSIFICATIONS
     },
     comparisonTolerance,
+    radiusContract,
+    radiusComputeMode: radiusContract.computeMode,
     inputContract,
     bufferContract: inputContract,
     inputBufferModes: inputContract.inputBufferModes,
@@ -608,6 +615,8 @@ export async function runWebGpuVisibleRecordDryRun({
       statePositionUploadMode: WEBGPU_INPUT_BUFFER_MODES.STATE_POSITIONS,
       projectionParamMode: projectionContract.summary.mode,
       projectionContract: projectionContract.summary,
+      radiusContract,
+      radiusComputeMode: radiusContract.computeMode,
       inputContract,
       bufferContract: inputContract,
       inputBufferModes: inputContract.inputBufferModes,
