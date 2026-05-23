@@ -50,6 +50,7 @@ export function createWebGpuRadiusContract({
     dependencies: [...WEBGPU_RADIUS_DEPENDENCY_FIELDS],
     downstreamFields: [...WEBGPU_RADIUS_DOWNSTREAM_FIELDS],
     conicRelation: 'Radius and conic share the same screen-space covariance2D source; radius uses eigenvalues while conic uses the inverse covariance.',
+    boundsRelation: 'AABB is built from px/py plus radius before tileRange and tile-list generation.',
     notes: [
       'Radius depends on screen-space covariance eigenvalues, so it should move with covariance/conic rather than as an isolated scalar shortcut.',
       'Current WebGPU fixed-record dry-run still uses CPU materialized radius indirectly for aabb reference materialization.'

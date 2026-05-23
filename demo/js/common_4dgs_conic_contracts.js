@@ -85,6 +85,7 @@ export function createWebGpuConicContract({
     dependencies: [...WEBGPU_CONIC_DEPENDENCY_FIELDS],
     downstreamFields: [...WEBGPU_CONIC_DOWNSTREAM_FIELDS],
     radiusRelation: 'radius uses the same covariance eigenvalues before conic inversion, so conic and radius should move through WGSL with a shared covariance contract.',
+    boundsRelation: 'Conic shares the covariance source with radius; radius feeds AABB and tileRange while conic feeds alpha/power evaluation over those bounds.',
     alphaRelation: 'alpha/power evaluation consumes conic as -0.5 * (conic.x * dx^2 + conic.z * dy^2) - conic.y * dx * dy.',
     notes: [
       'Conic is intentionally deferred in Step13. The dry-run keeps comparing the existing fixed-record fields while documenting the covariance/conic contract needed by later WebGPU stages.'
