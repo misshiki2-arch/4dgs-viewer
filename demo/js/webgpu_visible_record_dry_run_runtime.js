@@ -5,6 +5,7 @@ import {
   createWebGpuAabbContract,
   createWebGpuTileRangeContract
 } from './common_4dgs_bounds_contracts.js';
+import { createWebGpuTileListContract } from './common_4dgs_tile_list_contracts.js';
 import {
   COMPARISON_CONTRACT_SCHEMA_VERSION,
   DEFAULT_COMPARISON_EPSILON,
@@ -73,6 +74,7 @@ function makeFallback(reason, extra = {}) {
   const conicContract = extra.conicContract ?? createWebGpuConicContract();
   const aabbContract = extra.aabbContract ?? createWebGpuAabbContract();
   const tileRangeContract = extra.tileRangeContract ?? createWebGpuTileRangeContract();
+  const tileListContract = extra.tileListContract ?? createWebGpuTileListContract();
   return {
     schemaVersion: WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION,
     phaseStep: WEBGPU_VISIBLE_RECORD_PHASE_STEP,
@@ -112,6 +114,8 @@ function makeFallback(reason, extra = {}) {
       aabb: aabbContract.computeMode,
       tileRange: tileRangeContract.computeMode
     },
+    tileListContract,
+    tileListComputeMode: tileListContract.computeMode,
     fieldMismatchCount: null,
     firstMismatches: extra.firstMismatches ?? [],
     mismatchClassification: extra.mismatchClassification ??
@@ -565,6 +569,7 @@ export async function runWebGpuVisibleRecordDryRun({
   const conicContract = createWebGpuConicContract();
   const aabbContract = createWebGpuAabbContract();
   const tileRangeContract = createWebGpuTileRangeContract();
+  const tileListContract = createWebGpuTileListContract();
   const bufferUploadPrepareMs = nowMs() - uploadStartMs;
   const rawCount = toFiniteInteger(raw.count ?? raw.N ?? (raw.xyz?.length / Math.max(1, raw.xyzDim || 3)), 0);
   const computeResult = await runCompute({
@@ -598,7 +603,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step14 keeps srcIndex, valid, and minimal screen-space projection fields (px/py/depth) in WGSL, and adds explicit AABB/tileRange contracts. AABB remains CPU materialized and tileRange remains deferred until radius/covariance parity and tile binning move to WGSL.',
+    scaffoldNote: 'Phase 3 Step15 keeps srcIndex, valid, and minimal screen-space projection fields (px/py/depth) in WGSL, and adds an explicit tile-list generation contract. Tile counts, prefix offsets, and scatter remain deferred until a later WebGPU compute step.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
@@ -627,6 +632,8 @@ export async function runWebGpuVisibleRecordDryRun({
       aabb: aabbContract.computeMode,
       tileRange: tileRangeContract.computeMode
     },
+    tileListContract,
+    tileListComputeMode: tileListContract.computeMode,
     inputContract,
     bufferContract: inputContract,
     inputBufferModes: inputContract.inputBufferModes,
@@ -660,6 +667,8 @@ export async function runWebGpuVisibleRecordDryRun({
         aabb: aabbContract.computeMode,
         tileRange: tileRangeContract.computeMode
       },
+      tileListContract,
+      tileListComputeMode: tileListContract.computeMode,
       inputContract,
       bufferContract: inputContract,
       inputBufferModes: inputContract.inputBufferModes,

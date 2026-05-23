@@ -106,6 +106,7 @@ export function createWebGpuTileRangeContract({
       'tile-list generation',
       'tile composite input'
     ],
+    tileListRelation: 'TileRange is the per-record input to tile-list generation counts, prefix offsets, and scatter outputs.',
     notes: [
       'TileRange remains deferred in Step14. It is the contract boundary between visible record generation and future WebGPU tile binning/list generation.'
     ]
