@@ -673,6 +673,10 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
     counts_offsets_self_comparison = get_path(
         summary, ["tileCountsOffsetsSelfComparison"], {}
     )
+    webgpu_tile_counts = get_path(summary, ["webgpuTileCountsDryRun"], {})
+    tile_counts_webgpu_comparison = get_path(
+        summary, ["tileCountsWebGpuComparison"], {}
+    )
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -801,6 +805,79 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             ),
             "sampleTiles": compact_list(
                 get_path(counts_offsets_self_comparison, ["sampleTiles"], [])
+            ),
+        },
+        "webgpuTileCountsDryRun": {
+            "status": get_path(webgpu_tile_counts, ["status"]),
+            "mode": get_path(webgpu_tile_counts, ["mode"]),
+            "implementedInWgsl": get_path(webgpu_tile_counts, ["implementedInWgsl"]),
+            "tileOffsetsComputed": get_path(
+                webgpu_tile_counts, ["tileOffsetsComputed"]
+            ),
+            "prefixSumImplemented": get_path(
+                webgpu_tile_counts, ["prefixSumImplemented"]
+            ),
+            "scatterImplemented": get_path(webgpu_tile_counts, ["scatterImplemented"]),
+            "tileGrid": get_path(webgpu_tile_counts, ["tileGrid"], {}),
+            "recordCounts": get_path(webgpu_tile_counts, ["recordCounts"], {}),
+            "totalTileRefs": get_path(
+                webgpu_tile_counts, ["metadata.totalTileRefs"]
+            ),
+            "maxRefsPerTile": get_path(
+                webgpu_tile_counts, ["metadata.maxRefsPerTile"]
+            ),
+            "nonEmptyTiles": get_path(
+                webgpu_tile_counts, ["metadata.nonEmptyTiles"]
+            ),
+            "capacityStatus": get_path(
+                webgpu_tile_counts, ["capacity.capacityStatus"]
+            ),
+        },
+        "tileCountsWebGpuComparison": {
+            "status": get_path(tile_counts_webgpu_comparison, ["status"]),
+            "mode": get_path(tile_counts_webgpu_comparison, ["mode"]),
+            "expectedSource": get_path(
+                tile_counts_webgpu_comparison, ["expectedSource"]
+            ),
+            "actualSource": get_path(
+                tile_counts_webgpu_comparison, ["actualSource"]
+            ),
+            "implementedInWgsl": get_path(
+                tile_counts_webgpu_comparison, ["implementedInWgsl"]
+            ),
+            "webgpuComputed": get_path(
+                tile_counts_webgpu_comparison, ["webgpuComputed"]
+            ),
+            "tileOffsetsCompared": get_path(
+                tile_counts_webgpu_comparison, ["tileOffsetsCompared"]
+            ),
+            "prefixSumImplemented": get_path(
+                tile_counts_webgpu_comparison, ["prefixSumImplemented"]
+            ),
+            "scatterCompared": get_path(
+                tile_counts_webgpu_comparison, ["scatterCompared"]
+            ),
+            "anyMismatch": get_path(tile_counts_webgpu_comparison, ["anyMismatch"]),
+            "mismatchClassification": get_path(
+                tile_counts_webgpu_comparison, ["mismatchClassification"]
+            ),
+            "tileCountsMismatchCount": get_path(
+                tile_counts_webgpu_comparison, ["tileCountsMismatchCount"]
+            ),
+            "totalTileRefsMismatch": get_path(
+                tile_counts_webgpu_comparison, ["totalTileRefsMismatch"]
+            ),
+            "capacityStatusMismatch": get_path(
+                tile_counts_webgpu_comparison, ["capacityStatusMismatch"]
+            ),
+            "maxAbsCountDelta": get_path(
+                tile_counts_webgpu_comparison, ["maxAbsCountDelta"]
+            ),
+            "firstMismatches": compact_list(
+                get_path(tile_counts_webgpu_comparison, ["firstMismatches"], [])
+            ),
+            "sampleTiles": compact_list(
+                get_path(tile_counts_webgpu_comparison, ["sampleTiles"], [])
             ),
         },
         "inputContract": get_path(summary, ["inputContract"], {}),
