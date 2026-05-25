@@ -743,6 +743,15 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
     tile_list_summary_capacity = get_path(
         tile_list_summary_comparison, ["capacity"], {}
     )
+    webgpu_tile_list_backend_output = get_path(
+        summary, ["webgpuTileListBackendOutput"], {}
+    )
+    webgpu_tile_list_backend_handoff = get_path(
+        webgpu_tile_list_backend_output, ["handoffReadiness"], {}
+    )
+    webgpu_tile_list_backend_validation = get_path(
+        webgpu_tile_list_backend_output, ["validationSummary"], {}
+    )
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -1462,6 +1471,73 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             ),
             "sampleTiles": compact_list(
                 get_path(tile_list_summary_comparison, ["sampleTiles"], [])
+            ),
+        },
+        "webgpuTileListBackendOutput": {
+            "status": get_path(webgpu_tile_list_backend_output, ["status"]),
+            "mode": get_path(webgpu_tile_list_backend_output, ["mode"]),
+            "source": get_path(webgpu_tile_list_backend_output, ["source"]),
+            "backendStage": get_path(
+                webgpu_tile_list_backend_output, ["backendStage"]
+            ),
+            "backendOutputReady": get_path(
+                webgpu_tile_list_backend_output, ["backendOutputReady"]
+            ),
+            "nonDisplayOnly": get_path(
+                webgpu_tile_list_backend_output, ["nonDisplayOnly"]
+            ),
+            "fullTileListGeneration": get_path(
+                webgpu_tile_list_backend_output, ["fullTileListGeneration"]
+            ),
+            "sortImplemented": get_path(
+                webgpu_tile_list_backend_output, ["sortImplemented"]
+            ),
+            "displayConnectionImplemented": get_path(
+                webgpu_tile_list_backend_output, ["displayConnectionImplemented"]
+            ),
+            "tileIndicesStoredInJson": get_path(
+                webgpu_tile_list_backend_output, ["tileIndicesStoredInJson"]
+            ),
+            "outputBuffers": get_path(
+                webgpu_tile_list_backend_output, ["outputBuffers"], {}
+            ),
+            "tileGrid": get_path(webgpu_tile_list_backend_output, ["tileGrid"], {}),
+            "recordCounts": get_path(
+                webgpu_tile_list_backend_output, ["recordCounts"], {}
+            ),
+            "capacity": get_path(webgpu_tile_list_backend_output, ["capacity"], {}),
+            "countsValid": get_path(
+                webgpu_tile_list_backend_validation, ["countsValid"]
+            ),
+            "offsetsValid": get_path(
+                webgpu_tile_list_backend_validation, ["offsetsValid"]
+            ),
+            "indicesValid": get_path(
+                webgpu_tile_list_backend_validation, ["indicesValid"]
+            ),
+            "orderingValid": get_path(
+                webgpu_tile_list_backend_validation, ["orderingValid"]
+            ),
+            "scatterOutputValid": get_path(
+                webgpu_tile_list_backend_validation, ["scatterOutputValid"]
+            ),
+            "handoffStatus": get_path(
+                webgpu_tile_list_backend_handoff, ["status"]
+            ),
+            "displayConnectionAllowed": get_path(
+                webgpu_tile_list_backend_handoff, ["displayConnectionAllowed"]
+            ),
+            "handoffSatisfied": get_path(
+                webgpu_tile_list_backend_handoff, ["satisfied"], []
+            ),
+            "handoffUnresolved": get_path(
+                webgpu_tile_list_backend_handoff, ["unresolved"], []
+            ),
+            "handoffBlocked": compact_list(
+                get_path(webgpu_tile_list_backend_handoff, ["blocked"], [])
+            ),
+            "nextBackendPrototypeStep": get_path(
+                webgpu_tile_list_backend_output, ["nextBackendPrototypeStep"]
             ),
         },
         "inputContract": get_path(summary, ["inputContract"], {}),

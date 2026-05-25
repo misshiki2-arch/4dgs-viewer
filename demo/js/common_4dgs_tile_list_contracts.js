@@ -49,6 +49,8 @@ export const WEBGPU_TILE_LIST_COMPUTE_MODES = Object.freeze({
     'webgpu-compute-tile-indices-scatter-comparison',
   WEBGPU_TILE_LIST_SUMMARY_COMPARISON:
     'non-display-webgpu-tile-list-summary-comparison',
+  WEBGPU_TILE_LIST_BACKEND_OUTPUT:
+    'non-display-webgpu-tile-list-backend-output',
   CPU_REFERENCE_TILE_LIST:
     'cpu-reference-tile-list-build'
 });
@@ -245,6 +247,19 @@ export function createWebGpuTileCountsOffsetsComparisonSurfaceContract({
         'capacityStatusMismatch is false',
         'orderingMismatchCount is 0',
         'tileIndices are not stored in JSON as a full buffer',
+        'sort and display connection remain deferred'
+      ]
+    },
+    recommendedStep28Unit: {
+      name: 'non-display-webgpu-tile-list-backend-output',
+      scope:
+        'Promote the validated WebGPU tile-list dry-run into a formal non-display backend output with buffer roles, handoff readiness, and explicit blockers before sort or display connection.',
+      computeMode: WEBGPU_TILE_LIST_COMPUTE_MODES.WEBGPU_TILE_LIST_BACKEND_OUTPUT,
+      successCriteria: [
+        'backendOutputReady is true when tileListSummaryComparison is ok',
+        'tileCounts, tileOffsets, and tileIndices buffer roles are declared',
+        'tileIndicesStoredInJson is false',
+        'render handoff blockers are explicit',
         'sort and display connection remain deferred'
       ]
     },

@@ -312,6 +312,28 @@ function createTileListSummaryComparisonUnavailable(reason) {
   };
 }
 
+function createWebGpuTileListBackendOutputUnavailable(reason) {
+  return {
+    mode: 'non-display-webgpu-tile-list-backend-output',
+    status: 'unavailable',
+    reason,
+    source: 'tileListSummaryComparison',
+    backendOutputReady: false,
+    nonDisplayOnly: true,
+    fullTileListGeneration: false,
+    sortImplemented: false,
+    displayConnectionImplemented: false,
+    tileIndicesStoredInJson: false,
+    handoffReadiness: {
+      status: 'blocked',
+      displayConnectionAllowed: false,
+      satisfied: [],
+      unresolved: ['tileListSummaryComparison'],
+      blocked: [{ stage: 'input', reason }]
+    }
+  };
+}
+
 function makeTileCountsOffsetsSampleTiles(reference, {
   actualTileCounts = null,
   actualTileOffsets = null
@@ -1475,6 +1497,8 @@ function makeFallback(reason, extra = {}) {
     createTileIndicesWebGpuScatterComparisonUnavailable(reason);
   const tileListSummaryComparison =
     extra.tileListSummaryComparison ?? createTileListSummaryComparisonUnavailable(reason);
+  const webgpuTileListBackendOutput =
+    extra.webgpuTileListBackendOutput ?? createWebGpuTileListBackendOutputUnavailable(reason);
   return {
     schemaVersion: WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION,
     phaseStep: WEBGPU_VISIBLE_RECORD_PHASE_STEP,
@@ -1537,6 +1561,7 @@ function makeFallback(reason, extra = {}) {
     tileIndicesSelfComparison,
     tileIndicesWebGpuScatterComparison,
     tileListSummaryComparison,
+    webgpuTileListBackendOutput,
     fieldMismatchCount: null,
     firstMismatches: extra.firstMismatches ?? [],
     mismatchClassification: extra.mismatchClassification ??
@@ -2775,6 +2800,113 @@ function buildTileListSummaryComparison({
   };
 }
 
+function buildWebGpuTileListBackendOutput({
+  tileListSummaryComparison,
+  tileCountsToOffsetsDryRun,
+  webgpuTileCountsDryRun,
+  webgpuTileOffsetsPrefixDryRun,
+  tileIndicesWebGpuScatterComparison
+}) {
+  const startMs = nowMs();
+  if (!tileListSummaryComparison || tileListSummaryComparison.status !== 'ok') {
+    const reason = tileListSummaryComparison?.reason ??
+      tileListSummaryComparison?.status ??
+      'tile-list-summary-comparison-unavailable';
+    return createWebGpuTileListBackendOutputUnavailable(reason);
+  }
+
+  const tileGrid = tileListSummaryComparison.tileGrid ?? tileCountsToOffsetsDryRun?.tileGrid ?? {};
+  const recordCounts = tileListSummaryComparison.recordCounts ?? {};
+  const capacity = tileListSummaryComparison.capacity ?? {};
+  const validation = tileListSummaryComparison.validationSummary ?? {};
+  const backendOutputReady =
+    tileListSummaryComparison.anyMismatch === false &&
+    validation.countsValid === true &&
+    validation.offsetsValid === true &&
+    validation.indicesValid === true &&
+    validation.scatterOutputValid === true;
+  const unresolved = [
+    'depth sort / per-tile ordering for final blending',
+    'render payload fields: conic, alpha, colorAlpha.rgb, SH',
+    'tile composite shader handoff',
+    'display connection'
+  ];
+  return {
+    mode: 'non-display-webgpu-tile-list-backend-output',
+    status: backendOutputReady ? 'ok' : 'blocked',
+    source: 'tileListSummaryComparison',
+    backendOutputReady,
+    nonDisplayOnly: true,
+    fullTileListGeneration: false,
+    sortImplemented: false,
+    displayConnectionImplemented: false,
+    tileIndicesStoredInJson: false,
+    backendStage: 'tile-list-output-ready-for-render-handoff-planning',
+    outputBuffers: {
+      tileCounts: {
+        source: 'webgpuTileCountsDryRun.tileCounts',
+        type: 'uint32[tileCount]',
+        length: webgpuTileCountsDryRun?.recordCounts?.tileCountsLength ?? recordCounts.tileCountsLength ?? null,
+        storedInJson: Array.isArray(webgpuTileCountsDryRun?.tileCounts)
+      },
+      tileOffsets: {
+        source: 'webgpuTileOffsetsPrefixDryRun.tileOffsets',
+        type: 'uint32[tileCount + 1]',
+        length: webgpuTileOffsetsPrefixDryRun?.recordCounts?.tileOffsetsLength ?? recordCounts.tileOffsetsLength ?? null,
+        policy: 'exclusive-prefix-sum',
+        storedInJson: Array.isArray(webgpuTileOffsetsPrefixDryRun?.tileOffsets)
+      },
+      tileIndices: {
+        source: 'webgpu scatter readback validation buffer',
+        type: 'uint32[totalTileRefs]',
+        length: tileIndicesWebGpuScatterComparison?.recordCounts?.tileIndicesLength ?? recordCounts.tileIndicesLength ?? null,
+        storedInJson: false
+      },
+      tileListMetadata: {
+        source: 'tileListSummaryComparison',
+        fields: [
+          'tileCount',
+          'totalTileRefs',
+          'maxRefsPerTile',
+          'nonEmptyTiles',
+          'capacityStatus',
+          'orderingPolicy'
+        ],
+        materializedInJson: true
+      }
+    },
+    tileGrid,
+    recordCounts,
+    capacity,
+    validationSummary: {
+      countsValid: validation.countsValid === true,
+      offsetsValid: validation.offsetsValid === true,
+      indicesValid: validation.indicesValid === true,
+      orderingValid: validation.orderingValid === true,
+      writeCursorFinalValid: validation.writeCursorFinalValid === true,
+      scatterOutputValid: validation.scatterOutputValid === true,
+      totalTileRefsConsistent: validation.totalTileRefsConsistent === true,
+      capacityStatus: validation.capacityStatus ?? capacity.capacityStatus ?? 'unknown'
+    },
+    handoffReadiness: {
+      status: backendOutputReady ? 'ready-for-render-payload-planning' : 'blocked',
+      displayConnectionAllowed: false,
+      satisfied: [
+        'webgpu tileCounts validated',
+        'webgpu tileOffsets validated',
+        'webgpu tileIndices scatter validated',
+        'non-display tile-list summary validated'
+      ],
+      unresolved,
+      blocked: unresolved.map((reason) => ({ stage: 'render-handoff', reason }))
+    },
+    nextBackendPrototypeStep: 'render-payload-and-sort-readiness',
+    timing: {
+      webgpuTileListBackendOutputMs: nowMs() - startMs
+    }
+  };
+}
+
 export async function runWebGpuVisibleRecordDryRun({
   candidateInfo,
   raw,
@@ -2901,6 +3033,13 @@ export async function runWebGpuVisibleRecordDryRun({
     tileIndicesSelfComparison,
     tileIndicesWebGpuScatterComparison
   });
+  const webgpuTileListBackendOutput = buildWebGpuTileListBackendOutput({
+    tileListSummaryComparison,
+    tileCountsToOffsetsDryRun,
+    webgpuTileCountsDryRun,
+    webgpuTileOffsetsPrefixDryRun,
+    tileIndicesWebGpuScatterComparison
+  });
   const rawCount = toFiniteInteger(raw.count ?? raw.N ?? (raw.xyz?.length / Math.max(1, raw.xyzDim || 3)), 0);
   const computeResult = await runCompute({
     device,
@@ -2933,7 +3072,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step27 bundles WebGPU counts, offsets, and indices into a non-display tile-list summary comparison while keeping sort and display deferred.',
+    scaffoldNote: 'Phase 3 Step28 promotes the validated WebGPU tile-list dry-run into a non-display backend output for render handoff planning.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
@@ -2985,6 +3124,7 @@ export async function runWebGpuVisibleRecordDryRun({
     tileIndicesSelfComparison,
     tileIndicesWebGpuScatterComparison,
     tileListSummaryComparison,
+    webgpuTileListBackendOutput,
     inputContract,
     bufferContract: inputContract,
     inputBufferModes: inputContract.inputBufferModes,
@@ -3009,6 +3149,7 @@ export async function runWebGpuVisibleRecordDryRun({
       ...tileIndicesSelfComparison.timing,
       ...tileIndicesWebGpuScatterComparison.timing,
       ...tileListSummaryComparison.timing,
+      ...webgpuTileListBackendOutput.timing,
       ...computeResult.timing,
       compareMs,
       totalMs: nowMs() - totalStartMs
@@ -3053,6 +3194,7 @@ export async function runWebGpuVisibleRecordDryRun({
       tileIndicesSelfComparison,
       tileIndicesWebGpuScatterComparison,
       tileListSummaryComparison,
+      webgpuTileListBackendOutput,
       inputContract,
       bufferContract: inputContract,
       inputBufferModes: inputContract.inputBufferModes,
