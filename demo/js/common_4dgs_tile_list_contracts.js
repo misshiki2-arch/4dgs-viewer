@@ -45,6 +45,8 @@ export const WEBGPU_TILE_LIST_COMPUTE_MODES = Object.freeze({
     'cpu-reference-scatter-write-cursor-validation-boundary',
   CPU_REFERENCE_TILE_INDICES_SELF_COMPARISON:
     'cpu-reference-tile-indices-self-comparison-surface',
+  WEBGPU_TILE_INDICES_SCATTER_COMPARISON:
+    'webgpu-compute-tile-indices-scatter-comparison',
   CPU_REFERENCE_TILE_LIST:
     'cpu-reference-tile-list-build'
 });
@@ -214,6 +216,20 @@ export function createWebGpuTileCountsOffsetsComparisonSurfaceContract({
         'capacityStatus is no-overflow',
         'firstMismatches is empty',
         'WebGPU scatter remains deferred'
+      ]
+    },
+    recommendedStep26Unit: {
+      name: 'webgpu-tile-indices-scatter-comparison',
+      scope:
+        'Generate tileIndices in a minimal WebGPU scatter dry-run from tileRange and WebGPU tileOffsets, compare against CPU reference tileIndices, and keep full tile-list generation, sort, and display connection deferred.',
+      computeMode: WEBGPU_TILE_LIST_COMPUTE_MODES.WEBGPU_TILE_INDICES_SCATTER_COMPARISON,
+      successCriteria: [
+        'tileIndicesMismatchCount is 0',
+        'orderingMismatchCount is 0',
+        'capacityStatusMismatch is false',
+        'firstMismatches is empty',
+        'tileIndices are not stored in JSON as a full buffer',
+        'full tile-list generation, sort, and display connection remain deferred'
       ]
     },
     relationToStep18:

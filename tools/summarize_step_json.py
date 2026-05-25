@@ -722,6 +722,15 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
     tile_indices_self_capacity = get_path(
         tile_indices_self_comparison, ["capacity"], {}
     )
+    tile_indices_webgpu_scatter_comparison = get_path(
+        summary, ["tileIndicesWebGpuScatterComparison"], {}
+    )
+    tile_indices_webgpu_scatter_capacity = get_path(
+        tile_indices_webgpu_scatter_comparison, ["capacity"], {}
+    )
+    tile_indices_webgpu_scatter_validation = get_path(
+        tile_indices_webgpu_scatter_comparison, ["validationSummary"], {}
+    )
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -1261,6 +1270,101 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             ),
             "sampleTiles": compact_list(
                 get_path(tile_indices_self_comparison, ["sampleTiles"], [])
+            ),
+        },
+        "tileIndicesWebGpuScatterComparison": {
+            "status": get_path(tile_indices_webgpu_scatter_comparison, ["status"]),
+            "mode": get_path(tile_indices_webgpu_scatter_comparison, ["mode"]),
+            "expectedSource": get_path(
+                tile_indices_webgpu_scatter_comparison, ["expectedSource"]
+            ),
+            "actualSource": get_path(
+                tile_indices_webgpu_scatter_comparison, ["actualSource"]
+            ),
+            "source": get_path(tile_indices_webgpu_scatter_comparison, ["source"]),
+            "implementedInWgsl": get_path(
+                tile_indices_webgpu_scatter_comparison, ["implementedInWgsl"]
+            ),
+            "webgpuScatterComputed": get_path(
+                tile_indices_webgpu_scatter_comparison, ["webgpuScatterComputed"]
+            ),
+            "tileIndicesMaterialized": get_path(
+                tile_indices_webgpu_scatter_comparison, ["tileIndicesMaterialized"]
+            ),
+            "tileIndicesStoredInJson": get_path(
+                tile_indices_webgpu_scatter_comparison, ["tileIndicesStoredInJson"]
+            ),
+            "scatterCompared": get_path(
+                tile_indices_webgpu_scatter_comparison, ["scatterCompared"]
+            ),
+            "fullTileListGeneration": get_path(
+                tile_indices_webgpu_scatter_comparison, ["fullTileListGeneration"]
+            ),
+            "sortImplemented": get_path(
+                tile_indices_webgpu_scatter_comparison, ["sortImplemented"]
+            ),
+            "displayConnectionImplemented": get_path(
+                tile_indices_webgpu_scatter_comparison,
+                ["displayConnectionImplemented"],
+            ),
+            "anyMismatch": get_path(
+                tile_indices_webgpu_scatter_comparison, ["anyMismatch"]
+            ),
+            "mismatchClassification": get_path(
+                tile_indices_webgpu_scatter_comparison,
+                ["mismatchClassification"],
+            ),
+            "tileIndicesMismatchCount": get_path(
+                tile_indices_webgpu_scatter_comparison,
+                ["tileIndicesMismatchCount"],
+            ),
+            "orderingMismatchCount": get_path(
+                tile_indices_webgpu_scatter_comparison, ["orderingMismatchCount"]
+            ),
+            "writeCursorMismatchCount": get_path(
+                tile_indices_webgpu_scatter_comparison,
+                ["writeCursorMismatchCount"],
+            ),
+            "capacityStatusMismatch": get_path(
+                tile_indices_webgpu_scatter_comparison,
+                ["capacityStatusMismatch"],
+            ),
+            "maxAbsIndexDelta": get_path(
+                tile_indices_webgpu_scatter_comparison, ["maxAbsIndexDelta"]
+            ),
+            "recordCounts": get_path(
+                tile_indices_webgpu_scatter_comparison, ["recordCounts"], {}
+            ),
+            "capacityStatus": get_path(
+                tile_indices_webgpu_scatter_capacity, ["capacityStatus"]
+            ),
+            "capacityOverflowCount": get_path(
+                tile_indices_webgpu_scatter_capacity, ["capacityOverflowCount"]
+            ),
+            "totalTileRefs": get_path(
+                tile_indices_webgpu_scatter_capacity, ["totalTileRefs"]
+            ),
+            "writeCursorFinalValid": get_path(
+                tile_indices_webgpu_scatter_validation,
+                ["writeCursorFinalValid"],
+            ),
+            "scatterOutputValid": get_path(
+                tile_indices_webgpu_scatter_validation, ["scatterOutputValid"]
+            ),
+            "orderingPolicy": get_path(
+                tile_indices_webgpu_scatter_comparison, ["orderingPolicy"], {}
+            ),
+            "firstMismatches": compact_list(
+                get_path(
+                    tile_indices_webgpu_scatter_comparison,
+                    ["firstMismatches"],
+                    [],
+                )
+            ),
+            "sampleTiles": compact_list(
+                get_path(
+                    tile_indices_webgpu_scatter_comparison, ["sampleTiles"], []
+                )
             ),
         },
         "inputContract": get_path(summary, ["inputContract"], {}),
