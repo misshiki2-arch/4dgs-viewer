@@ -716,6 +716,12 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
     scatter_validation_capacity = get_path(
         scatter_validation_boundary, ["capacity"], {}
     )
+    tile_indices_self_comparison = get_path(
+        summary, ["tileIndicesSelfComparison"], {}
+    )
+    tile_indices_self_capacity = get_path(
+        tile_indices_self_comparison, ["capacity"], {}
+    )
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -1193,6 +1199,68 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             ),
             "sampleTiles": compact_list(
                 get_path(scatter_validation_boundary, ["sampleTiles"], [])
+            ),
+        },
+        "tileIndicesSelfComparison": {
+            "status": get_path(tile_indices_self_comparison, ["status"]),
+            "mode": get_path(tile_indices_self_comparison, ["mode"]),
+            "expectedSource": get_path(
+                tile_indices_self_comparison, ["expectedSource"]
+            ),
+            "actualSource": get_path(
+                tile_indices_self_comparison, ["actualSource"]
+            ),
+            "implementedInWgsl": get_path(
+                tile_indices_self_comparison, ["implementedInWgsl"]
+            ),
+            "webgpuScatterComputed": get_path(
+                tile_indices_self_comparison, ["webgpuScatterComputed"]
+            ),
+            "tileIndicesMaterialized": get_path(
+                tile_indices_self_comparison, ["tileIndicesMaterialized"]
+            ),
+            "tileIndicesStoredInJson": get_path(
+                tile_indices_self_comparison, ["tileIndicesStoredInJson"]
+            ),
+            "scatterCompared": get_path(
+                tile_indices_self_comparison, ["scatterCompared"]
+            ),
+            "anyMismatch": get_path(tile_indices_self_comparison, ["anyMismatch"]),
+            "mismatchClassification": get_path(
+                tile_indices_self_comparison, ["mismatchClassification"]
+            ),
+            "tileIndicesMismatchCount": get_path(
+                tile_indices_self_comparison, ["tileIndicesMismatchCount"]
+            ),
+            "orderingMismatchCount": get_path(
+                tile_indices_self_comparison, ["orderingMismatchCount"]
+            ),
+            "capacityStatusMismatch": get_path(
+                tile_indices_self_comparison, ["capacityStatusMismatch"]
+            ),
+            "maxAbsIndexDelta": get_path(
+                tile_indices_self_comparison, ["maxAbsIndexDelta"]
+            ),
+            "recordCounts": get_path(
+                tile_indices_self_comparison, ["recordCounts"], {}
+            ),
+            "capacityStatus": get_path(
+                tile_indices_self_capacity, ["capacityStatus"]
+            ),
+            "capacityOverflowCount": get_path(
+                tile_indices_self_capacity, ["capacityOverflowCount"]
+            ),
+            "totalTileRefs": get_path(
+                tile_indices_self_capacity, ["totalTileRefs"]
+            ),
+            "orderingPolicy": get_path(
+                tile_indices_self_comparison, ["orderingPolicy"], {}
+            ),
+            "firstMismatches": compact_list(
+                get_path(tile_indices_self_comparison, ["firstMismatches"], [])
+            ),
+            "sampleTiles": compact_list(
+                get_path(tile_indices_self_comparison, ["sampleTiles"], [])
             ),
         },
         "inputContract": get_path(summary, ["inputContract"], {}),

@@ -247,6 +247,28 @@ function createScatterValidationBoundaryUnavailable(reason) {
   };
 }
 
+function createTileIndicesSelfComparisonUnavailable(reason) {
+  return {
+    mode: 'cpu-reference-tile-indices-self-comparison-surface',
+    status: 'unavailable',
+    reason,
+    expectedSource: 'cpu-reference-tileIndices',
+    actualSource: 'cpu-reference-tileIndices',
+    implementedInWgsl: false,
+    webgpuScatterComputed: false,
+    tileIndicesMaterialized: false,
+    scatterCompared: false,
+    anyMismatch: true,
+    mismatchClassification: 'tileIndicesSelfComparisonUnavailable',
+    tileIndicesMismatchCount: null,
+    orderingMismatchCount: null,
+    capacityStatusMismatch: null,
+    maxAbsIndexDelta: null,
+    firstMismatches: [{ kind: 'input', reason }],
+    sampleTiles: []
+  };
+}
+
 function makeTileCountsOffsetsSampleTiles(reference, {
   actualTileCounts = null,
   actualTileOffsets = null
@@ -1057,6 +1079,163 @@ function buildScatterValidationBoundaryDryRun({ tileRanges, tileCountsToOffsetsD
   };
 }
 
+function buildTileIndicesSelfComparison({ tileRanges, tileCountsToOffsetsDryRun, scatterValidationBoundary }) {
+  const startMs = nowMs();
+  if (!tileCountsToOffsetsDryRun || tileCountsToOffsetsDryRun.status !== 'ok') {
+    const reason = tileCountsToOffsetsDryRun?.reason ??
+      tileCountsToOffsetsDryRun?.status ??
+      'tile-counts-to-offsets-dry-run-unavailable';
+    return createTileIndicesSelfComparisonUnavailable(reason);
+  }
+  if (!scatterValidationBoundary || scatterValidationBoundary.status !== 'ok') {
+    const reason = scatterValidationBoundary?.reason ??
+      scatterValidationBoundary?.status ??
+      'scatter-validation-boundary-unavailable';
+    return createTileIndicesSelfComparisonUnavailable(reason);
+  }
+
+  const tileOffsets = toUint32Array(tileCountsToOffsetsDryRun.tileOffsets);
+  const tileCounts = toUint32Array(tileCountsToOffsetsDryRun.tileCounts);
+  const tileCount = toFiniteInteger(tileCountsToOffsetsDryRun.tileGrid?.tileCount, tileCounts.length);
+  const tileCols = toFiniteInteger(tileCountsToOffsetsDryRun.tileGrid?.tileCols, 0);
+  if (tileCount <= 0 || tileCols <= 0 || tileCounts.length !== tileCount || tileOffsets.length !== tileCount + 1) {
+    return createTileIndicesSelfComparisonUnavailable('tile-counts-or-offsets-shape-unavailable');
+  }
+
+  const totalTileRefs = tileOffsets[tileCount] ?? 0;
+  const tileIndices = new Uint32Array(totalTileRefs);
+  const writeCursors = new Uint32Array(tileOffsets);
+  const firstMismatches = [];
+  let capacityOverflowCount = 0;
+  for (let recordIndex = 0; recordIndex < tileRanges.length; recordIndex += 1) {
+    const tr = tileRanges[recordIndex];
+    if (!tr || tr.length < 4) {
+      if (firstMismatches.length < 8) {
+        firstMismatches.push({ kind: 'tileRangeUnavailable', recordIndex });
+      }
+      continue;
+    }
+    for (let ty = tr[1]; ty <= tr[3]; ty += 1) {
+      const rowBase = ty * tileCols;
+      for (let tx = tr[0]; tx <= tr[2]; tx += 1) {
+        const tileId = rowBase + tx;
+        if (tileId < 0 || tileId >= tileCount) {
+          if (firstMismatches.length < 8) {
+            firstMismatches.push({ kind: 'tileIdOutOfRange', recordIndex, tileId });
+          }
+          continue;
+        }
+        const writeIndex = writeCursors[tileId];
+        if (writeIndex < tileOffsets[tileId] || writeIndex >= tileOffsets[tileId + 1]) {
+          capacityOverflowCount += 1;
+          if (firstMismatches.length < 8) {
+            firstMismatches.push({
+              kind: 'capacityMismatch',
+              recordIndex,
+              tileId,
+              writeIndex,
+              tileStart: tileOffsets[tileId],
+              tileEnd: tileOffsets[tileId + 1]
+            });
+          }
+        } else {
+          tileIndices[writeIndex] = recordIndex;
+        }
+        writeCursors[tileId] += 1;
+      }
+    }
+  }
+
+  let tileIndicesMismatchCount = 0;
+  let orderingMismatchCount = 0;
+  let maxAbsIndexDelta = 0;
+  for (let tileId = 0; tileId < tileCount; tileId += 1) {
+    const start = tileOffsets[tileId];
+    const end = tileOffsets[tileId + 1];
+    let previous = null;
+    for (let index = start; index < end; index += 1) {
+      const expected = tileIndices[index];
+      const actual = tileIndices[index];
+      const delta = actual - expected;
+      maxAbsIndexDelta = Math.max(maxAbsIndexDelta, Math.abs(delta));
+      if (delta !== 0) {
+        tileIndicesMismatchCount += 1;
+        if (firstMismatches.length < 8) {
+          firstMismatches.push({ kind: 'tileIndicesMismatch', tileId, index, expected, actual, delta });
+        }
+      }
+      if (previous !== null && actual < previous) {
+        orderingMismatchCount += 1;
+        if (firstMismatches.length < 8) {
+          firstMismatches.push({ kind: 'orderingMismatch', tileId, index, previous, actual });
+        }
+      }
+      previous = actual;
+    }
+  }
+
+  const capacityStatus = capacityOverflowCount === 0 ? 'no-overflow' : 'overflow-detected';
+  const capacityStatusMismatch =
+    (scatterValidationBoundary.capacity?.capacityStatus ?? 'no-overflow') !== capacityStatus;
+  const sampleTiles = makeTileCountsOffsetsSampleTiles(tileCountsToOffsetsDryRun).map((sample) => {
+    const tileId = sample.tileId;
+    const start = tileOffsets[tileId] ?? 0;
+    const end = tileOffsets[tileId + 1] ?? start;
+    const sampleLimit = Math.min(end, start + 4);
+    return {
+      ...sample,
+      tileIndexStart: start,
+      tileIndexEnd: end,
+      tileIndexCount: Math.max(0, end - start),
+      firstTileIndices: Array.from(tileIndices.slice(start, sampleLimit))
+    };
+  });
+  const anyMismatch =
+    tileIndicesMismatchCount > 0 ||
+    orderingMismatchCount > 0 ||
+    capacityOverflowCount > 0 ||
+    capacityStatusMismatch ||
+    firstMismatches.length > 0;
+
+  return {
+    mode: 'cpu-reference-tile-indices-self-comparison-surface',
+    status: anyMismatch ? 'mismatch' : 'ok',
+    expectedSource: 'cpu-reference-tileIndices',
+    actualSource: 'cpu-reference-tileIndices',
+    implementedInWgsl: false,
+    webgpuScatterComputed: false,
+    tileIndicesMaterialized: true,
+    tileIndicesStoredInJson: false,
+    scatterCompared: false,
+    anyMismatch,
+    mismatchClassification: anyMismatch ? 'tileIndicesSelfComparisonMismatch' : 'none',
+    tileIndicesMismatchCount,
+    orderingMismatchCount,
+    capacityStatusMismatch,
+    maxAbsIndexDelta,
+    recordCounts: {
+      tileRangeCount: tileRanges.length,
+      tileIndicesLength: tileIndices.length,
+      tileOffsetsLength: tileOffsets.length
+    },
+    capacity: {
+      totalTileRefs,
+      capacityOverflowCount,
+      capacityStatus
+    },
+    orderingPolicy: {
+      sourceOrder: 'record-index-order',
+      perTileOrder: 'preserve incoming record order within each tile',
+      orderingValidated: orderingMismatchCount === 0
+    },
+    firstMismatches,
+    sampleTiles,
+    timing: {
+      tileIndicesSelfComparisonMs: nowMs() - startMs
+    }
+  };
+}
+
 function buildTileCountsOffsetsDryRun({ tileRanges, tileGrid }) {
   const startMs = nowMs();
   const tileCols = toFiniteInteger(tileGrid?.tileCols, 0);
@@ -1213,6 +1392,8 @@ function makeFallback(reason, extra = {}) {
     createTileOffsetsWebGpuPrefixComparisonUnavailable(reason);
   const scatterValidationBoundary =
     extra.scatterValidationBoundary ?? createScatterValidationBoundaryUnavailable(reason);
+  const tileIndicesSelfComparison =
+    extra.tileIndicesSelfComparison ?? createTileIndicesSelfComparisonUnavailable(reason);
   return {
     schemaVersion: WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION,
     phaseStep: WEBGPU_VISIBLE_RECORD_PHASE_STEP,
@@ -1272,6 +1453,7 @@ function makeFallback(reason, extra = {}) {
     webgpuTileOffsetsPrefixDryRun,
     tileOffsetsWebGpuPrefixComparison,
     scatterValidationBoundary,
+    tileIndicesSelfComparison,
     fieldMismatchCount: null,
     firstMismatches: extra.firstMismatches ?? [],
     mismatchClassification: extra.mismatchClassification ??
@@ -2118,6 +2300,11 @@ export async function runWebGpuVisibleRecordDryRun({
     tileCountsToOffsetsDryRun,
     webgpuTileOffsetsPrefixDryRun
   });
+  const tileIndicesSelfComparison = buildTileIndicesSelfComparison({
+    tileRanges: cpuReference.tileRanges,
+    tileCountsToOffsetsDryRun,
+    scatterValidationBoundary
+  });
   const rawCount = toFiniteInteger(raw.count ?? raw.N ?? (raw.xyz?.length / Math.max(1, raw.xyzDim || 3)), 0);
   const computeResult = await runCompute({
     device,
@@ -2150,7 +2337,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step24 adds a CPU reference scatter write-cursor and capacity validation boundary before any WebGPU scatter or tileIndices generation is promoted.',
+    scaffoldNote: 'Phase 3 Step25 adds a CPU reference tileIndices self-comparison surface before WebGPU scatter is promoted.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
@@ -2199,6 +2386,7 @@ export async function runWebGpuVisibleRecordDryRun({
     webgpuTileOffsetsPrefixDryRun,
     tileOffsetsWebGpuPrefixComparison,
     scatterValidationBoundary,
+    tileIndicesSelfComparison,
     inputContract,
     bufferContract: inputContract,
     inputBufferModes: inputContract.inputBufferModes,
@@ -2220,6 +2408,7 @@ export async function runWebGpuVisibleRecordDryRun({
       ...webgpuTileOffsetsPrefixDryRun.timing,
       ...tileOffsetsWebGpuPrefixComparison.timing,
       ...scatterValidationBoundary.timing,
+      ...tileIndicesSelfComparison.timing,
       ...computeResult.timing,
       compareMs,
       totalMs: nowMs() - totalStartMs
@@ -2261,6 +2450,7 @@ export async function runWebGpuVisibleRecordDryRun({
       webgpuTileOffsetsPrefixDryRun,
       tileOffsetsWebGpuPrefixComparison,
       scatterValidationBoundary,
+      tileIndicesSelfComparison,
       inputContract,
       bufferContract: inputContract,
       inputBufferModes: inputContract.inputBufferModes,
