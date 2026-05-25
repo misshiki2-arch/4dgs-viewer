@@ -150,6 +150,45 @@ function createWebGpuTileCountsUnavailable(reason) {
   };
 }
 
+function createTileOffsetsFromWebGpuCountsUnavailable(reason) {
+  return {
+    mode: 'cpu-prefix-from-webgpu-tile-counts-dry-run',
+    status: 'unavailable',
+    reason,
+    source: 'webgpuTileCountsDryRun.tileCounts',
+    implementedInWgsl: false,
+    webgpuPrefixComputed: false,
+    scatterImplemented: false,
+    tileOffsets: []
+  };
+}
+
+function createTileOffsetsPrefixComparisonUnavailable(reason) {
+  return {
+    mode: 'tile-offsets-prefix-comparison-from-webgpu-counts',
+    status: 'unavailable',
+    reason,
+    expectedSource: 'tileCountsToOffsetsDryRun.tileOffsets',
+    actualSource: 'tileOffsetsFromWebGpuCountsDryRun.tileOffsets',
+    implementedInWgsl: false,
+    webgpuComputed: false,
+    webgpuPrefixComputed: false,
+    scatterCompared: false,
+    anyMismatch: true,
+    mismatchClassification: 'tileOffsetsPrefixComparisonUnavailable',
+    tileCountsMismatchCount: null,
+    tileOffsetsMismatchCount: null,
+    totalTileRefsMismatch: null,
+    capacityStatusMismatch: null,
+    maxAbsCountDelta: null,
+    maxAbsOffsetDelta: null,
+    prefixOffsetsValid: false,
+    totalTileRefsConsistent: false,
+    firstMismatches: [{ kind: 'input', reason }],
+    sampleTiles: []
+  };
+}
+
 function makeTileCountsOffsetsSampleTiles(reference, {
   actualTileCounts = null,
   actualTileOffsets = null
@@ -446,6 +485,215 @@ function buildTileCountsWebGpuComparison(tileCountsToOffsetsDryRun, webgpuTileCo
   };
 }
 
+function buildTileOffsetsFromWebGpuCountsDryRun(webgpuTileCountsDryRun, tileGrid) {
+  const startMs = nowMs();
+  if (!webgpuTileCountsDryRun || webgpuTileCountsDryRun.status !== 'ok') {
+    const reason = webgpuTileCountsDryRun?.reason ??
+      webgpuTileCountsDryRun?.status ??
+      'webgpu-tile-counts-dry-run-unavailable';
+    return createTileOffsetsFromWebGpuCountsUnavailable(reason);
+  }
+
+  const tileCounts = Array.isArray(webgpuTileCountsDryRun.tileCounts)
+    ? webgpuTileCountsDryRun.tileCounts
+    : [];
+  const tileCols = toFiniteInteger(tileGrid?.tileCols ?? webgpuTileCountsDryRun.tileGrid?.tileCols, 0);
+  const tileRows = toFiniteInteger(tileGrid?.tileRows ?? webgpuTileCountsDryRun.tileGrid?.tileRows, 0);
+  const tileSize = toFiniteInteger(tileGrid?.tileSize ?? webgpuTileCountsDryRun.tileGrid?.tileSize, 32);
+  const tileCount = toFiniteInteger(webgpuTileCountsDryRun.tileGrid?.tileCount, tileCols * tileRows);
+  if (tileCount <= 0 || tileCounts.length !== tileCount) {
+    return createTileOffsetsFromWebGpuCountsUnavailable('tile-counts-shape-unavailable');
+  }
+
+  const tileOffsets = new Uint32Array(tileCount + 1);
+  let maxRefsPerTile = 0;
+  let nonEmptyTiles = 0;
+  let prefixOffsetsValid = tileOffsets[0] === 0;
+  const firstValidationFailures = [];
+  for (let i = 0; i < tileCount; i += 1) {
+    const count = toFiniteInteger(tileCounts[i], 0);
+    tileOffsets[i + 1] = tileOffsets[i] + count;
+    if (count > 0) nonEmptyTiles += 1;
+    if (count > maxRefsPerTile) maxRefsPerTile = count;
+    if (tileOffsets[i + 1] < tileOffsets[i] || tileOffsets[i + 1] - tileOffsets[i] !== count) {
+      prefixOffsetsValid = false;
+      if (firstValidationFailures.length < 8) {
+        firstValidationFailures.push({ stage: 'tileOffsets', tileId: i, reason: 'exclusive-prefix-mismatch' });
+      }
+    }
+  }
+
+  const totalTileRefs = tileOffsets[tileCount] ?? 0;
+  const expectedTotalTileRefs = webgpuTileCountsDryRun.metadata?.totalTileRefs ?? totalTileRefs;
+  const totalTileRefsConsistent = totalTileRefs === expectedTotalTileRefs;
+  if (!totalTileRefsConsistent && firstValidationFailures.length < 8) {
+    firstValidationFailures.push({ stage: 'totalTileRefs', reason: 'offset-terminal-does-not-match-webgpu-count-sum' });
+  }
+
+  return {
+    mode: 'cpu-prefix-from-webgpu-tile-counts-dry-run',
+    status: firstValidationFailures.length === 0 ? 'ok' : 'validation-failed',
+    source: 'webgpuTileCountsDryRun.tileCounts',
+    implementedInWgsl: false,
+    webgpuPrefixComputed: false,
+    scatterImplemented: false,
+    outputSchema: {
+      tileOffsets: 'uint32[tileCount + 1], exclusive prefix sum of webgpuTileCountsDryRun.tileCounts'
+    },
+    tileGrid: { tileCols, tileRows, tileCount, tileSize },
+    recordCounts: {
+      tileCountsLength: tileCounts.length,
+      tileOffsetsLength: tileOffsets.length
+    },
+    metadata: {
+      tileOffsetsType: 'uint32',
+      tileOffsetsPolicy: 'exclusive-prefix-sum',
+      tileOffsetsInitialValue: tileOffsets[0] ?? null,
+      tileOffsetsTerminalValue: totalTileRefs,
+      totalTileRefs,
+      maxRefsPerTile,
+      nonEmptyTiles
+    },
+    capacity: {
+      totalTileRefs,
+      maxRefsPerTile,
+      nonEmptyTiles,
+      capacityStatus: 'no-overflow'
+    },
+    validationSummary: {
+      prefixOffsetsValid,
+      totalTileRefsConsistent,
+      capacityStatus: 'no-overflow',
+      firstValidationFailures
+    },
+    tileOffsets: Array.from(tileOffsets),
+    timing: {
+      tileOffsetsFromWebGpuCountsDryRunMs: nowMs() - startMs
+    }
+  };
+}
+
+function buildTileOffsetsPrefixComparison(tileCountsToOffsetsDryRun, tileOffsetsFromWebGpuCountsDryRun) {
+  const startMs = nowMs();
+  if (!tileCountsToOffsetsDryRun || tileCountsToOffsetsDryRun.status !== 'ok') {
+    const reason = tileCountsToOffsetsDryRun?.reason ??
+      tileCountsToOffsetsDryRun?.status ??
+      'tile-counts-to-offsets-dry-run-unavailable';
+    return createTileOffsetsPrefixComparisonUnavailable(reason);
+  }
+  if (!tileOffsetsFromWebGpuCountsDryRun || tileOffsetsFromWebGpuCountsDryRun.status !== 'ok') {
+    const reason = tileOffsetsFromWebGpuCountsDryRun?.reason ??
+      tileOffsetsFromWebGpuCountsDryRun?.status ??
+      'tile-offsets-from-webgpu-counts-dry-run-unavailable';
+    return createTileOffsetsPrefixComparisonUnavailable(reason);
+  }
+
+  const expectedOffsets = Array.isArray(tileCountsToOffsetsDryRun.tileOffsets)
+    ? tileCountsToOffsetsDryRun.tileOffsets
+    : [];
+  const actualOffsets = Array.isArray(tileOffsetsFromWebGpuCountsDryRun.tileOffsets)
+    ? tileOffsetsFromWebGpuCountsDryRun.tileOffsets
+    : [];
+  const tileCount = toFiniteInteger(tileCountsToOffsetsDryRun.tileGrid?.tileCount, expectedOffsets.length - 1);
+  const firstMismatches = [];
+  let tileOffsetsMismatchCount = 0;
+  let maxAbsOffsetDelta = 0;
+
+  const shapeMismatch = expectedOffsets.length !== tileCount + 1 || actualOffsets.length !== tileCount + 1;
+  if (shapeMismatch) {
+    firstMismatches.push({
+      kind: 'shapeMismatch',
+      field: 'tileOffsets',
+      expectedLength: expectedOffsets.length,
+      actualLength: actualOffsets.length,
+      expectedTileCountPlusOne: tileCount + 1
+    });
+  }
+
+  for (let i = 0; i < Math.min(expectedOffsets.length, actualOffsets.length, tileCount + 1); i += 1) {
+    const expected = expectedOffsets[i] ?? 0;
+    const actual = actualOffsets[i] ?? 0;
+    const delta = actual - expected;
+    maxAbsOffsetDelta = Math.max(maxAbsOffsetDelta, Math.abs(delta));
+    if (delta !== 0) {
+      tileOffsetsMismatchCount += 1;
+      if (firstMismatches.length < 8) {
+        firstMismatches.push({ kind: 'tileOffsetsMismatch', offsetIndex: i, expected, actual, delta });
+      }
+    }
+  }
+
+  const expectedTotalTileRefs = tileCountsToOffsetsDryRun.metadata?.totalTileRefs ??
+    expectedOffsets[tileCount] ??
+    null;
+  const actualTotalTileRefs = tileOffsetsFromWebGpuCountsDryRun.metadata?.totalTileRefs ??
+    actualOffsets[tileCount] ??
+    null;
+  const totalTileRefsMismatch = expectedTotalTileRefs !== actualTotalTileRefs;
+  if (totalTileRefsMismatch && firstMismatches.length < 8) {
+    firstMismatches.push({
+      kind: 'totalTileRefsMismatch',
+      expected: expectedTotalTileRefs,
+      actual: actualTotalTileRefs
+    });
+  }
+
+  const expectedCapacityStatus = tileCountsToOffsetsDryRun.capacity?.capacityStatus ??
+    tileCountsToOffsetsDryRun.validationSummary?.capacityStatus ??
+    null;
+  const actualCapacityStatus = tileOffsetsFromWebGpuCountsDryRun.capacity?.capacityStatus ??
+    tileOffsetsFromWebGpuCountsDryRun.validationSummary?.capacityStatus ??
+    null;
+  const capacityStatusMismatch = expectedCapacityStatus !== actualCapacityStatus;
+  if (capacityStatusMismatch && firstMismatches.length < 8) {
+    firstMismatches.push({
+      kind: 'capacityStatusMismatch',
+      expected: expectedCapacityStatus,
+      actual: actualCapacityStatus
+    });
+  }
+
+  const prefixOffsetsValid =
+    tileOffsetsFromWebGpuCountsDryRun.validationSummary?.prefixOffsetsValid === true;
+  const totalTileRefsConsistent =
+    tileOffsetsFromWebGpuCountsDryRun.validationSummary?.totalTileRefsConsistent === true;
+  const anyMismatch =
+    shapeMismatch ||
+    tileOffsetsMismatchCount > 0 ||
+    totalTileRefsMismatch ||
+    capacityStatusMismatch ||
+    !prefixOffsetsValid ||
+    !totalTileRefsConsistent;
+
+  return {
+    mode: 'tile-offsets-prefix-comparison-from-webgpu-counts',
+    status: anyMismatch ? 'mismatch' : 'ok',
+    expectedSource: 'tileCountsToOffsetsDryRun.tileOffsets',
+    actualSource: 'tileOffsetsFromWebGpuCountsDryRun.tileOffsets',
+    implementedInWgsl: false,
+    webgpuComputed: false,
+    webgpuPrefixComputed: false,
+    scatterCompared: false,
+    anyMismatch,
+    mismatchClassification: anyMismatch ? 'tileOffsetsMismatch' : 'none',
+    tileCountsMismatchCount: null,
+    tileOffsetsMismatchCount,
+    totalTileRefsMismatch,
+    capacityStatusMismatch,
+    maxAbsCountDelta: null,
+    maxAbsOffsetDelta,
+    prefixOffsetsValid,
+    totalTileRefsConsistent,
+    firstMismatches,
+    sampleTiles: makeTileCountsOffsetsSampleTiles(tileCountsToOffsetsDryRun, {
+      actualTileOffsets: actualOffsets
+    }),
+    timing: {
+      tileOffsetsPrefixComparisonMs: nowMs() - startMs
+    }
+  };
+}
+
 function buildTileCountsOffsetsDryRun({ tileRanges, tileGrid }) {
   const startMs = nowMs();
   const tileCols = toFiniteInteger(tileGrid?.tileCols, 0);
@@ -590,6 +838,11 @@ function makeFallback(reason, extra = {}) {
     extra.webgpuTileCountsDryRun ?? createWebGpuTileCountsUnavailable(reason);
   const tileCountsWebGpuComparison =
     extra.tileCountsWebGpuComparison ?? createTileCountsWebGpuComparisonUnavailable(reason);
+  const tileOffsetsFromWebGpuCountsDryRun =
+    extra.tileOffsetsFromWebGpuCountsDryRun ??
+    createTileOffsetsFromWebGpuCountsUnavailable(reason);
+  const tileOffsetsPrefixComparison =
+    extra.tileOffsetsPrefixComparison ?? createTileOffsetsPrefixComparisonUnavailable(reason);
   return {
     schemaVersion: WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION,
     phaseStep: WEBGPU_VISIBLE_RECORD_PHASE_STEP,
@@ -644,6 +897,8 @@ function makeFallback(reason, extra = {}) {
     tileCountsOffsetsSelfComparison,
     webgpuTileCountsDryRun,
     tileCountsWebGpuComparison,
+    tileOffsetsFromWebGpuCountsDryRun,
+    tileOffsetsPrefixComparison,
     fieldMismatchCount: null,
     firstMismatches: extra.firstMismatches ?? [],
     mismatchClassification: extra.mismatchClassification ??
@@ -1295,6 +1550,14 @@ export async function runWebGpuVisibleRecordDryRun({
     tileCountsToOffsetsDryRun,
     webgpuTileCountsDryRun
   );
+  const tileOffsetsFromWebGpuCountsDryRun = buildTileOffsetsFromWebGpuCountsDryRun(
+    webgpuTileCountsDryRun,
+    tileGrid
+  );
+  const tileOffsetsPrefixComparison = buildTileOffsetsPrefixComparison(
+    tileCountsToOffsetsDryRun,
+    tileOffsetsFromWebGpuCountsDryRun
+  );
   const rawCount = toFiniteInteger(raw.count ?? raw.N ?? (raw.xyz?.length / Math.max(1, raw.xyzDim || 3)), 0);
   const computeResult = await runCompute({
     device,
@@ -1327,7 +1590,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step21 computes tileCounts only in WebGPU and compares them against the CPU reference while keeping tileOffsets, prefix sum, and scatter deferred.',
+    scaffoldNote: 'Phase 3 Step22 keeps WebGPU tileCounts and adds CPU-staged exclusive tileOffsets comparison from those counts while keeping WebGPU prefix sum and scatter deferred.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
@@ -1371,6 +1634,8 @@ export async function runWebGpuVisibleRecordDryRun({
     tileCountsOffsetsSelfComparison,
     webgpuTileCountsDryRun,
     tileCountsWebGpuComparison,
+    tileOffsetsFromWebGpuCountsDryRun,
+    tileOffsetsPrefixComparison,
     inputContract,
     bufferContract: inputContract,
     inputBufferModes: inputContract.inputBufferModes,
@@ -1387,6 +1652,8 @@ export async function runWebGpuVisibleRecordDryRun({
       ...tileCountsOffsetsSelfComparison.timing,
       ...webgpuTileCountsDryRun.timing,
       ...tileCountsWebGpuComparison.timing,
+      ...tileOffsetsFromWebGpuCountsDryRun.timing,
+      ...tileOffsetsPrefixComparison.timing,
       ...computeResult.timing,
       compareMs,
       totalMs: nowMs() - totalStartMs
@@ -1423,6 +1690,8 @@ export async function runWebGpuVisibleRecordDryRun({
       tileCountsOffsetsSelfComparison,
       webgpuTileCountsDryRun,
       tileCountsWebGpuComparison,
+      tileOffsetsFromWebGpuCountsDryRun,
+      tileOffsetsPrefixComparison,
       inputContract,
       bufferContract: inputContract,
       inputBufferModes: inputContract.inputBufferModes,

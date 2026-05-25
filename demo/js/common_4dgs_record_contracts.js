@@ -4,10 +4,10 @@ export const WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION =
 export const WEBGPU_VISIBLE_RECORD_COMPUTE_MODE =
   'webgpu-storage-buffer-compute-fixed-record';
 
-export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step21';
+export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step22';
 
 export const WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE =
-  'wgsl-valid-screen-projection-with-webgpu-tile-counts-comparison';
+  'wgsl-valid-screen-projection-with-tile-offsets-prefix-comparison';
 
 export const WEBGPU_RADIUS_FIELD_COMPUTE_MODE =
   'deferred-covariance-conic-dependent';
@@ -38,6 +38,9 @@ export const WEBGPU_TILE_COUNTS_OFFSETS_SELF_COMPARISON_COMPUTE_MODE =
 
 export const WEBGPU_TILE_COUNTS_COMPARISON_COMPUTE_MODE =
   'webgpu-compute-tile-counts-only';
+
+export const WEBGPU_TILE_OFFSETS_PREFIX_COMPARISON_COMPUTE_MODE =
+  'cpu-prefix-from-webgpu-tile-counts-comparison';
 
 export {
   WEBGPU_PROJECTION_CONTRACT_NAMES,
@@ -99,7 +102,9 @@ export const WEBGPU_VISIBLE_RECORD_FIELD_COMPUTE_MODES = Object.freeze({
   tileCountsOffsetsSelfComparison:
     WEBGPU_TILE_COUNTS_OFFSETS_SELF_COMPARISON_COMPUTE_MODE,
   tileCountsWebGpuComparison:
-    WEBGPU_TILE_COUNTS_COMPARISON_COMPUTE_MODE
+    WEBGPU_TILE_COUNTS_COMPARISON_COMPUTE_MODE,
+  tileOffsetsPrefixComparison:
+    WEBGPU_TILE_OFFSETS_PREFIX_COMPARISON_COMPUTE_MODE
 });
 
 export const WEBGPU_VISIBLE_RECORD_DEFERRED_FIELDS = Object.freeze([

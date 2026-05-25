@@ -677,6 +677,21 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
     tile_counts_webgpu_comparison = get_path(
         summary, ["tileCountsWebGpuComparison"], {}
     )
+    offsets_from_webgpu_counts = get_path(
+        summary, ["tileOffsetsFromWebGpuCountsDryRun"], {}
+    )
+    offsets_from_webgpu_counts_validation = get_path(
+        offsets_from_webgpu_counts, ["validationSummary"], {}
+    )
+    offsets_from_webgpu_counts_metadata = get_path(
+        offsets_from_webgpu_counts, ["metadata"], {}
+    )
+    offsets_from_webgpu_counts_capacity = get_path(
+        offsets_from_webgpu_counts, ["capacity"], {}
+    )
+    tile_offsets_prefix_comparison = get_path(
+        summary, ["tileOffsetsPrefixComparison"], {}
+    )
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -878,6 +893,106 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             ),
             "sampleTiles": compact_list(
                 get_path(tile_counts_webgpu_comparison, ["sampleTiles"], [])
+            ),
+        },
+        "tileOffsetsFromWebGpuCountsDryRun": {
+            "status": get_path(offsets_from_webgpu_counts, ["status"]),
+            "mode": get_path(offsets_from_webgpu_counts, ["mode"]),
+            "source": get_path(offsets_from_webgpu_counts, ["source"]),
+            "implementedInWgsl": get_path(
+                offsets_from_webgpu_counts, ["implementedInWgsl"]
+            ),
+            "webgpuPrefixComputed": get_path(
+                offsets_from_webgpu_counts, ["webgpuPrefixComputed"]
+            ),
+            "scatterImplemented": get_path(
+                offsets_from_webgpu_counts, ["scatterImplemented"]
+            ),
+            "tileGrid": get_path(offsets_from_webgpu_counts, ["tileGrid"], {}),
+            "recordCounts": get_path(
+                offsets_from_webgpu_counts, ["recordCounts"], {}
+            ),
+            "prefixOffsetsValid": get_path(
+                offsets_from_webgpu_counts_validation, ["prefixOffsetsValid"]
+            ),
+            "totalTileRefsConsistent": get_path(
+                offsets_from_webgpu_counts_validation,
+                ["totalTileRefsConsistent"],
+            ),
+            "capacityStatus": get_path(
+                offsets_from_webgpu_counts_validation, ["capacityStatus"]
+            ),
+            "firstValidationFailures": get_path(
+                offsets_from_webgpu_counts_validation,
+                ["firstValidationFailures"],
+                [],
+            ),
+            "tileOffsetsPolicy": get_path(
+                offsets_from_webgpu_counts_metadata, ["tileOffsetsPolicy"]
+            ),
+            "tileOffsetsTerminalValue": get_path(
+                offsets_from_webgpu_counts_metadata, ["tileOffsetsTerminalValue"]
+            ),
+            "totalTileRefs": get_path(
+                offsets_from_webgpu_counts_metadata, ["totalTileRefs"]
+            ),
+            "maxRefsPerTile": get_path(
+                offsets_from_webgpu_counts_capacity, ["maxRefsPerTile"]
+            ),
+            "nonEmptyTiles": get_path(
+                offsets_from_webgpu_counts_capacity, ["nonEmptyTiles"]
+            ),
+        },
+        "tileOffsetsPrefixComparison": {
+            "status": get_path(tile_offsets_prefix_comparison, ["status"]),
+            "mode": get_path(tile_offsets_prefix_comparison, ["mode"]),
+            "expectedSource": get_path(
+                tile_offsets_prefix_comparison, ["expectedSource"]
+            ),
+            "actualSource": get_path(
+                tile_offsets_prefix_comparison, ["actualSource"]
+            ),
+            "implementedInWgsl": get_path(
+                tile_offsets_prefix_comparison, ["implementedInWgsl"]
+            ),
+            "webgpuComputed": get_path(
+                tile_offsets_prefix_comparison, ["webgpuComputed"]
+            ),
+            "webgpuPrefixComputed": get_path(
+                tile_offsets_prefix_comparison, ["webgpuPrefixComputed"]
+            ),
+            "scatterCompared": get_path(
+                tile_offsets_prefix_comparison, ["scatterCompared"]
+            ),
+            "anyMismatch": get_path(
+                tile_offsets_prefix_comparison, ["anyMismatch"]
+            ),
+            "mismatchClassification": get_path(
+                tile_offsets_prefix_comparison, ["mismatchClassification"]
+            ),
+            "tileOffsetsMismatchCount": get_path(
+                tile_offsets_prefix_comparison, ["tileOffsetsMismatchCount"]
+            ),
+            "totalTileRefsMismatch": get_path(
+                tile_offsets_prefix_comparison, ["totalTileRefsMismatch"]
+            ),
+            "capacityStatusMismatch": get_path(
+                tile_offsets_prefix_comparison, ["capacityStatusMismatch"]
+            ),
+            "maxAbsOffsetDelta": get_path(
+                tile_offsets_prefix_comparison, ["maxAbsOffsetDelta"]
+            ),
+            "prefixOffsetsValid": get_path(
+                tile_offsets_prefix_comparison, ["prefixOffsetsValid"]
+            ),
+            "totalTileRefsConsistent": get_path(
+                tile_offsets_prefix_comparison, ["totalTileRefsConsistent"]
+            ),
+            "firstMismatches": compact_list(
+                get_path(tile_offsets_prefix_comparison, ["firstMismatches"], [])
+            ),
+            "sampleTiles": compact_list(
+                get_path(tile_offsets_prefix_comparison, ["sampleTiles"], [])
             ),
         },
         "inputContract": get_path(summary, ["inputContract"], {}),
