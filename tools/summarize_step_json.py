@@ -731,6 +731,18 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
     tile_indices_webgpu_scatter_validation = get_path(
         tile_indices_webgpu_scatter_comparison, ["validationSummary"], {}
     )
+    tile_list_summary_comparison = get_path(
+        summary, ["tileListSummaryComparison"], {}
+    )
+    tile_list_summary_metadata = get_path(
+        tile_list_summary_comparison, ["metadataComparison"], {}
+    )
+    tile_list_summary_validation = get_path(
+        tile_list_summary_comparison, ["validationSummary"], {}
+    )
+    tile_list_summary_capacity = get_path(
+        tile_list_summary_comparison, ["capacity"], {}
+    )
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -1365,6 +1377,91 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
                 get_path(
                     tile_indices_webgpu_scatter_comparison, ["sampleTiles"], []
                 )
+            ),
+        },
+        "tileListSummaryComparison": {
+            "status": get_path(tile_list_summary_comparison, ["status"]),
+            "mode": get_path(tile_list_summary_comparison, ["mode"]),
+            "source": get_path(tile_list_summary_comparison, ["source"]),
+            "expectedSource": get_path(
+                tile_list_summary_comparison, ["expectedSource"]
+            ),
+            "actualSource": get_path(
+                tile_list_summary_comparison, ["actualSource"]
+            ),
+            "implementedInWgsl": get_path(
+                tile_list_summary_comparison, ["implementedInWgsl"]
+            ),
+            "nonDisplayOnly": get_path(
+                tile_list_summary_comparison, ["nonDisplayOnly"]
+            ),
+            "fullTileListGeneration": get_path(
+                tile_list_summary_comparison, ["fullTileListGeneration"]
+            ),
+            "sortImplemented": get_path(
+                tile_list_summary_comparison, ["sortImplemented"]
+            ),
+            "displayConnectionImplemented": get_path(
+                tile_list_summary_comparison, ["displayConnectionImplemented"]
+            ),
+            "tileIndicesStoredInJson": get_path(
+                tile_list_summary_comparison, ["tileIndicesStoredInJson"]
+            ),
+            "anyMismatch": get_path(tile_list_summary_comparison, ["anyMismatch"]),
+            "mismatchClassification": get_path(
+                tile_list_summary_comparison, ["mismatchClassification"]
+            ),
+            "stageStatuses": get_path(
+                tile_list_summary_comparison, ["stageStatuses"], {}
+            ),
+            "mismatchCounts": get_path(
+                tile_list_summary_comparison, ["mismatchCounts"], {}
+            ),
+            "totalTileRefsMismatch": get_path(
+                tile_list_summary_metadata, ["totalTileRefsMismatch"]
+            ),
+            "capacityStatusMismatch": get_path(
+                tile_list_summary_metadata, ["capacityStatusMismatch"]
+            ),
+            "expectedTotalTileRefs": get_path(
+                tile_list_summary_metadata, ["expectedTotalTileRefs"]
+            ),
+            "actualTotalTileRefs": get_path(
+                tile_list_summary_metadata, ["actualTotalTileRefs"]
+            ),
+            "capacityStatus": get_path(
+                tile_list_summary_capacity, ["capacityStatus"]
+            ),
+            "capacityOverflowCount": get_path(
+                tile_list_summary_capacity, ["capacityOverflowCount"]
+            ),
+            "countsValid": get_path(tile_list_summary_validation, ["countsValid"]),
+            "offsetsValid": get_path(
+                tile_list_summary_validation, ["offsetsValid"]
+            ),
+            "indicesValid": get_path(
+                tile_list_summary_validation, ["indicesValid"]
+            ),
+            "orderingValid": get_path(
+                tile_list_summary_validation, ["orderingValid"]
+            ),
+            "writeCursorFinalValid": get_path(
+                tile_list_summary_validation, ["writeCursorFinalValid"]
+            ),
+            "scatterOutputValid": get_path(
+                tile_list_summary_validation, ["scatterOutputValid"]
+            ),
+            "recordCounts": get_path(
+                tile_list_summary_comparison, ["recordCounts"], {}
+            ),
+            "orderingPolicy": get_path(
+                tile_list_summary_comparison, ["orderingPolicy"], {}
+            ),
+            "firstMismatches": compact_list(
+                get_path(tile_list_summary_comparison, ["firstMismatches"], [])
+            ),
+            "sampleTiles": compact_list(
+                get_path(tile_list_summary_comparison, ["sampleTiles"], [])
             ),
         },
         "inputContract": get_path(summary, ["inputContract"], {}),

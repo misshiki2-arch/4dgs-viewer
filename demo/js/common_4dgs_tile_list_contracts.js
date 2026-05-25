@@ -47,6 +47,8 @@ export const WEBGPU_TILE_LIST_COMPUTE_MODES = Object.freeze({
     'cpu-reference-tile-indices-self-comparison-surface',
   WEBGPU_TILE_INDICES_SCATTER_COMPARISON:
     'webgpu-compute-tile-indices-scatter-comparison',
+  WEBGPU_TILE_LIST_SUMMARY_COMPARISON:
+    'non-display-webgpu-tile-list-summary-comparison',
   CPU_REFERENCE_TILE_LIST:
     'cpu-reference-tile-list-build'
 });
@@ -230,6 +232,20 @@ export function createWebGpuTileCountsOffsetsComparisonSurfaceContract({
         'firstMismatches is empty',
         'tileIndices are not stored in JSON as a full buffer',
         'full tile-list generation, sort, and display connection remain deferred'
+      ]
+    },
+    recommendedStep27Unit: {
+      name: 'non-display-webgpu-tile-list-summary-comparison',
+      scope:
+        'Bundle the validated WebGPU tileCounts, tileOffsets, and tileIndices dry-run results into one non-display tile-list summary and compare metadata against the CPU reference without connecting sort or display.',
+      computeMode: WEBGPU_TILE_LIST_COMPUTE_MODES.WEBGPU_TILE_LIST_SUMMARY_COMPARISON,
+      successCriteria: [
+        'countsStatus, offsetsStatus, and indicesStatus are ok',
+        'totalTileRefsMismatch is false',
+        'capacityStatusMismatch is false',
+        'orderingMismatchCount is 0',
+        'tileIndices are not stored in JSON as a full buffer',
+        'sort and display connection remain deferred'
       ]
     },
     relationToStep18:
