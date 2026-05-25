@@ -89,6 +89,203 @@ function createTileCountsOffsetsUnavailable(reason) {
   };
 }
 
+function createTileCountsOffsetsSelfComparisonUnavailable(reason) {
+  return {
+    mode: 'cpu-reference-self-comparison-surface',
+    status: 'unavailable',
+    reason,
+    expectedSource: 'tileCountsToOffsetsDryRun',
+    actualSource: 'tileCountsToOffsetsDryRun',
+    implementedInWgsl: false,
+    webgpuComputed: false,
+    scatterCompared: false,
+    anyMismatch: true,
+    mismatchClassification: 'tileCountsOffsetsSelfComparisonUnavailable',
+    tileCountsMismatchCount: null,
+    tileOffsetsMismatchCount: null,
+    totalTileRefsMismatch: null,
+    capacityStatusMismatch: null,
+    maxAbsCountDelta: null,
+    maxAbsOffsetDelta: null,
+    firstMismatches: [{ kind: 'input', reason }],
+    sampleTiles: []
+  };
+}
+
+function makeTileCountsOffsetsSampleTiles(reference) {
+  const tileCounts = Array.isArray(reference?.tileCounts) ? reference.tileCounts : [];
+  const tileOffsets = Array.isArray(reference?.tileOffsets) ? reference.tileOffsets : [];
+  const tileCount = toFiniteInteger(reference?.tileGrid?.tileCount, tileCounts.length);
+  if (tileCount <= 0) return [];
+
+  const sampleIds = [];
+  const addSampleId = (tileId) => {
+    if (tileId < 0 || tileId >= tileCount || sampleIds.includes(tileId)) return;
+    sampleIds.push(tileId);
+  };
+
+  addSampleId(0);
+  addSampleId(tileCounts.findIndex((count) => count > 0));
+  let maxCountTileId = 0;
+  for (let i = 1; i < Math.min(tileCounts.length, tileCount); i += 1) {
+    if ((tileCounts[i] ?? 0) > (tileCounts[maxCountTileId] ?? 0)) {
+      maxCountTileId = i;
+    }
+  }
+  addSampleId(maxCountTileId);
+  addSampleId(tileCount - 1);
+
+  return sampleIds.map((tileId) => ({
+    tileId,
+    expectedCount: tileCounts[tileId] ?? 0,
+    actualCount: tileCounts[tileId] ?? 0,
+    countDelta: 0,
+    expectedOffset: tileOffsets[tileId] ?? null,
+    actualOffset: tileOffsets[tileId] ?? null,
+    offsetDelta: 0,
+    expectedNextOffset: tileOffsets[tileId + 1] ?? null,
+    actualNextOffset: tileOffsets[tileId + 1] ?? null
+  }));
+}
+
+function buildTileCountsOffsetsSelfComparison(tileCountsToOffsetsDryRun) {
+  const startMs = nowMs();
+  if (!tileCountsToOffsetsDryRun || tileCountsToOffsetsDryRun.status !== 'ok') {
+    const reason = tileCountsToOffsetsDryRun?.reason ??
+      tileCountsToOffsetsDryRun?.status ??
+      'tile-counts-to-offsets-dry-run-unavailable';
+    return createTileCountsOffsetsSelfComparisonUnavailable(reason);
+  }
+
+  const expectedCounts = Array.isArray(tileCountsToOffsetsDryRun.tileCounts)
+    ? tileCountsToOffsetsDryRun.tileCounts
+    : [];
+  const actualCounts = expectedCounts;
+  const expectedOffsets = Array.isArray(tileCountsToOffsetsDryRun.tileOffsets)
+    ? tileCountsToOffsetsDryRun.tileOffsets
+    : [];
+  const actualOffsets = expectedOffsets;
+  const expectedCapacity = tileCountsToOffsetsDryRun.capacity ?? {};
+  const actualCapacity = expectedCapacity;
+  const tileCount = toFiniteInteger(tileCountsToOffsetsDryRun.tileGrid?.tileCount, expectedCounts.length);
+  const firstMismatches = [];
+  let tileCountsMismatchCount = 0;
+  let tileOffsetsMismatchCount = 0;
+  let maxAbsCountDelta = 0;
+  let maxAbsOffsetDelta = 0;
+
+  const countLengthMismatch = expectedCounts.length !== actualCounts.length || expectedCounts.length !== tileCount;
+  const offsetLengthMismatch =
+    expectedOffsets.length !== actualOffsets.length || expectedOffsets.length !== tileCount + 1;
+  if (countLengthMismatch) {
+    firstMismatches.push({
+      kind: 'shapeMismatch',
+      field: 'tileCounts',
+      expectedLength: expectedCounts.length,
+      actualLength: actualCounts.length,
+      tileCount
+    });
+  }
+  if (offsetLengthMismatch && firstMismatches.length < 8) {
+    firstMismatches.push({
+      kind: 'shapeMismatch',
+      field: 'tileOffsets',
+      expectedLength: expectedOffsets.length,
+      actualLength: actualOffsets.length,
+      expectedTileCountPlusOne: tileCount + 1
+    });
+  }
+
+  for (let i = 0; i < Math.min(expectedCounts.length, actualCounts.length, tileCount); i += 1) {
+    const expected = expectedCounts[i] ?? 0;
+    const actual = actualCounts[i] ?? 0;
+    const delta = actual - expected;
+    maxAbsCountDelta = Math.max(maxAbsCountDelta, Math.abs(delta));
+    if (delta !== 0) {
+      tileCountsMismatchCount += 1;
+      if (firstMismatches.length < 8) {
+        firstMismatches.push({ kind: 'tileCountsMismatch', tileId: i, expected, actual, delta });
+      }
+    }
+  }
+
+  for (let i = 0; i < Math.min(expectedOffsets.length, actualOffsets.length, tileCount + 1); i += 1) {
+    const expected = expectedOffsets[i] ?? 0;
+    const actual = actualOffsets[i] ?? 0;
+    const delta = actual - expected;
+    maxAbsOffsetDelta = Math.max(maxAbsOffsetDelta, Math.abs(delta));
+    if (delta !== 0) {
+      tileOffsetsMismatchCount += 1;
+      if (firstMismatches.length < 8) {
+        firstMismatches.push({ kind: 'tileOffsetsMismatch', offsetIndex: i, expected, actual, delta });
+      }
+    }
+  }
+
+  const expectedTotalTileRefs = expectedCapacity.totalTileRefs ??
+    tileCountsToOffsetsDryRun.metadata?.totalTileRefs ??
+    expectedOffsets[tileCount] ??
+    null;
+  const actualTotalTileRefs = actualCapacity.totalTileRefs ??
+    tileCountsToOffsetsDryRun.metadata?.totalTileRefs ??
+    actualOffsets[tileCount] ??
+    null;
+  const totalTileRefsMismatch = expectedTotalTileRefs !== actualTotalTileRefs;
+  if (totalTileRefsMismatch && firstMismatches.length < 8) {
+    firstMismatches.push({
+      kind: 'totalTileRefsMismatch',
+      expected: expectedTotalTileRefs,
+      actual: actualTotalTileRefs
+    });
+  }
+
+  const expectedCapacityStatus = expectedCapacity.capacityStatus ??
+    tileCountsToOffsetsDryRun.validationSummary?.capacityStatus ??
+    null;
+  const actualCapacityStatus = actualCapacity.capacityStatus ??
+    tileCountsToOffsetsDryRun.validationSummary?.capacityStatus ??
+    null;
+  const capacityStatusMismatch = expectedCapacityStatus !== actualCapacityStatus;
+  if (capacityStatusMismatch && firstMismatches.length < 8) {
+    firstMismatches.push({
+      kind: 'capacityStatusMismatch',
+      expected: expectedCapacityStatus,
+      actual: actualCapacityStatus
+    });
+  }
+
+  const anyMismatch =
+    countLengthMismatch ||
+    offsetLengthMismatch ||
+    tileCountsMismatchCount > 0 ||
+    tileOffsetsMismatchCount > 0 ||
+    totalTileRefsMismatch ||
+    capacityStatusMismatch;
+
+  return {
+    mode: 'cpu-reference-self-comparison-surface',
+    status: anyMismatch ? 'mismatch' : 'ok',
+    expectedSource: 'tileCountsToOffsetsDryRun',
+    actualSource: 'tileCountsToOffsetsDryRun',
+    implementedInWgsl: false,
+    webgpuComputed: false,
+    scatterCompared: false,
+    anyMismatch,
+    mismatchClassification: anyMismatch ? 'cpuReferenceSelfComparisonMismatch' : 'none',
+    tileCountsMismatchCount,
+    tileOffsetsMismatchCount,
+    totalTileRefsMismatch,
+    capacityStatusMismatch,
+    maxAbsCountDelta,
+    maxAbsOffsetDelta,
+    firstMismatches,
+    sampleTiles: makeTileCountsOffsetsSampleTiles(tileCountsToOffsetsDryRun),
+    timing: {
+      tileCountsOffsetsSelfComparisonMs: nowMs() - startMs
+    }
+  };
+}
+
 function buildTileCountsOffsetsDryRun({ tileRanges, tileGrid }) {
   const startMs = nowMs();
   const tileCols = toFiniteInteger(tileGrid?.tileCols, 0);
@@ -226,6 +423,9 @@ function makeFallback(reason, extra = {}) {
     createWebGpuTileCountsOffsetsComparisonSurfaceContract();
   const tileCountsToOffsetsDryRun =
     extra.tileCountsToOffsetsDryRun ?? createTileCountsOffsetsUnavailable(reason);
+  const tileCountsOffsetsSelfComparison =
+    extra.tileCountsOffsetsSelfComparison ??
+    createTileCountsOffsetsSelfComparisonUnavailable(reason);
   return {
     schemaVersion: WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION,
     phaseStep: WEBGPU_VISIBLE_RECORD_PHASE_STEP,
@@ -277,6 +477,7 @@ function makeFallback(reason, extra = {}) {
     tileCountsOffsetsComparisonSurfaceComputeMode:
       tileCountsOffsetsComparisonSurfaceContract.computeMode,
     tileCountsToOffsetsDryRun,
+    tileCountsOffsetsSelfComparison,
     fieldMismatchCount: null,
     firstMismatches: extra.firstMismatches ?? [],
     mismatchClassification: extra.mismatchClassification ??
@@ -754,6 +955,8 @@ export async function runWebGpuVisibleRecordDryRun({
     tileRanges: cpuReference.tileRanges,
     tileGrid
   });
+  const tileCountsOffsetsSelfComparison =
+    buildTileCountsOffsetsSelfComparison(tileCountsToOffsetsDryRun);
   const bufferUploadPrepareMs = nowMs() - uploadStartMs;
   const rawCount = toFiniteInteger(raw.count ?? raw.N ?? (raw.xyz?.length / Math.max(1, raw.xyzDim || 3)), 0);
   const computeResult = await runCompute({
@@ -787,7 +990,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step19 keeps tileCounts and tileOffsets CPU-reference materialized and adds the comparison surface metadata needed by future WebGPU counts/offsets validation.',
+    scaffoldNote: 'Phase 3 Step20 keeps tileCounts and tileOffsets CPU-reference materialized and adds a CPU reference self-comparison summary for future WebGPU counts/offsets validation.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
@@ -828,6 +1031,7 @@ export async function runWebGpuVisibleRecordDryRun({
     tileCountsOffsetsComparisonSurfaceComputeMode:
       tileCountsOffsetsComparisonSurfaceContract.computeMode,
     tileCountsToOffsetsDryRun,
+    tileCountsOffsetsSelfComparison,
     inputContract,
     bufferContract: inputContract,
     inputBufferModes: inputContract.inputBufferModes,
@@ -841,6 +1045,7 @@ export async function runWebGpuVisibleRecordDryRun({
       bufferUploadMs: bufferUploadPrepareMs,
       ...cpuReference.timing,
       ...tileCountsToOffsetsDryRun.timing,
+      ...tileCountsOffsetsSelfComparison.timing,
       ...computeResult.timing,
       compareMs,
       totalMs: nowMs() - totalStartMs
@@ -874,6 +1079,7 @@ export async function runWebGpuVisibleRecordDryRun({
       tileCountsOffsetsComparisonSurfaceComputeMode:
         tileCountsOffsetsComparisonSurfaceContract.computeMode,
       tileCountsToOffsetsDryRun,
+      tileCountsOffsetsSelfComparison,
       inputContract,
       bufferContract: inputContract,
       inputBufferModes: inputContract.inputBufferModes,

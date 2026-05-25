@@ -670,6 +670,9 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
     )
     counts_offsets_metadata = get_path(counts_offsets, ["metadata"], {})
     counts_offsets_capacity = get_path(counts_offsets, ["capacity"], {})
+    counts_offsets_self_comparison = get_path(
+        summary, ["tileCountsOffsetsSelfComparison"], {}
+    )
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -754,6 +757,51 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
                 counts_offsets_capacity, ["maxRefsPerTile"]
             ),
             "nonEmptyTiles": get_path(counts_offsets_capacity, ["nonEmptyTiles"]),
+        },
+        "tileCountsOffsetsSelfComparison": {
+            "status": get_path(counts_offsets_self_comparison, ["status"]),
+            "mode": get_path(counts_offsets_self_comparison, ["mode"]),
+            "expectedSource": get_path(
+                counts_offsets_self_comparison, ["expectedSource"]
+            ),
+            "actualSource": get_path(counts_offsets_self_comparison, ["actualSource"]),
+            "implementedInWgsl": get_path(
+                counts_offsets_self_comparison, ["implementedInWgsl"]
+            ),
+            "webgpuComputed": get_path(
+                counts_offsets_self_comparison, ["webgpuComputed"]
+            ),
+            "scatterCompared": get_path(
+                counts_offsets_self_comparison, ["scatterCompared"]
+            ),
+            "anyMismatch": get_path(counts_offsets_self_comparison, ["anyMismatch"]),
+            "mismatchClassification": get_path(
+                counts_offsets_self_comparison, ["mismatchClassification"]
+            ),
+            "tileCountsMismatchCount": get_path(
+                counts_offsets_self_comparison, ["tileCountsMismatchCount"]
+            ),
+            "tileOffsetsMismatchCount": get_path(
+                counts_offsets_self_comparison, ["tileOffsetsMismatchCount"]
+            ),
+            "totalTileRefsMismatch": get_path(
+                counts_offsets_self_comparison, ["totalTileRefsMismatch"]
+            ),
+            "capacityStatusMismatch": get_path(
+                counts_offsets_self_comparison, ["capacityStatusMismatch"]
+            ),
+            "maxAbsCountDelta": get_path(
+                counts_offsets_self_comparison, ["maxAbsCountDelta"]
+            ),
+            "maxAbsOffsetDelta": get_path(
+                counts_offsets_self_comparison, ["maxAbsOffsetDelta"]
+            ),
+            "firstMismatches": compact_list(
+                get_path(counts_offsets_self_comparison, ["firstMismatches"], [])
+            ),
+            "sampleTiles": compact_list(
+                get_path(counts_offsets_self_comparison, ["sampleTiles"], [])
+            ),
         },
         "inputContract": get_path(summary, ["inputContract"], {}),
         "bufferContract": get_path(summary, ["bufferContract"], {}),
