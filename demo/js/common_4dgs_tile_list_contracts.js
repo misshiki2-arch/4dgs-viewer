@@ -39,6 +39,8 @@ export const WEBGPU_TILE_LIST_COMPUTE_MODES = Object.freeze({
     'webgpu-compute-tile-counts-only',
   CPU_PREFIX_FROM_WEBGPU_TILE_COUNTS:
     'cpu-prefix-from-webgpu-tile-counts-comparison',
+  WEBGPU_TILE_OFFSETS_PREFIX_SUM:
+    'webgpu-compute-tile-offsets-prefix-sum',
   CPU_REFERENCE_TILE_LIST:
     'cpu-reference-tile-list-build'
 });
@@ -168,6 +170,19 @@ export function createWebGpuTileCountsOffsetsComparisonSurfaceContract({
         'capacityStatusMismatch is false',
         'firstMismatches is empty',
         'WebGPU prefix sum remains deferred'
+      ]
+    },
+    recommendedStep23Unit: {
+      name: 'webgpu-tile-offsets-prefix-sum-comparison',
+      scope:
+        'Compute exclusive tileOffsets from WebGPU tileCounts in a minimal WebGPU prefix-sum dry-run and compare them against CPU reference tileOffsets; keep scatter and tileIndices deferred.',
+      computeMode: WEBGPU_TILE_LIST_COMPUTE_MODES.WEBGPU_TILE_OFFSETS_PREFIX_SUM,
+      successCriteria: [
+        'tileOffsetsMismatchCount is 0',
+        'maxAbsOffsetDelta is 0',
+        'totalTileRefsMismatch is false',
+        'firstMismatches is empty',
+        'scatter and tileIndices remain deferred'
       ]
     },
     relationToStep18:

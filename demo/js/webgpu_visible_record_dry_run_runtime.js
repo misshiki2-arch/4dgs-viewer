@@ -189,6 +189,45 @@ function createTileOffsetsPrefixComparisonUnavailable(reason) {
   };
 }
 
+function createWebGpuTileOffsetsPrefixUnavailable(reason) {
+  return {
+    mode: 'webgpu-compute-tile-offsets-prefix-sum',
+    status: 'unavailable',
+    reason,
+    source: 'webgpuTileCountsDryRun.tileCounts',
+    implementedInWgsl: true,
+    webgpuPrefixComputed: true,
+    scatterImplemented: false,
+    tileOffsets: []
+  };
+}
+
+function createTileOffsetsWebGpuPrefixComparisonUnavailable(reason) {
+  return {
+    mode: 'webgpu-tile-offsets-prefix-sum-comparison',
+    status: 'unavailable',
+    reason,
+    expectedSource: 'tileCountsToOffsetsDryRun.tileOffsets',
+    actualSource: 'webgpuTileOffsetsPrefixDryRun.tileOffsets',
+    implementedInWgsl: true,
+    webgpuComputed: true,
+    webgpuPrefixComputed: true,
+    scatterCompared: false,
+    anyMismatch: true,
+    mismatchClassification: 'tileOffsetsWebGpuPrefixComparisonUnavailable',
+    tileCountsMismatchCount: null,
+    tileOffsetsMismatchCount: null,
+    totalTileRefsMismatch: null,
+    capacityStatusMismatch: null,
+    maxAbsCountDelta: null,
+    maxAbsOffsetDelta: null,
+    prefixOffsetsValid: false,
+    totalTileRefsConsistent: false,
+    firstMismatches: [{ kind: 'input', reason }],
+    sampleTiles: []
+  };
+}
+
 function makeTileCountsOffsetsSampleTiles(reference, {
   actualTileCounts = null,
   actualTileOffsets = null
@@ -694,6 +733,127 @@ function buildTileOffsetsPrefixComparison(tileCountsToOffsetsDryRun, tileOffsets
   };
 }
 
+function buildTileOffsetsWebGpuPrefixComparison(tileCountsToOffsetsDryRun, webgpuTileOffsetsPrefixDryRun) {
+  const startMs = nowMs();
+  if (!tileCountsToOffsetsDryRun || tileCountsToOffsetsDryRun.status !== 'ok') {
+    const reason = tileCountsToOffsetsDryRun?.reason ??
+      tileCountsToOffsetsDryRun?.status ??
+      'tile-counts-to-offsets-dry-run-unavailable';
+    return createTileOffsetsWebGpuPrefixComparisonUnavailable(reason);
+  }
+  if (!webgpuTileOffsetsPrefixDryRun || webgpuTileOffsetsPrefixDryRun.status !== 'ok') {
+    const reason = webgpuTileOffsetsPrefixDryRun?.reason ??
+      webgpuTileOffsetsPrefixDryRun?.status ??
+      'webgpu-tile-offsets-prefix-dry-run-unavailable';
+    return createTileOffsetsWebGpuPrefixComparisonUnavailable(reason);
+  }
+
+  const expectedOffsets = Array.isArray(tileCountsToOffsetsDryRun.tileOffsets)
+    ? tileCountsToOffsetsDryRun.tileOffsets
+    : [];
+  const actualOffsets = Array.isArray(webgpuTileOffsetsPrefixDryRun.tileOffsets)
+    ? webgpuTileOffsetsPrefixDryRun.tileOffsets
+    : [];
+  const tileCount = toFiniteInteger(tileCountsToOffsetsDryRun.tileGrid?.tileCount, expectedOffsets.length - 1);
+  const firstMismatches = [];
+  let tileOffsetsMismatchCount = 0;
+  let maxAbsOffsetDelta = 0;
+
+  const shapeMismatch = expectedOffsets.length !== tileCount + 1 || actualOffsets.length !== tileCount + 1;
+  if (shapeMismatch) {
+    firstMismatches.push({
+      kind: 'shapeMismatch',
+      field: 'tileOffsets',
+      expectedLength: expectedOffsets.length,
+      actualLength: actualOffsets.length,
+      expectedTileCountPlusOne: tileCount + 1
+    });
+  }
+
+  for (let i = 0; i < Math.min(expectedOffsets.length, actualOffsets.length, tileCount + 1); i += 1) {
+    const expected = expectedOffsets[i] ?? 0;
+    const actual = actualOffsets[i] ?? 0;
+    const delta = actual - expected;
+    maxAbsOffsetDelta = Math.max(maxAbsOffsetDelta, Math.abs(delta));
+    if (delta !== 0) {
+      tileOffsetsMismatchCount += 1;
+      if (firstMismatches.length < 8) {
+        firstMismatches.push({ kind: 'tileOffsetsMismatch', offsetIndex: i, expected, actual, delta });
+      }
+    }
+  }
+
+  const expectedTotalTileRefs = tileCountsToOffsetsDryRun.metadata?.totalTileRefs ??
+    expectedOffsets[tileCount] ??
+    null;
+  const actualTotalTileRefs = webgpuTileOffsetsPrefixDryRun.metadata?.totalTileRefs ??
+    actualOffsets[tileCount] ??
+    null;
+  const totalTileRefsMismatch = expectedTotalTileRefs !== actualTotalTileRefs;
+  if (totalTileRefsMismatch && firstMismatches.length < 8) {
+    firstMismatches.push({
+      kind: 'totalTileRefsMismatch',
+      expected: expectedTotalTileRefs,
+      actual: actualTotalTileRefs
+    });
+  }
+
+  const expectedCapacityStatus = tileCountsToOffsetsDryRun.capacity?.capacityStatus ??
+    tileCountsToOffsetsDryRun.validationSummary?.capacityStatus ??
+    null;
+  const actualCapacityStatus = webgpuTileOffsetsPrefixDryRun.capacity?.capacityStatus ??
+    webgpuTileOffsetsPrefixDryRun.validationSummary?.capacityStatus ??
+    null;
+  const capacityStatusMismatch = expectedCapacityStatus !== actualCapacityStatus;
+  if (capacityStatusMismatch && firstMismatches.length < 8) {
+    firstMismatches.push({
+      kind: 'capacityStatusMismatch',
+      expected: expectedCapacityStatus,
+      actual: actualCapacityStatus
+    });
+  }
+
+  const prefixOffsetsValid =
+    webgpuTileOffsetsPrefixDryRun.validationSummary?.prefixOffsetsValid === true;
+  const totalTileRefsConsistent =
+    webgpuTileOffsetsPrefixDryRun.validationSummary?.totalTileRefsConsistent === true;
+  const anyMismatch =
+    shapeMismatch ||
+    tileOffsetsMismatchCount > 0 ||
+    totalTileRefsMismatch ||
+    capacityStatusMismatch ||
+    !prefixOffsetsValid ||
+    !totalTileRefsConsistent;
+
+  return {
+    mode: 'webgpu-tile-offsets-prefix-sum-comparison',
+    status: anyMismatch ? 'mismatch' : 'ok',
+    expectedSource: 'tileCountsToOffsetsDryRun.tileOffsets',
+    actualSource: 'webgpuTileOffsetsPrefixDryRun.tileOffsets',
+    implementedInWgsl: true,
+    webgpuComputed: true,
+    webgpuPrefixComputed: true,
+    scatterCompared: false,
+    anyMismatch,
+    mismatchClassification: anyMismatch ? 'tileOffsetsMismatch' : 'none',
+    tileCountsMismatchCount: null,
+    tileOffsetsMismatchCount,
+    totalTileRefsMismatch,
+    capacityStatusMismatch,
+    maxAbsCountDelta: null,
+    maxAbsOffsetDelta,
+    prefixOffsetsValid,
+    totalTileRefsConsistent,
+    firstMismatches,
+    sampleTiles: makeTileCountsOffsetsSampleTiles(tileCountsToOffsetsDryRun, {
+      actualTileOffsets: actualOffsets
+    }),
+    timing: {
+      tileOffsetsWebGpuPrefixComparisonMs: nowMs() - startMs
+    }
+  };
+}
+
 function buildTileCountsOffsetsDryRun({ tileRanges, tileGrid }) {
   const startMs = nowMs();
   const tileCols = toFiniteInteger(tileGrid?.tileCols, 0);
@@ -843,6 +1003,11 @@ function makeFallback(reason, extra = {}) {
     createTileOffsetsFromWebGpuCountsUnavailable(reason);
   const tileOffsetsPrefixComparison =
     extra.tileOffsetsPrefixComparison ?? createTileOffsetsPrefixComparisonUnavailable(reason);
+  const webgpuTileOffsetsPrefixDryRun =
+    extra.webgpuTileOffsetsPrefixDryRun ?? createWebGpuTileOffsetsPrefixUnavailable(reason);
+  const tileOffsetsWebGpuPrefixComparison =
+    extra.tileOffsetsWebGpuPrefixComparison ??
+    createTileOffsetsWebGpuPrefixComparisonUnavailable(reason);
   return {
     schemaVersion: WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION,
     phaseStep: WEBGPU_VISIBLE_RECORD_PHASE_STEP,
@@ -899,6 +1064,8 @@ function makeFallback(reason, extra = {}) {
     tileCountsWebGpuComparison,
     tileOffsetsFromWebGpuCountsDryRun,
     tileOffsetsPrefixComparison,
+    webgpuTileOffsetsPrefixDryRun,
+    tileOffsetsWebGpuPrefixComparison,
     fieldMismatchCount: null,
     firstMismatches: extra.firstMismatches ?? [],
     mismatchClassification: extra.mismatchClassification ??
@@ -1467,6 +1634,179 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   };
 }
 
+async function runTileOffsetsPrefixCompute({ device, webgpuTileCountsDryRun, tileGrid }) {
+  const startMs = nowMs();
+  if (!webgpuTileCountsDryRun || webgpuTileCountsDryRun.status !== 'ok') {
+    const reason = webgpuTileCountsDryRun?.reason ??
+      webgpuTileCountsDryRun?.status ??
+      'webgpu-tile-counts-dry-run-unavailable';
+    return createWebGpuTileOffsetsPrefixUnavailable(reason);
+  }
+
+  const tileCounts = toUint32Array(webgpuTileCountsDryRun.tileCounts);
+  const tileCols = toFiniteInteger(tileGrid?.tileCols ?? webgpuTileCountsDryRun.tileGrid?.tileCols, 0);
+  const tileRows = toFiniteInteger(tileGrid?.tileRows ?? webgpuTileCountsDryRun.tileGrid?.tileRows, 0);
+  const tileSize = toFiniteInteger(tileGrid?.tileSize ?? webgpuTileCountsDryRun.tileGrid?.tileSize, 32);
+  const tileCount = toFiniteInteger(webgpuTileCountsDryRun.tileGrid?.tileCount, tileCols * tileRows);
+  if (tileCount <= 0 || tileCounts.length !== tileCount) {
+    return createWebGpuTileOffsetsPrefixUnavailable('tile-counts-shape-unavailable');
+  }
+
+  const shader = device.createShaderModule({
+    label: 'phase3-step23-tile-offsets-prefix-sum-wgsl',
+    code: `
+struct Params {
+  tileCount: u32,
+  _pad0: u32,
+  _pad1: u32,
+  _pad2: u32,
+};
+
+@group(0) @binding(0) var<storage, read> tileCounts: array<u32>;
+@group(0) @binding(1) var<storage, read_write> tileOffsets: array<u32>;
+@group(0) @binding(2) var<uniform> params: Params;
+
+@compute @workgroup_size(1)
+fn main(@builtin(global_invocation_id) id: vec3u) {
+  if (id.x != 0u) {
+    return;
+  }
+  var sum = 0u;
+  tileOffsets[0u] = 0u;
+  var i = 0u;
+  loop {
+    if (i >= params.tileCount) {
+      break;
+    }
+    sum = sum + tileCounts[i];
+    tileOffsets[i + 1u] = sum;
+    i = i + 1u;
+  }
+}`
+  });
+  const pipeline = device.createComputePipeline({
+    layout: 'auto',
+    compute: {
+      module: shader,
+      entryPoint: 'main'
+    }
+  });
+
+  const tileOffsetsLength = tileCount + 1;
+  const tileOffsetsByteLength = Math.max(4, tileOffsetsLength * Uint32Array.BYTES_PER_ELEMENT);
+  const tileCountsBuffer = createBuffer(device, tileCounts, GPUBufferUsage.STORAGE);
+  const tileOffsetsBuffer = createBuffer(
+    device,
+    new Uint32Array(tileOffsetsLength),
+    GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
+  );
+  const paramsBuffer = createBuffer(
+    device,
+    new Uint32Array([tileCount, 0, 0, 0]),
+    GPUBufferUsage.UNIFORM
+  );
+  const readbackBuffer = device.createBuffer({
+    size: tileOffsetsByteLength,
+    usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+  });
+  const bindGroup = device.createBindGroup({
+    layout: pipeline.getBindGroupLayout(0),
+    entries: [
+      { binding: 0, resource: { buffer: tileCountsBuffer } },
+      { binding: 1, resource: { buffer: tileOffsetsBuffer } },
+      { binding: 2, resource: { buffer: paramsBuffer } }
+    ]
+  });
+
+  const dispatchStartMs = nowMs();
+  const encoder = device.createCommandEncoder();
+  const pass = encoder.beginComputePass();
+  pass.setPipeline(pipeline);
+  pass.setBindGroup(0, bindGroup);
+  pass.dispatchWorkgroups(1);
+  pass.end();
+  encoder.copyBufferToBuffer(tileOffsetsBuffer, 0, readbackBuffer, 0, tileOffsetsByteLength);
+  device.queue.submit([encoder.finish()]);
+  await device.queue.onSubmittedWorkDone();
+  const computeMs = nowMs() - dispatchStartMs;
+
+  const readbackStartMs = nowMs();
+  await readbackBuffer.mapAsync(GPUMapMode.READ);
+  const tileOffsets = Array.from(new Uint32Array(readbackBuffer.getMappedRange().slice(0), 0, tileOffsetsLength));
+  readbackBuffer.unmap();
+  const readbackMs = nowMs() - readbackStartMs;
+
+  let totalTileRefs = 0;
+  let maxRefsPerTile = 0;
+  let nonEmptyTiles = 0;
+  let prefixOffsetsValid = tileOffsets[0] === 0;
+  const firstValidationFailures = [];
+  for (let i = 0; i < tileCount; i += 1) {
+    const count = tileCounts[i] ?? 0;
+    totalTileRefs += count;
+    if (count > 0) nonEmptyTiles += 1;
+    if (count > maxRefsPerTile) maxRefsPerTile = count;
+    if (tileOffsets[i + 1] < tileOffsets[i] || tileOffsets[i + 1] - tileOffsets[i] !== count) {
+      prefixOffsetsValid = false;
+      if (firstValidationFailures.length < 8) {
+        firstValidationFailures.push({ stage: 'tileOffsets', tileId: i, reason: 'exclusive-prefix-mismatch' });
+      }
+    }
+  }
+  const terminalTotalTileRefs = tileOffsets[tileCount] ?? 0;
+  const reportedTotalTileRefs = webgpuTileCountsDryRun.metadata?.totalTileRefs ?? totalTileRefs;
+  const totalTileRefsConsistent =
+    terminalTotalTileRefs === totalTileRefs &&
+    terminalTotalTileRefs === reportedTotalTileRefs;
+  if (!totalTileRefsConsistent && firstValidationFailures.length < 8) {
+    firstValidationFailures.push({ stage: 'totalTileRefs', reason: 'offset-terminal-does-not-match-webgpu-count-sum' });
+  }
+
+  return {
+    mode: 'webgpu-compute-tile-offsets-prefix-sum',
+    status: firstValidationFailures.length === 0 ? 'ok' : 'validation-failed',
+    source: 'webgpuTileCountsDryRun.tileCounts',
+    implementedInWgsl: true,
+    webgpuPrefixComputed: true,
+    scatterImplemented: false,
+    outputSchema: {
+      tileOffsets: 'uint32[tileCount + 1], exclusive prefix sum of webgpuTileCountsDryRun.tileCounts'
+    },
+    tileGrid: { tileCols, tileRows, tileCount, tileSize },
+    recordCounts: {
+      tileCountsLength: tileCounts.length,
+      tileOffsetsLength: tileOffsets.length
+    },
+    metadata: {
+      tileOffsetsType: 'uint32',
+      tileOffsetsPolicy: 'exclusive-prefix-sum',
+      tileOffsetsInitialValue: tileOffsets[0] ?? null,
+      tileOffsetsTerminalValue: terminalTotalTileRefs,
+      totalTileRefs: terminalTotalTileRefs,
+      maxRefsPerTile,
+      nonEmptyTiles
+    },
+    capacity: {
+      totalTileRefs: terminalTotalTileRefs,
+      maxRefsPerTile,
+      nonEmptyTiles,
+      capacityStatus: 'no-overflow'
+    },
+    validationSummary: {
+      prefixOffsetsValid,
+      totalTileRefsConsistent,
+      capacityStatus: 'no-overflow',
+      firstValidationFailures
+    },
+    tileOffsets,
+    timing: {
+      tileOffsetsWebGpuPrefixComputeMs: computeMs,
+      tileOffsetsWebGpuPrefixReadbackMs: readbackMs,
+      tileOffsetsWebGpuPrefixTotalMs: nowMs() - startMs
+    }
+  };
+}
+
 export async function runWebGpuVisibleRecordDryRun({
   candidateInfo,
   raw,
@@ -1558,6 +1898,15 @@ export async function runWebGpuVisibleRecordDryRun({
     tileCountsToOffsetsDryRun,
     tileOffsetsFromWebGpuCountsDryRun
   );
+  const webgpuTileOffsetsPrefixDryRun = await runTileOffsetsPrefixCompute({
+    device,
+    webgpuTileCountsDryRun,
+    tileGrid
+  });
+  const tileOffsetsWebGpuPrefixComparison = buildTileOffsetsWebGpuPrefixComparison(
+    tileCountsToOffsetsDryRun,
+    webgpuTileOffsetsPrefixDryRun
+  );
   const rawCount = toFiniteInteger(raw.count ?? raw.N ?? (raw.xyz?.length / Math.max(1, raw.xyzDim || 3)), 0);
   const computeResult = await runCompute({
     device,
@@ -1590,7 +1939,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step22 keeps WebGPU tileCounts and adds CPU-staged exclusive tileOffsets comparison from those counts while keeping WebGPU prefix sum and scatter deferred.',
+    scaffoldNote: 'Phase 3 Step23 computes a minimal WebGPU exclusive prefix sum for tileOffsets from WebGPU tileCounts and compares it with CPU reference offsets while keeping scatter deferred.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
@@ -1636,6 +1985,8 @@ export async function runWebGpuVisibleRecordDryRun({
     tileCountsWebGpuComparison,
     tileOffsetsFromWebGpuCountsDryRun,
     tileOffsetsPrefixComparison,
+    webgpuTileOffsetsPrefixDryRun,
+    tileOffsetsWebGpuPrefixComparison,
     inputContract,
     bufferContract: inputContract,
     inputBufferModes: inputContract.inputBufferModes,
@@ -1654,6 +2005,8 @@ export async function runWebGpuVisibleRecordDryRun({
       ...tileCountsWebGpuComparison.timing,
       ...tileOffsetsFromWebGpuCountsDryRun.timing,
       ...tileOffsetsPrefixComparison.timing,
+      ...webgpuTileOffsetsPrefixDryRun.timing,
+      ...tileOffsetsWebGpuPrefixComparison.timing,
       ...computeResult.timing,
       compareMs,
       totalMs: nowMs() - totalStartMs
@@ -1692,6 +2045,8 @@ export async function runWebGpuVisibleRecordDryRun({
       tileCountsWebGpuComparison,
       tileOffsetsFromWebGpuCountsDryRun,
       tileOffsetsPrefixComparison,
+      webgpuTileOffsetsPrefixDryRun,
+      tileOffsetsWebGpuPrefixComparison,
       inputContract,
       bufferContract: inputContract,
       inputBufferModes: inputContract.inputBufferModes,
