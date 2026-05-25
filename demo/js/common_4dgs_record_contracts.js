@@ -4,10 +4,10 @@ export const WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION =
 export const WEBGPU_VISIBLE_RECORD_COMPUTE_MODE =
   'webgpu-storage-buffer-compute-fixed-record';
 
-export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step23';
+export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step24';
 
 export const WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE =
-  'wgsl-valid-screen-projection-with-webgpu-prefix-sum-comparison';
+  'wgsl-valid-screen-projection-with-scatter-validation-boundary';
 
 export const WEBGPU_RADIUS_FIELD_COMPUTE_MODE =
   'deferred-covariance-conic-dependent';
@@ -44,6 +44,9 @@ export const WEBGPU_TILE_OFFSETS_PREFIX_COMPARISON_COMPUTE_MODE =
 
 export const WEBGPU_TILE_OFFSETS_WEBGPU_PREFIX_COMPARISON_COMPUTE_MODE =
   'webgpu-compute-tile-offsets-prefix-sum';
+
+export const WEBGPU_SCATTER_VALIDATION_BOUNDARY_COMPUTE_MODE =
+  'cpu-reference-scatter-write-cursor-validation-boundary';
 
 export {
   WEBGPU_PROJECTION_CONTRACT_NAMES,
@@ -109,7 +112,9 @@ export const WEBGPU_VISIBLE_RECORD_FIELD_COMPUTE_MODES = Object.freeze({
   tileOffsetsPrefixComparison:
     WEBGPU_TILE_OFFSETS_PREFIX_COMPARISON_COMPUTE_MODE,
   tileOffsetsWebGpuPrefixComparison:
-    WEBGPU_TILE_OFFSETS_WEBGPU_PREFIX_COMPARISON_COMPUTE_MODE
+    WEBGPU_TILE_OFFSETS_WEBGPU_PREFIX_COMPARISON_COMPUTE_MODE,
+  scatterValidationBoundary:
+    WEBGPU_SCATTER_VALIDATION_BOUNDARY_COMPUTE_MODE
 });
 
 export const WEBGPU_VISIBLE_RECORD_DEFERRED_FIELDS = Object.freeze([

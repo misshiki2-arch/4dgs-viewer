@@ -41,6 +41,8 @@ export const WEBGPU_TILE_LIST_COMPUTE_MODES = Object.freeze({
     'cpu-prefix-from-webgpu-tile-counts-comparison',
   WEBGPU_TILE_OFFSETS_PREFIX_SUM:
     'webgpu-compute-tile-offsets-prefix-sum',
+  CPU_REFERENCE_SCATTER_VALIDATION_BOUNDARY:
+    'cpu-reference-scatter-write-cursor-validation-boundary',
   CPU_REFERENCE_TILE_LIST:
     'cpu-reference-tile-list-build'
 });
@@ -183,6 +185,20 @@ export function createWebGpuTileCountsOffsetsComparisonSurfaceContract({
         'totalTileRefsMismatch is false',
         'firstMismatches is empty',
         'scatter and tileIndices remain deferred'
+      ]
+    },
+    recommendedStep24Unit: {
+      name: 'scatter-write-cursor-capacity-validation-boundary',
+      scope:
+        'Validate CPU reference scatter write-cursor initialization, final cursor positions, and capacity bounds before promoting any WebGPU scatter/tileIndices pass.',
+      computeMode: WEBGPU_TILE_LIST_COMPUTE_MODES.CPU_REFERENCE_SCATTER_VALIDATION_BOUNDARY,
+      successCriteria: [
+        'writeCursorInitialValid is true',
+        'writeCursorFinalValid is true',
+        'scatterOutputValid is true',
+        'capacityStatus is no-overflow',
+        'firstValidationFailures is empty',
+        'full WebGPU scatter and tileIndices generation remain deferred'
       ]
     },
     relationToStep18:

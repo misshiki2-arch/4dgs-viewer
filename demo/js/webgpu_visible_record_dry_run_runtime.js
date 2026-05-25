@@ -228,6 +228,25 @@ function createTileOffsetsWebGpuPrefixComparisonUnavailable(reason) {
   };
 }
 
+function createScatterValidationBoundaryUnavailable(reason) {
+  return {
+    mode: 'scatter-write-cursor-capacity-validation-boundary',
+    status: 'unavailable',
+    reason,
+    source: 'tileRange + tileCountsToOffsetsDryRun.tileOffsets',
+    implementedInWgsl: false,
+    webgpuScatterComputed: false,
+    tileIndicesMaterialized: false,
+    scatterCompared: false,
+    writeCursorInitialValid: false,
+    writeCursorFinalValid: false,
+    scatterOutputValid: false,
+    capacityStatus: 'needs-resize-or-second-pass',
+    firstValidationFailures: [{ stage: 'input', reason }],
+    sampleTiles: []
+  };
+}
+
 function makeTileCountsOffsetsSampleTiles(reference, {
   actualTileCounts = null,
   actualTileOffsets = null
@@ -854,6 +873,190 @@ function buildTileOffsetsWebGpuPrefixComparison(tileCountsToOffsetsDryRun, webgp
   };
 }
 
+function buildScatterValidationBoundaryDryRun({ tileRanges, tileCountsToOffsetsDryRun, webgpuTileOffsetsPrefixDryRun }) {
+  const startMs = nowMs();
+  if (!tileCountsToOffsetsDryRun || tileCountsToOffsetsDryRun.status !== 'ok') {
+    const reason = tileCountsToOffsetsDryRun?.reason ??
+      tileCountsToOffsetsDryRun?.status ??
+      'tile-counts-to-offsets-dry-run-unavailable';
+    return createScatterValidationBoundaryUnavailable(reason);
+  }
+
+  const tileCounts = toUint32Array(tileCountsToOffsetsDryRun.tileCounts);
+  const tileOffsets = toUint32Array(tileCountsToOffsetsDryRun.tileOffsets);
+  const tileCount = toFiniteInteger(tileCountsToOffsetsDryRun.tileGrid?.tileCount, tileCounts.length);
+  if (tileCount <= 0 || tileCounts.length !== tileCount || tileOffsets.length !== tileCount + 1) {
+    return createScatterValidationBoundaryUnavailable('tile-counts-or-offsets-shape-unavailable');
+  }
+
+  const firstValidationFailures = [];
+  const writeCursors = new Uint32Array(tileOffsets);
+  const initialCursors = new Uint32Array(tileOffsets);
+  let writeCursorInitialValid = tileOffsets[0] === 0;
+  for (let tileId = 0; tileId < tileCount; tileId += 1) {
+    if (tileOffsets[tileId + 1] < tileOffsets[tileId]) {
+      writeCursorInitialValid = false;
+      if (firstValidationFailures.length < 8) {
+        firstValidationFailures.push({ stage: 'writeCursorInit', tileId, reason: 'offsets-not-monotonic' });
+      }
+    }
+  }
+
+  let totalWrites = 0;
+  let capacityOverflowCount = 0;
+  const firstScatterWrites = [];
+  for (let recordIndex = 0; recordIndex < tileRanges.length; recordIndex += 1) {
+    const tr = tileRanges[recordIndex];
+    if (!tr || tr.length < 4) {
+      if (firstValidationFailures.length < 8) {
+        firstValidationFailures.push({ stage: 'scatterInput', recordIndex, reason: 'tileRange-unavailable' });
+      }
+      continue;
+    }
+    for (let ty = tr[1]; ty <= tr[3]; ty += 1) {
+      const rowBase = ty * (tileCountsToOffsetsDryRun.tileGrid?.tileCols ?? 0);
+      for (let tx = tr[0]; tx <= tr[2]; tx += 1) {
+        const tileId = rowBase + tx;
+        if (tileId < 0 || tileId >= tileCount) {
+          if (firstValidationFailures.length < 8) {
+            firstValidationFailures.push({ stage: 'scatterRange', recordIndex, tileId, reason: 'tileId-out-of-range' });
+          }
+          continue;
+        }
+        const writeIndex = writeCursors[tileId];
+        const tileEnd = tileOffsets[tileId + 1];
+        if (writeIndex < tileOffsets[tileId] || writeIndex >= tileEnd) {
+          capacityOverflowCount += 1;
+          if (firstValidationFailures.length < 8) {
+            firstValidationFailures.push({
+              stage: 'scatterWrite',
+              recordIndex,
+              tileId,
+              writeIndex,
+              tileStart: tileOffsets[tileId],
+              tileEnd,
+              reason: 'write-index-out-of-tile-capacity'
+            });
+          }
+        } else if (firstScatterWrites.length < 8) {
+          firstScatterWrites.push({ recordIndex, tileId, writeIndex });
+        }
+        writeCursors[tileId] += 1;
+        totalWrites += 1;
+      }
+    }
+  }
+
+  let writeCursorFinalValid = true;
+  let maxRefsPerTile = 0;
+  let nonEmptyTiles = 0;
+  for (let tileId = 0; tileId < tileCount; tileId += 1) {
+    const count = tileCounts[tileId] ?? 0;
+    if (count > 0) nonEmptyTiles += 1;
+    if (count > maxRefsPerTile) maxRefsPerTile = count;
+    if (writeCursors[tileId] !== tileOffsets[tileId + 1]) {
+      writeCursorFinalValid = false;
+      if (firstValidationFailures.length < 8) {
+        firstValidationFailures.push({
+          stage: 'writeCursorFinal',
+          tileId,
+          expected: tileOffsets[tileId + 1],
+          actual: writeCursors[tileId],
+          reason: 'cursor-does-not-match-next-offset'
+        });
+      }
+    }
+  }
+
+  const totalTileRefs = tileOffsets[tileCount] ?? 0;
+  const totalTileRefsConsistent = totalWrites === totalTileRefs;
+  if (!totalTileRefsConsistent && firstValidationFailures.length < 8) {
+    firstValidationFailures.push({
+      stage: 'totalTileRefs',
+      expected: totalTileRefs,
+      actual: totalWrites,
+      reason: 'scatter-write-count-does-not-match-terminal-offset'
+    });
+  }
+
+  const webgpuPrefixTerminal = webgpuTileOffsetsPrefixDryRun?.metadata?.tileOffsetsTerminalValue ?? null;
+  const webgpuPrefixMatchesReference = webgpuPrefixTerminal === null || webgpuPrefixTerminal === totalTileRefs;
+  if (!webgpuPrefixMatchesReference && firstValidationFailures.length < 8) {
+    firstValidationFailures.push({
+      stage: 'webgpuPrefixRelation',
+      expected: totalTileRefs,
+      actual: webgpuPrefixTerminal,
+      reason: 'webgpu-prefix-terminal-does-not-match-reference'
+    });
+  }
+
+  const sampleTiles = makeTileCountsOffsetsSampleTiles(tileCountsToOffsetsDryRun).map((sample) => {
+    const tileId = sample.tileId;
+    return {
+      ...sample,
+      initialCursor: initialCursors[tileId] ?? null,
+      finalCursor: writeCursors[tileId] ?? null,
+      expectedFinalCursor: tileOffsets[tileId + 1] ?? null,
+      cursorDelta: (writeCursors[tileId] ?? 0) - (initialCursors[tileId] ?? 0),
+      cursorCapacityOk: writeCursors[tileId] === tileOffsets[tileId + 1]
+    };
+  });
+  const scatterOutputValid =
+    writeCursorInitialValid &&
+    writeCursorFinalValid &&
+    totalTileRefsConsistent &&
+    capacityOverflowCount === 0 &&
+    webgpuPrefixMatchesReference;
+
+  return {
+    mode: 'scatter-write-cursor-capacity-validation-boundary',
+    status: scatterOutputValid ? 'ok' : 'validation-failed',
+    source: 'tileRange + tileCountsToOffsetsDryRun.tileOffsets',
+    implementedInWgsl: false,
+    webgpuScatterComputed: false,
+    tileIndicesMaterialized: false,
+    scatterCompared: false,
+    outputSchema: {
+      writeCursors: 'uint32[tileCount + 1] initialized from tileOffsets; final cursors are validated against tileOffsets[i + 1]',
+      tileIndices: 'deferred, not materialized in Step24'
+    },
+    tileGrid: tileCountsToOffsetsDryRun.tileGrid ?? {},
+    recordCounts: {
+      tileRangeCount: tileRanges.length,
+      tileCountsLength: tileCounts.length,
+      tileOffsetsLength: tileOffsets.length,
+      tileIndicesLength: totalTileRefs
+    },
+    writeCursorPolicy: {
+      initialSource: 'tileCountsToOffsetsDryRun.tileOffsets',
+      incrementPolicy: 'one cursor increment per inclusive tileRange touch',
+      finalCursorRule: 'writeCursor[tile] == tileOffsets[tile + 1]',
+      perTileCapacityRule: 'tileOffsets[tile] <= writeIndex < tileOffsets[tile + 1]'
+    },
+    capacity: {
+      totalTileRefs,
+      maxRefsPerTile,
+      nonEmptyTiles,
+      capacityOverflowCount,
+      capacityStatus: capacityOverflowCount === 0 ? 'no-overflow' : 'overflow-detected'
+    },
+    validationSummary: {
+      writeCursorInitialValid,
+      writeCursorFinalValid,
+      scatterOutputValid,
+      totalTileRefsConsistent,
+      capacityStatus: capacityOverflowCount === 0 ? 'no-overflow' : 'overflow-detected',
+      webgpuPrefixMatchesReference,
+      firstValidationFailures
+    },
+    firstScatterWrites,
+    sampleTiles,
+    timing: {
+      scatterValidationBoundaryMs: nowMs() - startMs
+    }
+  };
+}
+
 function buildTileCountsOffsetsDryRun({ tileRanges, tileGrid }) {
   const startMs = nowMs();
   const tileCols = toFiniteInteger(tileGrid?.tileCols, 0);
@@ -1008,6 +1211,8 @@ function makeFallback(reason, extra = {}) {
   const tileOffsetsWebGpuPrefixComparison =
     extra.tileOffsetsWebGpuPrefixComparison ??
     createTileOffsetsWebGpuPrefixComparisonUnavailable(reason);
+  const scatterValidationBoundary =
+    extra.scatterValidationBoundary ?? createScatterValidationBoundaryUnavailable(reason);
   return {
     schemaVersion: WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION,
     phaseStep: WEBGPU_VISIBLE_RECORD_PHASE_STEP,
@@ -1066,6 +1271,7 @@ function makeFallback(reason, extra = {}) {
     tileOffsetsPrefixComparison,
     webgpuTileOffsetsPrefixDryRun,
     tileOffsetsWebGpuPrefixComparison,
+    scatterValidationBoundary,
     fieldMismatchCount: null,
     firstMismatches: extra.firstMismatches ?? [],
     mismatchClassification: extra.mismatchClassification ??
@@ -1907,6 +2113,11 @@ export async function runWebGpuVisibleRecordDryRun({
     tileCountsToOffsetsDryRun,
     webgpuTileOffsetsPrefixDryRun
   );
+  const scatterValidationBoundary = buildScatterValidationBoundaryDryRun({
+    tileRanges: cpuReference.tileRanges,
+    tileCountsToOffsetsDryRun,
+    webgpuTileOffsetsPrefixDryRun
+  });
   const rawCount = toFiniteInteger(raw.count ?? raw.N ?? (raw.xyz?.length / Math.max(1, raw.xyzDim || 3)), 0);
   const computeResult = await runCompute({
     device,
@@ -1939,7 +2150,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step23 computes a minimal WebGPU exclusive prefix sum for tileOffsets from WebGPU tileCounts and compares it with CPU reference offsets while keeping scatter deferred.',
+    scaffoldNote: 'Phase 3 Step24 adds a CPU reference scatter write-cursor and capacity validation boundary before any WebGPU scatter or tileIndices generation is promoted.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
@@ -1987,6 +2198,7 @@ export async function runWebGpuVisibleRecordDryRun({
     tileOffsetsPrefixComparison,
     webgpuTileOffsetsPrefixDryRun,
     tileOffsetsWebGpuPrefixComparison,
+    scatterValidationBoundary,
     inputContract,
     bufferContract: inputContract,
     inputBufferModes: inputContract.inputBufferModes,
@@ -2007,6 +2219,7 @@ export async function runWebGpuVisibleRecordDryRun({
       ...tileOffsetsPrefixComparison.timing,
       ...webgpuTileOffsetsPrefixDryRun.timing,
       ...tileOffsetsWebGpuPrefixComparison.timing,
+      ...scatterValidationBoundary.timing,
       ...computeResult.timing,
       compareMs,
       totalMs: nowMs() - totalStartMs
@@ -2047,6 +2260,7 @@ export async function runWebGpuVisibleRecordDryRun({
       tileOffsetsPrefixComparison,
       webgpuTileOffsetsPrefixDryRun,
       tileOffsetsWebGpuPrefixComparison,
+      scatterValidationBoundary,
       inputContract,
       bufferContract: inputContract,
       inputBufferModes: inputContract.inputBufferModes,

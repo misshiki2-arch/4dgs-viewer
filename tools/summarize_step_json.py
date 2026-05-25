@@ -707,6 +707,15 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
     tile_offsets_webgpu_prefix_comparison = get_path(
         summary, ["tileOffsetsWebGpuPrefixComparison"], {}
     )
+    scatter_validation_boundary = get_path(
+        summary, ["scatterValidationBoundary"], {}
+    )
+    scatter_validation_summary = get_path(
+        scatter_validation_boundary, ["validationSummary"], {}
+    )
+    scatter_validation_capacity = get_path(
+        scatter_validation_boundary, ["capacity"], {}
+    )
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -1121,6 +1130,69 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
                     ["sampleTiles"],
                     [],
                 )
+            ),
+        },
+        "scatterValidationBoundary": {
+            "status": get_path(scatter_validation_boundary, ["status"]),
+            "mode": get_path(scatter_validation_boundary, ["mode"]),
+            "source": get_path(scatter_validation_boundary, ["source"]),
+            "implementedInWgsl": get_path(
+                scatter_validation_boundary, ["implementedInWgsl"]
+            ),
+            "webgpuScatterComputed": get_path(
+                scatter_validation_boundary, ["webgpuScatterComputed"]
+            ),
+            "tileIndicesMaterialized": get_path(
+                scatter_validation_boundary, ["tileIndicesMaterialized"]
+            ),
+            "scatterCompared": get_path(
+                scatter_validation_boundary, ["scatterCompared"]
+            ),
+            "tileGrid": get_path(scatter_validation_boundary, ["tileGrid"], {}),
+            "recordCounts": get_path(
+                scatter_validation_boundary, ["recordCounts"], {}
+            ),
+            "writeCursorPolicy": get_path(
+                scatter_validation_boundary, ["writeCursorPolicy"], {}
+            ),
+            "writeCursorInitialValid": get_path(
+                scatter_validation_summary, ["writeCursorInitialValid"]
+            ),
+            "writeCursorFinalValid": get_path(
+                scatter_validation_summary, ["writeCursorFinalValid"]
+            ),
+            "scatterOutputValid": get_path(
+                scatter_validation_summary, ["scatterOutputValid"]
+            ),
+            "totalTileRefsConsistent": get_path(
+                scatter_validation_summary, ["totalTileRefsConsistent"]
+            ),
+            "capacityStatus": get_path(
+                scatter_validation_summary, ["capacityStatus"]
+            ),
+            "webgpuPrefixMatchesReference": get_path(
+                scatter_validation_summary, ["webgpuPrefixMatchesReference"]
+            ),
+            "firstValidationFailures": get_path(
+                scatter_validation_summary, ["firstValidationFailures"], []
+            ),
+            "totalTileRefs": get_path(
+                scatter_validation_capacity, ["totalTileRefs"]
+            ),
+            "maxRefsPerTile": get_path(
+                scatter_validation_capacity, ["maxRefsPerTile"]
+            ),
+            "nonEmptyTiles": get_path(
+                scatter_validation_capacity, ["nonEmptyTiles"]
+            ),
+            "capacityOverflowCount": get_path(
+                scatter_validation_capacity, ["capacityOverflowCount"]
+            ),
+            "firstScatterWrites": compact_list(
+                get_path(scatter_validation_boundary, ["firstScatterWrites"], [])
+            ),
+            "sampleTiles": compact_list(
+                get_path(scatter_validation_boundary, ["sampleTiles"], [])
             ),
         },
         "inputContract": get_path(summary, ["inputContract"], {}),
