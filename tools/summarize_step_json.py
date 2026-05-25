@@ -714,6 +714,12 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
         "tileListValidationUnitComputeMode": get_path(
             summary, ["tileListValidationUnitComputeMode"]
         ),
+        "tileCountsOffsetsComparisonSurfaceContract": get_path(
+            summary, ["tileCountsOffsetsComparisonSurfaceContract"], {}
+        ),
+        "tileCountsOffsetsComparisonSurfaceComputeMode": get_path(
+            summary, ["tileCountsOffsetsComparisonSurfaceComputeMode"]
+        ),
         "tileCountsToOffsetsDryRun": {
             "status": get_path(counts_offsets, ["status"]),
             "mode": get_path(counts_offsets, ["mode"]),

@@ -10,6 +10,9 @@ export const WEBGPU_TILE_LIST_VALIDATION_CONTRACT_SCHEMA_VERSION =
 export const WEBGPU_TILE_LIST_VALIDATION_UNIT_CONTRACT_SCHEMA_VERSION =
   'phase3-step17-prefix-sum-scatter-validation-unit-contract-v1';
 
+export const WEBGPU_TILE_COUNTS_OFFSETS_COMPARISON_SURFACE_SCHEMA_VERSION =
+  'phase3-step19-tile-counts-offsets-comparison-surface-v1';
+
 export const WEBGPU_TILE_LIST_CONTRACT_NAMES = Object.freeze({
   PREFIX_SUM_SCATTER_TILE_LIST:
     'prefix-sum-scatter-tile-list-from-tile-range',
@@ -18,7 +21,9 @@ export const WEBGPU_TILE_LIST_CONTRACT_NAMES = Object.freeze({
   VALIDATION_SUMMARY:
     'tile-list-validation-summary',
   PREFIX_SUM_SCATTER_VALIDATION_UNIT:
-    'prefix-sum-scatter-validation-unit'
+    'prefix-sum-scatter-validation-unit',
+  TILE_COUNTS_OFFSETS_COMPARISON_SURFACE:
+    'tile-counts-offsets-comparison-surface'
 });
 
 export const WEBGPU_TILE_LIST_COMPUTE_MODES = Object.freeze({
@@ -28,6 +33,8 @@ export const WEBGPU_TILE_LIST_COMPUTE_MODES = Object.freeze({
     'deferred-capacity-overflow-validation-summary',
   DEFERRED_PREFIX_SUM_SCATTER_VALIDATION_UNIT:
     'deferred-prefix-sum-scatter-validation-unit',
+  DEFERRED_TILE_COUNTS_OFFSETS_COMPARISON_SURFACE:
+    'deferred-tile-counts-offsets-comparison-surface',
   CPU_REFERENCE_TILE_LIST:
     'cpu-reference-tile-list-build'
 });
@@ -75,6 +82,67 @@ export const WEBGPU_TILE_LIST_VALIDATION_UNITS = Object.freeze([
   'scatter-indices-from-tileRange-and-offsets',
   'tileListMetadata-from-counts-offsets-scatter'
 ]);
+
+export function createWebGpuTileCountsOffsetsComparisonSurfaceContract({
+  computeMode = WEBGPU_TILE_LIST_COMPUTE_MODES.DEFERRED_TILE_COUNTS_OFFSETS_COMPARISON_SURFACE,
+  implementedInWgsl = false
+} = {}) {
+  return {
+    schemaVersion: WEBGPU_TILE_COUNTS_OFFSETS_COMPARISON_SURFACE_SCHEMA_VERSION,
+    contractName: WEBGPU_TILE_LIST_CONTRACT_NAMES.TILE_COUNTS_OFFSETS_COMPARISON_SURFACE,
+    computeMode,
+    implementedInWgsl,
+    comparedBuffers: {
+      tileCounts: 'uint32[tileCount], exact per-tile count comparison',
+      tileOffsets: 'uint32[tileCount + 1], exact exclusive prefix comparison',
+      capacitySummary: 'totalTileRefs, maxRefsPerTile, nonEmptyTiles, capacityStatus'
+    },
+    summaryFields: {
+      anyMismatch: 'boolean',
+      tileCountsMismatchCount: 'number of tileCounts entries that differ',
+      tileOffsetsMismatchCount: 'number of tileOffsets entries that differ',
+      totalTileRefsMismatch: 'boolean, terminal offset differs from expected totalTileRefs',
+      capacityStatusMismatch: 'boolean, capacity classification differs',
+      maxAbsCountDelta: 'maximum absolute integer delta across tileCounts',
+      maxAbsOffsetDelta: 'maximum absolute integer delta across tileOffsets',
+      firstMismatches: 'bounded list of kind/index/expected/actual/delta entries',
+      sampleTiles: 'small deterministic sample of zero, non-empty, max-count, and final tiles'
+    },
+    mismatchClassification: {
+      none: 'no mismatch',
+      tileCountsMismatch: 'tileRange iteration or tile counting mismatch',
+      tileOffsetsMismatch: 'exclusive prefix sum mismatch',
+      totalTileRefsMismatch: 'tileOffsets[tileCount] or sum(tileCounts) mismatch',
+      capacityStatusMismatch: 'overflow/capacity classification mismatch',
+      shapeMismatch: 'tileCount, counts length, or offsets length mismatch'
+    },
+    failureBoundaries: {
+      counts:
+        'Check tileRange source, inclusive min/max policy, tile grid clamp, and visible record filtering.',
+      offsets:
+        'Check exclusive prefix sum, offsets[0], monotonicity, and tileOffsets[i + 1] - tileOffsets[i].',
+      capacity:
+        'Check totalTileRefs, maxTileRefs, maxRefsPerTile, nonEmptyTiles, and overflow status.',
+      sampling:
+        'Use deterministic sampleTiles plus firstMismatches to avoid dumping full buffers during early WebGPU tests.'
+    },
+    recommendedStep20Unit: {
+      name: 'cpu-reference-self-comparison-surface',
+      scope:
+        'Emit comparisonSummary using CPU reference as both expected and actual before adding any WebGPU counts buffer.',
+      successCriteria: [
+        'comparisonSummary.anyMismatch is false',
+        'tileCountsMismatchCount is 0',
+        'tileOffsetsMismatchCount is 0',
+        'totalTileRefsMismatch is false',
+        'capacityStatusMismatch is false',
+        'firstMismatches is empty'
+      ]
+    },
+    relationToStep18:
+      'Step19 defines how future WebGPU tileCounts/tileOffsets outputs will be compared against tileCountsToOffsetsDryRun without changing the Step18 CPU reference data generation.'
+  };
+}
 
 export function createWebGpuTileListValidationUnitContract({
   computeMode = WEBGPU_TILE_LIST_COMPUTE_MODES.DEFERRED_PREFIX_SUM_SCATTER_VALIDATION_UNIT,

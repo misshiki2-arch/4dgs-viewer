@@ -9,7 +9,8 @@ import {
   createWebGpuTileListCapacityContract,
   createWebGpuTileListContract,
   createWebGpuTileListValidationUnitContract,
-  createWebGpuTileListValidationContract
+  createWebGpuTileListValidationContract,
+  createWebGpuTileCountsOffsetsComparisonSurfaceContract
 } from './common_4dgs_tile_list_contracts.js';
 import {
   COMPARISON_CONTRACT_SCHEMA_VERSION,
@@ -220,6 +221,9 @@ function makeFallback(reason, extra = {}) {
     extra.tileListValidationContract ?? createWebGpuTileListValidationContract();
   const tileListValidationUnitContract =
     extra.tileListValidationUnitContract ?? createWebGpuTileListValidationUnitContract();
+  const tileCountsOffsetsComparisonSurfaceContract =
+    extra.tileCountsOffsetsComparisonSurfaceContract ??
+    createWebGpuTileCountsOffsetsComparisonSurfaceContract();
   const tileCountsToOffsetsDryRun =
     extra.tileCountsToOffsetsDryRun ?? createTileCountsOffsetsUnavailable(reason);
   return {
@@ -269,6 +273,9 @@ function makeFallback(reason, extra = {}) {
     tileListValidationComputeMode: tileListValidationContract.computeMode,
     tileListValidationUnitContract,
     tileListValidationUnitComputeMode: tileListValidationUnitContract.computeMode,
+    tileCountsOffsetsComparisonSurfaceContract,
+    tileCountsOffsetsComparisonSurfaceComputeMode:
+      tileCountsOffsetsComparisonSurfaceContract.computeMode,
     tileCountsToOffsetsDryRun,
     fieldMismatchCount: null,
     firstMismatches: extra.firstMismatches ?? [],
@@ -741,6 +748,8 @@ export async function runWebGpuVisibleRecordDryRun({
   const tileListCapacityContract = createWebGpuTileListCapacityContract();
   const tileListValidationContract = createWebGpuTileListValidationContract();
   const tileListValidationUnitContract = createWebGpuTileListValidationUnitContract();
+  const tileCountsOffsetsComparisonSurfaceContract =
+    createWebGpuTileCountsOffsetsComparisonSurfaceContract();
   const tileCountsToOffsetsDryRun = buildTileCountsOffsetsDryRun({
     tileRanges: cpuReference.tileRanges,
     tileGrid
@@ -778,7 +787,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step18 materializes CPU reference tileCounts and exclusive tileOffsets for the tileCounts-to-tileOffsets dry-run while keeping scatter and full tile-list GPU generation deferred.',
+    scaffoldNote: 'Phase 3 Step19 keeps tileCounts and tileOffsets CPU-reference materialized and adds the comparison surface metadata needed by future WebGPU counts/offsets validation.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
@@ -815,6 +824,9 @@ export async function runWebGpuVisibleRecordDryRun({
     tileListValidationComputeMode: tileListValidationContract.computeMode,
     tileListValidationUnitContract,
     tileListValidationUnitComputeMode: tileListValidationUnitContract.computeMode,
+    tileCountsOffsetsComparisonSurfaceContract,
+    tileCountsOffsetsComparisonSurfaceComputeMode:
+      tileCountsOffsetsComparisonSurfaceContract.computeMode,
     tileCountsToOffsetsDryRun,
     inputContract,
     bufferContract: inputContract,
@@ -858,6 +870,9 @@ export async function runWebGpuVisibleRecordDryRun({
       tileListValidationComputeMode: tileListValidationContract.computeMode,
       tileListValidationUnitContract,
       tileListValidationUnitComputeMode: tileListValidationUnitContract.computeMode,
+      tileCountsOffsetsComparisonSurfaceContract,
+      tileCountsOffsetsComparisonSurfaceComputeMode:
+        tileCountsOffsetsComparisonSurfaceContract.computeMode,
       tileCountsToOffsetsDryRun,
       inputContract,
       bufferContract: inputContract,

@@ -4,10 +4,10 @@ export const WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION =
 export const WEBGPU_VISIBLE_RECORD_COMPUTE_MODE =
   'webgpu-storage-buffer-compute-fixed-record';
 
-export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step18';
+export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step19';
 
 export const WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE =
-  'wgsl-valid-screen-projection-with-tile-counts-offsets-dry-run';
+  'wgsl-valid-screen-projection-with-tile-counts-offsets-comparison-surface';
 
 export const WEBGPU_RADIUS_FIELD_COMPUTE_MODE =
   'deferred-covariance-conic-dependent';
@@ -29,6 +29,9 @@ export const WEBGPU_TILE_LIST_CAPACITY_VALIDATION_COMPUTE_MODE =
 
 export const WEBGPU_TILE_LIST_VALIDATION_UNIT_COMPUTE_MODE =
   'deferred-prefix-sum-scatter-validation-unit';
+
+export const WEBGPU_TILE_COUNTS_OFFSETS_COMPARISON_SURFACE_COMPUTE_MODE =
+  'deferred-tile-counts-offsets-comparison-surface';
 
 export {
   WEBGPU_PROJECTION_CONTRACT_NAMES,
@@ -84,7 +87,9 @@ export const WEBGPU_VISIBLE_RECORD_FIELD_COMPUTE_MODES = Object.freeze({
   tileRange: WEBGPU_TILE_RANGE_FIELD_COMPUTE_MODE,
   tileListGeneration: WEBGPU_TILE_LIST_GENERATION_COMPUTE_MODE,
   tileListCapacityValidation: WEBGPU_TILE_LIST_CAPACITY_VALIDATION_COMPUTE_MODE,
-  tileListValidationUnit: WEBGPU_TILE_LIST_VALIDATION_UNIT_COMPUTE_MODE
+  tileListValidationUnit: WEBGPU_TILE_LIST_VALIDATION_UNIT_COMPUTE_MODE,
+  tileCountsOffsetsComparisonSurface:
+    WEBGPU_TILE_COUNTS_OFFSETS_COMPARISON_SURFACE_COMPUTE_MODE
 });
 
 export const WEBGPU_VISIBLE_RECORD_DEFERRED_FIELDS = Object.freeze([
@@ -100,6 +105,7 @@ export const WEBGPU_VISIBLE_RECORD_DEFERRED_FIELDS = Object.freeze([
   'tile-list GPU generation',
   'tile-list capacity/overflow validation summary',
   'prefix-sum/scatter validation unit',
+  'tileCounts/tileOffsets comparison surface',
   'display connection'
 ]);
 
