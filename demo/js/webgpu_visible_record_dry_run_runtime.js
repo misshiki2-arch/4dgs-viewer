@@ -334,6 +334,22 @@ function createWebGpuTileListBackendOutputUnavailable(reason) {
   };
 }
 
+function createRenderPayloadSortReadinessUnavailable(reason) {
+  return {
+    mode: 'render-payload-and-sort-readiness-summary',
+    status: 'unavailable',
+    reason,
+    source: 'webgpuTileListBackendOutput',
+    backendOutputReady: false,
+    displayConnectionAllowed: false,
+    sortImplemented: false,
+    compactionImplemented: false,
+    renderPayloadGpuImplemented: false,
+    tileCompositeImplemented: false,
+    firstValidationFailures: [{ stage: 'input', reason }]
+  };
+}
+
 function makeTileCountsOffsetsSampleTiles(reference, {
   actualTileCounts = null,
   actualTileOffsets = null
@@ -1499,6 +1515,8 @@ function makeFallback(reason, extra = {}) {
     extra.tileListSummaryComparison ?? createTileListSummaryComparisonUnavailable(reason);
   const webgpuTileListBackendOutput =
     extra.webgpuTileListBackendOutput ?? createWebGpuTileListBackendOutputUnavailable(reason);
+  const renderPayloadSortReadiness =
+    extra.renderPayloadSortReadiness ?? createRenderPayloadSortReadinessUnavailable(reason);
   return {
     schemaVersion: WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION,
     phaseStep: WEBGPU_VISIBLE_RECORD_PHASE_STEP,
@@ -1562,6 +1580,7 @@ function makeFallback(reason, extra = {}) {
     tileIndicesWebGpuScatterComparison,
     tileListSummaryComparison,
     webgpuTileListBackendOutput,
+    renderPayloadSortReadiness,
     fieldMismatchCount: null,
     firstMismatches: extra.firstMismatches ?? [],
     mismatchClassification: extra.mismatchClassification ??
@@ -2907,6 +2926,154 @@ function buildWebGpuTileListBackendOutput({
   };
 }
 
+function buildRenderPayloadSortReadiness({
+  webgpuTileListBackendOutput,
+  conicContract,
+  radiusContract,
+  covarianceContract
+}) {
+  const startMs = nowMs();
+  if (!webgpuTileListBackendOutput || webgpuTileListBackendOutput.status !== 'ok') {
+    const reason = webgpuTileListBackendOutput?.reason ??
+      webgpuTileListBackendOutput?.status ??
+      'webgpu-tile-list-backend-output-unavailable';
+    return createRenderPayloadSortReadinessUnavailable(reason);
+  }
+
+  const handoff = webgpuTileListBackendOutput.handoffReadiness ?? {};
+  const outputBuffers = webgpuTileListBackendOutput.outputBuffers ?? {};
+  const sortInputsReady =
+    webgpuTileListBackendOutput.backendOutputReady === true &&
+    !!outputBuffers.tileIndices &&
+    !!outputBuffers.tileOffsets;
+  const depthAvailable = WGSL_COMPUTED_FIELDS.includes('depth');
+  const sortPrototypeReady = sortInputsReady && depthAvailable;
+  const renderPayloadFields = {
+    conic: {
+      requiredForDisplay: true,
+      computeMode: conicContract?.computeMode ?? 'deferred-screen-space-covariance-conic-parity',
+      implementedInWgsl: conicContract?.implementedInWgsl === true,
+      referenceSource: 'CPU/CUDA conic reference',
+      dependency: 'screen-space covariance2D'
+    },
+    alpha: {
+      requiredForDisplay: true,
+      computeMode: 'deferred-alpha-power-evaluation-parity',
+      implementedInWgsl: false,
+      referenceSource: 'CPU/CUDA alpha evaluation reference',
+      dependency: 'conic + opacity + per-pixel delta'
+    },
+    colorAlphaRgb: {
+      requiredForDisplay: true,
+      computeMode: 'deferred-color-sh-evaluation-parity',
+      implementedInWgsl: false,
+      referenceSource: 'CPU/CUDA colorAlpha.rgb reference',
+      dependency: 'SH/color pipeline'
+    },
+    sh: {
+      requiredForDisplay: true,
+      computeMode: 'deferred-sh-evaluation-parity',
+      implementedInWgsl: false,
+      referenceSource: 'CPU/CUDA SH reference',
+      dependency: 'view direction + SH coefficients'
+    },
+    radius: {
+      requiredForTileList: true,
+      computeMode: radiusContract?.computeMode ?? 'deferred-covariance-conic-dependent',
+      implementedInWgsl: radiusContract?.implementedInWgsl === true,
+      referenceSource: 'CPU radius reference for AABB/tileRange',
+      dependency: 'screen-space covariance eigen radius'
+    }
+  };
+  const payloadReady = Object.values(renderPayloadFields)
+    .filter((field) => field.requiredForDisplay)
+    .every((field) => field.implementedInWgsl === true);
+  const payloadMissingFields = Object.entries(renderPayloadFields)
+    .filter(([, field]) => field.requiredForDisplay && field.implementedInWgsl !== true)
+    .map(([name]) => name);
+  const sortBlockers = sortPrototypeReady
+    ? ['depth sort comparison surface not implemented']
+    : ['tile-list output or depth field unavailable'];
+  const payloadBlockers = payloadMissingFields.map(
+    (field) => `render payload field not implemented: ${field}`
+  );
+  const blockers = [
+    ...payloadBlockers.map((reason) => ({ stage: 'render-payload', reason })),
+    ...sortBlockers.map((reason) => ({ stage: 'depth-sort', reason })),
+    { stage: 'tile-composite', reason: 'tile composite shader handoff not implemented' },
+    { stage: 'display-connection', reason: 'display connection intentionally deferred' }
+  ];
+
+  return {
+    mode: 'render-payload-and-sort-readiness-summary',
+    status: 'ok',
+    source: 'webgpuTileListBackendOutput',
+    backendOutputReady: webgpuTileListBackendOutput.backendOutputReady === true,
+    displayConnectionAllowed: false,
+    sortImplemented: false,
+    compactionImplemented: false,
+    renderPayloadGpuImplemented: false,
+    tileCompositeImplemented: false,
+    tileListBackendStage: webgpuTileListBackendOutput.backendStage ?? null,
+    payloadReadiness: {
+      status: payloadReady ? 'ready' : 'blocked',
+      requiredFields: Object.keys(renderPayloadFields).filter(
+        (name) => renderPayloadFields[name].requiredForDisplay
+      ),
+      missingFields: payloadMissingFields,
+      fields: renderPayloadFields,
+      comparisonReference: 'CPU/CUDA render payload reference before display handoff'
+    },
+    sortReadiness: {
+      status: sortPrototypeReady ? 'ready-for-minimal-sort-comparison' : 'blocked',
+      sortKey: 'depth',
+      currentOrdering:
+        'record-index-order within each tile from WebGPU scatter validation',
+      requiredOrdering:
+        'per-tile depth order for final alpha blending before display connection',
+      inputs: {
+        tileOffsets: outputBuffers.tileOffsets ?? null,
+        tileIndices: outputBuffers.tileIndices ?? null,
+        depth: {
+          source: 'webgpu visible record depth',
+          implementedInWgsl: depthAvailable
+        }
+      },
+      comparisonReference: 'CPU/CUDA sorted visible order or CPU reference per-tile depth order',
+      blockers: sortBlockers
+    },
+    readinessSummary: {
+      tileListBackendReady: webgpuTileListBackendOutput.backendOutputReady === true,
+      renderPayloadReady: payloadReady,
+      sortPrototypeReady,
+      displayConnectionAllowed: false,
+      nextRecommendedUnit: sortPrototypeReady
+        ? 'minimal-depth-sort-comparison-surface'
+        : 'render-payload-field-contract-summary'
+    },
+    inheritedHandoffReadiness: {
+      status: handoff.status ?? null,
+      satisfied: handoff.satisfied ?? [],
+      unresolved: handoff.unresolved ?? []
+    },
+    blockers,
+    nextBackendPrototypeStep: sortPrototypeReady
+      ? 'minimal-depth-sort-comparison-surface'
+      : 'render-payload-field-contract-summary',
+    timing: {
+      renderPayloadSortReadinessMs: nowMs() - startMs
+    },
+    covarianceDependency: {
+      covarianceComputeMode:
+        covarianceContract?.computeMode ?? 'deferred-screen-space-covariance-conic-parity',
+      conicComputeMode:
+        conicContract?.computeMode ?? 'deferred-screen-space-covariance-conic-parity',
+      radiusComputeMode:
+        radiusContract?.computeMode ?? 'deferred-covariance-conic-dependent'
+    }
+  };
+}
+
 export async function runWebGpuVisibleRecordDryRun({
   candidateInfo,
   raw,
@@ -3040,6 +3207,12 @@ export async function runWebGpuVisibleRecordDryRun({
     webgpuTileOffsetsPrefixDryRun,
     tileIndicesWebGpuScatterComparison
   });
+  const renderPayloadSortReadiness = buildRenderPayloadSortReadiness({
+    webgpuTileListBackendOutput,
+    conicContract,
+    radiusContract,
+    covarianceContract
+  });
   const rawCount = toFiniteInteger(raw.count ?? raw.N ?? (raw.xyz?.length / Math.max(1, raw.xyzDim || 3)), 0);
   const computeResult = await runCompute({
     device,
@@ -3072,7 +3245,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step28 promotes the validated WebGPU tile-list dry-run into a non-display backend output for render handoff planning.',
+    scaffoldNote: 'Phase 3 Step29 summarizes render payload and depth-sort readiness after the non-display WebGPU tile-list backend output.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
@@ -3125,6 +3298,7 @@ export async function runWebGpuVisibleRecordDryRun({
     tileIndicesWebGpuScatterComparison,
     tileListSummaryComparison,
     webgpuTileListBackendOutput,
+    renderPayloadSortReadiness,
     inputContract,
     bufferContract: inputContract,
     inputBufferModes: inputContract.inputBufferModes,
@@ -3150,6 +3324,7 @@ export async function runWebGpuVisibleRecordDryRun({
       ...tileIndicesWebGpuScatterComparison.timing,
       ...tileListSummaryComparison.timing,
       ...webgpuTileListBackendOutput.timing,
+      ...renderPayloadSortReadiness.timing,
       ...computeResult.timing,
       compareMs,
       totalMs: nowMs() - totalStartMs
@@ -3195,6 +3370,7 @@ export async function runWebGpuVisibleRecordDryRun({
       tileIndicesWebGpuScatterComparison,
       tileListSummaryComparison,
       webgpuTileListBackendOutput,
+      renderPayloadSortReadiness,
       inputContract,
       bufferContract: inputContract,
       inputBufferModes: inputContract.inputBufferModes,

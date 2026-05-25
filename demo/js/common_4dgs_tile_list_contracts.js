@@ -51,6 +51,8 @@ export const WEBGPU_TILE_LIST_COMPUTE_MODES = Object.freeze({
     'non-display-webgpu-tile-list-summary-comparison',
   WEBGPU_TILE_LIST_BACKEND_OUTPUT:
     'non-display-webgpu-tile-list-backend-output',
+  RENDER_PAYLOAD_SORT_READINESS:
+    'render-payload-and-sort-readiness-summary',
   CPU_REFERENCE_TILE_LIST:
     'cpu-reference-tile-list-build'
 });
@@ -261,6 +263,19 @@ export function createWebGpuTileCountsOffsetsComparisonSurfaceContract({
         'tileIndicesStoredInJson is false',
         'render handoff blockers are explicit',
         'sort and display connection remain deferred'
+      ]
+    },
+    recommendedStep29Unit: {
+      name: 'render-payload-and-sort-readiness-summary',
+      scope:
+        'Split the Step28 render handoff blockers into render payload readiness and depth-sort readiness so the next prototype can choose a minimal sort or payload implementation without connecting display.',
+      computeMode: WEBGPU_TILE_LIST_COMPUTE_MODES.RENDER_PAYLOAD_SORT_READINESS,
+      successCriteria: [
+        'webgpuTileListBackendOutput remains ready',
+        'render payload required fields and comparison sources are explicit',
+        'depth sort inputs and ordering blockers are explicit',
+        'displayConnectionAllowed remains false',
+        'tile composite and framebuffer changes remain deferred'
       ]
     },
     relationToStep18:

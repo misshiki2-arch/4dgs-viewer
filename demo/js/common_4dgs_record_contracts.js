@@ -4,10 +4,10 @@ export const WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION =
 export const WEBGPU_VISIBLE_RECORD_COMPUTE_MODE =
   'webgpu-storage-buffer-compute-fixed-record';
 
-export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step28';
+export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step29';
 
 export const WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE =
-  'wgsl-valid-screen-projection-with-non-display-tile-list-backend-output';
+  'wgsl-valid-screen-projection-with-render-payload-sort-readiness';
 
 export const WEBGPU_RADIUS_FIELD_COMPUTE_MODE =
   'deferred-covariance-conic-dependent';
@@ -59,6 +59,9 @@ export const WEBGPU_TILE_LIST_SUMMARY_COMPARISON_COMPUTE_MODE =
 
 export const WEBGPU_TILE_LIST_BACKEND_OUTPUT_COMPUTE_MODE =
   'non-display-webgpu-tile-list-backend-output';
+
+export const WEBGPU_RENDER_PAYLOAD_SORT_READINESS_COMPUTE_MODE =
+  'render-payload-and-sort-readiness-summary';
 
 export {
   WEBGPU_PROJECTION_CONTRACT_NAMES,
@@ -134,7 +137,9 @@ export const WEBGPU_VISIBLE_RECORD_FIELD_COMPUTE_MODES = Object.freeze({
   tileListSummaryComparison:
     WEBGPU_TILE_LIST_SUMMARY_COMPARISON_COMPUTE_MODE,
   webgpuTileListBackendOutput:
-    WEBGPU_TILE_LIST_BACKEND_OUTPUT_COMPUTE_MODE
+    WEBGPU_TILE_LIST_BACKEND_OUTPUT_COMPUTE_MODE,
+  renderPayloadSortReadiness:
+    WEBGPU_RENDER_PAYLOAD_SORT_READINESS_COMPUTE_MODE
 });
 
 export const WEBGPU_VISIBLE_RECORD_DEFERRED_FIELDS = Object.freeze([

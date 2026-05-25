@@ -752,6 +752,18 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
     webgpu_tile_list_backend_validation = get_path(
         webgpu_tile_list_backend_output, ["validationSummary"], {}
     )
+    render_payload_sort_readiness = get_path(
+        summary, ["renderPayloadSortReadiness"], {}
+    )
+    render_payload_readiness = get_path(
+        render_payload_sort_readiness, ["payloadReadiness"], {}
+    )
+    sort_readiness = get_path(
+        render_payload_sort_readiness, ["sortReadiness"], {}
+    )
+    readiness_summary = get_path(
+        render_payload_sort_readiness, ["readinessSummary"], {}
+    )
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -1538,6 +1550,59 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             ),
             "nextBackendPrototypeStep": get_path(
                 webgpu_tile_list_backend_output, ["nextBackendPrototypeStep"]
+            ),
+        },
+        "renderPayloadSortReadiness": {
+            "status": get_path(render_payload_sort_readiness, ["status"]),
+            "mode": get_path(render_payload_sort_readiness, ["mode"]),
+            "source": get_path(render_payload_sort_readiness, ["source"]),
+            "backendOutputReady": get_path(
+                render_payload_sort_readiness, ["backendOutputReady"]
+            ),
+            "displayConnectionAllowed": get_path(
+                render_payload_sort_readiness, ["displayConnectionAllowed"]
+            ),
+            "sortImplemented": get_path(
+                render_payload_sort_readiness, ["sortImplemented"]
+            ),
+            "compactionImplemented": get_path(
+                render_payload_sort_readiness, ["compactionImplemented"]
+            ),
+            "renderPayloadGpuImplemented": get_path(
+                render_payload_sort_readiness, ["renderPayloadGpuImplemented"]
+            ),
+            "tileCompositeImplemented": get_path(
+                render_payload_sort_readiness, ["tileCompositeImplemented"]
+            ),
+            "payloadStatus": get_path(render_payload_readiness, ["status"]),
+            "payloadRequiredFields": get_path(
+                render_payload_readiness, ["requiredFields"], []
+            ),
+            "payloadMissingFields": get_path(
+                render_payload_readiness, ["missingFields"], []
+            ),
+            "sortStatus": get_path(sort_readiness, ["status"]),
+            "sortKey": get_path(sort_readiness, ["sortKey"]),
+            "currentOrdering": get_path(sort_readiness, ["currentOrdering"]),
+            "requiredOrdering": get_path(sort_readiness, ["requiredOrdering"]),
+            "sortInputs": get_path(sort_readiness, ["inputs"], {}),
+            "tileListBackendReady": get_path(
+                readiness_summary, ["tileListBackendReady"]
+            ),
+            "renderPayloadReady": get_path(
+                readiness_summary, ["renderPayloadReady"]
+            ),
+            "sortPrototypeReady": get_path(
+                readiness_summary, ["sortPrototypeReady"]
+            ),
+            "nextRecommendedUnit": get_path(
+                readiness_summary, ["nextRecommendedUnit"]
+            ),
+            "blockers": compact_list(
+                get_path(render_payload_sort_readiness, ["blockers"], [])
+            ),
+            "nextBackendPrototypeStep": get_path(
+                render_payload_sort_readiness, ["nextBackendPrototypeStep"]
             ),
         },
         "inputContract": get_path(summary, ["inputContract"], {}),
