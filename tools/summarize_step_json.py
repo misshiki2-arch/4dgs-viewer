@@ -774,6 +774,12 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
     render_handoff_validation = get_path(
         webgpu_render_handoff_stub, ["validationSummary"], {}
     )
+    webgpu_tile_composite_handoff_stub = get_path(
+        summary, ["webgpuTileCompositeHandoffStub"], {}
+    )
+    tile_composite_handoff_validation = get_path(
+        webgpu_tile_composite_handoff_stub, ["validationSummary"], {}
+    )
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -1764,6 +1770,74 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             ),
             "sampleRecords": compact_list(
                 get_path(webgpu_render_handoff_stub, ["sampleRecords"], [])
+            ),
+        },
+        "webgpuTileCompositeHandoffStub": {
+            "status": get_path(webgpu_tile_composite_handoff_stub, ["status"]),
+            "mode": get_path(webgpu_tile_composite_handoff_stub, ["mode"]),
+            "source": get_path(webgpu_tile_composite_handoff_stub, ["source"]),
+            "nonDisplayOnly": get_path(
+                webgpu_tile_composite_handoff_stub, ["nonDisplayOnly"]
+            ),
+            "tileCompositeHandoffStubImplemented": get_path(
+                webgpu_tile_composite_handoff_stub,
+                ["tileCompositeHandoffStubImplemented"],
+            ),
+            "tileCompositeHandoffStubReady": get_path(
+                webgpu_tile_composite_handoff_stub,
+                ["tileCompositeHandoffStubReady"],
+            ),
+            "tileCompositeImplemented": get_path(
+                webgpu_tile_composite_handoff_stub, ["tileCompositeImplemented"]
+            ),
+            "framebufferImplemented": get_path(
+                webgpu_tile_composite_handoff_stub, ["framebufferImplemented"]
+            ),
+            "displayConnectionAllowed": get_path(
+                webgpu_tile_composite_handoff_stub, ["displayConnectionAllowed"]
+            ),
+            "shPolicy": get_path(
+                webgpu_tile_composite_handoff_stub, ["shPolicy"], {}
+            ),
+            "payloadFieldsConsumed": get_path(
+                webgpu_tile_composite_handoff_stub, ["payloadFieldsConsumed"], []
+            ),
+            "recordCounts": get_path(
+                webgpu_tile_composite_handoff_stub, ["recordCounts"], {}
+            ),
+            "payloadShapeValid": get_path(
+                tile_composite_handoff_validation, ["payloadShapeValid"]
+            ),
+            "tileOffsetsShapeValid": get_path(
+                tile_composite_handoff_validation, ["tileOffsetsShapeValid"]
+            ),
+            "tileIndicesShapeValid": get_path(
+                tile_composite_handoff_validation, ["tileIndicesShapeValid"]
+            ),
+            "depthSortReady": get_path(
+                tile_composite_handoff_validation, ["depthSortReady"]
+            ),
+            "renderHandoffReady": get_path(
+                tile_composite_handoff_validation, ["renderHandoffReady"]
+            ),
+            "tileListBackendReady": get_path(
+                tile_composite_handoff_validation, ["tileListBackendReady"]
+            ),
+            "firstValidationFailures": compact_list(
+                get_path(
+                    tile_composite_handoff_validation,
+                    ["firstValidationFailures"],
+                    [],
+                )
+            ),
+            "blockers": compact_list(
+                get_path(webgpu_tile_composite_handoff_stub, ["blockers"], [])
+            ),
+            "nextBackendPrototypeStep": get_path(
+                webgpu_tile_composite_handoff_stub, ["nextBackendPrototypeStep"]
+            ),
+            "sampleTiles": compact_list(
+                get_path(webgpu_tile_composite_handoff_stub, ["sampleTiles"], [])
             ),
         },
         "inputContract": get_path(summary, ["inputContract"], {}),

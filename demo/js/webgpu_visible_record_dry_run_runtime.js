@@ -48,6 +48,7 @@ import {
   createWebGpuInputBufferModes
 } from './common_4dgs_webgpu_input_contracts.js';
 import { buildWebGpuRenderHandoffStub } from './webgpu_render_handoff_stub.js';
+import { buildWebGpuTileCompositeHandoffStub } from './webgpu_tile_composite_handoff_stub.js';
 
 const DEFAULT_MAX_RECORDS = 65536;
 const DEFAULT_EPSILON = DEFAULT_COMPARISON_EPSILON;
@@ -394,6 +395,22 @@ function createWebGpuRenderHandoffStubUnavailable(reason) {
     payloadStoredInJson: false,
     firstValidationFailures: [{ stage: 'input', reason }],
     sampleRecords: []
+  };
+}
+
+function createWebGpuTileCompositeHandoffStubUnavailable(reason) {
+  return {
+    mode: 'webgpu-tile-composite-handoff-stub',
+    status: 'unavailable',
+    reason,
+    source: 'webgpuRenderHandoffStub + webgpu tile-list output + depthSortComparison',
+    nonDisplayOnly: true,
+    tileCompositeHandoffStubReady: false,
+    tileCompositeImplemented: false,
+    framebufferImplemented: false,
+    displayConnectionAllowed: false,
+    firstValidationFailures: [{ stage: 'input', reason }],
+    sampleTiles: []
   };
 }
 
@@ -1568,6 +1585,9 @@ function makeFallback(reason, extra = {}) {
     extra.depthSortComparison ?? createDepthSortComparisonUnavailable(reason);
   const webgpuRenderHandoffStub =
     extra.webgpuRenderHandoffStub ?? createWebGpuRenderHandoffStubUnavailable(reason);
+  const webgpuTileCompositeHandoffStub =
+    extra.webgpuTileCompositeHandoffStub ??
+    createWebGpuTileCompositeHandoffStubUnavailable(reason);
   return {
     schemaVersion: WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION,
     phaseStep: WEBGPU_VISIBLE_RECORD_PHASE_STEP,
@@ -1634,6 +1654,7 @@ function makeFallback(reason, extra = {}) {
     renderPayloadSortReadiness,
     depthSortComparison,
     webgpuRenderHandoffStub,
+    webgpuTileCompositeHandoffStub,
     fieldMismatchCount: null,
     firstMismatches: extra.firstMismatches ?? [],
     mismatchClassification: extra.mismatchClassification ??
@@ -3585,6 +3606,15 @@ export async function runWebGpuVisibleRecordDryRun({
     epsilon,
     recordFloats: RECORD_FLOATS
   });
+  const webgpuTileCompositeHandoffStub = buildWebGpuTileCompositeHandoffStub({
+    webgpuRenderHandoffStub,
+    webgpuTileListBackendOutput,
+    depthSortComparison,
+    tileIndicesWebGpuScatterComparison,
+    webgpuTileOffsetsPrefixDryRun,
+    webgpuRecords: computeResult.records,
+    recordFloats: RECORD_FLOATS
+  });
   const inputContract = createWebGpuInputBufferContract({
     candidateCount: cpuReference.candidateCount,
     recordCount: cpuReference.count,
@@ -3664,6 +3694,7 @@ export async function runWebGpuVisibleRecordDryRun({
     renderPayloadSortReadiness,
     depthSortComparison,
     webgpuRenderHandoffStub,
+    webgpuTileCompositeHandoffStub,
     inputContract,
     bufferContract: inputContract,
     inputBufferModes: inputContract.inputBufferModes,
@@ -3692,6 +3723,7 @@ export async function runWebGpuVisibleRecordDryRun({
       ...renderPayloadSortReadiness.timing,
       ...depthSortComparison.timing,
       ...webgpuRenderHandoffStub.timing,
+      ...webgpuTileCompositeHandoffStub.timing,
       ...computeResult.timing,
       compareMs,
       totalMs: nowMs() - totalStartMs
@@ -3740,6 +3772,7 @@ export async function runWebGpuVisibleRecordDryRun({
       renderPayloadSortReadiness,
       depthSortComparison,
       webgpuRenderHandoffStub,
+      webgpuTileCompositeHandoffStub,
       inputContract,
       bufferContract: inputContract,
       inputBufferModes: inputContract.inputBufferModes,

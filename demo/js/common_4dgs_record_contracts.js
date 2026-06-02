@@ -4,10 +4,10 @@ export const WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION =
 export const WEBGPU_VISIBLE_RECORD_COMPUTE_MODE =
   'webgpu-storage-buffer-compute-fixed-record';
 
-export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step33';
+export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step34';
 
 export const WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE =
-  'wgsl-valid-screen-projection-with-render-payload-color-rgb-reference-assisted';
+  'wgsl-valid-screen-projection-with-tile-composite-handoff-stub';
 
 export const WEBGPU_RADIUS_FIELD_COMPUTE_MODE =
   'deferred-covariance-conic-dependent';
@@ -71,6 +71,9 @@ export const WEBGPU_RENDER_HANDOFF_STUB_COMPUTE_MODE =
 
 export const WEBGPU_RENDER_PAYLOAD_REFERENCE_ASSISTED_COMPUTE_MODE =
   'cpu-reference-assisted-render-payload-radius-conic-alpha-color-rgb';
+
+export const WEBGPU_TILE_COMPOSITE_HANDOFF_STUB_COMPUTE_MODE =
+  'webgpu-tile-composite-handoff-stub';
 
 export {
   WEBGPU_PROJECTION_CONTRACT_NAMES,
@@ -154,7 +157,9 @@ export const WEBGPU_VISIBLE_RECORD_FIELD_COMPUTE_MODES = Object.freeze({
   webgpuRenderHandoffStub:
     WEBGPU_RENDER_HANDOFF_STUB_COMPUTE_MODE,
   renderPayloadReferenceAssistedFields:
-    WEBGPU_RENDER_PAYLOAD_REFERENCE_ASSISTED_COMPUTE_MODE
+    WEBGPU_RENDER_PAYLOAD_REFERENCE_ASSISTED_COMPUTE_MODE,
+  webgpuTileCompositeHandoffStub:
+    WEBGPU_TILE_COMPOSITE_HANDOFF_STUB_COMPUTE_MODE
 });
 
 export const WEBGPU_VISIBLE_RECORD_DEFERRED_FIELDS = Object.freeze([

@@ -61,6 +61,8 @@ export const WEBGPU_TILE_LIST_COMPUTE_MODES = Object.freeze({
     'cpu-reference-assisted-render-payload-radius-conic-alpha',
   CPU_REFERENCE_ASSISTED_RENDER_PAYLOAD_COLOR_RGB:
     'cpu-reference-assisted-render-payload-color-rgb',
+  WEBGPU_TILE_COMPOSITE_HANDOFF_STUB:
+    'webgpu-tile-composite-handoff-stub',
   CPU_REFERENCE_TILE_LIST:
     'cpu-reference-tile-list-build'
 });
@@ -343,6 +345,20 @@ export function createWebGpuTileCountsOffsetsComparisonSurfaceContract({
         'SH/WGSL color evaluation remains an explicit blocker',
         'payload buffer is not stored in JSON as a full buffer',
         'display connection and tile composite remain deferred'
+      ]
+    },
+    recommendedStep34Unit: {
+      name: 'webgpu-tile-composite-handoff-stub',
+      scope:
+        'Build a non-display tile composite handoff stub from the validated render payload, WebGPU tile-list output, and depth-sort comparison. Emit sample composite packets without connecting a WebGPU tile composite shader or framebuffer.',
+      computeMode:
+        WEBGPU_TILE_LIST_COMPUTE_MODES.WEBGPU_TILE_COMPOSITE_HANDOFF_STUB,
+      successCriteria: [
+        'tileCompositeHandoffStubReady is true',
+        'payload, tileOffsets, tileIndices, and depth order inputs are shape-valid',
+        'sample composite packets include payload previews for bounded tiles',
+        'SH/WGSL color evaluation remains an explicit blocker',
+        'tile composite shader, framebuffer, and display connection remain deferred'
       ]
     },
     relationToStep18:
