@@ -59,6 +59,8 @@ export const WEBGPU_TILE_LIST_COMPUTE_MODES = Object.freeze({
     'webgpu-render-handoff-stub-partial-payload',
   CPU_REFERENCE_ASSISTED_RENDER_PAYLOAD_RADIUS_CONIC_ALPHA:
     'cpu-reference-assisted-render-payload-radius-conic-alpha',
+  CPU_REFERENCE_ASSISTED_RENDER_PAYLOAD_COLOR_RGB:
+    'cpu-reference-assisted-render-payload-color-rgb',
   CPU_REFERENCE_TILE_LIST:
     'cpu-reference-tile-list-build'
 });
@@ -325,6 +327,20 @@ export function createWebGpuTileCountsOffsetsComparisonSurfaceContract({
         'conic mismatch count is 0',
         'alpha mismatch count is 0',
         'colorAlpha.rgb and SH remain explicit blockers',
+        'payload buffer is not stored in JSON as a full buffer',
+        'display connection and tile composite remain deferred'
+      ]
+    },
+    recommendedStep33Unit: {
+      name: 'render-payload-reference-assisted-color-alpha-rgb',
+      scope:
+        'Materialize colorAlpha.rgb into the transient render handoff payload from CPU reference color evaluation, compare RGB separately, and keep SH/WGSL color evaluation plus display connection deferred.',
+      computeMode:
+        WEBGPU_TILE_LIST_COMPUTE_MODES.CPU_REFERENCE_ASSISTED_RENDER_PAYLOAD_COLOR_RGB,
+      successCriteria: [
+        'colorAlpha.rgb mismatch count is 0',
+        'radiusPx / conic / alpha comparison remains ok',
+        'SH/WGSL color evaluation remains an explicit blocker',
         'payload buffer is not stored in JSON as a full buffer',
         'display connection and tile composite remain deferred'
       ]

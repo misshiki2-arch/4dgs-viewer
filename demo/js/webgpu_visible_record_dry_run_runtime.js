@@ -1688,7 +1688,7 @@ function buildCpuReferenceRecords({
     nativeMarginal: !!buildConfig.useNativeMarginal
   };
   const records = new Float32Array(count * RECORD_FLOATS);
-  const renderPayloadReference = new Float32Array(count * 5);
+  const renderPayloadReference = new Float32Array(count * 8);
   const tileRanges = [];
   let validCount = 0;
   for (let i = 0; i < count; i += 1) {
@@ -1745,12 +1745,15 @@ function buildCpuReferenceRecords({
         depth: Math.fround(item.depth),
         aabb: recordAabb
       }, srcIndex);
-      const payloadRefBase = i * 5;
+      const payloadRefBase = i * 8;
       renderPayloadReference[payloadRefBase + 0] = Math.fround(item.radius);
       renderPayloadReference[payloadRefBase + 1] = Math.fround(item.conic?.[0] ?? 0);
       renderPayloadReference[payloadRefBase + 2] = Math.fround(item.conic?.[1] ?? 0);
       renderPayloadReference[payloadRefBase + 3] = Math.fround(item.conic?.[2] ?? 0);
       renderPayloadReference[payloadRefBase + 4] = Math.fround(item.colorAlpha?.[3] ?? item.opacity ?? 0);
+      renderPayloadReference[payloadRefBase + 5] = Math.fround(item.colorAlpha?.[0] ?? 0);
+      renderPayloadReference[payloadRefBase + 6] = Math.fround(item.colorAlpha?.[1] ?? 0);
+      renderPayloadReference[payloadRefBase + 7] = Math.fround(item.colorAlpha?.[2] ?? 0);
     } else {
       writeRecord(records, i, null, srcIndex);
     }
@@ -1763,11 +1766,12 @@ function buildCpuReferenceRecords({
     records,
     renderPayloadReference,
     renderPayloadReferenceLayout: {
-      floatsPerRecord: 5,
+      floatsPerRecord: 8,
       fields: {
         radiusPx: { offset: 0, components: 1 },
         conic: { offset: 1, components: 3 },
-        alpha: { offset: 4, components: 1 }
+        alpha: { offset: 4, components: 1 },
+        colorAlphaRgb: { offset: 5, components: 3 }
       },
       source: 'buildVisibleItemForCandidate CPU reference render payload fields'
     },

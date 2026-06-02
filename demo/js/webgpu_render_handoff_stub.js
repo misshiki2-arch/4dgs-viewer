@@ -7,11 +7,12 @@ import {
 export const WEBGPU_RENDER_HANDOFF_STUB_MODE =
   'webgpu-render-handoff-stub-partial-payload';
 
-const RENDER_PAYLOAD_REFERENCE_FLOATS = 5;
+const RENDER_PAYLOAD_REFERENCE_FLOATS = 8;
 const RENDER_PAYLOAD_REFERENCE_FIELDS = Object.freeze({
   radiusPx: { offset: 0, components: 1 },
   conic: { offset: 1, components: 3 },
-  alpha: { offset: 4, components: 1 }
+  alpha: { offset: 4, components: 1 },
+  colorAlphaRgb: { offset: 5, components: 3 }
 });
 
 function nowMs() {
@@ -202,6 +203,9 @@ export function buildWebGpuRenderHandoffStub({
     payload[dstBase + 3] = depth;
     const refBase = referenceBaseOffset(recordIndex, renderPayloadReferenceLayout);
     payload[dstBase + 2] = finiteOrZero(renderPayloadReference[refBase + 0]);
+    payload[dstBase + 4] = finiteOrZero(renderPayloadReference[refBase + 5]);
+    payload[dstBase + 5] = finiteOrZero(renderPayloadReference[refBase + 6]);
+    payload[dstBase + 6] = finiteOrZero(renderPayloadReference[refBase + 7]);
     payload[dstBase + 7] = finiteOrZero(renderPayloadReference[refBase + 4]);
     payload[dstBase + 8] = finiteOrZero(renderPayloadReference[refBase + 1]);
     payload[dstBase + 9] = finiteOrZero(renderPayloadReference[refBase + 2]);
@@ -253,6 +257,16 @@ export function buildWebGpuRenderHandoffStub({
       payloadOffsets: [7],
       referenceField: 'alpha',
       epsilon
+    }),
+    colorAlphaRgb: comparePayloadField({
+      field: 'colorAlpha.rgb',
+      payload,
+      renderPayloadReference,
+      renderPayloadReferenceLayout,
+      recordCount,
+      payloadOffsets: [4, 5, 6],
+      referenceField: 'colorAlphaRgb',
+      epsilon
     })
   };
   const payloadFieldComparisonSummary =
@@ -300,7 +314,15 @@ export function buildWebGpuRenderHandoffStub({
         ],
         alpha:
           payload[dstBase + 7] -
-          finiteOrZero(renderPayloadReference[referenceBaseOffset(recordIndex, renderPayloadReferenceLayout) + 4])
+          finiteOrZero(renderPayloadReference[referenceBaseOffset(recordIndex, renderPayloadReferenceLayout) + 4]),
+        colorAlphaRgb: [
+          payload[dstBase + 4] -
+            finiteOrZero(renderPayloadReference[referenceBaseOffset(recordIndex, renderPayloadReferenceLayout) + 5]),
+          payload[dstBase + 5] -
+            finiteOrZero(renderPayloadReference[referenceBaseOffset(recordIndex, renderPayloadReferenceLayout) + 6]),
+          payload[dstBase + 6] -
+            finiteOrZero(renderPayloadReference[referenceBaseOffset(recordIndex, renderPayloadReferenceLayout) + 7])
+        ]
       }
     };
   });
@@ -326,15 +348,15 @@ export function buildWebGpuRenderHandoffStub({
     tileCompositeImplemented: false,
     renderPayloadGpuImplemented: false,
     partialPayloadMaterialized: true,
-    referenceAssistedPayloadFields: ['radiusPx', 'conic', 'alpha'],
+    referenceAssistedPayloadFields: ['radiusPx', 'conic', 'alpha', 'colorAlpha.rgb'],
     payloadStoredInJson: false,
     payloadLayout: {
       layoutVersion: 2,
       floatsPerItem: GPU_VISIBLE_PACK_FLOATS_PER_ITEM,
-      materializedFields: ['centerPx', 'radiusPx', 'depth', 'colorAlpha.a', 'conic', 'misc.aabb'],
-      zeroFilledFields: ['colorAlpha.rgb', 'reserved'],
-      missingDisplayFields: ['colorAlpha.rgb', 'SH'],
-      referenceAssistedFields: ['radiusPx', 'conic', 'alpha']
+      materializedFields: ['centerPx', 'radiusPx', 'depth', 'colorAlpha.rgb', 'colorAlpha.a', 'conic', 'misc.aabb'],
+      zeroFilledFields: ['reserved'],
+      missingDisplayFields: ['SH'],
+      referenceAssistedFields: ['radiusPx', 'conic', 'alpha', 'colorAlpha.rgb']
     },
     payloadFieldComparisons,
     payloadFieldComparisonSummary,
@@ -366,12 +388,12 @@ export function buildWebGpuRenderHandoffStub({
       displayConnectionAllowed: false
     },
     blockers: [
-      { stage: 'render-payload', reason: 'colorAlpha.rgb/SH still require payload parity before display' },
-      { stage: 'render-payload-gpu-parity', reason: 'radius/conic/alpha are reference-assisted in the handoff stub, not WGSL payload compute yet' },
+      { stage: 'render-payload', reason: 'SH/WGSL color evaluation parity remains deferred before display' },
+      { stage: 'render-payload-gpu-parity', reason: 'radius/conic/alpha/colorAlpha.rgb are reference-assisted in the handoff stub, not WGSL payload compute yet' },
       { stage: 'tile-composite', reason: 'tile composite shader handoff not implemented' },
       { stage: 'display-connection', reason: 'display connection intentionally deferred' }
     ],
-    nextBackendPrototypeStep: 'color-alpha-rgb-sh-payload-parity',
+    nextBackendPrototypeStep: 'sh-color-evaluation-parity-or-reference-assisted-display-handoff',
     sampleRecords,
     timing: {
       webgpuRenderHandoffStubMs: nowMs() - startMs
