@@ -7,6 +7,13 @@ import {
 export const WEBGPU_RENDER_HANDOFF_STUB_MODE =
   'webgpu-render-handoff-stub-partial-payload';
 
+const RENDER_PAYLOAD_REFERENCE_FLOATS = 5;
+const RENDER_PAYLOAD_REFERENCE_FIELDS = Object.freeze({
+  radiusPx: { offset: 0, components: 1 },
+  conic: { offset: 1, components: 3 },
+  alpha: { offset: 4, components: 1 }
+});
+
 function nowMs() {
   return typeof performance !== 'undefined' && typeof performance.now === 'function'
     ? performance.now()
@@ -15,6 +22,94 @@ function nowMs() {
 
 function finiteOrZero(value) {
   return Number.isFinite(value) ? value : 0;
+}
+
+function referenceBaseOffset(recordIndex, layout) {
+  const floatsPerRecord = Number.isFinite(layout?.floatsPerRecord)
+    ? Math.max(1, Math.floor(layout.floatsPerRecord))
+    : RENDER_PAYLOAD_REFERENCE_FLOATS;
+  return recordIndex * floatsPerRecord;
+}
+
+function comparePayloadField({
+  field,
+  payload,
+  renderPayloadReference,
+  renderPayloadReferenceLayout,
+  recordCount,
+  payloadOffsets,
+  referenceField,
+  epsilon
+}) {
+  const refField =
+    renderPayloadReferenceLayout?.fields?.[referenceField] ??
+    RENDER_PAYLOAD_REFERENCE_FIELDS[referenceField];
+  const components = Math.min(payloadOffsets.length, refField?.components ?? payloadOffsets.length);
+  const firstMismatches = [];
+  let mismatchCount = 0;
+  let maxAbsDelta = 0;
+
+  for (let recordIndex = 0; recordIndex < recordCount; recordIndex += 1) {
+    const payloadBase = computeVisiblePackBaseFloatOffset(recordIndex);
+    const refBase = referenceBaseOffset(recordIndex, renderPayloadReferenceLayout);
+    for (let component = 0; component < components; component += 1) {
+      const actual = finiteOrZero(payload[payloadBase + payloadOffsets[component]]);
+      const expected = finiteOrZero(
+        renderPayloadReference[refBase + (refField?.offset ?? 0) + component]
+      );
+      const absDelta = Math.abs(actual - expected);
+      maxAbsDelta = Math.max(maxAbsDelta, absDelta);
+      if (absDelta > epsilon) {
+        mismatchCount += 1;
+        if (firstMismatches.length < 8) {
+          firstMismatches.push({
+            recordIndex,
+            field,
+            component: components > 1 ? component : null,
+            expected,
+            actual,
+            absDelta
+          });
+        }
+      }
+    }
+  }
+
+  return {
+    status: mismatchCount === 0 ? 'ok' : 'mismatch',
+    field,
+    expectedSource: 'cpu-reference-render-payload-field',
+    actualSource: 'webgpu-render-handoff-transient-payload',
+    referenceField,
+    componentCount: components,
+    mismatchCount,
+    maxAbsDelta,
+    firstMismatches
+  };
+}
+
+function summarizePayloadFieldComparisons(comparisons) {
+  const firstValidationFailures = [];
+  let totalMismatchCount = 0;
+  let maxAbsDelta = 0;
+  for (const comparison of Object.values(comparisons)) {
+    totalMismatchCount += comparison?.mismatchCount ?? 0;
+    maxAbsDelta = Math.max(maxAbsDelta, comparison?.maxAbsDelta ?? 0);
+    if (comparison?.status !== 'ok' && firstValidationFailures.length < 8) {
+      firstValidationFailures.push({
+        stage: 'render-payload-field-comparison',
+        field: comparison?.field,
+        reason: comparison?.status ?? 'unavailable',
+        firstMismatch: comparison?.firstMismatches?.[0] ?? null
+      });
+    }
+  }
+  return {
+    allComparedFieldsValid: totalMismatchCount === 0,
+    totalMismatchCount,
+    maxAbsDelta,
+    firstValidationFailures
+  };
 }
 
 function buildUnavailable(reason) {
@@ -30,6 +125,7 @@ function buildUnavailable(reason) {
     tileCompositeImplemented: false,
     renderPayloadGpuImplemented: false,
     partialPayloadMaterialized: false,
+    referenceAssistedPayloadFields: [],
     payloadStoredInJson: false,
     firstValidationFailures: [{ stage: 'input', reason }],
     sampleRecords: []
@@ -55,6 +151,9 @@ export function buildWebGpuRenderHandoffStub({
   depthSortComparison,
   renderPayloadSortReadiness,
   webgpuRecords,
+  renderPayloadReference,
+  renderPayloadReferenceLayout,
+  epsilon = 1e-4,
   recordFloats
 }) {
   const startMs = nowMs();
@@ -73,8 +172,17 @@ export function buildWebGpuRenderHandoffStub({
   if (!(webgpuRecords instanceof Float32Array) || !Number.isFinite(recordFloats) || recordFloats <= 0) {
     return buildUnavailable('webgpu-fixed-record-buffer-unavailable');
   }
+  if (!(renderPayloadReference instanceof Float32Array)) {
+    return buildUnavailable('render-payload-reference-buffer-unavailable');
+  }
 
   const recordCount = Math.floor(webgpuRecords.length / recordFloats);
+  const referenceFloatsPerRecord = Number.isFinite(renderPayloadReferenceLayout?.floatsPerRecord)
+    ? Math.max(1, Math.floor(renderPayloadReferenceLayout.floatsPerRecord))
+    : RENDER_PAYLOAD_REFERENCE_FLOATS;
+  if (Math.floor(renderPayloadReference.length / referenceFloatsPerRecord) < recordCount) {
+    return buildUnavailable('render-payload-reference-buffer-too-small');
+  }
   const payload = createVisiblePackFloatArray(recordCount);
   let validRecordCount = 0;
   let populatedFieldMismatchCount = 0;
@@ -91,8 +199,13 @@ export function buildWebGpuRenderHandoffStub({
     const depth = finiteOrZero(webgpuRecords[srcBase + 4]);
     payload[dstBase + 0] = px;
     payload[dstBase + 1] = py;
-    payload[dstBase + 2] = 0;
     payload[dstBase + 3] = depth;
+    const refBase = referenceBaseOffset(recordIndex, renderPayloadReferenceLayout);
+    payload[dstBase + 2] = finiteOrZero(renderPayloadReference[refBase + 0]);
+    payload[dstBase + 7] = finiteOrZero(renderPayloadReference[refBase + 4]);
+    payload[dstBase + 8] = finiteOrZero(renderPayloadReference[refBase + 1]);
+    payload[dstBase + 9] = finiteOrZero(renderPayloadReference[refBase + 2]);
+    payload[dstBase + 10] = finiteOrZero(renderPayloadReference[refBase + 3]);
     payload[dstBase + 12] = finiteOrZero(webgpuRecords[srcBase + 5]);
     payload[dstBase + 13] = finiteOrZero(webgpuRecords[srcBase + 6]);
     payload[dstBase + 14] = finiteOrZero(webgpuRecords[srcBase + 7]);
@@ -107,6 +220,46 @@ export function buildWebGpuRenderHandoffStub({
           reason: 'center/depth payload copy mismatch'
         });
       }
+    }
+  }
+
+  const payloadFieldComparisons = {
+    radiusPx: comparePayloadField({
+      field: 'radiusPx',
+      payload,
+      renderPayloadReference,
+      renderPayloadReferenceLayout,
+      recordCount,
+      payloadOffsets: [2],
+      referenceField: 'radiusPx',
+      epsilon
+    }),
+    conic: comparePayloadField({
+      field: 'conic',
+      payload,
+      renderPayloadReference,
+      renderPayloadReferenceLayout,
+      recordCount,
+      payloadOffsets: [8, 9, 10],
+      referenceField: 'conic',
+      epsilon
+    }),
+    alpha: comparePayloadField({
+      field: 'alpha',
+      payload,
+      renderPayloadReference,
+      renderPayloadReferenceLayout,
+      recordCount,
+      payloadOffsets: [7],
+      referenceField: 'alpha',
+      epsilon
+    })
+  };
+  const payloadFieldComparisonSummary =
+    summarizePayloadFieldComparisons(payloadFieldComparisons);
+  for (const failure of payloadFieldComparisonSummary.firstValidationFailures) {
+    if (firstValidationFailures.length < 8) {
+      firstValidationFailures.push(failure);
     }
   }
 
@@ -132,7 +285,23 @@ export function buildWebGpuRenderHandoffStub({
         payload[dstBase + 13],
         payload[dstBase + 14],
         payload[dstBase + 15]
-      ]
+      ],
+      payloadFieldDeltas: {
+        radiusPx:
+          payload[dstBase + 2] -
+          finiteOrZero(renderPayloadReference[referenceBaseOffset(recordIndex, renderPayloadReferenceLayout) + 0]),
+        conic: [
+          payload[dstBase + 8] -
+            finiteOrZero(renderPayloadReference[referenceBaseOffset(recordIndex, renderPayloadReferenceLayout) + 1]),
+          payload[dstBase + 9] -
+            finiteOrZero(renderPayloadReference[referenceBaseOffset(recordIndex, renderPayloadReferenceLayout) + 2]),
+          payload[dstBase + 10] -
+            finiteOrZero(renderPayloadReference[referenceBaseOffset(recordIndex, renderPayloadReferenceLayout) + 3])
+        ],
+        alpha:
+          payload[dstBase + 7] -
+          finiteOrZero(renderPayloadReference[referenceBaseOffset(recordIndex, renderPayloadReferenceLayout) + 4])
+      }
     };
   });
 
@@ -141,6 +310,7 @@ export function buildWebGpuRenderHandoffStub({
   const renderHandoffStubReady =
     payloadShapeValid &&
     populatedFieldMismatchCount === 0 &&
+    payloadFieldComparisonSummary.allComparedFieldsValid &&
     webgpuTileListBackendOutput.backendOutputReady === true &&
     depthSortComparison.status === 'ok';
   const result = {
@@ -156,14 +326,18 @@ export function buildWebGpuRenderHandoffStub({
     tileCompositeImplemented: false,
     renderPayloadGpuImplemented: false,
     partialPayloadMaterialized: true,
+    referenceAssistedPayloadFields: ['radiusPx', 'conic', 'alpha'],
     payloadStoredInJson: false,
     payloadLayout: {
       layoutVersion: 2,
       floatsPerItem: GPU_VISIBLE_PACK_FLOATS_PER_ITEM,
-      materializedFields: ['centerPx', 'depth', 'misc.aabb'],
-      zeroFilledFields: ['radiusPx', 'colorAlpha', 'conic', 'reserved'],
-      missingDisplayFields: ['radiusPx', 'conic', 'alpha', 'colorAlpha.rgb', 'SH']
+      materializedFields: ['centerPx', 'radiusPx', 'depth', 'colorAlpha.a', 'conic', 'misc.aabb'],
+      zeroFilledFields: ['colorAlpha.rgb', 'reserved'],
+      missingDisplayFields: ['colorAlpha.rgb', 'SH'],
+      referenceAssistedFields: ['radiusPx', 'conic', 'alpha']
     },
+    payloadFieldComparisons,
+    payloadFieldComparisonSummary,
     outputBuffer: {
       source: 'transient WebGPU render handoff payload',
       type: `float32[recordCount * ${GPU_VISIBLE_PACK_FLOATS_PER_ITEM}]`,
@@ -185,15 +359,19 @@ export function buildWebGpuRenderHandoffStub({
       payloadShapeValid,
       populatedFieldsValid: populatedFieldMismatchCount === 0,
       populatedFieldMismatchCount,
+      referenceAssistedFieldsValid: payloadFieldComparisonSummary.allComparedFieldsValid,
+      referenceAssistedFieldMismatchCount: payloadFieldComparisonSummary.totalMismatchCount,
+      referenceAssistedFieldMaxAbsDelta: payloadFieldComparisonSummary.maxAbsDelta,
       firstValidationFailures,
       displayConnectionAllowed: false
     },
     blockers: [
-      { stage: 'render-payload', reason: 'radius/conic/colorAlpha/SH still require GPU parity before display' },
+      { stage: 'render-payload', reason: 'colorAlpha.rgb/SH still require payload parity before display' },
+      { stage: 'render-payload-gpu-parity', reason: 'radius/conic/alpha are reference-assisted in the handoff stub, not WGSL payload compute yet' },
       { stage: 'tile-composite', reason: 'tile composite shader handoff not implemented' },
       { stage: 'display-connection', reason: 'display connection intentionally deferred' }
     ],
-    nextBackendPrototypeStep: 'render-payload-field-gpu-parity',
+    nextBackendPrototypeStep: 'color-alpha-rgb-sh-payload-parity',
     sampleRecords,
     timing: {
       webgpuRenderHandoffStubMs: nowMs() - startMs

@@ -57,6 +57,8 @@ export const WEBGPU_TILE_LIST_COMPUTE_MODES = Object.freeze({
     'cpu-staged-webgpu-tile-list-depth-sort-comparison',
   WEBGPU_RENDER_HANDOFF_STUB_PARTIAL_PAYLOAD:
     'webgpu-render-handoff-stub-partial-payload',
+  CPU_REFERENCE_ASSISTED_RENDER_PAYLOAD_RADIUS_CONIC_ALPHA:
+    'cpu-reference-assisted-render-payload-radius-conic-alpha',
   CPU_REFERENCE_TILE_LIST:
     'cpu-reference-tile-list-build'
 });
@@ -308,6 +310,21 @@ export function createWebGpuTileCountsOffsetsComparisonSurfaceContract({
         'depthSortComparison remains ok',
         'centerPx / depth / misc.aabb are materialized into packed layout v2',
         'missing display payload fields remain explicit blockers',
+        'payload buffer is not stored in JSON as a full buffer',
+        'display connection and tile composite remain deferred'
+      ]
+    },
+    recommendedStep32Unit: {
+      name: 'render-payload-reference-assisted-radius-conic-alpha',
+      scope:
+        'Materialize radiusPx, conic, and alpha into the transient render handoff payload from CPU reference fields, compare each field separately, and keep colorAlpha.rgb / SH plus display connection deferred.',
+      computeMode:
+        WEBGPU_TILE_LIST_COMPUTE_MODES.CPU_REFERENCE_ASSISTED_RENDER_PAYLOAD_RADIUS_CONIC_ALPHA,
+      successCriteria: [
+        'radiusPx mismatch count is 0',
+        'conic mismatch count is 0',
+        'alpha mismatch count is 0',
+        'colorAlpha.rgb and SH remain explicit blockers',
         'payload buffer is not stored in JSON as a full buffer',
         'display connection and tile composite remain deferred'
       ]

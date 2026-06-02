@@ -390,6 +390,7 @@ function createWebGpuRenderHandoffStubUnavailable(reason) {
     tileCompositeImplemented: false,
     renderPayloadGpuImplemented: false,
     partialPayloadMaterialized: false,
+    referenceAssistedPayloadFields: [],
     payloadStoredInJson: false,
     firstValidationFailures: [{ stage: 'input', reason }],
     sampleRecords: []
@@ -1687,6 +1688,7 @@ function buildCpuReferenceRecords({
     nativeMarginal: !!buildConfig.useNativeMarginal
   };
   const records = new Float32Array(count * RECORD_FLOATS);
+  const renderPayloadReference = new Float32Array(count * 5);
   const tileRanges = [];
   let validCount = 0;
   for (let i = 0; i < count; i += 1) {
@@ -1743,6 +1745,12 @@ function buildCpuReferenceRecords({
         depth: Math.fround(item.depth),
         aabb: recordAabb
       }, srcIndex);
+      const payloadRefBase = i * 5;
+      renderPayloadReference[payloadRefBase + 0] = Math.fround(item.radius);
+      renderPayloadReference[payloadRefBase + 1] = Math.fround(item.conic?.[0] ?? 0);
+      renderPayloadReference[payloadRefBase + 2] = Math.fround(item.conic?.[1] ?? 0);
+      renderPayloadReference[payloadRefBase + 3] = Math.fround(item.conic?.[2] ?? 0);
+      renderPayloadReference[payloadRefBase + 4] = Math.fround(item.colorAlpha?.[3] ?? item.opacity ?? 0);
     } else {
       writeRecord(records, i, null, srcIndex);
     }
@@ -1753,6 +1761,16 @@ function buildCpuReferenceRecords({
     count,
     validCount,
     records,
+    renderPayloadReference,
+    renderPayloadReferenceLayout: {
+      floatsPerRecord: 5,
+      fields: {
+        radiusPx: { offset: 0, components: 1 },
+        conic: { offset: 1, components: 3 },
+        alpha: { offset: 4, components: 1 }
+      },
+      source: 'buildVisibleItemForCandidate CPU reference render payload fields'
+    },
     tileRanges,
     timing: {
       cpuReferenceBuildMs: nowMs() - startMs
@@ -3558,6 +3576,9 @@ export async function runWebGpuVisibleRecordDryRun({
     depthSortComparison,
     renderPayloadSortReadiness,
     webgpuRecords: computeResult.records,
+    renderPayloadReference: cpuReference.renderPayloadReference,
+    renderPayloadReferenceLayout: cpuReference.renderPayloadReferenceLayout,
+    epsilon,
     recordFloats: RECORD_FLOATS
   });
   const inputContract = createWebGpuInputBufferContract({

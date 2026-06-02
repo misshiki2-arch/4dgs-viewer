@@ -4,10 +4,10 @@ export const WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION =
 export const WEBGPU_VISIBLE_RECORD_COMPUTE_MODE =
   'webgpu-storage-buffer-compute-fixed-record';
 
-export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step31';
+export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step32';
 
 export const WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE =
-  'wgsl-valid-screen-projection-with-render-handoff-stub';
+  'wgsl-valid-screen-projection-with-render-payload-reference-assisted-fields';
 
 export const WEBGPU_RADIUS_FIELD_COMPUTE_MODE =
   'deferred-covariance-conic-dependent';
@@ -68,6 +68,9 @@ export const WEBGPU_DEPTH_SORT_COMPARISON_COMPUTE_MODE =
 
 export const WEBGPU_RENDER_HANDOFF_STUB_COMPUTE_MODE =
   'webgpu-render-handoff-stub-partial-payload';
+
+export const WEBGPU_RENDER_PAYLOAD_REFERENCE_ASSISTED_COMPUTE_MODE =
+  'cpu-reference-assisted-render-payload-radius-conic-alpha';
 
 export {
   WEBGPU_PROJECTION_CONTRACT_NAMES,
@@ -149,7 +152,9 @@ export const WEBGPU_VISIBLE_RECORD_FIELD_COMPUTE_MODES = Object.freeze({
   depthSortComparison:
     WEBGPU_DEPTH_SORT_COMPARISON_COMPUTE_MODE,
   webgpuRenderHandoffStub:
-    WEBGPU_RENDER_HANDOFF_STUB_COMPUTE_MODE
+    WEBGPU_RENDER_HANDOFF_STUB_COMPUTE_MODE,
+  renderPayloadReferenceAssistedFields:
+    WEBGPU_RENDER_PAYLOAD_REFERENCE_ASSISTED_COMPUTE_MODE
 });
 
 export const WEBGPU_VISIBLE_RECORD_DEFERRED_FIELDS = Object.freeze([

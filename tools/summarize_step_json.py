@@ -1714,6 +1714,9 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             "partialPayloadMaterialized": get_path(
                 webgpu_render_handoff_stub, ["partialPayloadMaterialized"]
             ),
+            "referenceAssistedPayloadFields": get_path(
+                webgpu_render_handoff_stub, ["referenceAssistedPayloadFields"], []
+            ),
             "payloadStoredInJson": get_path(
                 webgpu_render_handoff_stub, ["payloadStoredInJson"]
             ),
@@ -1734,6 +1737,21 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             ),
             "populatedFieldMismatchCount": get_path(
                 render_handoff_validation, ["populatedFieldMismatchCount"]
+            ),
+            "referenceAssistedFieldsValid": get_path(
+                render_handoff_validation, ["referenceAssistedFieldsValid"]
+            ),
+            "referenceAssistedFieldMismatchCount": get_path(
+                render_handoff_validation, ["referenceAssistedFieldMismatchCount"]
+            ),
+            "referenceAssistedFieldMaxAbsDelta": get_path(
+                render_handoff_validation, ["referenceAssistedFieldMaxAbsDelta"]
+            ),
+            "payloadFieldComparisonSummary": get_path(
+                webgpu_render_handoff_stub, ["payloadFieldComparisonSummary"], {}
+            ),
+            "payloadFieldComparisons": get_path(
+                webgpu_render_handoff_stub, ["payloadFieldComparisons"], {}
             ),
             "firstValidationFailures": compact_list(
                 get_path(render_handoff_validation, ["firstValidationFailures"], [])
