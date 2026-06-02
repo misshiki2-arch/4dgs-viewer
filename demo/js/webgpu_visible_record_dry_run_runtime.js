@@ -350,6 +350,32 @@ function createRenderPayloadSortReadinessUnavailable(reason) {
   };
 }
 
+function createDepthSortComparisonUnavailable(reason) {
+  return {
+    mode: 'cpu-staged-webgpu-tile-list-depth-sort-comparison',
+    status: 'unavailable',
+    reason,
+    source: 'webgpuTileOffsetsPrefixDryRun + tileIndicesWebGpuScatterComparison + webgpu fixed-record depth',
+    implementedInWgsl: false,
+    webgpuSortComputed: false,
+    cpuStagedSortComputed: false,
+    nonDisplayOnly: true,
+    displayConnectionAllowed: false,
+    tileCompositeImplemented: false,
+    sortedIndicesStoredInJson: false,
+    anyMismatch: true,
+    mismatchClassification: 'depthSortComparisonUnavailable',
+    sortMismatchCount: null,
+    exactSortDifferenceCount: null,
+    nearTieSortDifferenceCount: null,
+    orderingMismatchCount: null,
+    depthKeyMismatchCount: null,
+    firstMismatches: [{ kind: 'input', reason }],
+    firstSortDifferences: [],
+    sampleTiles: []
+  };
+}
+
 function makeTileCountsOffsetsSampleTiles(reference, {
   actualTileCounts = null,
   actualTileOffsets = null
@@ -1517,6 +1543,8 @@ function makeFallback(reason, extra = {}) {
     extra.webgpuTileListBackendOutput ?? createWebGpuTileListBackendOutputUnavailable(reason);
   const renderPayloadSortReadiness =
     extra.renderPayloadSortReadiness ?? createRenderPayloadSortReadinessUnavailable(reason);
+  const depthSortComparison =
+    extra.depthSortComparison ?? createDepthSortComparisonUnavailable(reason);
   return {
     schemaVersion: WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION,
     phaseStep: WEBGPU_VISIBLE_RECORD_PHASE_STEP,
@@ -1581,6 +1609,7 @@ function makeFallback(reason, extra = {}) {
     tileListSummaryComparison,
     webgpuTileListBackendOutput,
     renderPayloadSortReadiness,
+    depthSortComparison,
     fieldMismatchCount: null,
     firstMismatches: extra.firstMismatches ?? [],
     mismatchClassification: extra.mismatchClassification ??
@@ -2601,12 +2630,13 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     writeCursorMismatchCount > 0 ||
     capacityStatusMismatch ||
     capacityOverflowCount > 0;
+  const transientTileIndices = new Uint32Array(actualTileIndices);
 
   tileIndicesReadbackBuffer.unmap();
   writeCursorsReadbackBuffer.unmap();
   statsReadbackBuffer.unmap();
 
-  return {
+  const result = {
     mode: 'webgpu-tile-indices-scatter-comparison',
     status: anyMismatch ? 'mismatch' : 'ok',
     expectedSource: 'cpu-reference-tileIndices',
@@ -2657,6 +2687,11 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       tileIndicesWebGpuScatterComparisonMs: nowMs() - startMs
     }
   };
+  Object.defineProperty(result, 'transientTileIndices', {
+    value: transientTileIndices,
+    enumerable: false
+  });
+  return result;
 }
 
 function buildTileListSummaryComparison({
@@ -3074,6 +3109,269 @@ function buildRenderPayloadSortReadiness({
   };
 }
 
+function getRecordDepth(records, recordIndex) {
+  const base = recordIndex * RECORD_FLOATS;
+  const depth = records?.[base + 4];
+  return Number.isFinite(depth) ? depth : Number.POSITIVE_INFINITY;
+}
+
+function sortTileIndicesByDepth(tileIndices, depths) {
+  return Array.from(tileIndices).sort((a, b) => {
+    const da = depths[a] ?? Number.POSITIVE_INFINITY;
+    const db = depths[b] ?? Number.POSITIVE_INFINITY;
+    if (da !== db) return da - db;
+    return a - b;
+  });
+}
+
+function buildDepthSortComparison({
+  tileRanges,
+  tileCountsToOffsetsDryRun,
+  webgpuTileOffsetsPrefixDryRun,
+  tileIndicesWebGpuScatterComparison,
+  renderPayloadSortReadiness,
+  cpuReferenceRecords,
+  webgpuRecords,
+  epsilon = DEFAULT_EPSILON
+}) {
+  const startMs = nowMs();
+  if (!renderPayloadSortReadiness || renderPayloadSortReadiness.status !== 'ok') {
+    const reason = renderPayloadSortReadiness?.reason ??
+      renderPayloadSortReadiness?.status ??
+      'render-payload-sort-readiness-unavailable';
+    return createDepthSortComparisonUnavailable(reason);
+  }
+  if (!tileCountsToOffsetsDryRun || tileCountsToOffsetsDryRun.status !== 'ok') {
+    const reason = tileCountsToOffsetsDryRun?.reason ??
+      tileCountsToOffsetsDryRun?.status ??
+      'tile-counts-to-offsets-dry-run-unavailable';
+    return createDepthSortComparisonUnavailable(reason);
+  }
+  if (!webgpuTileOffsetsPrefixDryRun || webgpuTileOffsetsPrefixDryRun.status !== 'ok') {
+    const reason = webgpuTileOffsetsPrefixDryRun?.reason ??
+      webgpuTileOffsetsPrefixDryRun?.status ??
+      'webgpu-tile-offsets-prefix-dry-run-unavailable';
+    return createDepthSortComparisonUnavailable(reason);
+  }
+  if (!tileIndicesWebGpuScatterComparison || tileIndicesWebGpuScatterComparison.status !== 'ok') {
+    const reason = tileIndicesWebGpuScatterComparison?.reason ??
+      tileIndicesWebGpuScatterComparison?.status ??
+      'tile-indices-webgpu-scatter-comparison-unavailable';
+    return createDepthSortComparisonUnavailable(reason);
+  }
+
+  const reference = materializeCpuReferenceTileIndices({ tileRanges, tileCountsToOffsetsDryRun });
+  if (reference.status !== 'ok') {
+    return createDepthSortComparisonUnavailable(reference.reason);
+  }
+
+  const tileOffsets = toUint32Array(webgpuTileOffsetsPrefixDryRun.tileOffsets);
+  const actualTileIndices = tileIndicesWebGpuScatterComparison.transientTileIndices;
+  const expectedTileIndices = reference.tileIndices;
+  const tileCount = toFiniteInteger(webgpuTileOffsetsPrefixDryRun.tileGrid?.tileCount, reference.tileCount);
+  const totalTileRefs = toFiniteInteger(tileOffsets[tileCount], 0);
+  if (
+    tileCount <= 0 ||
+    tileOffsets.length !== tileCount + 1 ||
+    !(actualTileIndices instanceof Uint32Array) ||
+    actualTileIndices.length !== totalTileRefs ||
+    expectedTileIndices.length !== totalTileRefs
+  ) {
+    return createDepthSortComparisonUnavailable('depth-sort-input-shape-unavailable');
+  }
+
+  const cpuDepths = new Float32Array(tileRanges.length);
+  const webgpuDepths = new Float32Array(tileRanges.length);
+  let depthKeyMismatchCount = 0;
+  let maxAbsDepthDelta = 0;
+  const firstMismatches = [];
+  for (let recordIndex = 0; recordIndex < tileRanges.length; recordIndex += 1) {
+    const expectedDepth = getRecordDepth(cpuReferenceRecords, recordIndex);
+    const actualDepth = getRecordDepth(webgpuRecords, recordIndex);
+    cpuDepths[recordIndex] = expectedDepth;
+    webgpuDepths[recordIndex] = actualDepth;
+    const depthDelta = Math.abs(actualDepth - expectedDepth);
+    maxAbsDepthDelta = Math.max(maxAbsDepthDelta, depthDelta);
+    if (depthDelta > epsilon) {
+      depthKeyMismatchCount += 1;
+      if (firstMismatches.length < 8) {
+        firstMismatches.push({
+          kind: 'depthKeyMismatch',
+          recordIndex,
+          expectedDepth,
+          actualDepth,
+          depthDelta
+        });
+      }
+    }
+  }
+
+  let sortMismatchCount = 0;
+  let exactSortDifferenceCount = 0;
+  let nearTieSortDifferenceCount = 0;
+  let orderingMismatchCount = 0;
+  let sortedTileMismatchCount = 0;
+  let exactSortedTileDifferenceCount = 0;
+  let maxTileSortMismatchCount = 0;
+  let maxTileExactSortDifferenceCount = 0;
+  const firstSortDifferences = [];
+  for (let tileId = 0; tileId < tileCount; tileId += 1) {
+    const start = tileOffsets[tileId];
+    const end = tileOffsets[tileId + 1];
+    const expectedSorted = sortTileIndicesByDepth(expectedTileIndices.slice(start, end), cpuDepths);
+    const actualSorted = sortTileIndicesByDepth(actualTileIndices.slice(start, end), webgpuDepths);
+    let tileMismatchCount = 0;
+    let tileExactDifferenceCount = 0;
+    let previousDepth = Number.NEGATIVE_INFINITY;
+    for (let i = 0; i < actualSorted.length; i += 1) {
+      const expected = expectedSorted[i] ?? null;
+      const actual = actualSorted[i] ?? null;
+      if (expected !== actual) {
+        const expectedDepth = expected === null ? null : cpuDepths[expected];
+        const actualDepth = actual === null ? null : webgpuDepths[actual];
+        const sortDepthDelta =
+          Number.isFinite(expectedDepth) && Number.isFinite(actualDepth)
+            ? Math.abs(actualDepth - expectedDepth)
+            : Number.POSITIVE_INFINITY;
+        const isNearTieSortDifference = sortDepthDelta <= epsilon;
+        exactSortDifferenceCount += 1;
+        tileExactDifferenceCount += 1;
+        if (isNearTieSortDifference) {
+          nearTieSortDifferenceCount += 1;
+        } else {
+          sortMismatchCount += 1;
+          tileMismatchCount += 1;
+          if (firstMismatches.length < 8) {
+            firstMismatches.push({
+              kind: 'sortMismatch',
+              tileId,
+              localIndex: i,
+              expected,
+              actual,
+              expectedDepth,
+              actualDepth,
+              sortDepthDelta
+            });
+          }
+        }
+        if (firstSortDifferences.length < 8) {
+          firstSortDifferences.push({
+            kind: isNearTieSortDifference ? 'nearTieSortDifference' : 'sortMismatch',
+            tileId,
+            localIndex: i,
+            expected,
+            actual,
+            expectedDepth,
+            actualDepth,
+            sortDepthDelta
+          });
+        }
+      }
+      if (actual !== null) {
+        const depth = webgpuDepths[actual];
+        if (depth + epsilon < previousDepth) {
+          orderingMismatchCount += 1;
+          if (firstMismatches.length < 8) {
+            firstMismatches.push({
+              kind: 'orderingMismatch',
+              tileId,
+              localIndex: i,
+              previousDepth,
+              actualDepth: depth,
+              actual
+            });
+          }
+        }
+        previousDepth = Math.max(previousDepth, depth);
+      }
+    }
+    if (tileMismatchCount > 0) sortedTileMismatchCount += 1;
+    if (tileExactDifferenceCount > 0) exactSortedTileDifferenceCount += 1;
+    maxTileSortMismatchCount = Math.max(maxTileSortMismatchCount, tileMismatchCount);
+    maxTileExactSortDifferenceCount =
+      Math.max(maxTileExactSortDifferenceCount, tileExactDifferenceCount);
+  }
+
+  const sampleTiles = makeTileCountsOffsetsSampleTiles(tileCountsToOffsetsDryRun).map((sample) => {
+    const tileId = sample.tileId;
+    const start = tileOffsets[tileId] ?? 0;
+    const end = tileOffsets[tileId + 1] ?? start;
+    const expectedSorted = sortTileIndicesByDepth(expectedTileIndices.slice(start, end), cpuDepths);
+    const actualSorted = sortTileIndicesByDepth(actualTileIndices.slice(start, end), webgpuDepths);
+    const limit = Math.min(4, expectedSorted.length, actualSorted.length);
+    return {
+      ...sample,
+      tileIndexStart: start,
+      tileIndexEnd: end,
+      tileIndexCount: Math.max(0, end - start),
+      expectedFirstSortedIndices: expectedSorted.slice(0, limit),
+      actualFirstSortedIndices: actualSorted.slice(0, limit),
+      expectedFirstDepths: expectedSorted.slice(0, limit).map((recordIndex) => cpuDepths[recordIndex]),
+      actualFirstDepths: actualSorted.slice(0, limit).map((recordIndex) => webgpuDepths[recordIndex])
+    };
+  });
+  const anyMismatch =
+    sortMismatchCount > 0 ||
+    orderingMismatchCount > 0 ||
+    depthKeyMismatchCount > 0;
+
+  return {
+    mode: 'cpu-staged-webgpu-tile-list-depth-sort-comparison',
+    status: anyMismatch ? 'mismatch' : 'ok',
+    source: 'webgpuTileOffsetsPrefixDryRun + tileIndicesWebGpuScatterComparison + webgpu fixed-record depth',
+    expectedSource: 'cpu-reference tileIndices sorted by CPU reference depth',
+    actualSource: 'WebGPU tileIndices sorted by WebGPU fixed-record depth on CPU staging path',
+    implementedInWgsl: false,
+    webgpuSortComputed: false,
+    cpuStagedSortComputed: true,
+    nonDisplayOnly: true,
+    displayConnectionAllowed: false,
+    tileCompositeImplemented: false,
+    sortedIndicesStoredInJson: false,
+    anyMismatch,
+    mismatchClassification: anyMismatch ? 'depthSortComparisonMismatch' : 'none',
+    sortMismatchCount,
+    exactSortDifferenceCount,
+    nearTieSortDifferenceCount,
+    orderingMismatchCount,
+    depthKeyMismatchCount,
+    sortedTileMismatchCount,
+    exactSortedTileDifferenceCount,
+    maxTileSortMismatchCount,
+    maxTileExactSortDifferenceCount,
+    maxAbsDepthDelta,
+    depthKeyPolicy: {
+      key: 'depth',
+      order: 'ascending-depth-near-to-far-front-to-back',
+      tieBreak: 'recordIndex ascending for exact depth equality',
+      comparisonTolerance: epsilon,
+      comparisonToleranceAppliesTo:
+        'depth-key validation and near-tie difference classification, not sort comparator ordering',
+      sortMismatchDefinition:
+        'semantic mismatch after excluding exact-index differences whose depth delta is within comparisonTolerance'
+    },
+    recordCounts: {
+      tileRangeCount: tileRanges.length,
+      tileCount,
+      tileOffsetsLength: tileOffsets.length,
+      tileIndicesLength: totalTileRefs
+    },
+    validationSummary: {
+      sortOutputValid: sortMismatchCount === 0,
+      orderingValid: orderingMismatchCount === 0,
+      depthKeysValid: depthKeyMismatchCount === 0,
+      displayConnectionAllowed: false,
+      firstValidationFailures: firstMismatches
+    },
+    firstMismatches,
+    firstSortDifferences,
+    sampleTiles,
+    timing: {
+      depthSortComparisonMs: nowMs() - startMs
+    }
+  };
+}
+
 export async function runWebGpuVisibleRecordDryRun({
   candidateInfo,
   raw,
@@ -3222,6 +3520,16 @@ export async function runWebGpuVisibleRecordDryRun({
     projectionParams: projectionContract.data,
     rawCount
   });
+  const depthSortComparison = buildDepthSortComparison({
+    tileRanges: cpuReference.tileRanges,
+    tileCountsToOffsetsDryRun,
+    webgpuTileOffsetsPrefixDryRun,
+    tileIndicesWebGpuScatterComparison,
+    renderPayloadSortReadiness,
+    cpuReferenceRecords: cpuReference.records,
+    webgpuRecords: computeResult.records,
+    epsilon
+  });
   const inputContract = createWebGpuInputBufferContract({
     candidateCount: cpuReference.candidateCount,
     recordCount: cpuReference.count,
@@ -3245,7 +3553,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step29 summarizes render payload and depth-sort readiness after the non-display WebGPU tile-list backend output.',
+    scaffoldNote: 'Phase 3 Step30 adds a non-display CPU-staged depth sort comparison surface over the WebGPU tile-list output.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
@@ -3299,6 +3607,7 @@ export async function runWebGpuVisibleRecordDryRun({
     tileListSummaryComparison,
     webgpuTileListBackendOutput,
     renderPayloadSortReadiness,
+    depthSortComparison,
     inputContract,
     bufferContract: inputContract,
     inputBufferModes: inputContract.inputBufferModes,
@@ -3325,6 +3634,7 @@ export async function runWebGpuVisibleRecordDryRun({
       ...tileListSummaryComparison.timing,
       ...webgpuTileListBackendOutput.timing,
       ...renderPayloadSortReadiness.timing,
+      ...depthSortComparison.timing,
       ...computeResult.timing,
       compareMs,
       totalMs: nowMs() - totalStartMs
@@ -3371,6 +3681,7 @@ export async function runWebGpuVisibleRecordDryRun({
       tileListSummaryComparison,
       webgpuTileListBackendOutput,
       renderPayloadSortReadiness,
+      depthSortComparison,
       inputContract,
       bufferContract: inputContract,
       inputBufferModes: inputContract.inputBufferModes,

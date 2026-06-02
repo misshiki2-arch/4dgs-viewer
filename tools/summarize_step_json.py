@@ -764,6 +764,10 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
     readiness_summary = get_path(
         render_payload_sort_readiness, ["readinessSummary"], {}
     )
+    depth_sort_comparison = get_path(summary, ["depthSortComparison"], {})
+    depth_sort_validation = get_path(
+        depth_sort_comparison, ["validationSummary"], {}
+    )
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -1603,6 +1607,80 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             ),
             "nextBackendPrototypeStep": get_path(
                 render_payload_sort_readiness, ["nextBackendPrototypeStep"]
+            ),
+        },
+        "depthSortComparison": {
+            "status": get_path(depth_sort_comparison, ["status"]),
+            "mode": get_path(depth_sort_comparison, ["mode"]),
+            "source": get_path(depth_sort_comparison, ["source"]),
+            "expectedSource": get_path(
+                depth_sort_comparison, ["expectedSource"]
+            ),
+            "actualSource": get_path(depth_sort_comparison, ["actualSource"]),
+            "implementedInWgsl": get_path(
+                depth_sort_comparison, ["implementedInWgsl"]
+            ),
+            "webgpuSortComputed": get_path(
+                depth_sort_comparison, ["webgpuSortComputed"]
+            ),
+            "cpuStagedSortComputed": get_path(
+                depth_sort_comparison, ["cpuStagedSortComputed"]
+            ),
+            "nonDisplayOnly": get_path(depth_sort_comparison, ["nonDisplayOnly"]),
+            "displayConnectionAllowed": get_path(
+                depth_sort_comparison, ["displayConnectionAllowed"]
+            ),
+            "tileCompositeImplemented": get_path(
+                depth_sort_comparison, ["tileCompositeImplemented"]
+            ),
+            "sortedIndicesStoredInJson": get_path(
+                depth_sort_comparison, ["sortedIndicesStoredInJson"]
+            ),
+            "anyMismatch": get_path(depth_sort_comparison, ["anyMismatch"]),
+            "mismatchClassification": get_path(
+                depth_sort_comparison, ["mismatchClassification"]
+            ),
+            "sortMismatchCount": get_path(
+                depth_sort_comparison, ["sortMismatchCount"]
+            ),
+            "exactSortDifferenceCount": get_path(
+                depth_sort_comparison, ["exactSortDifferenceCount"]
+            ),
+            "nearTieSortDifferenceCount": get_path(
+                depth_sort_comparison, ["nearTieSortDifferenceCount"]
+            ),
+            "orderingMismatchCount": get_path(
+                depth_sort_comparison, ["orderingMismatchCount"]
+            ),
+            "depthKeyMismatchCount": get_path(
+                depth_sort_comparison, ["depthKeyMismatchCount"]
+            ),
+            "sortedTileMismatchCount": get_path(
+                depth_sort_comparison, ["sortedTileMismatchCount"]
+            ),
+            "exactSortedTileDifferenceCount": get_path(
+                depth_sort_comparison, ["exactSortedTileDifferenceCount"]
+            ),
+            "maxAbsDepthDelta": get_path(
+                depth_sort_comparison, ["maxAbsDepthDelta"]
+            ),
+            "depthKeyPolicy": get_path(
+                depth_sort_comparison, ["depthKeyPolicy"], {}
+            ),
+            "recordCounts": get_path(depth_sort_comparison, ["recordCounts"], {}),
+            "sortOutputValid": get_path(
+                depth_sort_validation, ["sortOutputValid"]
+            ),
+            "orderingValid": get_path(depth_sort_validation, ["orderingValid"]),
+            "depthKeysValid": get_path(depth_sort_validation, ["depthKeysValid"]),
+            "firstMismatches": compact_list(
+                get_path(depth_sort_comparison, ["firstMismatches"], [])
+            ),
+            "firstSortDifferences": compact_list(
+                get_path(depth_sort_comparison, ["firstSortDifferences"], [])
+            ),
+            "sampleTiles": compact_list(
+                get_path(depth_sort_comparison, ["sampleTiles"], [])
             ),
         },
         "inputContract": get_path(summary, ["inputContract"], {}),

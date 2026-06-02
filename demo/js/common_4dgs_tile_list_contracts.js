@@ -53,6 +53,8 @@ export const WEBGPU_TILE_LIST_COMPUTE_MODES = Object.freeze({
     'non-display-webgpu-tile-list-backend-output',
   RENDER_PAYLOAD_SORT_READINESS:
     'render-payload-and-sort-readiness-summary',
+  CPU_STAGED_WEBGPU_TILE_LIST_DEPTH_SORT_COMPARISON:
+    'cpu-staged-webgpu-tile-list-depth-sort-comparison',
   CPU_REFERENCE_TILE_LIST:
     'cpu-reference-tile-list-build'
 });
@@ -276,6 +278,21 @@ export function createWebGpuTileCountsOffsetsComparisonSurfaceContract({
         'depth sort inputs and ordering blockers are explicit',
         'displayConnectionAllowed remains false',
         'tile composite and framebuffer changes remain deferred'
+      ]
+    },
+    recommendedStep30Unit: {
+      name: 'minimal-depth-sort-comparison-surface',
+      scope:
+        'Use WebGPU tileOffsets, WebGPU scatter tileIndices, and WebGPU fixed-record depth as a non-display CPU-staged per-tile ascending-depth sort comparison against the CPU reference order.',
+      computeMode:
+        WEBGPU_TILE_LIST_COMPUTE_MODES.CPU_STAGED_WEBGPU_TILE_LIST_DEPTH_SORT_COMPARISON,
+      successCriteria: [
+        'sortMismatchCount is 0 after excluding near-tie exact-index differences',
+        'orderingMismatchCount is 0',
+        'depthKeyMismatchCount is 0 or within the comparison tolerance',
+        'exactSortDifferenceCount / nearTieSortDifferenceCount remain diagnostic only',
+        'sorted indices are not stored in JSON as a full buffer',
+        'display connection and tile composite remain deferred'
       ]
     },
     relationToStep18:
