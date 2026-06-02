@@ -768,6 +768,12 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
     depth_sort_validation = get_path(
         depth_sort_comparison, ["validationSummary"], {}
     )
+    webgpu_render_handoff_stub = get_path(
+        summary, ["webgpuRenderHandoffStub"], {}
+    )
+    render_handoff_validation = get_path(
+        webgpu_render_handoff_stub, ["validationSummary"], {}
+    )
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -1681,6 +1687,65 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             ),
             "sampleTiles": compact_list(
                 get_path(depth_sort_comparison, ["sampleTiles"], [])
+            ),
+        },
+        "webgpuRenderHandoffStub": {
+            "status": get_path(webgpu_render_handoff_stub, ["status"]),
+            "mode": get_path(webgpu_render_handoff_stub, ["mode"]),
+            "source": get_path(webgpu_render_handoff_stub, ["source"]),
+            "backendOutputReady": get_path(
+                webgpu_render_handoff_stub, ["backendOutputReady"]
+            ),
+            "depthSortReady": get_path(
+                webgpu_render_handoff_stub, ["depthSortReady"]
+            ),
+            "renderHandoffStubReady": get_path(
+                webgpu_render_handoff_stub, ["renderHandoffStubReady"]
+            ),
+            "displayConnectionAllowed": get_path(
+                webgpu_render_handoff_stub, ["displayConnectionAllowed"]
+            ),
+            "tileCompositeImplemented": get_path(
+                webgpu_render_handoff_stub, ["tileCompositeImplemented"]
+            ),
+            "renderPayloadGpuImplemented": get_path(
+                webgpu_render_handoff_stub, ["renderPayloadGpuImplemented"]
+            ),
+            "partialPayloadMaterialized": get_path(
+                webgpu_render_handoff_stub, ["partialPayloadMaterialized"]
+            ),
+            "payloadStoredInJson": get_path(
+                webgpu_render_handoff_stub, ["payloadStoredInJson"]
+            ),
+            "payloadLayout": get_path(
+                webgpu_render_handoff_stub, ["payloadLayout"], {}
+            ),
+            "outputBuffer": get_path(
+                webgpu_render_handoff_stub, ["outputBuffer"], {}
+            ),
+            "recordCounts": get_path(
+                webgpu_render_handoff_stub, ["recordCounts"], {}
+            ),
+            "payloadShapeValid": get_path(
+                render_handoff_validation, ["payloadShapeValid"]
+            ),
+            "populatedFieldsValid": get_path(
+                render_handoff_validation, ["populatedFieldsValid"]
+            ),
+            "populatedFieldMismatchCount": get_path(
+                render_handoff_validation, ["populatedFieldMismatchCount"]
+            ),
+            "firstValidationFailures": compact_list(
+                get_path(render_handoff_validation, ["firstValidationFailures"], [])
+            ),
+            "blockers": compact_list(
+                get_path(webgpu_render_handoff_stub, ["blockers"], [])
+            ),
+            "nextBackendPrototypeStep": get_path(
+                webgpu_render_handoff_stub, ["nextBackendPrototypeStep"]
+            ),
+            "sampleRecords": compact_list(
+                get_path(webgpu_render_handoff_stub, ["sampleRecords"], [])
             ),
         },
         "inputContract": get_path(summary, ["inputContract"], {}),

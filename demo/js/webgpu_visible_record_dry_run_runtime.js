@@ -47,6 +47,7 @@ import {
   createWebGpuInputBufferContract,
   createWebGpuInputBufferModes
 } from './common_4dgs_webgpu_input_contracts.js';
+import { buildWebGpuRenderHandoffStub } from './webgpu_render_handoff_stub.js';
 
 const DEFAULT_MAX_RECORDS = 65536;
 const DEFAULT_EPSILON = DEFAULT_COMPARISON_EPSILON;
@@ -373,6 +374,25 @@ function createDepthSortComparisonUnavailable(reason) {
     firstMismatches: [{ kind: 'input', reason }],
     firstSortDifferences: [],
     sampleTiles: []
+  };
+}
+
+function createWebGpuRenderHandoffStubUnavailable(reason) {
+  return {
+    mode: 'webgpu-render-handoff-stub-partial-payload',
+    status: 'unavailable',
+    reason,
+    source: 'webgpu fixed-record output + webgpuTileListBackendOutput',
+    backendOutputReady: false,
+    depthSortReady: false,
+    renderHandoffStubReady: false,
+    displayConnectionAllowed: false,
+    tileCompositeImplemented: false,
+    renderPayloadGpuImplemented: false,
+    partialPayloadMaterialized: false,
+    payloadStoredInJson: false,
+    firstValidationFailures: [{ stage: 'input', reason }],
+    sampleRecords: []
   };
 }
 
@@ -1545,6 +1565,8 @@ function makeFallback(reason, extra = {}) {
     extra.renderPayloadSortReadiness ?? createRenderPayloadSortReadinessUnavailable(reason);
   const depthSortComparison =
     extra.depthSortComparison ?? createDepthSortComparisonUnavailable(reason);
+  const webgpuRenderHandoffStub =
+    extra.webgpuRenderHandoffStub ?? createWebGpuRenderHandoffStubUnavailable(reason);
   return {
     schemaVersion: WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION,
     phaseStep: WEBGPU_VISIBLE_RECORD_PHASE_STEP,
@@ -1610,6 +1632,7 @@ function makeFallback(reason, extra = {}) {
     webgpuTileListBackendOutput,
     renderPayloadSortReadiness,
     depthSortComparison,
+    webgpuRenderHandoffStub,
     fieldMismatchCount: null,
     firstMismatches: extra.firstMismatches ?? [],
     mismatchClassification: extra.mismatchClassification ??
@@ -3027,7 +3050,7 @@ function buildRenderPayloadSortReadiness({
     .filter(([, field]) => field.requiredForDisplay && field.implementedInWgsl !== true)
     .map(([name]) => name);
   const sortBlockers = sortPrototypeReady
-    ? ['depth sort comparison surface not implemented']
+    ? ['depth sort display handoff not implemented']
     : ['tile-list output or depth field unavailable'];
   const payloadBlockers = payloadMissingFields.map(
     (field) => `render payload field not implemented: ${field}`
@@ -3083,7 +3106,7 @@ function buildRenderPayloadSortReadiness({
       sortPrototypeReady,
       displayConnectionAllowed: false,
       nextRecommendedUnit: sortPrototypeReady
-        ? 'minimal-depth-sort-comparison-surface'
+        ? 'webgpu-render-handoff-stub-partial-payload'
         : 'render-payload-field-contract-summary'
     },
     inheritedHandoffReadiness: {
@@ -3093,7 +3116,7 @@ function buildRenderPayloadSortReadiness({
     },
     blockers,
     nextBackendPrototypeStep: sortPrototypeReady
-      ? 'minimal-depth-sort-comparison-surface'
+      ? 'webgpu-render-handoff-stub-partial-payload'
       : 'render-payload-field-contract-summary',
     timing: {
       renderPayloadSortReadinessMs: nowMs() - startMs
@@ -3530,6 +3553,13 @@ export async function runWebGpuVisibleRecordDryRun({
     webgpuRecords: computeResult.records,
     epsilon
   });
+  const webgpuRenderHandoffStub = buildWebGpuRenderHandoffStub({
+    webgpuTileListBackendOutput,
+    depthSortComparison,
+    renderPayloadSortReadiness,
+    webgpuRecords: computeResult.records,
+    recordFloats: RECORD_FLOATS
+  });
   const inputContract = createWebGpuInputBufferContract({
     candidateCount: cpuReference.candidateCount,
     recordCount: cpuReference.count,
@@ -3553,7 +3583,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step30 adds a non-display CPU-staged depth sort comparison surface over the WebGPU tile-list output.',
+    scaffoldNote: 'Phase 3 Step31 adds a non-display render handoff stub over the validated WebGPU tile-list and fixed-record output.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
@@ -3608,6 +3638,7 @@ export async function runWebGpuVisibleRecordDryRun({
     webgpuTileListBackendOutput,
     renderPayloadSortReadiness,
     depthSortComparison,
+    webgpuRenderHandoffStub,
     inputContract,
     bufferContract: inputContract,
     inputBufferModes: inputContract.inputBufferModes,
@@ -3635,6 +3666,7 @@ export async function runWebGpuVisibleRecordDryRun({
       ...webgpuTileListBackendOutput.timing,
       ...renderPayloadSortReadiness.timing,
       ...depthSortComparison.timing,
+      ...webgpuRenderHandoffStub.timing,
       ...computeResult.timing,
       compareMs,
       totalMs: nowMs() - totalStartMs
@@ -3682,6 +3714,7 @@ export async function runWebGpuVisibleRecordDryRun({
       webgpuTileListBackendOutput,
       renderPayloadSortReadiness,
       depthSortComparison,
+      webgpuRenderHandoffStub,
       inputContract,
       bufferContract: inputContract,
       inputBufferModes: inputContract.inputBufferModes,

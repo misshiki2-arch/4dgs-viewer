@@ -55,6 +55,8 @@ export const WEBGPU_TILE_LIST_COMPUTE_MODES = Object.freeze({
     'render-payload-and-sort-readiness-summary',
   CPU_STAGED_WEBGPU_TILE_LIST_DEPTH_SORT_COMPARISON:
     'cpu-staged-webgpu-tile-list-depth-sort-comparison',
+  WEBGPU_RENDER_HANDOFF_STUB_PARTIAL_PAYLOAD:
+    'webgpu-render-handoff-stub-partial-payload',
   CPU_REFERENCE_TILE_LIST:
     'cpu-reference-tile-list-build'
 });
@@ -292,6 +294,21 @@ export function createWebGpuTileCountsOffsetsComparisonSurfaceContract({
         'depthKeyMismatchCount is 0 or within the comparison tolerance',
         'exactSortDifferenceCount / nearTieSortDifferenceCount remain diagnostic only',
         'sorted indices are not stored in JSON as a full buffer',
+        'display connection and tile composite remain deferred'
+      ]
+    },
+    recommendedStep31Unit: {
+      name: 'webgpu-render-handoff-stub-partial-payload',
+      scope:
+        'Materialize a transient packed-layout render handoff payload from validated WebGPU fixed records and tile-list backend output without connecting display.',
+      computeMode:
+        WEBGPU_TILE_LIST_COMPUTE_MODES.WEBGPU_RENDER_HANDOFF_STUB_PARTIAL_PAYLOAD,
+      successCriteria: [
+        'webgpuTileListBackendOutput remains ready',
+        'depthSortComparison remains ok',
+        'centerPx / depth / misc.aabb are materialized into packed layout v2',
+        'missing display payload fields remain explicit blockers',
+        'payload buffer is not stored in JSON as a full buffer',
         'display connection and tile composite remain deferred'
       ]
     },
