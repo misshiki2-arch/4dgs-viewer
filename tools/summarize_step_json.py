@@ -786,6 +786,14 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
     tile_composite_shader_handoff_validation = get_path(
         webgpu_tile_composite_shader_handoff, ["validationSummary"], {}
     )
+    webgpu_tile_composite_shader_dry_run_comparison = get_path(
+        summary, ["webgpuTileCompositeShaderDryRunComparison"], {}
+    )
+    tile_composite_shader_dry_run_validation = get_path(
+        webgpu_tile_composite_shader_dry_run_comparison,
+        ["validationSummary"],
+        {},
+    )
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -1941,6 +1949,135 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             ),
             "sampleTiles": compact_list(
                 get_path(webgpu_tile_composite_shader_handoff, ["sampleTiles"], [])
+            ),
+        },
+        "webgpuTileCompositeShaderDryRunComparison": {
+            "status": get_path(
+                webgpu_tile_composite_shader_dry_run_comparison, ["status"]
+            ),
+            "mode": get_path(
+                webgpu_tile_composite_shader_dry_run_comparison, ["mode"]
+            ),
+            "source": get_path(
+                webgpu_tile_composite_shader_dry_run_comparison, ["source"]
+            ),
+            "expectedSource": get_path(
+                webgpu_tile_composite_shader_dry_run_comparison,
+                ["expectedSource"],
+            ),
+            "actualSource": get_path(
+                webgpu_tile_composite_shader_dry_run_comparison,
+                ["actualSource"],
+            ),
+            "nonDisplayOnly": get_path(
+                webgpu_tile_composite_shader_dry_run_comparison,
+                ["nonDisplayOnly"],
+            ),
+            "implementedInWgsl": get_path(
+                webgpu_tile_composite_shader_dry_run_comparison,
+                ["implementedInWgsl"],
+            ),
+            "tileCompositeShaderComputed": get_path(
+                webgpu_tile_composite_shader_dry_run_comparison,
+                ["tileCompositeShaderComputed"],
+            ),
+            "tileCompositeImplemented": get_path(
+                webgpu_tile_composite_shader_dry_run_comparison,
+                ["tileCompositeImplemented"],
+            ),
+            "framebufferImplemented": get_path(
+                webgpu_tile_composite_shader_dry_run_comparison,
+                ["framebufferImplemented"],
+            ),
+            "displayConnectionAllowed": get_path(
+                webgpu_tile_composite_shader_dry_run_comparison,
+                ["displayConnectionAllowed"],
+            ),
+            "shPolicy": get_path(
+                webgpu_tile_composite_shader_dry_run_comparison,
+                ["shPolicy"],
+                {},
+            ),
+            "shaderEvaluationPolicy": get_path(
+                webgpu_tile_composite_shader_dry_run_comparison,
+                ["shaderEvaluationPolicy"],
+                {},
+            ),
+            "anyMismatch": get_path(
+                webgpu_tile_composite_shader_dry_run_comparison,
+                ["anyMismatch"],
+            ),
+            "mismatchClassification": get_path(
+                webgpu_tile_composite_shader_dry_run_comparison,
+                ["mismatchClassification"],
+            ),
+            "sampleCount": get_path(
+                webgpu_tile_composite_shader_dry_run_comparison,
+                ["sampleCount"],
+            ),
+            "sampleMismatchCount": get_path(
+                webgpu_tile_composite_shader_dry_run_comparison,
+                ["sampleMismatchCount"],
+            ),
+            "maxAbsPowerDelta": get_path(
+                webgpu_tile_composite_shader_dry_run_comparison,
+                ["maxAbsPowerDelta"],
+            ),
+            "maxAbsAlphaDelta": get_path(
+                webgpu_tile_composite_shader_dry_run_comparison,
+                ["maxAbsAlphaDelta"],
+            ),
+            "maxAbsColorDelta": get_path(
+                webgpu_tile_composite_shader_dry_run_comparison,
+                ["maxAbsColorDelta"],
+            ),
+            "renderPayloadShapeValid": get_path(
+                tile_composite_shader_dry_run_validation,
+                ["renderPayloadShapeValid"],
+            ),
+            "sampleBufferShapeValid": get_path(
+                tile_composite_shader_dry_run_validation,
+                ["sampleBufferShapeValid"],
+            ),
+            "outputShapeValid": get_path(
+                tile_composite_shader_dry_run_validation,
+                ["outputShapeValid"],
+            ),
+            "shaderSamplesValid": get_path(
+                tile_composite_shader_dry_run_validation,
+                ["shaderSamplesValid"],
+            ),
+            "firstValidationFailures": compact_list(
+                get_path(
+                    tile_composite_shader_dry_run_validation,
+                    ["firstValidationFailures"],
+                    [],
+                )
+            ),
+            "firstMismatches": compact_list(
+                get_path(
+                    webgpu_tile_composite_shader_dry_run_comparison,
+                    ["firstMismatches"],
+                    [],
+                )
+            ),
+            "blockers": compact_list(
+                get_path(
+                    webgpu_tile_composite_shader_dry_run_comparison,
+                    ["blockers"],
+                    [],
+                )
+            ),
+            "nextBackendPrototypeStep": get_path(
+                webgpu_tile_composite_shader_dry_run_comparison,
+                ["nextBackendPrototypeStep"],
+            ),
+            "sampleEvaluations": compact_list(
+                get_path(
+                    webgpu_tile_composite_shader_dry_run_comparison,
+                    ["sampleEvaluations"],
+                    [],
+                )
             ),
         },
         "inputContract": get_path(summary, ["inputContract"], {}),

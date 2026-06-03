@@ -65,6 +65,8 @@ export const WEBGPU_TILE_LIST_COMPUTE_MODES = Object.freeze({
     'webgpu-tile-composite-handoff-stub',
   WEBGPU_TILE_COMPOSITE_SHADER_HANDOFF:
     'webgpu-tile-composite-shader-handoff-non-display',
+  WEBGPU_TILE_COMPOSITE_SHADER_DRY_RUN_COMPARISON:
+    'webgpu-tile-composite-shader-dry-run-comparison',
   CPU_REFERENCE_TILE_LIST:
     'cpu-reference-tile-list-build'
 });
@@ -375,6 +377,20 @@ export function createWebGpuTileCountsOffsetsComparisonSurfaceContract({
         'shader input buffer roles for tileOffsets, orderedTileIndices, and renderPayload are explicit',
         'SH/WGSL color evaluation remains an explicit blocker',
         'tile composite shader execution, framebuffer, and display connection remain deferred'
+      ]
+    },
+    recommendedStep36Unit: {
+      name: 'webgpu-tile-composite-shader-dry-run-comparison',
+      scope:
+        'Run a bounded non-display WebGPU compute dry-run of tile composite shader arithmetic from the Step35 shader handoff payload, compare power/alpha/premultiplied color samples against CPU reference arithmetic, and keep framebuffer/display connection deferred.',
+      computeMode:
+        WEBGPU_TILE_LIST_COMPUTE_MODES.WEBGPU_TILE_COMPOSITE_SHADER_DRY_RUN_COMPARISON,
+      successCriteria: [
+        'tileCompositeShaderComputed is true',
+        'sampleMismatchCount is 0',
+        'maxAbsAlphaDelta and maxAbsColorDelta are within tolerance',
+        'SH/WGSL color evaluation remains an explicit blocker when using reference-assisted colorAlpha.rgb',
+        'framebuffer and display connection remain deferred'
       ]
     },
     relationToStep18:
