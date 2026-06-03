@@ -802,6 +802,14 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
         ["validationSummary"],
         {},
     )
+    webgpu_framebuffer_free_tile_output_dry_run_comparison = get_path(
+        summary, ["webgpuFramebufferFreeTileOutputDryRunComparison"], {}
+    )
+    framebuffer_free_tile_output_dry_run_validation = get_path(
+        webgpu_framebuffer_free_tile_output_dry_run_comparison,
+        ["validationSummary"],
+        {},
+    )
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -2232,6 +2240,150 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
                 get_path(
                     webgpu_tile_composite_accumulation_dry_run_comparison,
                     ["sampleTileAccumulations"],
+                    [],
+                )
+            ),
+        },
+        "webgpuFramebufferFreeTileOutputDryRunComparison": {
+            "status": get_path(
+                webgpu_framebuffer_free_tile_output_dry_run_comparison,
+                ["status"],
+            ),
+            "mode": get_path(
+                webgpu_framebuffer_free_tile_output_dry_run_comparison,
+                ["mode"],
+            ),
+            "source": get_path(
+                webgpu_framebuffer_free_tile_output_dry_run_comparison,
+                ["source"],
+            ),
+            "expectedSource": get_path(
+                webgpu_framebuffer_free_tile_output_dry_run_comparison,
+                ["expectedSource"],
+            ),
+            "actualSource": get_path(
+                webgpu_framebuffer_free_tile_output_dry_run_comparison,
+                ["actualSource"],
+            ),
+            "nonDisplayOnly": get_path(
+                webgpu_framebuffer_free_tile_output_dry_run_comparison,
+                ["nonDisplayOnly"],
+            ),
+            "implementedInWgsl": get_path(
+                webgpu_framebuffer_free_tile_output_dry_run_comparison,
+                ["implementedInWgsl"],
+            ),
+            "tileOutputPackingComputed": get_path(
+                webgpu_framebuffer_free_tile_output_dry_run_comparison,
+                ["tileOutputPackingComputed"],
+            ),
+            "framebufferFreeOutputComputed": get_path(
+                webgpu_framebuffer_free_tile_output_dry_run_comparison,
+                ["framebufferFreeOutputComputed"],
+            ),
+            "productionTileCompositeImplemented": get_path(
+                webgpu_framebuffer_free_tile_output_dry_run_comparison,
+                ["productionTileCompositeImplemented"],
+            ),
+            "framebufferImplemented": get_path(
+                webgpu_framebuffer_free_tile_output_dry_run_comparison,
+                ["framebufferImplemented"],
+            ),
+            "displayConnectionAllowed": get_path(
+                webgpu_framebuffer_free_tile_output_dry_run_comparison,
+                ["displayConnectionAllowed"],
+            ),
+            "tileOutputStoredInJson": get_path(
+                webgpu_framebuffer_free_tile_output_dry_run_comparison,
+                ["tileOutputStoredInJson"],
+            ),
+            "shPolicy": get_path(
+                webgpu_framebuffer_free_tile_output_dry_run_comparison,
+                ["shPolicy"],
+                {},
+            ),
+            "outputPackingPolicy": get_path(
+                webgpu_framebuffer_free_tile_output_dry_run_comparison,
+                ["outputPackingPolicy"],
+                {},
+            ),
+            "anyMismatch": get_path(
+                webgpu_framebuffer_free_tile_output_dry_run_comparison,
+                ["anyMismatch"],
+            ),
+            "mismatchClassification": get_path(
+                webgpu_framebuffer_free_tile_output_dry_run_comparison,
+                ["mismatchClassification"],
+            ),
+            "sampleTileCount": get_path(
+                webgpu_framebuffer_free_tile_output_dry_run_comparison,
+                ["sampleTileCount"],
+            ),
+            "tileOutputMismatchCount": get_path(
+                webgpu_framebuffer_free_tile_output_dry_run_comparison,
+                ["tileOutputMismatchCount"],
+            ),
+            "maxAbsResolvedColorDelta": get_path(
+                webgpu_framebuffer_free_tile_output_dry_run_comparison,
+                ["maxAbsResolvedColorDelta"],
+            ),
+            "maxAbsCoverageAlphaDelta": get_path(
+                webgpu_framebuffer_free_tile_output_dry_run_comparison,
+                ["maxAbsCoverageAlphaDelta"],
+            ),
+            "maxAbsFinalTransmittanceDelta": get_path(
+                webgpu_framebuffer_free_tile_output_dry_run_comparison,
+                ["maxAbsFinalTransmittanceDelta"],
+            ),
+            "accumulationSummaryValid": get_path(
+                framebuffer_free_tile_output_dry_run_validation,
+                ["accumulationSummaryValid"],
+            ),
+            "sampleTileInputValid": get_path(
+                framebuffer_free_tile_output_dry_run_validation,
+                ["sampleTileInputValid"],
+            ),
+            "sampleBufferShapeValid": get_path(
+                framebuffer_free_tile_output_dry_run_validation,
+                ["sampleBufferShapeValid"],
+            ),
+            "outputBufferShapeValid": get_path(
+                framebuffer_free_tile_output_dry_run_validation,
+                ["outputBufferShapeValid"],
+            ),
+            "tileOutputSamplesValid": get_path(
+                framebuffer_free_tile_output_dry_run_validation,
+                ["tileOutputSamplesValid"],
+            ),
+            "firstValidationFailures": compact_list(
+                get_path(
+                    framebuffer_free_tile_output_dry_run_validation,
+                    ["firstValidationFailures"],
+                    [],
+                )
+            ),
+            "firstMismatches": compact_list(
+                get_path(
+                    webgpu_framebuffer_free_tile_output_dry_run_comparison,
+                    ["firstMismatches"],
+                    [],
+                )
+            ),
+            "blockers": compact_list(
+                get_path(
+                    webgpu_framebuffer_free_tile_output_dry_run_comparison,
+                    ["blockers"],
+                    [],
+                )
+            ),
+            "nextBackendPrototypeStep": get_path(
+                webgpu_framebuffer_free_tile_output_dry_run_comparison,
+                ["nextBackendPrototypeStep"],
+            ),
+            "sampleTileOutputs": compact_list(
+                get_path(
+                    webgpu_framebuffer_free_tile_output_dry_run_comparison,
+                    ["sampleTileOutputs"],
                     [],
                 )
             ),

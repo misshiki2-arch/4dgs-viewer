@@ -69,6 +69,8 @@ export const WEBGPU_TILE_LIST_COMPUTE_MODES = Object.freeze({
     'webgpu-tile-composite-shader-dry-run-comparison',
   WEBGPU_TILE_COMPOSITE_ACCUMULATION_DRY_RUN_COMPARISON:
     'webgpu-tile-composite-accumulation-dry-run-comparison',
+  WEBGPU_FRAMEBUFFER_FREE_TILE_OUTPUT_DRY_RUN_COMPARISON:
+    'webgpu-framebuffer-free-tile-output-dry-run-comparison',
   CPU_REFERENCE_TILE_LIST:
     'cpu-reference-tile-list-build'
 });
@@ -406,6 +408,21 @@ export function createWebGpuTileCountsOffsetsComparisonSurfaceContract({
         'accumulationMismatchCount is 0',
         'maxAbsAccumColorDelta, maxAbsAccumAlphaDelta, and maxAbsTransmittanceDelta are within tolerance',
         'orderedTileIndices and renderPayload remain transient and are not stored in JSON as full buffers',
+        'SH/WGSL color evaluation remains an explicit blocker when using reference-assisted colorAlpha.rgb',
+        'framebuffer, production tile composite, and display connection remain deferred'
+      ]
+    },
+    recommendedStep38Unit: {
+      name: 'webgpu-framebuffer-free-tile-output-dry-run-comparison',
+      scope:
+        'Pack bounded Step37 accumulation samples into framebuffer-free resolved tile output samples with WebGPU compute, compare against CPU reference output packing, and keep framebuffer/display connection deferred.',
+      computeMode:
+        WEBGPU_TILE_LIST_COMPUTE_MODES.WEBGPU_FRAMEBUFFER_FREE_TILE_OUTPUT_DRY_RUN_COMPARISON,
+      successCriteria: [
+        'framebufferFreeOutputComputed is true',
+        'tileOutputMismatchCount is 0',
+        'maxAbsResolvedColorDelta, maxAbsCoverageAlphaDelta, and maxAbsFinalTransmittanceDelta are within tolerance',
+        'tile output samples remain bounded and are not stored as a full framebuffer',
         'SH/WGSL color evaluation remains an explicit blocker when using reference-assisted colorAlpha.rgb',
         'framebuffer, production tile composite, and display connection remain deferred'
       ]
