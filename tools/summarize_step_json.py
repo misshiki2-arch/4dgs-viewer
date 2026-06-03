@@ -818,6 +818,14 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
         ["validationSummary"],
         {},
     )
+    webgpu_constrained_display_adapter_dry_run_comparison = get_path(
+        summary, ["webgpuConstrainedDisplayAdapterDryRunComparison"], {}
+    )
+    constrained_display_adapter_dry_run_validation = get_path(
+        webgpu_constrained_display_adapter_dry_run_comparison,
+        ["validationSummary"],
+        {},
+    )
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -2553,6 +2561,170 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
                 get_path(
                     webgpu_render_target_handoff_dry_run_comparison,
                     ["sampleRenderTargetPixels"],
+                    [],
+                )
+            ),
+        },
+        "webgpuConstrainedDisplayAdapterDryRunComparison": {
+            "status": get_path(
+                webgpu_constrained_display_adapter_dry_run_comparison,
+                ["status"],
+            ),
+            "mode": get_path(
+                webgpu_constrained_display_adapter_dry_run_comparison,
+                ["mode"],
+            ),
+            "source": get_path(
+                webgpu_constrained_display_adapter_dry_run_comparison,
+                ["source"],
+            ),
+            "expectedSource": get_path(
+                webgpu_constrained_display_adapter_dry_run_comparison,
+                ["expectedSource"],
+            ),
+            "actualSource": get_path(
+                webgpu_constrained_display_adapter_dry_run_comparison,
+                ["actualSource"],
+            ),
+            "nonDisplayOnly": get_path(
+                webgpu_constrained_display_adapter_dry_run_comparison,
+                ["nonDisplayOnly"],
+            ),
+            "implementedInWgsl": get_path(
+                webgpu_constrained_display_adapter_dry_run_comparison,
+                ["implementedInWgsl"],
+            ),
+            "constrainedDisplayExperiment": get_path(
+                webgpu_constrained_display_adapter_dry_run_comparison,
+                ["constrainedDisplayExperiment"],
+            ),
+            "displayAdapterDryRunComputed": get_path(
+                webgpu_constrained_display_adapter_dry_run_comparison,
+                ["displayAdapterDryRunComputed"],
+            ),
+            "renderTargetTextureWritten": get_path(
+                webgpu_constrained_display_adapter_dry_run_comparison,
+                ["renderTargetTextureWritten"],
+            ),
+            "textureReadbackCompared": get_path(
+                webgpu_constrained_display_adapter_dry_run_comparison,
+                ["textureReadbackCompared"],
+            ),
+            "framebufferAdapterImplemented": get_path(
+                webgpu_constrained_display_adapter_dry_run_comparison,
+                ["framebufferAdapterImplemented"],
+            ),
+            "framebufferImplemented": get_path(
+                webgpu_constrained_display_adapter_dry_run_comparison,
+                ["framebufferImplemented"],
+            ),
+            "canvasPresentationImplemented": get_path(
+                webgpu_constrained_display_adapter_dry_run_comparison,
+                ["canvasPresentationImplemented"],
+            ),
+            "displayConnectionImplemented": get_path(
+                webgpu_constrained_display_adapter_dry_run_comparison,
+                ["displayConnectionImplemented"],
+            ),
+            "displayConnectionAllowed": get_path(
+                webgpu_constrained_display_adapter_dry_run_comparison,
+                ["displayConnectionAllowed"],
+            ),
+            "textureStoredInJson": get_path(
+                webgpu_constrained_display_adapter_dry_run_comparison,
+                ["textureStoredInJson"],
+            ),
+            "displayAdapterContract": get_path(
+                webgpu_constrained_display_adapter_dry_run_comparison,
+                ["displayAdapterContract"],
+                {},
+            ),
+            "shPolicy": get_path(
+                webgpu_constrained_display_adapter_dry_run_comparison,
+                ["shPolicy"],
+                {},
+            ),
+            "anyMismatch": get_path(
+                webgpu_constrained_display_adapter_dry_run_comparison,
+                ["anyMismatch"],
+            ),
+            "mismatchClassification": get_path(
+                webgpu_constrained_display_adapter_dry_run_comparison,
+                ["mismatchClassification"],
+            ),
+            "samplePixelCount": get_path(
+                webgpu_constrained_display_adapter_dry_run_comparison,
+                ["samplePixelCount"],
+            ),
+            "duplicatePixelCount": get_path(
+                webgpu_constrained_display_adapter_dry_run_comparison,
+                ["duplicatePixelCount"],
+            ),
+            "texturePixelMismatchCount": get_path(
+                webgpu_constrained_display_adapter_dry_run_comparison,
+                ["texturePixelMismatchCount"],
+            ),
+            "maxAbsTextureColorDelta": get_path(
+                webgpu_constrained_display_adapter_dry_run_comparison,
+                ["maxAbsTextureColorDelta"],
+            ),
+            "maxAbsTextureAlphaDelta": get_path(
+                webgpu_constrained_display_adapter_dry_run_comparison,
+                ["maxAbsTextureAlphaDelta"],
+            ),
+            "renderTargetHandoffValid": get_path(
+                constrained_display_adapter_dry_run_validation,
+                ["renderTargetHandoffValid"],
+            ),
+            "samplePixelInputValid": get_path(
+                constrained_display_adapter_dry_run_validation,
+                ["samplePixelInputValid"],
+            ),
+            "textureExtentValid": get_path(
+                constrained_display_adapter_dry_run_validation,
+                ["textureExtentValid"],
+            ),
+            "textureReadbackShapeValid": get_path(
+                constrained_display_adapter_dry_run_validation,
+                ["textureReadbackShapeValid"],
+            ),
+            "duplicatePixelFree": get_path(
+                constrained_display_adapter_dry_run_validation,
+                ["duplicatePixelFree"],
+            ),
+            "displayAdapterSamplesValid": get_path(
+                constrained_display_adapter_dry_run_validation,
+                ["displayAdapterSamplesValid"],
+            ),
+            "firstValidationFailures": compact_list(
+                get_path(
+                    constrained_display_adapter_dry_run_validation,
+                    ["firstValidationFailures"],
+                    [],
+                )
+            ),
+            "firstMismatches": compact_list(
+                get_path(
+                    webgpu_constrained_display_adapter_dry_run_comparison,
+                    ["firstMismatches"],
+                    [],
+                )
+            ),
+            "blockers": compact_list(
+                get_path(
+                    webgpu_constrained_display_adapter_dry_run_comparison,
+                    ["blockers"],
+                    [],
+                )
+            ),
+            "nextBackendPrototypeStep": get_path(
+                webgpu_constrained_display_adapter_dry_run_comparison,
+                ["nextBackendPrototypeStep"],
+            ),
+            "sampleTexturePixels": compact_list(
+                get_path(
+                    webgpu_constrained_display_adapter_dry_run_comparison,
+                    ["sampleTexturePixels"],
                     [],
                 )
             ),

@@ -54,6 +54,7 @@ import { buildWebGpuTileCompositeShaderDryRunComparison } from './webgpu_tile_co
 import { buildWebGpuTileCompositeAccumulationDryRunComparison } from './webgpu_tile_composite_accumulation_dry_run.js';
 import { buildWebGpuFramebufferFreeTileOutputDryRunComparison } from './webgpu_framebuffer_free_tile_output_dry_run.js';
 import { buildWebGpuRenderTargetHandoffDryRunComparison } from './webgpu_render_target_handoff_dry_run.js';
+import { buildWebGpuConstrainedDisplayAdapterDryRunComparison } from './webgpu_constrained_display_adapter_dry_run.js';
 
 const DEFAULT_MAX_RECORDS = 65536;
 const DEFAULT_EPSILON = DEFAULT_COMPARISON_EPSILON;
@@ -514,6 +515,30 @@ function createWebGpuRenderTargetHandoffDryRunComparisonUnavailable(reason) {
     mismatchClassification: 'renderTargetHandoffDryRunUnavailable',
     firstMismatches: [{ kind: 'input', reason }],
     sampleRenderTargetPixels: []
+  };
+}
+
+function createWebGpuConstrainedDisplayAdapterDryRunComparisonUnavailable(reason) {
+  return {
+    mode: 'webgpu-constrained-display-adapter-dry-run-comparison',
+    status: 'unavailable',
+    reason,
+    source: 'webgpuRenderTargetHandoffDryRunComparison',
+    nonDisplayOnly: true,
+    implementedInWgsl: true,
+    constrainedDisplayExperiment: true,
+    displayAdapterDryRunComputed: false,
+    renderTargetTextureWritten: false,
+    textureReadbackCompared: false,
+    framebufferAdapterImplemented: false,
+    framebufferImplemented: false,
+    canvasPresentationImplemented: false,
+    displayConnectionImplemented: false,
+    displayConnectionAllowed: false,
+    anyMismatch: true,
+    mismatchClassification: 'constrainedDisplayAdapterDryRunUnavailable',
+    firstMismatches: [{ kind: 'input', reason }],
+    sampleTexturePixels: []
   };
 }
 
@@ -1706,6 +1731,9 @@ function makeFallback(reason, extra = {}) {
   const webgpuRenderTargetHandoffDryRunComparison =
     extra.webgpuRenderTargetHandoffDryRunComparison ??
     createWebGpuRenderTargetHandoffDryRunComparisonUnavailable(reason);
+  const webgpuConstrainedDisplayAdapterDryRunComparison =
+    extra.webgpuConstrainedDisplayAdapterDryRunComparison ??
+    createWebGpuConstrainedDisplayAdapterDryRunComparisonUnavailable(reason);
   return {
     schemaVersion: WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION,
     phaseStep: WEBGPU_VISIBLE_RECORD_PHASE_STEP,
@@ -1778,6 +1806,7 @@ function makeFallback(reason, extra = {}) {
     webgpuTileCompositeAccumulationDryRunComparison,
     webgpuFramebufferFreeTileOutputDryRunComparison,
     webgpuRenderTargetHandoffDryRunComparison,
+    webgpuConstrainedDisplayAdapterDryRunComparison,
     fieldMismatchCount: null,
     firstMismatches: extra.firstMismatches ?? [],
     mismatchClassification: extra.mismatchClassification ??
@@ -3776,6 +3805,12 @@ export async function runWebGpuVisibleRecordDryRun({
       canvasHeight,
       epsilon
     });
+  const webgpuConstrainedDisplayAdapterDryRunComparison =
+    await buildWebGpuConstrainedDisplayAdapterDryRunComparison({
+      device,
+      webgpuRenderTargetHandoffDryRunComparison,
+      epsilon
+    });
   const inputContract = createWebGpuInputBufferContract({
     candidateCount: cpuReference.candidateCount,
     recordCount: cpuReference.count,
@@ -3799,7 +3834,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step39 promotes framebuffer-free tile output samples into a bounded WebGPU render target handoff dry-run, without connecting framebuffer or display.',
+    scaffoldNote: 'Phase 3 Step40 writes bounded render target handoff samples into a WebGPU texture through a constrained display adapter dry-run, without canvas presentation.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
@@ -3861,6 +3896,7 @@ export async function runWebGpuVisibleRecordDryRun({
     webgpuTileCompositeAccumulationDryRunComparison,
     webgpuFramebufferFreeTileOutputDryRunComparison,
     webgpuRenderTargetHandoffDryRunComparison,
+    webgpuConstrainedDisplayAdapterDryRunComparison,
     inputContract,
     bufferContract: inputContract,
     inputBufferModes: inputContract.inputBufferModes,
@@ -3895,6 +3931,7 @@ export async function runWebGpuVisibleRecordDryRun({
       ...webgpuTileCompositeAccumulationDryRunComparison.timing,
       ...webgpuFramebufferFreeTileOutputDryRunComparison.timing,
       ...webgpuRenderTargetHandoffDryRunComparison.timing,
+      ...webgpuConstrainedDisplayAdapterDryRunComparison.timing,
       ...computeResult.timing,
       compareMs,
       totalMs: nowMs() - totalStartMs
@@ -3949,6 +3986,7 @@ export async function runWebGpuVisibleRecordDryRun({
       webgpuTileCompositeAccumulationDryRunComparison,
       webgpuFramebufferFreeTileOutputDryRunComparison,
       webgpuRenderTargetHandoffDryRunComparison,
+      webgpuConstrainedDisplayAdapterDryRunComparison,
       inputContract,
       bufferContract: inputContract,
       inputBufferModes: inputContract.inputBufferModes,

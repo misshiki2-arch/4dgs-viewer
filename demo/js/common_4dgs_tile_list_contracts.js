@@ -73,6 +73,8 @@ export const WEBGPU_TILE_LIST_COMPUTE_MODES = Object.freeze({
     'webgpu-framebuffer-free-tile-output-dry-run-comparison',
   WEBGPU_RENDER_TARGET_HANDOFF_DRY_RUN_COMPARISON:
     'webgpu-render-target-handoff-dry-run-comparison',
+  WEBGPU_CONSTRAINED_DISPLAY_ADAPTER_DRY_RUN_COMPARISON:
+    'webgpu-constrained-display-adapter-dry-run-comparison',
   CPU_REFERENCE_TILE_LIST:
     'cpu-reference-tile-list-build'
 });
@@ -441,6 +443,20 @@ export function createWebGpuTileCountsOffsetsComparisonSurfaceContract({
         'pixelCoordinateMismatchCount is 0',
         'camera/projection contract is compatible with fixed-reference dry-run and future interactive uniform updates',
         'framebuffer, production tile composite, and display connection remain deferred'
+      ]
+    },
+    recommendedStep40Unit: {
+      name: 'webgpu-constrained-display-adapter-dry-run-comparison',
+      scope:
+        'Use Step39 render target handoff samples to write an rgba8unorm WebGPU texture in a bounded non-presenting display adapter dry-run, read back sample pixels, and keep canvas presentation deferred.',
+      computeMode:
+        WEBGPU_TILE_LIST_COMPUTE_MODES.WEBGPU_CONSTRAINED_DISPLAY_ADAPTER_DRY_RUN_COMPARISON,
+      successCriteria: [
+        'displayAdapterDryRunComputed is true',
+        'renderTargetTextureWritten is true',
+        'texturePixelMismatchCount is 0',
+        'duplicatePixelCount is 0 for bounded samples',
+        'canvasPresentationImplemented and displayConnectionImplemented remain false'
       ]
     },
     relationToStep18:
