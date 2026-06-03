@@ -810,6 +810,14 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
         ["validationSummary"],
         {},
     )
+    webgpu_render_target_handoff_dry_run_comparison = get_path(
+        summary, ["webgpuRenderTargetHandoffDryRunComparison"], {}
+    )
+    render_target_handoff_dry_run_validation = get_path(
+        webgpu_render_target_handoff_dry_run_comparison,
+        ["validationSummary"],
+        {},
+    )
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -2384,6 +2392,167 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
                 get_path(
                     webgpu_framebuffer_free_tile_output_dry_run_comparison,
                     ["sampleTileOutputs"],
+                    [],
+                )
+            ),
+        },
+        "webgpuRenderTargetHandoffDryRunComparison": {
+            "status": get_path(
+                webgpu_render_target_handoff_dry_run_comparison,
+                ["status"],
+            ),
+            "mode": get_path(
+                webgpu_render_target_handoff_dry_run_comparison,
+                ["mode"],
+            ),
+            "source": get_path(
+                webgpu_render_target_handoff_dry_run_comparison,
+                ["source"],
+            ),
+            "expectedSource": get_path(
+                webgpu_render_target_handoff_dry_run_comparison,
+                ["expectedSource"],
+            ),
+            "actualSource": get_path(
+                webgpu_render_target_handoff_dry_run_comparison,
+                ["actualSource"],
+            ),
+            "nonDisplayOnly": get_path(
+                webgpu_render_target_handoff_dry_run_comparison,
+                ["nonDisplayOnly"],
+            ),
+            "implementedInWgsl": get_path(
+                webgpu_render_target_handoff_dry_run_comparison,
+                ["implementedInWgsl"],
+            ),
+            "renderTargetSamplePackingComputed": get_path(
+                webgpu_render_target_handoff_dry_run_comparison,
+                ["renderTargetSamplePackingComputed"],
+            ),
+            "renderTargetHandoffReady": get_path(
+                webgpu_render_target_handoff_dry_run_comparison,
+                ["renderTargetHandoffReady"],
+            ),
+            "productionTileCompositeImplemented": get_path(
+                webgpu_render_target_handoff_dry_run_comparison,
+                ["productionTileCompositeImplemented"],
+            ),
+            "framebufferImplemented": get_path(
+                webgpu_render_target_handoff_dry_run_comparison,
+                ["framebufferImplemented"],
+            ),
+            "displayConnectionImplemented": get_path(
+                webgpu_render_target_handoff_dry_run_comparison,
+                ["displayConnectionImplemented"],
+            ),
+            "displayConnectionAllowed": get_path(
+                webgpu_render_target_handoff_dry_run_comparison,
+                ["displayConnectionAllowed"],
+            ),
+            "renderTargetSamplesStoredInJson": get_path(
+                webgpu_render_target_handoff_dry_run_comparison,
+                ["renderTargetSamplesStoredInJson"],
+            ),
+            "renderTargetContract": get_path(
+                webgpu_render_target_handoff_dry_run_comparison,
+                ["renderTargetContract"],
+                {},
+            ),
+            "cameraProjectionContract": get_path(
+                webgpu_render_target_handoff_dry_run_comparison,
+                ["cameraProjectionContract"],
+                {},
+            ),
+            "shPolicy": get_path(
+                webgpu_render_target_handoff_dry_run_comparison,
+                ["shPolicy"],
+                {},
+            ),
+            "anyMismatch": get_path(
+                webgpu_render_target_handoff_dry_run_comparison,
+                ["anyMismatch"],
+            ),
+            "mismatchClassification": get_path(
+                webgpu_render_target_handoff_dry_run_comparison,
+                ["mismatchClassification"],
+            ),
+            "samplePixelCount": get_path(
+                webgpu_render_target_handoff_dry_run_comparison,
+                ["samplePixelCount"],
+            ),
+            "samplePixelMismatchCount": get_path(
+                webgpu_render_target_handoff_dry_run_comparison,
+                ["samplePixelMismatchCount"],
+            ),
+            "pixelCoordinateMismatchCount": get_path(
+                webgpu_render_target_handoff_dry_run_comparison,
+                ["pixelCoordinateMismatchCount"],
+            ),
+            "maxAbsResolvedColorDelta": get_path(
+                webgpu_render_target_handoff_dry_run_comparison,
+                ["maxAbsResolvedColorDelta"],
+            ),
+            "maxAbsCoverageAlphaDelta": get_path(
+                webgpu_render_target_handoff_dry_run_comparison,
+                ["maxAbsCoverageAlphaDelta"],
+            ),
+            "maxAbsFinalTransmittanceDelta": get_path(
+                webgpu_render_target_handoff_dry_run_comparison,
+                ["maxAbsFinalTransmittanceDelta"],
+            ),
+            "framebufferFreeOutputValid": get_path(
+                render_target_handoff_dry_run_validation,
+                ["framebufferFreeOutputValid"],
+            ),
+            "samplePixelInputValid": get_path(
+                render_target_handoff_dry_run_validation,
+                ["samplePixelInputValid"],
+            ),
+            "sampleBufferShapeValid": get_path(
+                render_target_handoff_dry_run_validation,
+                ["sampleBufferShapeValid"],
+            ),
+            "outputBufferShapeValid": get_path(
+                render_target_handoff_dry_run_validation,
+                ["outputBufferShapeValid"],
+            ),
+            "renderTargetSamplesValid": get_path(
+                render_target_handoff_dry_run_validation,
+                ["renderTargetSamplesValid"],
+            ),
+            "cameraProjectionContractCompatible": get_path(
+                render_target_handoff_dry_run_validation,
+                ["cameraProjectionContractCompatible"],
+            ),
+            "firstValidationFailures": compact_list(
+                get_path(
+                    render_target_handoff_dry_run_validation,
+                    ["firstValidationFailures"],
+                    [],
+                )
+            ),
+            "firstMismatches": compact_list(
+                get_path(
+                    webgpu_render_target_handoff_dry_run_comparison,
+                    ["firstMismatches"],
+                    [],
+                )
+            ),
+            "blockers": compact_list(
+                get_path(
+                    webgpu_render_target_handoff_dry_run_comparison,
+                    ["blockers"],
+                    [],
+                )
+            ),
+            "nextBackendPrototypeStep": get_path(
+                webgpu_render_target_handoff_dry_run_comparison,
+                ["nextBackendPrototypeStep"],
+            ),
+            "sampleRenderTargetPixels": compact_list(
+                get_path(
+                    webgpu_render_target_handoff_dry_run_comparison,
+                    ["sampleRenderTargetPixels"],
                     [],
                 )
             ),

@@ -71,6 +71,8 @@ export const WEBGPU_TILE_LIST_COMPUTE_MODES = Object.freeze({
     'webgpu-tile-composite-accumulation-dry-run-comparison',
   WEBGPU_FRAMEBUFFER_FREE_TILE_OUTPUT_DRY_RUN_COMPARISON:
     'webgpu-framebuffer-free-tile-output-dry-run-comparison',
+  WEBGPU_RENDER_TARGET_HANDOFF_DRY_RUN_COMPARISON:
+    'webgpu-render-target-handoff-dry-run-comparison',
   CPU_REFERENCE_TILE_LIST:
     'cpu-reference-tile-list-build'
 });
@@ -424,6 +426,20 @@ export function createWebGpuTileCountsOffsetsComparisonSurfaceContract({
         'maxAbsResolvedColorDelta, maxAbsCoverageAlphaDelta, and maxAbsFinalTransmittanceDelta are within tolerance',
         'tile output samples remain bounded and are not stored as a full framebuffer',
         'SH/WGSL color evaluation remains an explicit blocker when using reference-assisted colorAlpha.rgb',
+        'framebuffer, production tile composite, and display connection remain deferred'
+      ]
+    },
+    recommendedStep39Unit: {
+      name: 'webgpu-render-target-handoff-dry-run-comparison',
+      scope:
+        'Promote Step38 framebuffer-free tile output samples into a bounded render-target handoff sample buffer with WebGPU compute, compare CPU/WebGPU packing, and keep production framebuffer/display connection deferred.',
+      computeMode:
+        WEBGPU_TILE_LIST_COMPUTE_MODES.WEBGPU_RENDER_TARGET_HANDOFF_DRY_RUN_COMPARISON,
+      successCriteria: [
+        'renderTargetSamplePackingComputed is true',
+        'samplePixelMismatchCount is 0',
+        'pixelCoordinateMismatchCount is 0',
+        'camera/projection contract is compatible with fixed-reference dry-run and future interactive uniform updates',
         'framebuffer, production tile composite, and display connection remain deferred'
       ]
     },
