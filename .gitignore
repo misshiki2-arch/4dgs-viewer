@@ -6,3 +6,7 @@ node_modules
 demo/*.splat4d
 *Zone.Identifier
 .codex
+
+# Python cache files
+__pycache__/
+*.py[cod]
