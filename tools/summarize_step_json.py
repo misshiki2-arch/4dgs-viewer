@@ -780,6 +780,12 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
     tile_composite_handoff_validation = get_path(
         webgpu_tile_composite_handoff_stub, ["validationSummary"], {}
     )
+    webgpu_tile_composite_shader_handoff = get_path(
+        summary, ["webgpuTileCompositeShaderHandoff"], {}
+    )
+    tile_composite_shader_handoff_validation = get_path(
+        webgpu_tile_composite_shader_handoff, ["validationSummary"], {}
+    )
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -1838,6 +1844,103 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             ),
             "sampleTiles": compact_list(
                 get_path(webgpu_tile_composite_handoff_stub, ["sampleTiles"], [])
+            ),
+        },
+        "webgpuTileCompositeShaderHandoff": {
+            "status": get_path(webgpu_tile_composite_shader_handoff, ["status"]),
+            "mode": get_path(webgpu_tile_composite_shader_handoff, ["mode"]),
+            "source": get_path(webgpu_tile_composite_shader_handoff, ["source"]),
+            "nonDisplayOnly": get_path(
+                webgpu_tile_composite_shader_handoff, ["nonDisplayOnly"]
+            ),
+            "tileCompositeShaderHandoffImplemented": get_path(
+                webgpu_tile_composite_shader_handoff,
+                ["tileCompositeShaderHandoffImplemented"],
+            ),
+            "tileCompositeShaderHandoffReady": get_path(
+                webgpu_tile_composite_shader_handoff,
+                ["tileCompositeShaderHandoffReady"],
+            ),
+            "tileCompositeShaderImplemented": get_path(
+                webgpu_tile_composite_shader_handoff,
+                ["tileCompositeShaderImplemented"],
+            ),
+            "tileCompositeImplemented": get_path(
+                webgpu_tile_composite_shader_handoff, ["tileCompositeImplemented"]
+            ),
+            "framebufferImplemented": get_path(
+                webgpu_tile_composite_shader_handoff, ["framebufferImplemented"]
+            ),
+            "displayConnectionAllowed": get_path(
+                webgpu_tile_composite_shader_handoff, ["displayConnectionAllowed"]
+            ),
+            "orderedTileIndicesStoredInJson": get_path(
+                webgpu_tile_composite_shader_handoff,
+                ["orderedTileIndicesStoredInJson"],
+            ),
+            "renderPayloadStoredInJson": get_path(
+                webgpu_tile_composite_shader_handoff, ["renderPayloadStoredInJson"]
+            ),
+            "shPolicy": get_path(
+                webgpu_tile_composite_shader_handoff, ["shPolicy"], {}
+            ),
+            "shaderInputBuffers": get_path(
+                webgpu_tile_composite_shader_handoff,
+                ["shaderInputBuffers"],
+                {},
+            ),
+            "shaderPacketLayout": get_path(
+                webgpu_tile_composite_shader_handoff,
+                ["shaderPacketLayout"],
+                {},
+            ),
+            "recordCounts": get_path(
+                webgpu_tile_composite_shader_handoff, ["recordCounts"], {}
+            ),
+            "payloadShapeValid": get_path(
+                tile_composite_shader_handoff_validation, ["payloadShapeValid"]
+            ),
+            "tileOffsetsShapeValid": get_path(
+                tile_composite_shader_handoff_validation, ["tileOffsetsShapeValid"]
+            ),
+            "tileIndicesShapeValid": get_path(
+                tile_composite_shader_handoff_validation, ["tileIndicesShapeValid"]
+            ),
+            "orderedTileIndicesShapeValid": get_path(
+                tile_composite_shader_handoff_validation,
+                ["orderedTileIndicesShapeValid"],
+            ),
+            "depthOrderingValid": get_path(
+                tile_composite_shader_handoff_validation, ["depthOrderingValid"]
+            ),
+            "orderingViolationCount": get_path(
+                tile_composite_shader_handoff_validation,
+                ["orderingViolationCount"],
+            ),
+            "renderHandoffReady": get_path(
+                tile_composite_shader_handoff_validation,
+                ["renderHandoffReady"],
+            ),
+            "tileCompositeHandoffReady": get_path(
+                tile_composite_shader_handoff_validation,
+                ["tileCompositeHandoffReady"],
+            ),
+            "firstValidationFailures": compact_list(
+                get_path(
+                    tile_composite_shader_handoff_validation,
+                    ["firstValidationFailures"],
+                    [],
+                )
+            ),
+            "blockers": compact_list(
+                get_path(webgpu_tile_composite_shader_handoff, ["blockers"], [])
+            ),
+            "nextBackendPrototypeStep": get_path(
+                webgpu_tile_composite_shader_handoff,
+                ["nextBackendPrototypeStep"],
+            ),
+            "sampleTiles": compact_list(
+                get_path(webgpu_tile_composite_shader_handoff, ["sampleTiles"], [])
             ),
         },
         "inputContract": get_path(summary, ["inputContract"], {}),
