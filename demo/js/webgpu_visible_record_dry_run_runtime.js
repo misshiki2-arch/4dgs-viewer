@@ -51,6 +51,7 @@ import { buildWebGpuRenderHandoffStub } from './webgpu_render_handoff_stub.js';
 import { buildWebGpuTileCompositeHandoffStub } from './webgpu_tile_composite_handoff_stub.js';
 import { buildWebGpuTileCompositeShaderHandoff } from './webgpu_tile_composite_shader_handoff.js';
 import { buildWebGpuTileCompositeShaderDryRunComparison } from './webgpu_tile_composite_shader_dry_run.js';
+import { buildWebGpuTileCompositeAccumulationDryRunComparison } from './webgpu_tile_composite_accumulation_dry_run.js';
 
 const DEFAULT_MAX_RECORDS = 65536;
 const DEFAULT_EPSILON = DEFAULT_COMPARISON_EPSILON;
@@ -451,6 +452,25 @@ function createWebGpuTileCompositeShaderDryRunComparisonUnavailable(reason) {
     mismatchClassification: 'tileCompositeShaderDryRunUnavailable',
     firstMismatches: [{ kind: 'input', reason }],
     sampleEvaluations: []
+  };
+}
+
+function createWebGpuTileCompositeAccumulationDryRunComparisonUnavailable(reason) {
+  return {
+    mode: 'webgpu-tile-composite-accumulation-dry-run-comparison',
+    status: 'unavailable',
+    reason,
+    source: 'webgpuTileCompositeShaderHandoff + webgpuRenderHandoffStub',
+    nonDisplayOnly: true,
+    implementedInWgsl: true,
+    tileCompositeAccumulationComputed: false,
+    tileCompositeImplemented: false,
+    framebufferImplemented: false,
+    displayConnectionAllowed: false,
+    anyMismatch: true,
+    mismatchClassification: 'tileCompositeAccumulationDryRunUnavailable',
+    firstMismatches: [{ kind: 'input', reason }],
+    sampleTileAccumulations: []
   };
 }
 
@@ -1634,6 +1654,9 @@ function makeFallback(reason, extra = {}) {
   const webgpuTileCompositeShaderDryRunComparison =
     extra.webgpuTileCompositeShaderDryRunComparison ??
     createWebGpuTileCompositeShaderDryRunComparisonUnavailable(reason);
+  const webgpuTileCompositeAccumulationDryRunComparison =
+    extra.webgpuTileCompositeAccumulationDryRunComparison ??
+    createWebGpuTileCompositeAccumulationDryRunComparisonUnavailable(reason);
   return {
     schemaVersion: WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION,
     phaseStep: WEBGPU_VISIBLE_RECORD_PHASE_STEP,
@@ -1703,6 +1726,7 @@ function makeFallback(reason, extra = {}) {
     webgpuTileCompositeHandoffStub,
     webgpuTileCompositeShaderHandoff,
     webgpuTileCompositeShaderDryRunComparison,
+    webgpuTileCompositeAccumulationDryRunComparison,
     fieldMismatchCount: null,
     firstMismatches: extra.firstMismatches ?? [],
     mismatchClassification: extra.mismatchClassification ??
@@ -3678,6 +3702,13 @@ export async function runWebGpuVisibleRecordDryRun({
       webgpuRenderHandoffStub,
       epsilon
     });
+  const webgpuTileCompositeAccumulationDryRunComparison =
+    await buildWebGpuTileCompositeAccumulationDryRunComparison({
+      device,
+      webgpuTileCompositeShaderHandoff,
+      webgpuRenderHandoffStub,
+      epsilon
+    });
   const inputContract = createWebGpuInputBufferContract({
     candidateCount: cpuReference.candidateCount,
     recordCount: cpuReference.count,
@@ -3701,7 +3732,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step36 adds a non-display WebGPU tile composite shader dry-run comparison over the validated shader handoff buffers.',
+    scaffoldNote: 'Phase 3 Step37 expands the non-display WebGPU tile composite shader dry-run into bounded tile accumulation comparison over validated shader handoff buffers.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
@@ -3760,6 +3791,7 @@ export async function runWebGpuVisibleRecordDryRun({
     webgpuTileCompositeHandoffStub,
     webgpuTileCompositeShaderHandoff,
     webgpuTileCompositeShaderDryRunComparison,
+    webgpuTileCompositeAccumulationDryRunComparison,
     inputContract,
     bufferContract: inputContract,
     inputBufferModes: inputContract.inputBufferModes,
@@ -3791,6 +3823,7 @@ export async function runWebGpuVisibleRecordDryRun({
       ...webgpuTileCompositeHandoffStub.timing,
       ...webgpuTileCompositeShaderHandoff.timing,
       ...webgpuTileCompositeShaderDryRunComparison.timing,
+      ...webgpuTileCompositeAccumulationDryRunComparison.timing,
       ...computeResult.timing,
       compareMs,
       totalMs: nowMs() - totalStartMs
@@ -3842,6 +3875,7 @@ export async function runWebGpuVisibleRecordDryRun({
       webgpuTileCompositeHandoffStub,
       webgpuTileCompositeShaderHandoff,
       webgpuTileCompositeShaderDryRunComparison,
+      webgpuTileCompositeAccumulationDryRunComparison,
       inputContract,
       bufferContract: inputContract,
       inputBufferModes: inputContract.inputBufferModes,

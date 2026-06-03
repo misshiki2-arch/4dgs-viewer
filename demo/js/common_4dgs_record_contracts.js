@@ -4,10 +4,10 @@ export const WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION =
 export const WEBGPU_VISIBLE_RECORD_COMPUTE_MODE =
   'webgpu-storage-buffer-compute-fixed-record';
 
-export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step36';
+export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step37';
 
 export const WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE =
-  'wgsl-valid-screen-projection-with-tile-composite-shader-dry-run';
+  'wgsl-valid-screen-projection-with-tile-composite-accumulation-dry-run';
 
 export const WEBGPU_RADIUS_FIELD_COMPUTE_MODE =
   'deferred-covariance-conic-dependent';
@@ -80,6 +80,9 @@ export const WEBGPU_TILE_COMPOSITE_SHADER_HANDOFF_COMPUTE_MODE =
 
 export const WEBGPU_TILE_COMPOSITE_SHADER_DRY_RUN_COMPARISON_COMPUTE_MODE =
   'webgpu-tile-composite-shader-dry-run-comparison';
+
+export const WEBGPU_TILE_COMPOSITE_ACCUMULATION_DRY_RUN_COMPARISON_COMPUTE_MODE =
+  'webgpu-tile-composite-accumulation-dry-run-comparison';
 
 export {
   WEBGPU_PROJECTION_CONTRACT_NAMES,
@@ -169,7 +172,9 @@ export const WEBGPU_VISIBLE_RECORD_FIELD_COMPUTE_MODES = Object.freeze({
   webgpuTileCompositeShaderHandoff:
     WEBGPU_TILE_COMPOSITE_SHADER_HANDOFF_COMPUTE_MODE,
   webgpuTileCompositeShaderDryRunComparison:
-    WEBGPU_TILE_COMPOSITE_SHADER_DRY_RUN_COMPARISON_COMPUTE_MODE
+    WEBGPU_TILE_COMPOSITE_SHADER_DRY_RUN_COMPARISON_COMPUTE_MODE,
+  webgpuTileCompositeAccumulationDryRunComparison:
+    WEBGPU_TILE_COMPOSITE_ACCUMULATION_DRY_RUN_COMPARISON_COMPUTE_MODE
 });
 
 export const WEBGPU_VISIBLE_RECORD_DEFERRED_FIELDS = Object.freeze([

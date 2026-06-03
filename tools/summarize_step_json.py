@@ -794,6 +794,14 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
         ["validationSummary"],
         {},
     )
+    webgpu_tile_composite_accumulation_dry_run_comparison = get_path(
+        summary, ["webgpuTileCompositeAccumulationDryRunComparison"], {}
+    )
+    tile_composite_accumulation_dry_run_validation = get_path(
+        webgpu_tile_composite_accumulation_dry_run_comparison,
+        ["validationSummary"],
+        {},
+    )
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -2076,6 +2084,154 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
                 get_path(
                     webgpu_tile_composite_shader_dry_run_comparison,
                     ["sampleEvaluations"],
+                    [],
+                )
+            ),
+        },
+        "webgpuTileCompositeAccumulationDryRunComparison": {
+            "status": get_path(
+                webgpu_tile_composite_accumulation_dry_run_comparison,
+                ["status"],
+            ),
+            "mode": get_path(
+                webgpu_tile_composite_accumulation_dry_run_comparison,
+                ["mode"],
+            ),
+            "source": get_path(
+                webgpu_tile_composite_accumulation_dry_run_comparison,
+                ["source"],
+            ),
+            "expectedSource": get_path(
+                webgpu_tile_composite_accumulation_dry_run_comparison,
+                ["expectedSource"],
+            ),
+            "actualSource": get_path(
+                webgpu_tile_composite_accumulation_dry_run_comparison,
+                ["actualSource"],
+            ),
+            "nonDisplayOnly": get_path(
+                webgpu_tile_composite_accumulation_dry_run_comparison,
+                ["nonDisplayOnly"],
+            ),
+            "implementedInWgsl": get_path(
+                webgpu_tile_composite_accumulation_dry_run_comparison,
+                ["implementedInWgsl"],
+            ),
+            "tileCompositeAccumulationComputed": get_path(
+                webgpu_tile_composite_accumulation_dry_run_comparison,
+                ["tileCompositeAccumulationComputed"],
+            ),
+            "tileCompositeImplemented": get_path(
+                webgpu_tile_composite_accumulation_dry_run_comparison,
+                ["tileCompositeImplemented"],
+            ),
+            "framebufferImplemented": get_path(
+                webgpu_tile_composite_accumulation_dry_run_comparison,
+                ["framebufferImplemented"],
+            ),
+            "displayConnectionAllowed": get_path(
+                webgpu_tile_composite_accumulation_dry_run_comparison,
+                ["displayConnectionAllowed"],
+            ),
+            "orderedTileIndicesStoredInJson": get_path(
+                webgpu_tile_composite_accumulation_dry_run_comparison,
+                ["orderedTileIndicesStoredInJson"],
+            ),
+            "renderPayloadStoredInJson": get_path(
+                webgpu_tile_composite_accumulation_dry_run_comparison,
+                ["renderPayloadStoredInJson"],
+            ),
+            "shPolicy": get_path(
+                webgpu_tile_composite_accumulation_dry_run_comparison,
+                ["shPolicy"],
+                {},
+            ),
+            "accumulationPolicy": get_path(
+                webgpu_tile_composite_accumulation_dry_run_comparison,
+                ["accumulationPolicy"],
+                {},
+            ),
+            "anyMismatch": get_path(
+                webgpu_tile_composite_accumulation_dry_run_comparison,
+                ["anyMismatch"],
+            ),
+            "mismatchClassification": get_path(
+                webgpu_tile_composite_accumulation_dry_run_comparison,
+                ["mismatchClassification"],
+            ),
+            "sampleTileCount": get_path(
+                webgpu_tile_composite_accumulation_dry_run_comparison,
+                ["sampleTileCount"],
+            ),
+            "accumulationMismatchCount": get_path(
+                webgpu_tile_composite_accumulation_dry_run_comparison,
+                ["accumulationMismatchCount"],
+            ),
+            "maxAbsAccumColorDelta": get_path(
+                webgpu_tile_composite_accumulation_dry_run_comparison,
+                ["maxAbsAccumColorDelta"],
+            ),
+            "maxAbsAccumAlphaDelta": get_path(
+                webgpu_tile_composite_accumulation_dry_run_comparison,
+                ["maxAbsAccumAlphaDelta"],
+            ),
+            "maxAbsTransmittanceDelta": get_path(
+                webgpu_tile_composite_accumulation_dry_run_comparison,
+                ["maxAbsTransmittanceDelta"],
+            ),
+            "renderPayloadShapeValid": get_path(
+                tile_composite_accumulation_dry_run_validation,
+                ["renderPayloadShapeValid"],
+            ),
+            "orderedTileIndicesShapeValid": get_path(
+                tile_composite_accumulation_dry_run_validation,
+                ["orderedTileIndicesShapeValid"],
+            ),
+            "sampleTileInputValid": get_path(
+                tile_composite_accumulation_dry_run_validation,
+                ["sampleTileInputValid"],
+            ),
+            "sampleBufferShapeValid": get_path(
+                tile_composite_accumulation_dry_run_validation,
+                ["sampleBufferShapeValid"],
+            ),
+            "outputShapeValid": get_path(
+                tile_composite_accumulation_dry_run_validation,
+                ["outputShapeValid"],
+            ),
+            "accumulationSamplesValid": get_path(
+                tile_composite_accumulation_dry_run_validation,
+                ["accumulationSamplesValid"],
+            ),
+            "firstValidationFailures": compact_list(
+                get_path(
+                    tile_composite_accumulation_dry_run_validation,
+                    ["firstValidationFailures"],
+                    [],
+                )
+            ),
+            "firstMismatches": compact_list(
+                get_path(
+                    webgpu_tile_composite_accumulation_dry_run_comparison,
+                    ["firstMismatches"],
+                    [],
+                )
+            ),
+            "blockers": compact_list(
+                get_path(
+                    webgpu_tile_composite_accumulation_dry_run_comparison,
+                    ["blockers"],
+                    [],
+                )
+            ),
+            "nextBackendPrototypeStep": get_path(
+                webgpu_tile_composite_accumulation_dry_run_comparison,
+                ["nextBackendPrototypeStep"],
+            ),
+            "sampleTileAccumulations": compact_list(
+                get_path(
+                    webgpu_tile_composite_accumulation_dry_run_comparison,
+                    ["sampleTileAccumulations"],
                     [],
                 )
             ),

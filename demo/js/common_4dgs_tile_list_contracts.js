@@ -67,6 +67,8 @@ export const WEBGPU_TILE_LIST_COMPUTE_MODES = Object.freeze({
     'webgpu-tile-composite-shader-handoff-non-display',
   WEBGPU_TILE_COMPOSITE_SHADER_DRY_RUN_COMPARISON:
     'webgpu-tile-composite-shader-dry-run-comparison',
+  WEBGPU_TILE_COMPOSITE_ACCUMULATION_DRY_RUN_COMPARISON:
+    'webgpu-tile-composite-accumulation-dry-run-comparison',
   CPU_REFERENCE_TILE_LIST:
     'cpu-reference-tile-list-build'
 });
@@ -391,6 +393,21 @@ export function createWebGpuTileCountsOffsetsComparisonSurfaceContract({
         'maxAbsAlphaDelta and maxAbsColorDelta are within tolerance',
         'SH/WGSL color evaluation remains an explicit blocker when using reference-assisted colorAlpha.rgb',
         'framebuffer and display connection remain deferred'
+      ]
+    },
+    recommendedStep37Unit: {
+      name: 'webgpu-tile-composite-accumulation-dry-run-comparison',
+      scope:
+        'Expand the Step36 sample shader dry-run into bounded per-tile front-to-back alpha accumulation over Step35 orderedTileIndices and transient render payload, still without framebuffer or display connection.',
+      computeMode:
+        WEBGPU_TILE_LIST_COMPUTE_MODES.WEBGPU_TILE_COMPOSITE_ACCUMULATION_DRY_RUN_COMPARISON,
+      successCriteria: [
+        'tileCompositeAccumulationComputed is true',
+        'accumulationMismatchCount is 0',
+        'maxAbsAccumColorDelta, maxAbsAccumAlphaDelta, and maxAbsTransmittanceDelta are within tolerance',
+        'orderedTileIndices and renderPayload remain transient and are not stored in JSON as full buffers',
+        'SH/WGSL color evaluation remains an explicit blocker when using reference-assisted colorAlpha.rgb',
+        'framebuffer, production tile composite, and display connection remain deferred'
       ]
     },
     relationToStep18:
