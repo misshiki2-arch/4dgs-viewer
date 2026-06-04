@@ -2036,6 +2036,12 @@ async function captureWebGpuVisibleRecordDryRunDebug(options = {}) {
     maxRecords: Number.isFinite(options.maxRecords) ? options.maxRecords : 65536,
     epsilon: Number.isFinite(options.epsilon) ? options.epsilon : 1e-3,
     maxMismatches: Number.isFinite(options.maxMismatches) ? options.maxMismatches : 32,
+    viewerCanvasState: {
+      provided: true,
+      contextMode: getGpu()?.gl ? 'webgl2-active' : 'unknown',
+      allowViewerCanvasPresentation:
+        options.webgpuAllowViewerCanvasPresentation === true
+    },
     metadata: {
       comparisonMode: options.comparisonMode ?? 'webgpu-storage-buffer-compute-fixed-record-vs-cpu-fixed-record',
       deterministicState: buildSlimDeterministicStateSummary(deterministicState),

@@ -4,10 +4,10 @@ export const WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION =
 export const WEBGPU_VISIBLE_RECORD_COMPUTE_MODE =
   'webgpu-storage-buffer-compute-fixed-record';
 
-export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step41';
+export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step42';
 
 export const WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE =
-  'wgsl-valid-screen-projection-with-guarded-first-display-experiment';
+  'wgsl-valid-screen-projection-with-canvas-presentation-adapter-dry-run';
 
 export const WEBGPU_RADIUS_FIELD_COMPUTE_MODE =
   'deferred-covariance-conic-dependent';
@@ -95,6 +95,9 @@ export const WEBGPU_CONSTRAINED_DISPLAY_ADAPTER_DRY_RUN_COMPARISON_COMPUTE_MODE 
 
 export const WEBGPU_GUARDED_FIRST_DISPLAY_EXPERIMENT_COMPUTE_MODE =
   'webgpu-guarded-first-display-experiment';
+
+export const WEBGPU_CANVAS_PRESENTATION_ADAPTER_DRY_RUN_COMPARISON_COMPUTE_MODE =
+  'webgpu-canvas-presentation-adapter-dry-run-comparison';
 
 export {
   WEBGPU_PROJECTION_CONTRACT_NAMES,
@@ -194,7 +197,9 @@ export const WEBGPU_VISIBLE_RECORD_FIELD_COMPUTE_MODES = Object.freeze({
   webgpuConstrainedDisplayAdapterDryRunComparison:
     WEBGPU_CONSTRAINED_DISPLAY_ADAPTER_DRY_RUN_COMPARISON_COMPUTE_MODE,
   webgpuGuardedFirstDisplayExperiment:
-    WEBGPU_GUARDED_FIRST_DISPLAY_EXPERIMENT_COMPUTE_MODE
+    WEBGPU_GUARDED_FIRST_DISPLAY_EXPERIMENT_COMPUTE_MODE,
+  webgpuCanvasPresentationAdapterDryRunComparison:
+    WEBGPU_CANVAS_PRESENTATION_ADAPTER_DRY_RUN_COMPARISON_COMPUTE_MODE
 });
 
 export const WEBGPU_VISIBLE_RECORD_DEFERRED_FIELDS = Object.freeze([

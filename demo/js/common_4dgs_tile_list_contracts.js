@@ -77,6 +77,8 @@ export const WEBGPU_TILE_LIST_COMPUTE_MODES = Object.freeze({
     'webgpu-constrained-display-adapter-dry-run-comparison',
   WEBGPU_GUARDED_FIRST_DISPLAY_EXPERIMENT:
     'webgpu-guarded-first-display-experiment',
+  WEBGPU_CANVAS_PRESENTATION_ADAPTER_DRY_RUN_COMPARISON:
+    'webgpu-canvas-presentation-adapter-dry-run-comparison',
   CPU_REFERENCE_TILE_LIST:
     'cpu-reference-tile-list-build'
 });
@@ -474,6 +476,21 @@ export function createWebGpuTileCountsOffsetsComparisonSurfaceContract({
         'presentationCopyExecuted is true',
         'presentationPixelMismatchCount is 0',
         'canvasPresentationImplemented and displayConnectionImplemented remain false',
+        'WebGL2 remains fallback/oracle and is not mixed into the WebGPU presentation path'
+      ]
+    },
+    recommendedStep42Unit: {
+      name: 'webgpu-canvas-presentation-adapter-dry-run-comparison',
+      scope:
+        'Use Step41 bounded presentation samples to configure a detached WebGPU canvas context, write its current texture, copy it back for comparison, and keep the existing viewer canvas guarded until an exclusive WebGPU backend mode owns it.',
+      computeMode:
+        WEBGPU_TILE_LIST_COMPUTE_MODES.WEBGPU_CANVAS_PRESENTATION_ADAPTER_DRY_RUN_COMPARISON,
+      successCriteria: [
+        'detachedCanvasPresentationImplemented is true',
+        'contextGetCurrentTextureUsed is true',
+        'currentTextureWritten is true',
+        'canvasPixelMismatchCount is 0',
+        'viewerCanvasPresentationImplemented remains false while WebGL2 owns the viewer canvas',
         'WebGL2 remains fallback/oracle and is not mixed into the WebGPU presentation path'
       ]
     },

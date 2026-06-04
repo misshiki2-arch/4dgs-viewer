@@ -834,6 +834,14 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
         ["validationSummary"],
         {},
     )
+    webgpu_canvas_presentation_adapter_dry_run_comparison = get_path(
+        summary, ["webgpuCanvasPresentationAdapterDryRunComparison"], {}
+    )
+    canvas_presentation_adapter_validation = get_path(
+        webgpu_canvas_presentation_adapter_dry_run_comparison,
+        ["validationSummary"],
+        {},
+    )
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -2930,6 +2938,204 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
                 get_path(
                     webgpu_guarded_first_display_experiment,
                     ["samplePresentationPixels"],
+                    [],
+                )
+            ),
+        },
+        "webgpuCanvasPresentationAdapterDryRunComparison": {
+            "status": get_path(
+                webgpu_canvas_presentation_adapter_dry_run_comparison,
+                ["status"],
+            ),
+            "mode": get_path(
+                webgpu_canvas_presentation_adapter_dry_run_comparison,
+                ["mode"],
+            ),
+            "source": get_path(
+                webgpu_canvas_presentation_adapter_dry_run_comparison,
+                ["source"],
+            ),
+            "expectedSource": get_path(
+                webgpu_canvas_presentation_adapter_dry_run_comparison,
+                ["expectedSource"],
+            ),
+            "actualSource": get_path(
+                webgpu_canvas_presentation_adapter_dry_run_comparison,
+                ["actualSource"],
+            ),
+            "boundedCanvasPresentationExperiment": get_path(
+                webgpu_canvas_presentation_adapter_dry_run_comparison,
+                ["boundedCanvasPresentationExperiment"],
+            ),
+            "detachedCanvasPresentationImplemented": get_path(
+                webgpu_canvas_presentation_adapter_dry_run_comparison,
+                ["detachedCanvasPresentationImplemented"],
+            ),
+            "detachedCanvasKind": get_path(
+                webgpu_canvas_presentation_adapter_dry_run_comparison,
+                ["detachedCanvasKind"],
+            ),
+            "viewerCanvasPresentationImplemented": get_path(
+                webgpu_canvas_presentation_adapter_dry_run_comparison,
+                ["viewerCanvasPresentationImplemented"],
+            ),
+            "productionDisplayConnectionImplemented": get_path(
+                webgpu_canvas_presentation_adapter_dry_run_comparison,
+                ["productionDisplayConnectionImplemented"],
+            ),
+            "displayConnectionAllowed": get_path(
+                webgpu_canvas_presentation_adapter_dry_run_comparison,
+                ["displayConnectionAllowed"],
+            ),
+            "contextGetCurrentTextureUsed": get_path(
+                webgpu_canvas_presentation_adapter_dry_run_comparison,
+                ["contextGetCurrentTextureUsed"],
+            ),
+            "currentTextureWritten": get_path(
+                webgpu_canvas_presentation_adapter_dry_run_comparison,
+                ["currentTextureWritten"],
+            ),
+            "currentTextureReadbackCompared": get_path(
+                webgpu_canvas_presentation_adapter_dry_run_comparison,
+                ["currentTextureReadbackCompared"],
+            ),
+            "canvasPresentationProbeSucceeded": get_path(
+                webgpu_canvas_presentation_adapter_dry_run_comparison,
+                ["canvasPresentationProbeSucceeded"],
+            ),
+            "viewerCanvasPresentationAllowed": get_path(
+                webgpu_canvas_presentation_adapter_dry_run_comparison,
+                ["viewerCanvasPresentationAllowed"],
+            ),
+            "framebufferImplemented": get_path(
+                webgpu_canvas_presentation_adapter_dry_run_comparison,
+                ["framebufferImplemented"],
+            ),
+            "canvasPresentationImplemented": get_path(
+                webgpu_canvas_presentation_adapter_dry_run_comparison,
+                ["canvasPresentationImplemented"],
+            ),
+            "webgl2HybridRenderingAllowed": get_path(
+                webgpu_canvas_presentation_adapter_dry_run_comparison,
+                ["webgl2HybridRenderingAllowed"],
+            ),
+            "canvasTextureStoredInJson": get_path(
+                webgpu_canvas_presentation_adapter_dry_run_comparison,
+                ["canvasTextureStoredInJson"],
+            ),
+            "canvasPresentationContract": get_path(
+                webgpu_canvas_presentation_adapter_dry_run_comparison,
+                ["canvasPresentationContract"],
+                {},
+            ),
+            "viewerCanvasGuard": get_path(
+                webgpu_canvas_presentation_adapter_dry_run_comparison,
+                ["viewerCanvasGuard"],
+                {},
+            ),
+            "cameraProjectionContract": get_path(
+                webgpu_canvas_presentation_adapter_dry_run_comparison,
+                ["cameraProjectionContract"],
+                {},
+            ),
+            "shPolicy": get_path(
+                webgpu_canvas_presentation_adapter_dry_run_comparison,
+                ["shPolicy"],
+                {},
+            ),
+            "anyMismatch": get_path(
+                webgpu_canvas_presentation_adapter_dry_run_comparison,
+                ["anyMismatch"],
+            ),
+            "mismatchClassification": get_path(
+                webgpu_canvas_presentation_adapter_dry_run_comparison,
+                ["mismatchClassification"],
+            ),
+            "samplePixelCount": get_path(
+                webgpu_canvas_presentation_adapter_dry_run_comparison,
+                ["samplePixelCount"],
+            ),
+            "duplicatePixelCount": get_path(
+                webgpu_canvas_presentation_adapter_dry_run_comparison,
+                ["duplicatePixelCount"],
+            ),
+            "canvasPixelMismatchCount": get_path(
+                webgpu_canvas_presentation_adapter_dry_run_comparison,
+                ["canvasPixelMismatchCount"],
+            ),
+            "maxAbsCanvasColorDelta": get_path(
+                webgpu_canvas_presentation_adapter_dry_run_comparison,
+                ["maxAbsCanvasColorDelta"],
+            ),
+            "maxAbsCanvasAlphaDelta": get_path(
+                webgpu_canvas_presentation_adapter_dry_run_comparison,
+                ["maxAbsCanvasAlphaDelta"],
+            ),
+            "guardedFirstDisplayValid": get_path(
+                canvas_presentation_adapter_validation,
+                ["guardedFirstDisplayValid"],
+            ),
+            "detachedCanvasAvailable": get_path(
+                canvas_presentation_adapter_validation,
+                ["detachedCanvasAvailable"],
+            ),
+            "webgpuCanvasContextAvailable": get_path(
+                canvas_presentation_adapter_validation,
+                ["webgpuCanvasContextAvailable"],
+            ),
+            "currentTextureAvailable": get_path(
+                canvas_presentation_adapter_validation,
+                ["currentTextureAvailable"],
+            ),
+            "currentTextureWriteValid": get_path(
+                canvas_presentation_adapter_validation,
+                ["currentTextureWriteValid"],
+            ),
+            "currentTextureReadbackShapeValid": get_path(
+                canvas_presentation_adapter_validation,
+                ["currentTextureReadbackShapeValid"],
+            ),
+            "viewerCanvasGuardActive": get_path(
+                canvas_presentation_adapter_validation,
+                ["viewerCanvasGuardActive"],
+            ),
+            "webgl2HybridRenderingPrevented": get_path(
+                canvas_presentation_adapter_validation,
+                ["webgl2HybridRenderingPrevented"],
+            ),
+            "cameraProjectionContractUnchanged": get_path(
+                canvas_presentation_adapter_validation,
+                ["cameraProjectionContractUnchanged"],
+            ),
+            "firstValidationFailures": compact_list(
+                get_path(
+                    canvas_presentation_adapter_validation,
+                    ["firstValidationFailures"],
+                    [],
+                )
+            ),
+            "firstMismatches": compact_list(
+                get_path(
+                    webgpu_canvas_presentation_adapter_dry_run_comparison,
+                    ["firstMismatches"],
+                    [],
+                )
+            ),
+            "blockers": compact_list(
+                get_path(
+                    webgpu_canvas_presentation_adapter_dry_run_comparison,
+                    ["blockers"],
+                    [],
+                )
+            ),
+            "nextBackendPrototypeStep": get_path(
+                webgpu_canvas_presentation_adapter_dry_run_comparison,
+                ["nextBackendPrototypeStep"],
+            ),
+            "sampleCanvasPixels": compact_list(
+                get_path(
+                    webgpu_canvas_presentation_adapter_dry_run_comparison,
+                    ["sampleCanvasPixels"],
                     [],
                 )
             ),
