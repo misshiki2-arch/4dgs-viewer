@@ -826,6 +826,14 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
         ["validationSummary"],
         {},
     )
+    webgpu_guarded_first_display_experiment = get_path(
+        summary, ["webgpuGuardedFirstDisplayExperiment"], {}
+    )
+    guarded_first_display_validation = get_path(
+        webgpu_guarded_first_display_experiment,
+        ["validationSummary"],
+        {},
+    )
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -2725,6 +2733,203 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
                 get_path(
                     webgpu_constrained_display_adapter_dry_run_comparison,
                     ["sampleTexturePixels"],
+                    [],
+                )
+            ),
+        },
+        "webgpuGuardedFirstDisplayExperiment": {
+            "status": get_path(
+                webgpu_guarded_first_display_experiment,
+                ["status"],
+            ),
+            "mode": get_path(
+                webgpu_guarded_first_display_experiment,
+                ["mode"],
+            ),
+            "source": get_path(
+                webgpu_guarded_first_display_experiment,
+                ["source"],
+            ),
+            "expectedSource": get_path(
+                webgpu_guarded_first_display_experiment,
+                ["expectedSource"],
+            ),
+            "actualSource": get_path(
+                webgpu_guarded_first_display_experiment,
+                ["actualSource"],
+            ),
+            "guardedFirstDisplayExperiment": get_path(
+                webgpu_guarded_first_display_experiment,
+                ["guardedFirstDisplayExperiment"],
+            ),
+            "presentationGuardEnabled": get_path(
+                webgpu_guarded_first_display_experiment,
+                ["presentationGuardEnabled"],
+            ),
+            "displayExperimentOnly": get_path(
+                webgpu_guarded_first_display_experiment,
+                ["displayExperimentOnly"],
+            ),
+            "sourceTextureWritten": get_path(
+                webgpu_guarded_first_display_experiment,
+                ["sourceTextureWritten"],
+            ),
+            "presentationCandidateTextureWritten": get_path(
+                webgpu_guarded_first_display_experiment,
+                ["presentationCandidateTextureWritten"],
+            ),
+            "presentationCopyExecuted": get_path(
+                webgpu_guarded_first_display_experiment,
+                ["presentationCopyExecuted"],
+            ),
+            "presentationTextureReadbackCompared": get_path(
+                webgpu_guarded_first_display_experiment,
+                ["presentationTextureReadbackCompared"],
+            ),
+            "presentationCandidateReady": get_path(
+                webgpu_guarded_first_display_experiment,
+                ["presentationCandidateReady"],
+            ),
+            "framebufferAdapterImplemented": get_path(
+                webgpu_guarded_first_display_experiment,
+                ["framebufferAdapterImplemented"],
+            ),
+            "framebufferImplemented": get_path(
+                webgpu_guarded_first_display_experiment,
+                ["framebufferImplemented"],
+            ),
+            "canvasPresentationImplemented": get_path(
+                webgpu_guarded_first_display_experiment,
+                ["canvasPresentationImplemented"],
+            ),
+            "displayConnectionImplemented": get_path(
+                webgpu_guarded_first_display_experiment,
+                ["displayConnectionImplemented"],
+            ),
+            "displayConnectionAllowed": get_path(
+                webgpu_guarded_first_display_experiment,
+                ["displayConnectionAllowed"],
+            ),
+            "webgl2HybridRenderingAllowed": get_path(
+                webgpu_guarded_first_display_experiment,
+                ["webgl2HybridRenderingAllowed"],
+            ),
+            "presentationTextureStoredInJson": get_path(
+                webgpu_guarded_first_display_experiment,
+                ["presentationTextureStoredInJson"],
+            ),
+            "displayGuardContract": get_path(
+                webgpu_guarded_first_display_experiment,
+                ["displayGuardContract"],
+                {},
+            ),
+            "cameraProjectionContract": get_path(
+                webgpu_guarded_first_display_experiment,
+                ["cameraProjectionContract"],
+                {},
+            ),
+            "shPolicy": get_path(
+                webgpu_guarded_first_display_experiment,
+                ["shPolicy"],
+                {},
+            ),
+            "anyMismatch": get_path(
+                webgpu_guarded_first_display_experiment,
+                ["anyMismatch"],
+            ),
+            "mismatchClassification": get_path(
+                webgpu_guarded_first_display_experiment,
+                ["mismatchClassification"],
+            ),
+            "samplePixelCount": get_path(
+                webgpu_guarded_first_display_experiment,
+                ["samplePixelCount"],
+            ),
+            "duplicatePixelCount": get_path(
+                webgpu_guarded_first_display_experiment,
+                ["duplicatePixelCount"],
+            ),
+            "presentationPixelMismatchCount": get_path(
+                webgpu_guarded_first_display_experiment,
+                ["presentationPixelMismatchCount"],
+            ),
+            "maxAbsPresentationColorDelta": get_path(
+                webgpu_guarded_first_display_experiment,
+                ["maxAbsPresentationColorDelta"],
+            ),
+            "maxAbsPresentationAlphaDelta": get_path(
+                webgpu_guarded_first_display_experiment,
+                ["maxAbsPresentationAlphaDelta"],
+            ),
+            "constrainedDisplayAdapterValid": get_path(
+                guarded_first_display_validation,
+                ["constrainedDisplayAdapterValid"],
+            ),
+            "samplePixelInputValid": get_path(
+                guarded_first_display_validation,
+                ["samplePixelInputValid"],
+            ),
+            "sourceTextureShapeValid": get_path(
+                guarded_first_display_validation,
+                ["sourceTextureShapeValid"],
+            ),
+            "presentationTextureShapeValid": get_path(
+                guarded_first_display_validation,
+                ["presentationTextureShapeValid"],
+            ),
+            "presentationCopyValid": get_path(
+                guarded_first_display_validation,
+                ["presentationCopyValid"],
+            ),
+            "presentationReadbackShapeValid": get_path(
+                guarded_first_display_validation,
+                ["presentationReadbackShapeValid"],
+            ),
+            "duplicatePixelFree": get_path(
+                guarded_first_display_validation,
+                ["duplicatePixelFree"],
+            ),
+            "guardFlagRequired": get_path(
+                guarded_first_display_validation,
+                ["guardFlagRequired"],
+            ),
+            "exclusiveBackendModeRequired": get_path(
+                guarded_first_display_validation,
+                ["exclusiveBackendModeRequired"],
+            ),
+            "cameraProjectionContractUnchanged": get_path(
+                guarded_first_display_validation,
+                ["cameraProjectionContractUnchanged"],
+            ),
+            "firstValidationFailures": compact_list(
+                get_path(
+                    guarded_first_display_validation,
+                    ["firstValidationFailures"],
+                    [],
+                )
+            ),
+            "firstMismatches": compact_list(
+                get_path(
+                    webgpu_guarded_first_display_experiment,
+                    ["firstMismatches"],
+                    [],
+                )
+            ),
+            "blockers": compact_list(
+                get_path(
+                    webgpu_guarded_first_display_experiment,
+                    ["blockers"],
+                    [],
+                )
+            ),
+            "nextBackendPrototypeStep": get_path(
+                webgpu_guarded_first_display_experiment,
+                ["nextBackendPrototypeStep"],
+            ),
+            "samplePresentationPixels": compact_list(
+                get_path(
+                    webgpu_guarded_first_display_experiment,
+                    ["samplePresentationPixels"],
                     [],
                 )
             ),

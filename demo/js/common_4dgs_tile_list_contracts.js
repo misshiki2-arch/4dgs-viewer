@@ -75,6 +75,8 @@ export const WEBGPU_TILE_LIST_COMPUTE_MODES = Object.freeze({
     'webgpu-render-target-handoff-dry-run-comparison',
   WEBGPU_CONSTRAINED_DISPLAY_ADAPTER_DRY_RUN_COMPARISON:
     'webgpu-constrained-display-adapter-dry-run-comparison',
+  WEBGPU_GUARDED_FIRST_DISPLAY_EXPERIMENT:
+    'webgpu-guarded-first-display-experiment',
   CPU_REFERENCE_TILE_LIST:
     'cpu-reference-tile-list-build'
 });
@@ -457,6 +459,22 @@ export function createWebGpuTileCountsOffsetsComparisonSurfaceContract({
         'texturePixelMismatchCount is 0',
         'duplicatePixelCount is 0 for bounded samples',
         'canvasPresentationImplemented and displayConnectionImplemented remain false'
+      ]
+    },
+    recommendedStep41Unit: {
+      name: 'webgpu-guarded-first-display-experiment',
+      scope:
+        'Use the Step40 constrained display adapter output to write a WebGPU source texture, copy it into a presentation-candidate texture, read back bounded pixels, and keep actual canvas presentation guarded and disabled.',
+      computeMode:
+        WEBGPU_TILE_LIST_COMPUTE_MODES.WEBGPU_GUARDED_FIRST_DISPLAY_EXPERIMENT,
+      successCriteria: [
+        'guardedFirstDisplayExperiment is true',
+        'sourceTextureWritten is true',
+        'presentationCandidateTextureWritten is true',
+        'presentationCopyExecuted is true',
+        'presentationPixelMismatchCount is 0',
+        'canvasPresentationImplemented and displayConnectionImplemented remain false',
+        'WebGL2 remains fallback/oracle and is not mixed into the WebGPU presentation path'
       ]
     },
     relationToStep18:

@@ -55,6 +55,7 @@ import { buildWebGpuTileCompositeAccumulationDryRunComparison } from './webgpu_t
 import { buildWebGpuFramebufferFreeTileOutputDryRunComparison } from './webgpu_framebuffer_free_tile_output_dry_run.js';
 import { buildWebGpuRenderTargetHandoffDryRunComparison } from './webgpu_render_target_handoff_dry_run.js';
 import { buildWebGpuConstrainedDisplayAdapterDryRunComparison } from './webgpu_constrained_display_adapter_dry_run.js';
+import { buildWebGpuGuardedFirstDisplayExperiment } from './webgpu_guarded_first_display_experiment.js';
 
 const DEFAULT_MAX_RECORDS = 65536;
 const DEFAULT_EPSILON = DEFAULT_COMPARISON_EPSILON;
@@ -3811,6 +3812,12 @@ export async function runWebGpuVisibleRecordDryRun({
       webgpuRenderTargetHandoffDryRunComparison,
       epsilon
     });
+  const webgpuGuardedFirstDisplayExperiment =
+    await buildWebGpuGuardedFirstDisplayExperiment({
+      device,
+      webgpuConstrainedDisplayAdapterDryRunComparison,
+      epsilon
+    });
   const inputContract = createWebGpuInputBufferContract({
     candidateCount: cpuReference.candidateCount,
     recordCount: cpuReference.count,
@@ -3834,7 +3841,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step40 writes bounded render target handoff samples into a WebGPU texture through a constrained display adapter dry-run, without canvas presentation.',
+    scaffoldNote: 'Phase 3 Step41 copies bounded constrained-display output into a guarded presentation-candidate texture, without canvas presentation or WebGL2/WebGPU hybrid display.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
@@ -3897,6 +3904,7 @@ export async function runWebGpuVisibleRecordDryRun({
     webgpuFramebufferFreeTileOutputDryRunComparison,
     webgpuRenderTargetHandoffDryRunComparison,
     webgpuConstrainedDisplayAdapterDryRunComparison,
+    webgpuGuardedFirstDisplayExperiment,
     inputContract,
     bufferContract: inputContract,
     inputBufferModes: inputContract.inputBufferModes,
@@ -3932,6 +3940,7 @@ export async function runWebGpuVisibleRecordDryRun({
       ...webgpuFramebufferFreeTileOutputDryRunComparison.timing,
       ...webgpuRenderTargetHandoffDryRunComparison.timing,
       ...webgpuConstrainedDisplayAdapterDryRunComparison.timing,
+      ...webgpuGuardedFirstDisplayExperiment.timing,
       ...computeResult.timing,
       compareMs,
       totalMs: nowMs() - totalStartMs
@@ -3987,6 +3996,7 @@ export async function runWebGpuVisibleRecordDryRun({
       webgpuFramebufferFreeTileOutputDryRunComparison,
       webgpuRenderTargetHandoffDryRunComparison,
       webgpuConstrainedDisplayAdapterDryRunComparison,
+      webgpuGuardedFirstDisplayExperiment,
       inputContract,
       bufferContract: inputContract,
       inputBufferModes: inputContract.inputBufferModes,
