@@ -79,6 +79,8 @@ export const WEBGPU_TILE_LIST_COMPUTE_MODES = Object.freeze({
     'webgpu-guarded-first-display-experiment',
   WEBGPU_CANVAS_PRESENTATION_ADAPTER_DRY_RUN_COMPARISON:
     'webgpu-canvas-presentation-adapter-dry-run-comparison',
+  WEBGPU_EXCLUSIVE_CANVAS_HANDOFF_READINESS:
+    'webgpu-exclusive-canvas-handoff-readiness',
   CPU_REFERENCE_TILE_LIST:
     'cpu-reference-tile-list-build'
 });
@@ -492,6 +494,20 @@ export function createWebGpuTileCountsOffsetsComparisonSurfaceContract({
         'canvasPixelMismatchCount is 0',
         'viewerCanvasPresentationImplemented remains false while WebGL2 owns the viewer canvas',
         'WebGL2 remains fallback/oracle and is not mixed into the WebGPU presentation path'
+      ]
+    },
+    recommendedStep43Unit: {
+      name: 'webgpu-exclusive-canvas-handoff-readiness',
+      scope:
+        'Introduce an explicit WebGPU backend mode and viewer canvas ownership guard so the Step42 currentTexture adapter can be routed to the viewer canvas only when exclusive WebGPU backend mode owns the canvas lifecycle.',
+      computeMode:
+        WEBGPU_TILE_LIST_COMPUTE_MODES.WEBGPU_EXCLUSIVE_CANVAS_HANDOFF_READINESS,
+      successCriteria: [
+        'normalBackendBoundaryImplemented is true',
+        'supportedBackendModes include webgl2-fallback, webgpu-dry-run, and webgpu-exclusive',
+        'viewerCanvasHandoffAllowed is false while WebGL2 owns the viewer canvas',
+        'webgl2HybridRenderingAllowed remains false',
+        'camera/projection/control contracts remain unchanged'
       ]
     },
     relationToStep18:

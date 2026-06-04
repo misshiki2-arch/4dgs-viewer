@@ -842,6 +842,14 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
         ["validationSummary"],
         {},
     )
+    webgpu_exclusive_canvas_handoff_readiness = get_path(
+        summary, ["webgpuExclusiveCanvasHandoffReadiness"], {}
+    )
+    exclusive_canvas_handoff_validation = get_path(
+        webgpu_exclusive_canvas_handoff_readiness,
+        ["validationSummary"],
+        {},
+    )
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -3138,6 +3146,152 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
                     ["sampleCanvasPixels"],
                     [],
                 )
+            ),
+        },
+        "webgpuExclusiveCanvasHandoffReadiness": {
+            "status": get_path(
+                webgpu_exclusive_canvas_handoff_readiness,
+                ["status"],
+            ),
+            "mode": get_path(
+                webgpu_exclusive_canvas_handoff_readiness,
+                ["mode"],
+            ),
+            "source": get_path(
+                webgpu_exclusive_canvas_handoff_readiness,
+                ["source"],
+            ),
+            "expectedSource": get_path(
+                webgpu_exclusive_canvas_handoff_readiness,
+                ["expectedSource"],
+            ),
+            "actualSource": get_path(
+                webgpu_exclusive_canvas_handoff_readiness,
+                ["actualSource"],
+            ),
+            "normalBackendBoundaryImplemented": get_path(
+                webgpu_exclusive_canvas_handoff_readiness,
+                ["normalBackendBoundaryImplemented"],
+            ),
+            "exclusiveBackendModeRequested": get_path(
+                webgpu_exclusive_canvas_handoff_readiness,
+                ["exclusiveBackendModeRequested"],
+            ),
+            "exclusiveBackendModeReady": get_path(
+                webgpu_exclusive_canvas_handoff_readiness,
+                ["exclusiveBackendModeReady"],
+            ),
+            "viewerCanvasHandoffAllowed": get_path(
+                webgpu_exclusive_canvas_handoff_readiness,
+                ["viewerCanvasHandoffAllowed"],
+            ),
+            "viewerCanvasPresentationImplemented": get_path(
+                webgpu_exclusive_canvas_handoff_readiness,
+                ["viewerCanvasPresentationImplemented"],
+            ),
+            "productionDisplayConnectionImplemented": get_path(
+                webgpu_exclusive_canvas_handoff_readiness,
+                ["productionDisplayConnectionImplemented"],
+            ),
+            "displayConnectionAllowed": get_path(
+                webgpu_exclusive_canvas_handoff_readiness,
+                ["displayConnectionAllowed"],
+            ),
+            "webgl2HybridRenderingAllowed": get_path(
+                webgpu_exclusive_canvas_handoff_readiness,
+                ["webgl2HybridRenderingAllowed"],
+            ),
+            "webgpuNormalBackendCandidate": get_path(
+                webgpu_exclusive_canvas_handoff_readiness,
+                ["webgpuNormalBackendCandidate"],
+            ),
+            "requestedBackendMode": get_path(
+                webgpu_exclusive_canvas_handoff_readiness,
+                ["requestedBackendMode"],
+            ),
+            "supportedBackendModes": get_path(
+                webgpu_exclusive_canvas_handoff_readiness,
+                ["supportedBackendModes"],
+                [],
+            ),
+            "backendRoleContract": get_path(
+                webgpu_exclusive_canvas_handoff_readiness,
+                ["backendRoleContract"],
+                {},
+            ),
+            "viewerCanvasOwnershipContract": get_path(
+                webgpu_exclusive_canvas_handoff_readiness,
+                ["viewerCanvasOwnershipContract"],
+                {},
+            ),
+            "canvasPresentationAdapterReuse": get_path(
+                webgpu_exclusive_canvas_handoff_readiness,
+                ["canvasPresentationAdapterReuse"],
+                {},
+            ),
+            "cameraProjectionContract": get_path(
+                webgpu_exclusive_canvas_handoff_readiness,
+                ["cameraProjectionContract"],
+                {},
+            ),
+            "shPolicy": get_path(
+                webgpu_exclusive_canvas_handoff_readiness,
+                ["shPolicy"],
+                {},
+            ),
+            "anyMismatch": get_path(
+                webgpu_exclusive_canvas_handoff_readiness,
+                ["anyMismatch"],
+            ),
+            "mismatchClassification": get_path(
+                webgpu_exclusive_canvas_handoff_readiness,
+                ["mismatchClassification"],
+            ),
+            "canvasPresentationAdapterValid": get_path(
+                exclusive_canvas_handoff_validation,
+                ["canvasPresentationAdapterValid"],
+            ),
+            "detachedCanvasCurrentTextureValidated": get_path(
+                exclusive_canvas_handoff_validation,
+                ["detachedCanvasCurrentTextureValidated"],
+            ),
+            "viewerCanvasProvided": get_path(
+                exclusive_canvas_handoff_validation,
+                ["viewerCanvasProvided"],
+            ),
+            "viewerCanvasWebgl2Active": get_path(
+                exclusive_canvas_handoff_validation,
+                ["viewerCanvasWebgl2Active"],
+            ),
+            "viewerCanvasPresentationGuardEnabled": get_path(
+                exclusive_canvas_handoff_validation,
+                ["viewerCanvasPresentationGuardEnabled"],
+            ),
+            "webgl2HybridRenderingPrevented": get_path(
+                exclusive_canvas_handoff_validation,
+                ["webgl2HybridRenderingPrevented"],
+            ),
+            "cameraProjectionContractUnchanged": get_path(
+                exclusive_canvas_handoff_validation,
+                ["cameraProjectionContractUnchanged"],
+            ),
+            "firstValidationFailures": compact_list(
+                get_path(
+                    exclusive_canvas_handoff_validation,
+                    ["firstValidationFailures"],
+                    [],
+                )
+            ),
+            "blockers": compact_list(
+                get_path(
+                    webgpu_exclusive_canvas_handoff_readiness,
+                    ["blockers"],
+                    [],
+                )
+            ),
+            "nextBackendPrototypeStep": get_path(
+                webgpu_exclusive_canvas_handoff_readiness,
+                ["nextBackendPrototypeStep"],
             ),
         },
         "inputContract": get_path(summary, ["inputContract"], {}),

@@ -45,6 +45,11 @@ const QUERY_GPU_CANDIDATE_SCREEN_COARSE_DEPTH_MODE_VALUES = new Set([
   'positive',
   'any'
 ]);
+const QUERY_WEBGPU_BACKEND_MODE_VALUES = new Set([
+  'webgl2-fallback',
+  'webgpu-dry-run',
+  'webgpu-exclusive'
+]);
 
 function parseNumber(value, fallback = null) {
   if (value === null || value === undefined || value === '') return fallback;
@@ -211,6 +216,8 @@ function buildDeterministicQueryString(state) {
   appendDeterministicQueryParam(params, 'webgpuVisibleRecordDryRun', state?.webgpuVisibleRecordDryRun, formatDeterministicBoolean);
   appendDeterministicQueryParam(params, 'webgpuVisibleRecordMaxCount', state?.webgpuVisibleRecordMaxCount);
   appendDeterministicQueryParam(params, 'webgpuVisibleRecordFields', state?.webgpuVisibleRecordFields);
+  appendDeterministicQueryParam(params, 'webgpuBackendMode', state?.webgpuBackendMode);
+  appendDeterministicQueryParam(params, 'webgpuAllowViewerCanvasPresentation', state?.webgpuAllowViewerCanvasPresentation, formatDeterministicBoolean);
   appendDeterministicQueryParam(params, 'bgGray', state?.bgGray);
   return params.toString();
 }
@@ -240,6 +247,7 @@ export function parseViewerQueryState(search = window.location.search) {
   const gpuVisibleRecordSource = params.get('gpuVisibleRecordSource');
   const gpuVisibleRecordReadback = params.get('gpuVisibleRecordReadback');
   const gpuRawVisibleRecordReadback = params.get('gpuRawVisibleRecordReadback');
+  const webgpuBackendMode = params.get('webgpuBackendMode');
 
   const state = {
     active: false,
@@ -370,6 +378,13 @@ export function parseViewerQueryState(search = window.location.search) {
     webgpuVisibleRecordDryRun: parseBoolean(params.get('webgpuVisibleRecordDryRun'), null),
     webgpuVisibleRecordMaxCount: parseInteger(params.get('webgpuVisibleRecordMaxCount'), null),
     webgpuVisibleRecordFields: params.get('webgpuVisibleRecordFields') ?? null,
+    webgpuBackendMode: QUERY_WEBGPU_BACKEND_MODE_VALUES.has(webgpuBackendMode)
+      ? webgpuBackendMode
+      : null,
+    webgpuAllowViewerCanvasPresentation: parseBoolean(
+      params.get('webgpuAllowViewerCanvasPresentation'),
+      null
+    ),
     bgGray: parseInteger(params.get('bgGray'), null)
   };
 
@@ -459,6 +474,8 @@ export function parseViewerQueryState(search = window.location.search) {
     'webgpuVisibleRecordDryRun',
     'webgpuVisibleRecordMaxCount',
     'webgpuVisibleRecordFields',
+    'webgpuBackendMode',
+    'webgpuAllowViewerCanvasPresentation',
     'bgGray'
   ].some((key) => params.has(key));
 

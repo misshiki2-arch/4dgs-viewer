@@ -2039,8 +2039,13 @@ async function captureWebGpuVisibleRecordDryRunDebug(options = {}) {
     viewerCanvasState: {
       provided: true,
       contextMode: getGpu()?.gl ? 'webgl2-active' : 'unknown',
+      requestedBackendMode:
+        options.webgpuBackendMode ??
+        deterministicQueryState.webgpuBackendMode ??
+        'webgl2-fallback',
       allowViewerCanvasPresentation:
-        options.webgpuAllowViewerCanvasPresentation === true
+        options.webgpuAllowViewerCanvasPresentation === true ||
+        deterministicQueryState.webgpuAllowViewerCanvasPresentation === true
     },
     metadata: {
       comparisonMode: options.comparisonMode ?? 'webgpu-storage-buffer-compute-fixed-record-vs-cpu-fixed-record',

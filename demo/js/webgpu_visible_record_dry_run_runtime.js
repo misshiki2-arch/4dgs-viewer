@@ -57,6 +57,7 @@ import { buildWebGpuRenderTargetHandoffDryRunComparison } from './webgpu_render_
 import { buildWebGpuConstrainedDisplayAdapterDryRunComparison } from './webgpu_constrained_display_adapter_dry_run.js';
 import { buildWebGpuGuardedFirstDisplayExperiment } from './webgpu_guarded_first_display_experiment.js';
 import { buildWebGpuCanvasPresentationAdapterDryRunComparison } from './webgpu_canvas_presentation_adapter_dry_run.js';
+import { buildWebGpuExclusiveCanvasHandoffReadiness } from './webgpu_exclusive_canvas_handoff.js';
 
 const DEFAULT_MAX_RECORDS = 65536;
 const DEFAULT_EPSILON = DEFAULT_COMPARISON_EPSILON;
@@ -3827,6 +3828,11 @@ export async function runWebGpuVisibleRecordDryRun({
       epsilon,
       viewerCanvasState
     });
+  const webgpuExclusiveCanvasHandoffReadiness =
+    buildWebGpuExclusiveCanvasHandoffReadiness({
+      webgpuCanvasPresentationAdapterDryRunComparison,
+      viewerCanvasState
+    });
   const inputContract = createWebGpuInputBufferContract({
     candidateCount: cpuReference.candidateCount,
     recordCount: cpuReference.count,
@@ -3850,7 +3856,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step42 validates a detached WebGPU canvas currentTexture presentation adapter while keeping the existing WebGL2 viewer canvas guarded.',
+    scaffoldNote: 'Phase 3 Step43 introduces an exclusive WebGPU backend canvas handoff guard, while keeping the existing WebGL2 viewer canvas unmodified.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
@@ -3915,6 +3921,7 @@ export async function runWebGpuVisibleRecordDryRun({
     webgpuConstrainedDisplayAdapterDryRunComparison,
     webgpuGuardedFirstDisplayExperiment,
     webgpuCanvasPresentationAdapterDryRunComparison,
+    webgpuExclusiveCanvasHandoffReadiness,
     inputContract,
     bufferContract: inputContract,
     inputBufferModes: inputContract.inputBufferModes,
@@ -3952,6 +3959,7 @@ export async function runWebGpuVisibleRecordDryRun({
       ...webgpuConstrainedDisplayAdapterDryRunComparison.timing,
       ...webgpuGuardedFirstDisplayExperiment.timing,
       ...webgpuCanvasPresentationAdapterDryRunComparison.timing,
+      ...webgpuExclusiveCanvasHandoffReadiness.timing,
       ...computeResult.timing,
       compareMs,
       totalMs: nowMs() - totalStartMs
@@ -4009,6 +4017,7 @@ export async function runWebGpuVisibleRecordDryRun({
       webgpuConstrainedDisplayAdapterDryRunComparison,
       webgpuGuardedFirstDisplayExperiment,
       webgpuCanvasPresentationAdapterDryRunComparison,
+      webgpuExclusiveCanvasHandoffReadiness,
       inputContract,
       bufferContract: inputContract,
       inputBufferModes: inputContract.inputBufferModes,
