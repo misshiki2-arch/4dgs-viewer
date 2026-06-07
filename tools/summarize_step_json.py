@@ -866,6 +866,14 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
         ["validationSummary"],
         {},
     )
+    webgpu_viewer_canvas_bounded_first_present = get_path(
+        summary, ["webgpuViewerCanvasBoundedFirstPresent"], {}
+    )
+    viewer_canvas_bounded_first_present_validation = get_path(
+        webgpu_viewer_canvas_bounded_first_present,
+        ["validationSummary"],
+        {},
+    )
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -3544,6 +3552,148 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             ),
             "nextBackendPrototypeStep": get_path(
                 webgpu_viewer_canvas_current_texture_path,
+                ["nextBackendPrototypeStep"],
+            ),
+        },
+        "webgpuViewerCanvasBoundedFirstPresent": {
+            "status": get_path(
+                webgpu_viewer_canvas_bounded_first_present,
+                ["status"],
+            ),
+            "mode": get_path(
+                webgpu_viewer_canvas_bounded_first_present,
+                ["mode"],
+            ),
+            "source": get_path(
+                webgpu_viewer_canvas_bounded_first_present,
+                ["source"],
+            ),
+            "boundedViewerCanvasFirstPresentImplemented": get_path(
+                webgpu_viewer_canvas_bounded_first_present,
+                ["boundedViewerCanvasFirstPresentImplemented"],
+            ),
+            "boundedViewerCanvasFirstPresentSucceeded": get_path(
+                webgpu_viewer_canvas_bounded_first_present,
+                ["boundedViewerCanvasFirstPresentSucceeded"],
+            ),
+            "viewerCanvasPresentationImplemented": get_path(
+                webgpu_viewer_canvas_bounded_first_present,
+                ["viewerCanvasPresentationImplemented"],
+            ),
+            "productionDisplayConnectionImplemented": get_path(
+                webgpu_viewer_canvas_bounded_first_present,
+                ["productionDisplayConnectionImplemented"],
+            ),
+            "displayConnectionAllowed": get_path(
+                webgpu_viewer_canvas_bounded_first_present,
+                ["displayConnectionAllowed"],
+            ),
+            "webgl2HybridRenderingAllowed": get_path(
+                webgpu_viewer_canvas_bounded_first_present,
+                ["webgl2HybridRenderingAllowed"],
+            ),
+            "requestedBackendMode": get_path(
+                webgpu_viewer_canvas_bounded_first_present,
+                ["requestedBackendMode"],
+            ),
+            "guardAllowed": get_path(
+                webgpu_viewer_canvas_bounded_first_present,
+                ["guardAllowed"],
+            ),
+            "viewerCanvasContextConfiguredForPresent": get_path(
+                webgpu_viewer_canvas_bounded_first_present,
+                ["viewerCanvasContextConfiguredForPresent"],
+            ),
+            "viewerCanvasCurrentTextureAcquiredForPresent": get_path(
+                webgpu_viewer_canvas_bounded_first_present,
+                ["viewerCanvasCurrentTextureAcquiredForPresent"],
+            ),
+            "commandBufferSubmitted": get_path(
+                webgpu_viewer_canvas_bounded_first_present,
+                ["commandBufferSubmitted"],
+            ),
+            "submittedWorkDone": get_path(
+                webgpu_viewer_canvas_bounded_first_present,
+                ["submittedWorkDone"],
+            ),
+            "textureFormat": get_path(
+                webgpu_viewer_canvas_bounded_first_present,
+                ["textureFormat"],
+            ),
+            "outputExtent": get_path(
+                webgpu_viewer_canvas_bounded_first_present,
+                ["outputExtent"],
+                {},
+            ),
+            "presentColorContract": get_path(
+                webgpu_viewer_canvas_bounded_first_present,
+                ["presentColorContract"],
+                {},
+            ),
+            "viewerCanvasOwnershipContract": get_path(
+                webgpu_viewer_canvas_bounded_first_present,
+                ["viewerCanvasOwnershipContract"],
+                {},
+            ),
+            "firstPresentContract": get_path(
+                webgpu_viewer_canvas_bounded_first_present,
+                ["firstPresentContract"],
+                {},
+            ),
+            "cameraProjectionContract": get_path(
+                webgpu_viewer_canvas_bounded_first_present,
+                ["cameraProjectionContract"],
+                {},
+            ),
+            "shPolicy": get_path(
+                webgpu_viewer_canvas_bounded_first_present,
+                ["shPolicy"],
+                {},
+            ),
+            "exclusiveBackendModeRequested": get_path(
+                viewer_canvas_bounded_first_present_validation,
+                ["exclusiveBackendModeRequested"],
+            ),
+            "viewerCanvasPresentationGuardEnabled": get_path(
+                viewer_canvas_bounded_first_present_validation,
+                ["viewerCanvasPresentationGuardEnabled"],
+            ),
+            "viewerCanvasWebgl2Active": get_path(
+                viewer_canvas_bounded_first_present_validation,
+                ["viewerCanvasWebgl2Active"],
+            ),
+            "webgl2FrameLifecycleSuppressed": get_path(
+                viewer_canvas_bounded_first_present_validation,
+                ["webgl2FrameLifecycleSuppressed"],
+            ),
+            "currentTexturePathReady": get_path(
+                viewer_canvas_bounded_first_present_validation,
+                ["currentTexturePathReady"],
+            ),
+            "webgl2HybridRenderingPrevented": get_path(
+                viewer_canvas_bounded_first_present_validation,
+                ["webgl2HybridRenderingPrevented"],
+            ),
+            "cameraProjectionContractUnchanged": get_path(
+                viewer_canvas_bounded_first_present_validation,
+                ["cameraProjectionContractUnchanged"],
+            ),
+            "firstValidationFailures": compact_list(
+                get_path(
+                    viewer_canvas_bounded_first_present_validation,
+                    ["firstValidationFailures"],
+                    [],
+                )
+            ),
+            "blockers": compact_list(
+                get_path(
+                    webgpu_viewer_canvas_bounded_first_present,
+                    ["blockers"],
+                    [],
+                )
+            ),
+            "nextBackendPrototypeStep": get_path(
+                webgpu_viewer_canvas_bounded_first_present,
                 ["nextBackendPrototypeStep"],
             ),
         },

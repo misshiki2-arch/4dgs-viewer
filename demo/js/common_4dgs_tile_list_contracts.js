@@ -85,6 +85,8 @@ export const WEBGPU_TILE_LIST_COMPUTE_MODES = Object.freeze({
     'webgpu-exclusive-frame-lifecycle-switch',
   WEBGPU_VIEWER_CANVAS_CURRENT_TEXTURE_PATH:
     'webgpu-viewer-canvas-current-texture-path-readiness',
+  WEBGPU_VIEWER_CANVAS_BOUNDED_FIRST_PRESENT:
+    'webgpu-viewer-canvas-bounded-first-present',
   CPU_REFERENCE_TILE_LIST:
     'cpu-reference-tile-list-build'
 });
