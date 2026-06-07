@@ -858,6 +858,14 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
         ["validationSummary"],
         {},
     )
+    webgpu_viewer_canvas_current_texture_path = get_path(
+        summary, ["webgpuViewerCanvasCurrentTexturePath"], {}
+    )
+    viewer_canvas_current_texture_validation = get_path(
+        webgpu_viewer_canvas_current_texture_path,
+        ["validationSummary"],
+        {},
+    )
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -3411,6 +3419,131 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             ),
             "nextBackendPrototypeStep": get_path(
                 webgpu_exclusive_frame_lifecycle_switch,
+                ["nextBackendPrototypeStep"],
+            ),
+        },
+        "webgpuViewerCanvasCurrentTexturePath": {
+            "status": get_path(
+                webgpu_viewer_canvas_current_texture_path,
+                ["status"],
+            ),
+            "mode": get_path(
+                webgpu_viewer_canvas_current_texture_path,
+                ["mode"],
+            ),
+            "source": get_path(
+                webgpu_viewer_canvas_current_texture_path,
+                ["source"],
+            ),
+            "viewerCanvasCurrentTexturePathImplemented": get_path(
+                webgpu_viewer_canvas_current_texture_path,
+                ["viewerCanvasCurrentTexturePathImplemented"],
+            ),
+            "viewerCanvasCurrentTexturePathReady": get_path(
+                webgpu_viewer_canvas_current_texture_path,
+                ["viewerCanvasCurrentTexturePathReady"],
+            ),
+            "viewerCanvasContextConfigured": get_path(
+                webgpu_viewer_canvas_current_texture_path,
+                ["viewerCanvasContextConfigured"],
+            ),
+            "viewerCanvasCurrentTextureAcquired": get_path(
+                webgpu_viewer_canvas_current_texture_path,
+                ["viewerCanvasCurrentTextureAcquired"],
+            ),
+            "viewerCanvasPresentationImplemented": get_path(
+                webgpu_viewer_canvas_current_texture_path,
+                ["viewerCanvasPresentationImplemented"],
+            ),
+            "displayConnectionAllowed": get_path(
+                webgpu_viewer_canvas_current_texture_path,
+                ["displayConnectionAllowed"],
+            ),
+            "webgl2HybridRenderingAllowed": get_path(
+                webgpu_viewer_canvas_current_texture_path,
+                ["webgl2HybridRenderingAllowed"],
+            ),
+            "requestedBackendMode": get_path(
+                webgpu_viewer_canvas_current_texture_path,
+                ["requestedBackendMode"],
+            ),
+            "textureFormat": get_path(
+                webgpu_viewer_canvas_current_texture_path,
+                ["textureFormat"],
+            ),
+            "outputExtent": get_path(
+                webgpu_viewer_canvas_current_texture_path,
+                ["outputExtent"],
+                {},
+            ),
+            "viewerCanvasOwnershipContract": get_path(
+                webgpu_viewer_canvas_current_texture_path,
+                ["viewerCanvasOwnershipContract"],
+                {},
+            ),
+            "currentTextureContract": get_path(
+                webgpu_viewer_canvas_current_texture_path,
+                ["currentTextureContract"],
+                {},
+            ),
+            "cameraProjectionContract": get_path(
+                webgpu_viewer_canvas_current_texture_path,
+                ["cameraProjectionContract"],
+                {},
+            ),
+            "shPolicy": get_path(
+                webgpu_viewer_canvas_current_texture_path,
+                ["shPolicy"],
+                {},
+            ),
+            "exclusiveBackendModeRequested": get_path(
+                viewer_canvas_current_texture_validation,
+                ["exclusiveBackendModeRequested"],
+            ),
+            "viewerCanvasPresentationGuardEnabled": get_path(
+                viewer_canvas_current_texture_validation,
+                ["viewerCanvasPresentationGuardEnabled"],
+            ),
+            "viewerCanvasWebgl2Active": get_path(
+                viewer_canvas_current_texture_validation,
+                ["viewerCanvasWebgl2Active"],
+            ),
+            "webgl2FrameLifecycleSuppressed": get_path(
+                viewer_canvas_current_texture_validation,
+                ["webgl2FrameLifecycleSuppressed"],
+            ),
+            "webgpuCanvasContextAvailable": get_path(
+                viewer_canvas_current_texture_validation,
+                ["webgpuCanvasContextAvailable"],
+            ),
+            "currentTextureAvailable": get_path(
+                viewer_canvas_current_texture_validation,
+                ["currentTextureAvailable"],
+            ),
+            "webgl2HybridRenderingPrevented": get_path(
+                viewer_canvas_current_texture_validation,
+                ["webgl2HybridRenderingPrevented"],
+            ),
+            "cameraProjectionContractUnchanged": get_path(
+                viewer_canvas_current_texture_validation,
+                ["cameraProjectionContractUnchanged"],
+            ),
+            "firstValidationFailures": compact_list(
+                get_path(
+                    viewer_canvas_current_texture_validation,
+                    ["firstValidationFailures"],
+                    [],
+                )
+            ),
+            "blockers": compact_list(
+                get_path(
+                    webgpu_viewer_canvas_current_texture_path,
+                    ["blockers"],
+                    [],
+                )
+            ),
+            "nextBackendPrototypeStep": get_path(
+                webgpu_viewer_canvas_current_texture_path,
                 ["nextBackendPrototypeStep"],
             ),
         },

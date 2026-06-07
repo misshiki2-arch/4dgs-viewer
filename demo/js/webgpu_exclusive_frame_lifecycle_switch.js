@@ -67,6 +67,7 @@ export function shouldUseWebGpuExclusiveFrameLifecycle({
 export function buildWebGpuExclusiveFrameLifecycleSwitch({
   webgpuCanvasPresentationAdapterDryRunComparison,
   webgpuExclusiveCanvasHandoffReadiness,
+  webgpuViewerCanvasCurrentTexturePath,
   viewerCanvasState = null
 } = {}) {
   const startMs = nowMs();
@@ -86,19 +87,18 @@ export function buildWebGpuExclusiveFrameLifecycleSwitch({
     webgpuCanvasPresentationAdapterDryRunComparison?.canvasPresentationProbeSucceeded ===
       true ||
     webgpuExclusiveCanvasHandoffReadiness?.canvasPresentationAdapterValid === true;
+  const viewerCanvasCurrentTexturePathReady =
+    webgpuViewerCanvasCurrentTexturePath?.viewerCanvasCurrentTexturePathReady === true;
   const viewerCanvasLifecycleSwitchRequested =
     exclusiveBackendModeRequested && allowViewerCanvasPresentation;
   const viewerCanvasLifecycleSwitched =
-    adapterReady &&
+    (adapterReady || viewerCanvasCurrentTexturePathReady) &&
     viewerCanvasProvided &&
     viewerCanvasLifecycleSwitchRequested &&
     webgl2FrameLifecycleSuppressed &&
     !viewerCanvasWebgl2Active;
-  const viewerCanvasCurrentTexturePathReady =
-    viewerCanvasLifecycleSwitched &&
-    webgpuExclusiveCanvasHandoffReadiness?.viewerCanvasHandoffAllowed === true;
   const firstValidationFailures = buildFailures({
-    adapterReady,
+    adapterReady: adapterReady || viewerCanvasCurrentTexturePathReady,
     viewerCanvasProvided,
     exclusiveBackendModeRequested,
     allowViewerCanvasPresentation,
@@ -182,6 +182,7 @@ export function buildWebGpuExclusiveFrameLifecycleSwitch({
     mismatchClassification: 'none',
     validationSummary: {
       canvasPresentationAdapterValid: adapterReady,
+      viewerCanvasCurrentTexturePathValid: viewerCanvasCurrentTexturePathReady,
       exclusiveBackendModeRequested,
       viewerCanvasPresentationGuardEnabled: allowViewerCanvasPresentation,
       viewerCanvasProvided,
@@ -200,7 +201,7 @@ export function buildWebGpuExclusiveFrameLifecycleSwitch({
           {
             stage: 'bounded-viewer-canvas-first-present',
             reason:
-              'viewer canvas lifecycle can switch to WebGPU, but bounded first-present is intentionally left for the next guarded display experiment'
+              'viewer canvas currentTexture path is ready, but bounded first-present is intentionally left for the next guarded display experiment'
           }
         ]
       : [

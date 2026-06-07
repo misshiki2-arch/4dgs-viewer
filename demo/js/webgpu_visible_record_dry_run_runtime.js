@@ -59,6 +59,7 @@ import { buildWebGpuGuardedFirstDisplayExperiment } from './webgpu_guarded_first
 import { buildWebGpuCanvasPresentationAdapterDryRunComparison } from './webgpu_canvas_presentation_adapter_dry_run.js';
 import { buildWebGpuExclusiveCanvasHandoffReadiness } from './webgpu_exclusive_canvas_handoff.js';
 import { buildWebGpuExclusiveFrameLifecycleSwitch } from './webgpu_exclusive_frame_lifecycle_switch.js';
+import { buildWebGpuViewerCanvasCurrentTexturePathReadiness } from './webgpu_viewer_canvas_current_texture_path.js';
 
 const DEFAULT_MAX_RECORDS = 65536;
 const DEFAULT_EPSILON = DEFAULT_COMPARISON_EPSILON;
@@ -3834,10 +3835,16 @@ export async function runWebGpuVisibleRecordDryRun({
       webgpuCanvasPresentationAdapterDryRunComparison,
       viewerCanvasState
     });
+  const webgpuViewerCanvasCurrentTexturePath =
+    await buildWebGpuViewerCanvasCurrentTexturePathReadiness({
+      device,
+      viewerCanvasState
+    });
   const webgpuExclusiveFrameLifecycleSwitch =
     buildWebGpuExclusiveFrameLifecycleSwitch({
       webgpuCanvasPresentationAdapterDryRunComparison,
       webgpuExclusiveCanvasHandoffReadiness,
+      webgpuViewerCanvasCurrentTexturePath,
       viewerCanvasState
     });
   const inputContract = createWebGpuInputBufferContract({
@@ -3863,7 +3870,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step44 introduces an exclusive WebGPU frame lifecycle switch so the viewer canvas can move toward WebGPU ownership only under guarded webgpu-exclusive mode.',
+    scaffoldNote: 'Phase 3 Step45 configures the real viewer canvas WebGPU context and acquires currentTexture readiness only under guarded webgpu-exclusive ownership.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
@@ -3929,6 +3936,7 @@ export async function runWebGpuVisibleRecordDryRun({
     webgpuGuardedFirstDisplayExperiment,
     webgpuCanvasPresentationAdapterDryRunComparison,
     webgpuExclusiveCanvasHandoffReadiness,
+    webgpuViewerCanvasCurrentTexturePath,
     webgpuExclusiveFrameLifecycleSwitch,
     inputContract,
     bufferContract: inputContract,
@@ -3968,6 +3976,7 @@ export async function runWebGpuVisibleRecordDryRun({
       ...webgpuGuardedFirstDisplayExperiment.timing,
       ...webgpuCanvasPresentationAdapterDryRunComparison.timing,
       ...webgpuExclusiveCanvasHandoffReadiness.timing,
+      ...webgpuViewerCanvasCurrentTexturePath.timing,
       ...webgpuExclusiveFrameLifecycleSwitch.timing,
       ...computeResult.timing,
       compareMs,
@@ -4027,6 +4036,7 @@ export async function runWebGpuVisibleRecordDryRun({
       webgpuGuardedFirstDisplayExperiment,
       webgpuCanvasPresentationAdapterDryRunComparison,
       webgpuExclusiveCanvasHandoffReadiness,
+      webgpuViewerCanvasCurrentTexturePath,
       webgpuExclusiveFrameLifecycleSwitch,
       inputContract,
       bufferContract: inputContract,

@@ -83,6 +83,8 @@ export const WEBGPU_TILE_LIST_COMPUTE_MODES = Object.freeze({
     'webgpu-exclusive-canvas-handoff-readiness',
   WEBGPU_EXCLUSIVE_FRAME_LIFECYCLE_SWITCH:
     'webgpu-exclusive-frame-lifecycle-switch',
+  WEBGPU_VIEWER_CANVAS_CURRENT_TEXTURE_PATH:
+    'webgpu-viewer-canvas-current-texture-path-readiness',
   CPU_REFERENCE_TILE_LIST:
     'cpu-reference-tile-list-build'
 });
@@ -522,6 +524,20 @@ export function createWebGpuTileCountsOffsetsComparisonSurfaceContract({
         'exclusiveFrameLifecycleSwitchImplemented is true',
         'webgpu-exclusive mode is required before viewer canvas lifecycle switches to WebGPU',
         'webgl2FrameLifecycleSuppressed is true only for guarded webgpu-exclusive mode',
+        'displayConnectionAllowed and webgl2HybridRenderingAllowed remain false',
+        'camera/projection/control contracts remain unchanged'
+      ]
+    },
+    recommendedStep45Unit: {
+      name: 'webgpu-viewer-canvas-current-texture-path-readiness',
+      scope:
+        'Configure the real viewer canvas WebGPU context and acquire currentTexture readiness only under guarded webgpu-exclusive ownership, leaving bounded first-present and production display connection for later.',
+      computeMode:
+        WEBGPU_TILE_LIST_COMPUTE_MODES.WEBGPU_VIEWER_CANVAS_CURRENT_TEXTURE_PATH,
+      successCriteria: [
+        'viewerCanvasCurrentTexturePathImplemented is true',
+        'viewerCanvasCurrentTexturePathReady is true only for guarded webgpu-exclusive mode',
+        'viewer canvas WebGPU context configuration requires no active WebGL2 context',
         'displayConnectionAllowed and webgl2HybridRenderingAllowed remain false',
         'camera/projection/control contracts remain unchanged'
       ]

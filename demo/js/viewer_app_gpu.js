@@ -2085,6 +2085,7 @@ async function captureWebGpuVisibleRecordDryRunDebug(options = {}) {
     maxMismatches: Number.isFinite(options.maxMismatches) ? options.maxMismatches : 32,
     viewerCanvasState: {
       provided: true,
+      canvas,
       contextMode: viewerCanvasContextMode,
       requestedBackendMode: requestedWebGpuBackendMode,
       allowViewerCanvasPresentation,

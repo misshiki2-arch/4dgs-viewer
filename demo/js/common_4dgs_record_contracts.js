@@ -4,10 +4,10 @@ export const WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION =
 export const WEBGPU_VISIBLE_RECORD_COMPUTE_MODE =
   'webgpu-storage-buffer-compute-fixed-record';
 
-export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step44';
+export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step45';
 
 export const WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE =
-  'wgsl-valid-screen-projection-with-exclusive-frame-lifecycle-switch';
+  'wgsl-valid-screen-projection-with-viewer-canvas-current-texture-path';
 
 export const WEBGPU_RADIUS_FIELD_COMPUTE_MODE =
   'deferred-covariance-conic-dependent';
@@ -104,6 +104,9 @@ export const WEBGPU_EXCLUSIVE_CANVAS_HANDOFF_COMPUTE_MODE =
 
 export const WEBGPU_EXCLUSIVE_FRAME_LIFECYCLE_SWITCH_COMPUTE_MODE =
   'webgpu-exclusive-frame-lifecycle-switch';
+
+export const WEBGPU_VIEWER_CANVAS_CURRENT_TEXTURE_PATH_COMPUTE_MODE =
+  'webgpu-viewer-canvas-current-texture-path-readiness';
 
 export {
   WEBGPU_PROJECTION_CONTRACT_NAMES,
@@ -209,7 +212,9 @@ export const WEBGPU_VISIBLE_RECORD_FIELD_COMPUTE_MODES = Object.freeze({
   webgpuExclusiveCanvasHandoffReadiness:
     WEBGPU_EXCLUSIVE_CANVAS_HANDOFF_COMPUTE_MODE,
   webgpuExclusiveFrameLifecycleSwitch:
-    WEBGPU_EXCLUSIVE_FRAME_LIFECYCLE_SWITCH_COMPUTE_MODE
+    WEBGPU_EXCLUSIVE_FRAME_LIFECYCLE_SWITCH_COMPUTE_MODE,
+  webgpuViewerCanvasCurrentTexturePath:
+    WEBGPU_VIEWER_CANVAS_CURRENT_TEXTURE_PATH_COMPUTE_MODE
 });
 
 export const WEBGPU_VISIBLE_RECORD_DEFERRED_FIELDS = Object.freeze([
