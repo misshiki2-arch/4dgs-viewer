@@ -61,6 +61,7 @@ import { buildWebGpuExclusiveCanvasHandoffReadiness } from './webgpu_exclusive_c
 import { buildWebGpuExclusiveFrameLifecycleSwitch } from './webgpu_exclusive_frame_lifecycle_switch.js';
 import { buildWebGpuViewerCanvasCurrentTexturePathReadiness } from './webgpu_viewer_canvas_current_texture_path.js';
 import { buildWebGpuViewerCanvasBoundedFirstPresent } from './webgpu_viewer_canvas_bounded_first_present.js';
+import { buildWebGpuViewerCanvasBoundedColorPresent } from './webgpu_viewer_canvas_bounded_color_present.js';
 
 const DEFAULT_MAX_RECORDS = 65536;
 const DEFAULT_EPSILON = DEFAULT_COMPARISON_EPSILON;
@@ -3848,6 +3849,17 @@ export async function runWebGpuVisibleRecordDryRun({
       webgpuViewerCanvasCurrentTexturePath,
       webgpuRenderHandoffStub
     });
+  const webgpuViewerCanvasBoundedColorPresent =
+    await buildWebGpuViewerCanvasBoundedColorPresent({
+      device,
+      viewerCanvasState,
+      webgpuViewerCanvasCurrentTexturePath,
+      webgpuViewerCanvasBoundedFirstPresent,
+      webgpuRenderHandoffStub,
+      webgpuFramebufferFreeTileOutputDryRunComparison,
+      webgpuRenderTargetHandoffDryRunComparison,
+      webgpuConstrainedDisplayAdapterDryRunComparison
+    });
   const webgpuExclusiveFrameLifecycleSwitch =
     buildWebGpuExclusiveFrameLifecycleSwitch({
       webgpuCanvasPresentationAdapterDryRunComparison,
@@ -3878,7 +3890,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step46 submits a bounded first-present render pass to the real viewer canvas only under guarded webgpu-exclusive ownership.',
+    scaffoldNote: 'Phase 3 Step47 renders bounded 4DGS-derived color samples to the real viewer canvas only under guarded webgpu-exclusive ownership.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
@@ -3946,6 +3958,7 @@ export async function runWebGpuVisibleRecordDryRun({
     webgpuExclusiveCanvasHandoffReadiness,
     webgpuViewerCanvasCurrentTexturePath,
     webgpuViewerCanvasBoundedFirstPresent,
+    webgpuViewerCanvasBoundedColorPresent,
     webgpuExclusiveFrameLifecycleSwitch,
     inputContract,
     bufferContract: inputContract,
@@ -3987,6 +4000,7 @@ export async function runWebGpuVisibleRecordDryRun({
       ...webgpuExclusiveCanvasHandoffReadiness.timing,
       ...webgpuViewerCanvasCurrentTexturePath.timing,
       ...webgpuViewerCanvasBoundedFirstPresent.timing,
+      ...webgpuViewerCanvasBoundedColorPresent.timing,
       ...webgpuExclusiveFrameLifecycleSwitch.timing,
       ...computeResult.timing,
       compareMs,
@@ -4048,6 +4062,7 @@ export async function runWebGpuVisibleRecordDryRun({
       webgpuExclusiveCanvasHandoffReadiness,
       webgpuViewerCanvasCurrentTexturePath,
       webgpuViewerCanvasBoundedFirstPresent,
+      webgpuViewerCanvasBoundedColorPresent,
       webgpuExclusiveFrameLifecycleSwitch,
       inputContract,
       bufferContract: inputContract,

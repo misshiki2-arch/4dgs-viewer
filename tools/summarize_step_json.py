@@ -874,6 +874,14 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
         ["validationSummary"],
         {},
     )
+    webgpu_viewer_canvas_bounded_color_present = get_path(
+        summary, ["webgpuViewerCanvasBoundedColorPresent"], {}
+    )
+    viewer_canvas_bounded_color_present_validation = get_path(
+        webgpu_viewer_canvas_bounded_color_present,
+        ["validationSummary"],
+        {},
+    )
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -3694,6 +3702,159 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             ),
             "nextBackendPrototypeStep": get_path(
                 webgpu_viewer_canvas_bounded_first_present,
+                ["nextBackendPrototypeStep"],
+            ),
+        },
+        "webgpuViewerCanvasBoundedColorPresent": {
+            "status": get_path(
+                webgpu_viewer_canvas_bounded_color_present,
+                ["status"],
+            ),
+            "mode": get_path(
+                webgpu_viewer_canvas_bounded_color_present,
+                ["mode"],
+            ),
+            "source": get_path(
+                webgpu_viewer_canvas_bounded_color_present,
+                ["source"],
+            ),
+            "boundedViewerCanvasColorPresentImplemented": get_path(
+                webgpu_viewer_canvas_bounded_color_present,
+                ["boundedViewerCanvasColorPresentImplemented"],
+            ),
+            "boundedViewerCanvasColorPresentSucceeded": get_path(
+                webgpu_viewer_canvas_bounded_color_present,
+                ["boundedViewerCanvasColorPresentSucceeded"],
+            ),
+            "viewerCanvasPresentationImplemented": get_path(
+                webgpu_viewer_canvas_bounded_color_present,
+                ["viewerCanvasPresentationImplemented"],
+            ),
+            "productionDisplayConnectionImplemented": get_path(
+                webgpu_viewer_canvas_bounded_color_present,
+                ["productionDisplayConnectionImplemented"],
+            ),
+            "displayConnectionAllowed": get_path(
+                webgpu_viewer_canvas_bounded_color_present,
+                ["displayConnectionAllowed"],
+            ),
+            "webgl2HybridRenderingAllowed": get_path(
+                webgpu_viewer_canvas_bounded_color_present,
+                ["webgl2HybridRenderingAllowed"],
+            ),
+            "requestedBackendMode": get_path(
+                webgpu_viewer_canvas_bounded_color_present,
+                ["requestedBackendMode"],
+            ),
+            "guardAllowed": get_path(
+                webgpu_viewer_canvas_bounded_color_present,
+                ["guardAllowed"],
+            ),
+            "viewerCanvasContextConfiguredForColorPresent": get_path(
+                webgpu_viewer_canvas_bounded_color_present,
+                ["viewerCanvasContextConfiguredForColorPresent"],
+            ),
+            "viewerCanvasCurrentTextureAcquiredForColorPresent": get_path(
+                webgpu_viewer_canvas_bounded_color_present,
+                ["viewerCanvasCurrentTextureAcquiredForColorPresent"],
+            ),
+            "commandBufferSubmitted": get_path(
+                webgpu_viewer_canvas_bounded_color_present,
+                ["commandBufferSubmitted"],
+            ),
+            "submittedWorkDone": get_path(
+                webgpu_viewer_canvas_bounded_color_present,
+                ["submittedWorkDone"],
+            ),
+            "textureFormat": get_path(
+                webgpu_viewer_canvas_bounded_color_present,
+                ["textureFormat"],
+            ),
+            "outputExtent": get_path(
+                webgpu_viewer_canvas_bounded_color_present,
+                ["outputExtent"],
+                {},
+            ),
+            "colorPresentSampleCount": get_path(
+                webgpu_viewer_canvas_bounded_color_present,
+                ["colorPresentSampleCount"],
+            ),
+            "vertexCount": get_path(
+                webgpu_viewer_canvas_bounded_color_present,
+                ["vertexCount"],
+            ),
+            "colorOutputContract": get_path(
+                webgpu_viewer_canvas_bounded_color_present,
+                ["colorOutputContract"],
+                {},
+            ),
+            "viewerCanvasOwnershipContract": get_path(
+                webgpu_viewer_canvas_bounded_color_present,
+                ["viewerCanvasOwnershipContract"],
+                {},
+            ),
+            "cameraProjectionContract": get_path(
+                webgpu_viewer_canvas_bounded_color_present,
+                ["cameraProjectionContract"],
+                {},
+            ),
+            "shPolicy": get_path(
+                webgpu_viewer_canvas_bounded_color_present,
+                ["shPolicy"],
+                {},
+            ),
+            "exclusiveBackendModeRequested": get_path(
+                viewer_canvas_bounded_color_present_validation,
+                ["exclusiveBackendModeRequested"],
+            ),
+            "viewerCanvasPresentationGuardEnabled": get_path(
+                viewer_canvas_bounded_color_present_validation,
+                ["viewerCanvasPresentationGuardEnabled"],
+            ),
+            "viewerCanvasWebgl2Active": get_path(
+                viewer_canvas_bounded_color_present_validation,
+                ["viewerCanvasWebgl2Active"],
+            ),
+            "webgl2FrameLifecycleSuppressed": get_path(
+                viewer_canvas_bounded_color_present_validation,
+                ["webgl2FrameLifecycleSuppressed"],
+            ),
+            "currentTexturePathReady": get_path(
+                viewer_canvas_bounded_color_present_validation,
+                ["currentTexturePathReady"],
+            ),
+            "boundedFirstPresentSucceeded": get_path(
+                viewer_canvas_bounded_color_present_validation,
+                ["boundedFirstPresentSucceeded"],
+            ),
+            "colorSamplesAvailable": get_path(
+                viewer_canvas_bounded_color_present_validation,
+                ["colorSamplesAvailable"],
+            ),
+            "webgl2HybridRenderingPrevented": get_path(
+                viewer_canvas_bounded_color_present_validation,
+                ["webgl2HybridRenderingPrevented"],
+            ),
+            "cameraProjectionContractUnchanged": get_path(
+                viewer_canvas_bounded_color_present_validation,
+                ["cameraProjectionContractUnchanged"],
+            ),
+            "firstValidationFailures": compact_list(
+                get_path(
+                    viewer_canvas_bounded_color_present_validation,
+                    ["firstValidationFailures"],
+                    [],
+                )
+            ),
+            "blockers": compact_list(
+                get_path(
+                    webgpu_viewer_canvas_bounded_color_present,
+                    ["blockers"],
+                    [],
+                )
+            ),
+            "nextBackendPrototypeStep": get_path(
+                webgpu_viewer_canvas_bounded_color_present,
                 ["nextBackendPrototypeStep"],
             ),
         },
