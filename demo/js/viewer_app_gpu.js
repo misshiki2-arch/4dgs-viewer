@@ -82,6 +82,7 @@ import {
 import { runGpuVisibleRecordDryRun } from './gpu_visible_record_dry_run_runtime.js';
 import { runGpuRawVisibleRecordDryRun } from './gpu_visible_record_raw_dry_run_runtime.js';
 import { runWebGpuVisibleRecordDryRun } from './webgpu_visible_record_dry_run_runtime.js';
+import { shouldUseWebGpuExclusiveFrameLifecycle } from './webgpu_exclusive_frame_lifecycle_switch.js';
 import {
   buildGpuCandidateShadowOptionsFromQuery,
   isGpuCandidateShadowCompareEnabled,
@@ -1945,6 +1946,20 @@ function resolveCandidateInfoForWebGpuDryRun({
     };
   }
   if (!gl || !raw || !camera || !buildConfig || !candidateArgs) {
+    if (
+      options.allowCpuReferenceCandidateFallback === true &&
+      raw &&
+      camera &&
+      buildConfig &&
+      candidateArgs
+    ) {
+      return {
+        candidateInfo: buildCandidateInfo(candidateArgs),
+        source: 'cpu-reference-candidate-fallback-for-webgpu-exclusive-lifecycle',
+        reason:
+          'WebGL2 frame lifecycle was suppressed for guarded webgpu-exclusive mode'
+      };
+    }
     return {
       candidateInfo: null,
       source: 'unavailable',
@@ -1996,13 +2011,36 @@ function resolveCandidateInfoForWebGpuDryRun({
 }
 
 async function captureWebGpuVisibleRecordDryRunDebug(options = {}) {
-  const ensureCurrentFrame = options.ensureCurrentFrame !== false;
-  const debugRender = ensureCurrentFrame || !latestRenderResult
-    ? await renderCurrentFrameForDebugPayload(options)
-    : {
+  const requestedWebGpuBackendMode =
+    options.webgpuBackendMode ??
+    deterministicQueryState.webgpuBackendMode ??
+    'webgl2-fallback';
+  const allowViewerCanvasPresentation =
+    options.webgpuAllowViewerCanvasPresentation === true ||
+    deterministicQueryState.webgpuAllowViewerCanvasPresentation === true;
+  const useExclusiveWebGpuFrameLifecycle = shouldUseWebGpuExclusiveFrameLifecycle({
+    requestedBackendMode: requestedWebGpuBackendMode,
+    allowViewerCanvasPresentation
+  });
+  const ensureCurrentFrame =
+    options.ensureCurrentFrame !== false && !useExclusiveWebGpuFrameLifecycle;
+  const debugRender = useExclusiveWebGpuFrameLifecycle
+    ? {
         renderResult: latestRenderResult,
-        attempts: [{ stage: 'reuse-latest-render-result' }]
-      };
+        attempts: [
+          {
+            stage: 'skip-webgl2-render-current-frame',
+            reason:
+              'guarded webgpu-exclusive mode suppresses WebGL2 frame lifecycle before WebGPU viewer canvas ownership'
+          }
+        ]
+      }
+    : ensureCurrentFrame || !latestRenderResult
+      ? await renderCurrentFrameForDebugPayload(options)
+      : {
+          renderResult: latestRenderResult,
+          attempts: [{ stage: 'reuse-latest-render-result' }]
+        };
   camera.updateMatrixWorld(true);
   const deterministicState = buildDeterministicStateSummary();
   const buildConfig = getVisibleBuildConfig(ui, buildRenderOverrides());
@@ -2021,8 +2059,17 @@ async function captureWebGpuVisibleRecordDryRunDebug(options = {}) {
     tileGrid,
     buildConfig,
     candidateArgs: buildCandidateComparisonArgs(options),
-    options
+    options: {
+      ...options,
+      allowCpuReferenceCandidateFallback: useExclusiveWebGpuFrameLifecycle
+    }
   });
+  const gpu = getGpu();
+  const viewerCanvasContextMode = gpu?.gl
+    ? 'webgl2-active'
+    : useExclusiveWebGpuFrameLifecycle
+      ? 'webgpu-exclusive-lifecycle-requested'
+      : 'unknown';
   return runWebGpuVisibleRecordDryRun({
     candidateInfo: candidateInput.candidateInfo,
     raw,
@@ -2038,14 +2085,10 @@ async function captureWebGpuVisibleRecordDryRunDebug(options = {}) {
     maxMismatches: Number.isFinite(options.maxMismatches) ? options.maxMismatches : 32,
     viewerCanvasState: {
       provided: true,
-      contextMode: getGpu()?.gl ? 'webgl2-active' : 'unknown',
-      requestedBackendMode:
-        options.webgpuBackendMode ??
-        deterministicQueryState.webgpuBackendMode ??
-        'webgl2-fallback',
-      allowViewerCanvasPresentation:
-        options.webgpuAllowViewerCanvasPresentation === true ||
-        deterministicQueryState.webgpuAllowViewerCanvasPresentation === true
+      contextMode: viewerCanvasContextMode,
+      requestedBackendMode: requestedWebGpuBackendMode,
+      allowViewerCanvasPresentation,
+      webgl2FrameLifecycleSuppressed: useExclusiveWebGpuFrameLifecycle
     },
     metadata: {
       comparisonMode: options.comparisonMode ?? 'webgpu-storage-buffer-compute-fixed-record-vs-cpu-fixed-record',
@@ -4325,6 +4368,20 @@ async function captureBlobFromCanvas(sourceCanvas, fileName, download) {
   return await captureCanvasPngBlob(sourceCanvas, fileName, download);
 }
 
+function isWebGpuExclusiveViewerLifecycleRequested(options = {}) {
+  const requestedBackendMode =
+    options.webgpuBackendMode ??
+    deterministicQueryState.webgpuBackendMode ??
+    'webgl2-fallback';
+  const allowViewerCanvasPresentation =
+    options.webgpuAllowViewerCanvasPresentation === true ||
+    deterministicQueryState.webgpuAllowViewerCanvasPresentation === true;
+  return shouldUseWebGpuExclusiveFrameLifecycle({
+    requestedBackendMode,
+    allowViewerCanvasPresentation
+  });
+}
+
 async function saveCurrentCanvasPng(options = {}) {
   const input = typeof options === 'string' ? { name: options } : (options ?? {});
   const download = input.download !== false;
@@ -4353,6 +4410,27 @@ async function saveCurrentCanvasPng(options = {}) {
 }
 
 async function renderCurrentFrame(options = {}) {
+  if (isWebGpuExclusiveViewerLifecycleRequested(options)) {
+    const renderResult = {
+      status: 'webgpu-exclusive-frame-lifecycle-pending',
+      reason:
+        'webgpu-exclusive mode owns the viewer canvas lifecycle; WebGL2 render frame is suppressed',
+      webgpuExclusiveFrameLifecyclePending: true,
+      drawPathSummary: {
+        requestedPath: 'webgpu-exclusive',
+        actualPath: 'webgpu-exclusive-pending'
+      },
+      executionSummary: {
+        backendMode: 'webgpu-exclusive',
+        webgl2FrameSuppressed: true,
+        displayConnectionImplemented: false
+      },
+      limitedDrawRuntimeSummary: null
+    };
+    latestRenderResult = renderResult;
+    latestGpuCandidateShadowCompare = null;
+    return renderResult;
+  }
   ensureGpu();
   const renderResult = await renderGpuFrame({
     raw,

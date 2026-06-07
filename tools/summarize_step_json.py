@@ -850,6 +850,14 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
         ["validationSummary"],
         {},
     )
+    webgpu_exclusive_frame_lifecycle_switch = get_path(
+        summary, ["webgpuExclusiveFrameLifecycleSwitch"], {}
+    )
+    exclusive_frame_lifecycle_validation = get_path(
+        webgpu_exclusive_frame_lifecycle_switch,
+        ["validationSummary"],
+        {},
+    )
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -3291,6 +3299,118 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             ),
             "nextBackendPrototypeStep": get_path(
                 webgpu_exclusive_canvas_handoff_readiness,
+                ["nextBackendPrototypeStep"],
+            ),
+        },
+        "webgpuExclusiveFrameLifecycleSwitch": {
+            "status": get_path(
+                webgpu_exclusive_frame_lifecycle_switch,
+                ["status"],
+            ),
+            "mode": get_path(
+                webgpu_exclusive_frame_lifecycle_switch,
+                ["mode"],
+            ),
+            "source": get_path(
+                webgpu_exclusive_frame_lifecycle_switch,
+                ["source"],
+            ),
+            "exclusiveFrameLifecycleSwitchImplemented": get_path(
+                webgpu_exclusive_frame_lifecycle_switch,
+                ["exclusiveFrameLifecycleSwitchImplemented"],
+            ),
+            "viewerCanvasLifecycleSwitchRequested": get_path(
+                webgpu_exclusive_frame_lifecycle_switch,
+                ["viewerCanvasLifecycleSwitchRequested"],
+            ),
+            "viewerCanvasLifecycleSwitched": get_path(
+                webgpu_exclusive_frame_lifecycle_switch,
+                ["viewerCanvasLifecycleSwitched"],
+            ),
+            "viewerCanvasCurrentTexturePathReady": get_path(
+                webgpu_exclusive_frame_lifecycle_switch,
+                ["viewerCanvasCurrentTexturePathReady"],
+            ),
+            "viewerCanvasPresentationImplemented": get_path(
+                webgpu_exclusive_frame_lifecycle_switch,
+                ["viewerCanvasPresentationImplemented"],
+            ),
+            "displayConnectionAllowed": get_path(
+                webgpu_exclusive_frame_lifecycle_switch,
+                ["displayConnectionAllowed"],
+            ),
+            "webgl2HybridRenderingAllowed": get_path(
+                webgpu_exclusive_frame_lifecycle_switch,
+                ["webgl2HybridRenderingAllowed"],
+            ),
+            "requestedBackendMode": get_path(
+                webgpu_exclusive_frame_lifecycle_switch,
+                ["requestedBackendMode"],
+            ),
+            "frameLifecycleContract": get_path(
+                webgpu_exclusive_frame_lifecycle_switch,
+                ["frameLifecycleContract"],
+                {},
+            ),
+            "viewerCanvasOwnershipContract": get_path(
+                webgpu_exclusive_frame_lifecycle_switch,
+                ["viewerCanvasOwnershipContract"],
+                {},
+            ),
+            "cameraProjectionContract": get_path(
+                webgpu_exclusive_frame_lifecycle_switch,
+                ["cameraProjectionContract"],
+                {},
+            ),
+            "shPolicy": get_path(
+                webgpu_exclusive_frame_lifecycle_switch,
+                ["shPolicy"],
+                {},
+            ),
+            "canvasPresentationAdapterValid": get_path(
+                exclusive_frame_lifecycle_validation,
+                ["canvasPresentationAdapterValid"],
+            ),
+            "exclusiveBackendModeRequested": get_path(
+                exclusive_frame_lifecycle_validation,
+                ["exclusiveBackendModeRequested"],
+            ),
+            "viewerCanvasPresentationGuardEnabled": get_path(
+                exclusive_frame_lifecycle_validation,
+                ["viewerCanvasPresentationGuardEnabled"],
+            ),
+            "viewerCanvasWebgl2Active": get_path(
+                exclusive_frame_lifecycle_validation,
+                ["viewerCanvasWebgl2Active"],
+            ),
+            "webgl2FrameLifecycleSuppressed": get_path(
+                exclusive_frame_lifecycle_validation,
+                ["webgl2FrameLifecycleSuppressed"],
+            ),
+            "webgl2HybridRenderingPrevented": get_path(
+                exclusive_frame_lifecycle_validation,
+                ["webgl2HybridRenderingPrevented"],
+            ),
+            "cameraProjectionContractUnchanged": get_path(
+                exclusive_frame_lifecycle_validation,
+                ["cameraProjectionContractUnchanged"],
+            ),
+            "firstValidationFailures": compact_list(
+                get_path(
+                    exclusive_frame_lifecycle_validation,
+                    ["firstValidationFailures"],
+                    [],
+                )
+            ),
+            "blockers": compact_list(
+                get_path(
+                    webgpu_exclusive_frame_lifecycle_switch,
+                    ["blockers"],
+                    [],
+                )
+            ),
+            "nextBackendPrototypeStep": get_path(
+                webgpu_exclusive_frame_lifecycle_switch,
                 ["nextBackendPrototypeStep"],
             ),
         },

@@ -58,6 +58,7 @@ import { buildWebGpuConstrainedDisplayAdapterDryRunComparison } from './webgpu_c
 import { buildWebGpuGuardedFirstDisplayExperiment } from './webgpu_guarded_first_display_experiment.js';
 import { buildWebGpuCanvasPresentationAdapterDryRunComparison } from './webgpu_canvas_presentation_adapter_dry_run.js';
 import { buildWebGpuExclusiveCanvasHandoffReadiness } from './webgpu_exclusive_canvas_handoff.js';
+import { buildWebGpuExclusiveFrameLifecycleSwitch } from './webgpu_exclusive_frame_lifecycle_switch.js';
 
 const DEFAULT_MAX_RECORDS = 65536;
 const DEFAULT_EPSILON = DEFAULT_COMPARISON_EPSILON;
@@ -2247,7 +2248,7 @@ async function runTileCountsCompute({ device, tileRanges, tileGrid }) {
   }
 
   const tileRangeCount = tileRanges.length;
-  const tileRangeData = new Uint32Array(Math.max(1, tileRangeCount * 4));
+  const tileRangeData = new Uint32Array(Math.max(4, tileRangeCount * 4));
   for (let i = 0; i < tileRangeCount; i += 1) {
     const tr = tileRanges[i] ?? [0, 0, 0, 0];
     const o = i * 4;
@@ -2627,7 +2628,7 @@ async function runTileIndicesScatterComparison({
   }
 
   const tileRangeCount = tileRanges.length;
-  const tileRangeData = new Uint32Array(Math.max(1, tileRangeCount * 4));
+  const tileRangeData = new Uint32Array(Math.max(4, tileRangeCount * 4));
   for (let i = 0; i < tileRangeCount; i += 1) {
     const tr = tileRanges[i] ?? [0, 0, 0, 0];
     const o = i * 4;
@@ -3833,6 +3834,12 @@ export async function runWebGpuVisibleRecordDryRun({
       webgpuCanvasPresentationAdapterDryRunComparison,
       viewerCanvasState
     });
+  const webgpuExclusiveFrameLifecycleSwitch =
+    buildWebGpuExclusiveFrameLifecycleSwitch({
+      webgpuCanvasPresentationAdapterDryRunComparison,
+      webgpuExclusiveCanvasHandoffReadiness,
+      viewerCanvasState
+    });
   const inputContract = createWebGpuInputBufferContract({
     candidateCount: cpuReference.candidateCount,
     recordCount: cpuReference.count,
@@ -3856,7 +3863,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step43 introduces an exclusive WebGPU backend canvas handoff guard, while keeping the existing WebGL2 viewer canvas unmodified.',
+    scaffoldNote: 'Phase 3 Step44 introduces an exclusive WebGPU frame lifecycle switch so the viewer canvas can move toward WebGPU ownership only under guarded webgpu-exclusive mode.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
@@ -3922,6 +3929,7 @@ export async function runWebGpuVisibleRecordDryRun({
     webgpuGuardedFirstDisplayExperiment,
     webgpuCanvasPresentationAdapterDryRunComparison,
     webgpuExclusiveCanvasHandoffReadiness,
+    webgpuExclusiveFrameLifecycleSwitch,
     inputContract,
     bufferContract: inputContract,
     inputBufferModes: inputContract.inputBufferModes,
@@ -3960,6 +3968,7 @@ export async function runWebGpuVisibleRecordDryRun({
       ...webgpuGuardedFirstDisplayExperiment.timing,
       ...webgpuCanvasPresentationAdapterDryRunComparison.timing,
       ...webgpuExclusiveCanvasHandoffReadiness.timing,
+      ...webgpuExclusiveFrameLifecycleSwitch.timing,
       ...computeResult.timing,
       compareMs,
       totalMs: nowMs() - totalStartMs
@@ -4018,6 +4027,7 @@ export async function runWebGpuVisibleRecordDryRun({
       webgpuGuardedFirstDisplayExperiment,
       webgpuCanvasPresentationAdapterDryRunComparison,
       webgpuExclusiveCanvasHandoffReadiness,
+      webgpuExclusiveFrameLifecycleSwitch,
       inputContract,
       bufferContract: inputContract,
       inputBufferModes: inputContract.inputBufferModes,

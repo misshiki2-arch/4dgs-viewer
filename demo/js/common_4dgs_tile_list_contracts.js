@@ -81,6 +81,8 @@ export const WEBGPU_TILE_LIST_COMPUTE_MODES = Object.freeze({
     'webgpu-canvas-presentation-adapter-dry-run-comparison',
   WEBGPU_EXCLUSIVE_CANVAS_HANDOFF_READINESS:
     'webgpu-exclusive-canvas-handoff-readiness',
+  WEBGPU_EXCLUSIVE_FRAME_LIFECYCLE_SWITCH:
+    'webgpu-exclusive-frame-lifecycle-switch',
   CPU_REFERENCE_TILE_LIST:
     'cpu-reference-tile-list-build'
 });
@@ -507,6 +509,20 @@ export function createWebGpuTileCountsOffsetsComparisonSurfaceContract({
         'supportedBackendModes include webgl2-fallback, webgpu-dry-run, and webgpu-exclusive',
         'viewerCanvasHandoffAllowed is false while WebGL2 owns the viewer canvas',
         'webgl2HybridRenderingAllowed remains false',
+        'camera/projection/control contracts remain unchanged'
+      ]
+    },
+    recommendedStep44Unit: {
+      name: 'webgpu-exclusive-frame-lifecycle-switch',
+      scope:
+        'Use the Step43 exclusive canvas handoff guard to suppress WebGL2 frame initialization only in webgpu-exclusive mode, move viewer canvas ownership toward WebGPU, and keep bounded first-present guarded for the next display experiment.',
+      computeMode:
+        WEBGPU_TILE_LIST_COMPUTE_MODES.WEBGPU_EXCLUSIVE_FRAME_LIFECYCLE_SWITCH,
+      successCriteria: [
+        'exclusiveFrameLifecycleSwitchImplemented is true',
+        'webgpu-exclusive mode is required before viewer canvas lifecycle switches to WebGPU',
+        'webgl2FrameLifecycleSuppressed is true only for guarded webgpu-exclusive mode',
+        'displayConnectionAllowed and webgl2HybridRenderingAllowed remain false',
         'camera/projection/control contracts remain unchanged'
       ]
     },
