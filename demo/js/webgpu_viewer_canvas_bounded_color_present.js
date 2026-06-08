@@ -121,7 +121,7 @@ function buildColorSamples({
     list: webgpuViewerCanvasBoundedColorSourceSelector?.selectedColorSamples,
     source: 'webgpuViewerCanvasBoundedColorSourceSelector.selectedColorSamples',
     colorSource: webgpuViewerCanvasBoundedColorSourceSelector?.selectedColorSource ??
-      'Step48 selected bounded color source',
+      'Step49 selected bounded color source',
     canvasWidth,
     canvasHeight
   });
@@ -437,7 +437,8 @@ fn fsMain(in: VertexOut) -> @location(0) vec4f {
       boundedOnly: true,
       clearOnly: false,
       colorSourcesAttempted: [
-        'Step48 bounded color source selector selected samples',
+        'Step49 bounded color source selector selected samples',
+        'Step49 native-compatible Step38-40 bounded samples',
         'Step40 constrained display adapter rgbaFloat samples',
         'Step39 render target handoff resolvedColor samples',
         'Step38 framebuffer-free tile output resolvedColor samples',

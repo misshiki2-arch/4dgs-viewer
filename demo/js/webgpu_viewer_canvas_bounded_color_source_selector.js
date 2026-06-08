@@ -117,12 +117,28 @@ function countSamples(value) {
 }
 
 export function buildWebGpuViewerCanvasBoundedColorSourceSelector({
+  webgpuViewerCanvasNativeBoundedColorSamples = null,
   webgpuConstrainedDisplayAdapterDryRunComparison = null,
   webgpuRenderTargetHandoffDryRunComparison = null,
   webgpuFramebufferFreeTileOutputDryRunComparison = null,
   webgpuRenderHandoffStub = null
 } = {}) {
   const startMs = nowMs();
+  const nativeBridgeStep40Samples = normalizeSelectedSamples({
+    list: webgpuViewerCanvasNativeBoundedColorSamples?.sampleTexturePixels,
+    source: 'webgpuViewerCanvasNativeBoundedColorSamples.sampleTexturePixels',
+    colorSource: 'Step49 native-compatible constrained display rgbaFloat sample'
+  });
+  const nativeBridgeStep39Samples = normalizeSelectedSamples({
+    list: webgpuViewerCanvasNativeBoundedColorSamples?.sampleRenderTargetPixels,
+    source: 'webgpuViewerCanvasNativeBoundedColorSamples.sampleRenderTargetPixels',
+    colorSource: 'Step49 native-compatible render target resolvedColor sample'
+  });
+  const nativeBridgeStep38Samples = normalizeSelectedSamples({
+    list: webgpuViewerCanvasNativeBoundedColorSamples?.sampleTileOutputs,
+    source: 'webgpuViewerCanvasNativeBoundedColorSamples.sampleTileOutputs',
+    colorSource: 'Step49 native-compatible framebuffer-free tile output sample'
+  });
   const step40Samples = normalizeSelectedSamples({
     list: webgpuConstrainedDisplayAdapterDryRunComparison?.sampleTexturePixels,
     source: 'webgpuConstrainedDisplayAdapterDryRunComparison.sampleTexturePixels',
@@ -153,6 +169,17 @@ export function buildWebGpuViewerCanvasBoundedColorSourceSelector({
         null
     },
     {
+      sourceKind: 'step40-constrained-display-adapter-native-bridge',
+      status: webgpuViewerCanvasNativeBoundedColorSamples?.status ?? null,
+      upstreamSampleCount: countSamples(webgpuViewerCanvasNativeBoundedColorSamples?.sampleTexturePixels),
+      normalizedSampleCount: nativeBridgeStep40Samples.length,
+      selectedSamples: nativeBridgeStep40Samples,
+      unavailableReason:
+        webgpuViewerCanvasNativeBoundedColorSamples?.validationSummary
+          ?.firstValidationFailures?.[0]?.reason ??
+        null
+    },
+    {
       sourceKind: 'step39-render-target-handoff',
       status: webgpuRenderTargetHandoffDryRunComparison?.status ?? null,
       upstreamSampleCount: countSamples(webgpuRenderTargetHandoffDryRunComparison?.sampleRenderTargetPixels),
@@ -163,6 +190,17 @@ export function buildWebGpuViewerCanvasBoundedColorSourceSelector({
         null
     },
     {
+      sourceKind: 'step39-render-target-handoff-native-bridge',
+      status: webgpuViewerCanvasNativeBoundedColorSamples?.status ?? null,
+      upstreamSampleCount: countSamples(webgpuViewerCanvasNativeBoundedColorSamples?.sampleRenderTargetPixels),
+      normalizedSampleCount: nativeBridgeStep39Samples.length,
+      selectedSamples: nativeBridgeStep39Samples,
+      unavailableReason:
+        webgpuViewerCanvasNativeBoundedColorSamples?.validationSummary
+          ?.firstValidationFailures?.[0]?.reason ??
+        null
+    },
+    {
       sourceKind: 'step38-framebuffer-free-tile-output',
       status: webgpuFramebufferFreeTileOutputDryRunComparison?.status ?? null,
       upstreamSampleCount: countSamples(webgpuFramebufferFreeTileOutputDryRunComparison?.sampleTileOutputs),
@@ -170,6 +208,17 @@ export function buildWebGpuViewerCanvasBoundedColorSourceSelector({
       selectedSamples: step38Samples,
       unavailableReason:
         webgpuFramebufferFreeTileOutputDryRunComparison?.firstMismatches?.[0]?.reason ??
+        null
+    },
+    {
+      sourceKind: 'step38-framebuffer-free-tile-output-native-bridge',
+      status: webgpuViewerCanvasNativeBoundedColorSamples?.status ?? null,
+      upstreamSampleCount: countSamples(webgpuViewerCanvasNativeBoundedColorSamples?.sampleTileOutputs),
+      normalizedSampleCount: nativeBridgeStep38Samples.length,
+      selectedSamples: nativeBridgeStep38Samples,
+      unavailableReason:
+        webgpuViewerCanvasNativeBoundedColorSamples?.validationSummary
+          ?.firstValidationFailures?.[0]?.reason ??
         null
     },
     {
@@ -191,7 +240,7 @@ export function buildWebGpuViewerCanvasBoundedColorSourceSelector({
     mode: WEBGPU_VIEWER_CANVAS_BOUNDED_COLOR_SOURCE_SELECTOR_MODE,
     status: boundedColorSourceReady ? 'ok' : 'unavailable',
     source:
-      'Step48 bounded viewer-canvas color source selector for tile/render-target/display samples',
+      'Step49 bounded viewer-canvas color source selector for native-compatible tile/render-target/display samples',
     boundedColorSourceSelectorImplemented: true,
     boundedColorSourceReady,
     selectedSourceKind: selectedCandidate?.sourceKind ?? null,
@@ -213,8 +262,11 @@ export function buildWebGpuViewerCanvasBoundedColorSourceSelector({
     })),
     sourceAvailability: {
       step40ConstrainedDisplayAdapterSamples: step40Samples.length,
+      step40NativeBridgeSamples: nativeBridgeStep40Samples.length,
       step39RenderTargetHandoffSamples: step39Samples.length,
+      step39NativeBridgeSamples: nativeBridgeStep39Samples.length,
       step38FramebufferFreeTileOutputSamples: step38Samples.length,
+      step38NativeBridgeSamples: nativeBridgeStep38Samples.length,
       renderHandoffDerivedRenderTargetSamples: derivedRenderTargetSamples.length
     },
     fallbackPolicy: {
@@ -223,14 +275,26 @@ export function buildWebGpuViewerCanvasBoundedColorSourceSelector({
       fallbackShape:
         'render-handoff samples are normalized into render-target-shaped bounded samples so viewer canvas color present can consume the same selected sample contract'
     },
+    nativeBridgePolicy: {
+      step49NativeBridgeEnabled:
+        webgpuViewerCanvasNativeBoundedColorSamples?.nativeBoundedSamplesBridgeImplemented === true,
+      originalStep38To40SamplesPreferred: true,
+      selectedNativeSourceKind:
+        webgpuViewerCanvasNativeBoundedColorSamples?.selectedNativeSourceKind ?? null,
+      generatedFromRenderHandoff:
+        webgpuViewerCanvasNativeBoundedColorSamples?.generatedFromRenderHandoff === true
+    },
     anyMismatch: !boundedColorSourceReady,
     mismatchClassification: boundedColorSourceReady
       ? 'none'
       : 'viewerCanvasBoundedColorSourceUnavailable',
     validationSummary: {
       step40SamplesAvailable: step40Samples.length > 0,
+      step40NativeBridgeSamplesAvailable: nativeBridgeStep40Samples.length > 0,
       step39SamplesAvailable: step39Samples.length > 0,
+      step39NativeBridgeSamplesAvailable: nativeBridgeStep39Samples.length > 0,
       step38SamplesAvailable: step38Samples.length > 0,
+      step38NativeBridgeSamplesAvailable: nativeBridgeStep38Samples.length > 0,
       renderHandoffFallbackAvailable: derivedRenderTargetSamples.length > 0,
       boundedColorSourceReady,
       selectedSourceKind: selectedCandidate?.sourceKind ?? null,
@@ -249,7 +313,7 @@ export function buildWebGpuViewerCanvasBoundedColorSourceSelector({
           {
             stage: 'tile-render-target-native-samples',
             reason:
-              'selector can prefer Step38-40 samples when available; current fallback remains reference-assisted render payload shaped as render-target samples'
+              'selector now prefers original Step38-40 samples, then Step49 native-compatible bridge samples, before using render-handoff-derived fallback'
           }
         ]
       : [
@@ -260,7 +324,7 @@ export function buildWebGpuViewerCanvasBoundedColorSourceSelector({
           }
         ],
     nextBackendPrototypeStep: boundedColorSourceReady
-      ? 'feed native Step38-40 tile/render-target samples into viewer canvas bounded color present when accumulation samples become available'
+      ? 'replace Step49 native-compatible bridge seed with true Step38-40 tile/render-target samples while keeping viewer canvas bounded color present contract stable'
       : 'restore bounded color source availability before expanding viewer canvas color output',
     timing: {
       viewerCanvasBoundedColorSourceSelectorMs: nowMs() - startMs

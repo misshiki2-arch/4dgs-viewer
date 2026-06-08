@@ -61,6 +61,7 @@ import { buildWebGpuExclusiveCanvasHandoffReadiness } from './webgpu_exclusive_c
 import { buildWebGpuExclusiveFrameLifecycleSwitch } from './webgpu_exclusive_frame_lifecycle_switch.js';
 import { buildWebGpuViewerCanvasCurrentTexturePathReadiness } from './webgpu_viewer_canvas_current_texture_path.js';
 import { buildWebGpuViewerCanvasBoundedFirstPresent } from './webgpu_viewer_canvas_bounded_first_present.js';
+import { buildWebGpuViewerCanvasNativeBoundedColorSamples } from './webgpu_viewer_canvas_native_bounded_color_samples.js';
 import { buildWebGpuViewerCanvasBoundedColorSourceSelector } from './webgpu_viewer_canvas_bounded_color_source_selector.js';
 import { buildWebGpuViewerCanvasBoundedColorPresent } from './webgpu_viewer_canvas_bounded_color_present.js';
 
@@ -3850,8 +3851,18 @@ export async function runWebGpuVisibleRecordDryRun({
       webgpuViewerCanvasCurrentTexturePath,
       webgpuRenderHandoffStub
     });
+  const webgpuViewerCanvasNativeBoundedColorSamples =
+    buildWebGpuViewerCanvasNativeBoundedColorSamples({
+      webgpuFramebufferFreeTileOutputDryRunComparison,
+      webgpuRenderTargetHandoffDryRunComparison,
+      webgpuConstrainedDisplayAdapterDryRunComparison,
+      webgpuRenderHandoffStub,
+      canvasWidth,
+      canvasHeight
+    });
   const webgpuViewerCanvasBoundedColorSourceSelector =
     buildWebGpuViewerCanvasBoundedColorSourceSelector({
+      webgpuViewerCanvasNativeBoundedColorSamples,
       webgpuConstrainedDisplayAdapterDryRunComparison,
       webgpuRenderTargetHandoffDryRunComparison,
       webgpuFramebufferFreeTileOutputDryRunComparison,
@@ -3899,7 +3910,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step48 selects bounded tile/render-target/display color sources before rendering them to the real viewer canvas under guarded webgpu-exclusive ownership.',
+    scaffoldNote: 'Phase 3 Step49 retains native-compatible Step38-40 bounded color samples in the same runtime before selector-driven viewer canvas bounded color present.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
@@ -3967,6 +3978,7 @@ export async function runWebGpuVisibleRecordDryRun({
     webgpuExclusiveCanvasHandoffReadiness,
     webgpuViewerCanvasCurrentTexturePath,
     webgpuViewerCanvasBoundedFirstPresent,
+    webgpuViewerCanvasNativeBoundedColorSamples,
     webgpuViewerCanvasBoundedColorSourceSelector,
     webgpuViewerCanvasBoundedColorPresent,
     webgpuExclusiveFrameLifecycleSwitch,
@@ -4010,6 +4022,7 @@ export async function runWebGpuVisibleRecordDryRun({
       ...webgpuExclusiveCanvasHandoffReadiness.timing,
       ...webgpuViewerCanvasCurrentTexturePath.timing,
       ...webgpuViewerCanvasBoundedFirstPresent.timing,
+      ...webgpuViewerCanvasNativeBoundedColorSamples.timing,
       ...webgpuViewerCanvasBoundedColorSourceSelector.timing,
       ...webgpuViewerCanvasBoundedColorPresent.timing,
       ...webgpuExclusiveFrameLifecycleSwitch.timing,
@@ -4073,6 +4086,7 @@ export async function runWebGpuVisibleRecordDryRun({
       webgpuExclusiveCanvasHandoffReadiness,
       webgpuViewerCanvasCurrentTexturePath,
       webgpuViewerCanvasBoundedFirstPresent,
+      webgpuViewerCanvasNativeBoundedColorSamples,
       webgpuViewerCanvasBoundedColorSourceSelector,
       webgpuViewerCanvasBoundedColorPresent,
       webgpuExclusiveFrameLifecycleSwitch,

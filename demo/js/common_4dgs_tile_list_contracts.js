@@ -87,6 +87,8 @@ export const WEBGPU_TILE_LIST_COMPUTE_MODES = Object.freeze({
     'webgpu-viewer-canvas-current-texture-path-readiness',
   WEBGPU_VIEWER_CANVAS_BOUNDED_FIRST_PRESENT:
     'webgpu-viewer-canvas-bounded-first-present',
+  WEBGPU_VIEWER_CANVAS_NATIVE_BOUNDED_COLOR_SAMPLES:
+    'webgpu-viewer-canvas-native-bounded-color-samples',
   WEBGPU_VIEWER_CANVAS_BOUNDED_COLOR_SOURCE_SELECTOR:
     'webgpu-viewer-canvas-bounded-color-source-selector',
   WEBGPU_VIEWER_CANVAS_BOUNDED_COLOR_PRESENT:

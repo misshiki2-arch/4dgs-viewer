@@ -874,6 +874,14 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
         ["validationSummary"],
         {},
     )
+    webgpu_viewer_canvas_native_bounded_color_samples = get_path(
+        summary, ["webgpuViewerCanvasNativeBoundedColorSamples"], {}
+    )
+    viewer_canvas_native_bounded_color_samples_validation = get_path(
+        webgpu_viewer_canvas_native_bounded_color_samples,
+        ["validationSummary"],
+        {},
+    )
     webgpu_viewer_canvas_bounded_color_source_selector = get_path(
         summary, ["webgpuViewerCanvasBoundedColorSourceSelector"], {}
     )
@@ -3713,6 +3721,101 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
                 ["nextBackendPrototypeStep"],
             ),
         },
+        "webgpuViewerCanvasNativeBoundedColorSamples": {
+            "status": get_path(
+                webgpu_viewer_canvas_native_bounded_color_samples,
+                ["status"],
+            ),
+            "mode": get_path(
+                webgpu_viewer_canvas_native_bounded_color_samples,
+                ["mode"],
+            ),
+            "source": get_path(
+                webgpu_viewer_canvas_native_bounded_color_samples,
+                ["source"],
+            ),
+            "nativeBoundedSamplesBridgeImplemented": get_path(
+                webgpu_viewer_canvas_native_bounded_color_samples,
+                ["nativeBoundedSamplesBridgeImplemented"],
+            ),
+            "nativeBoundedSamplesReady": get_path(
+                webgpu_viewer_canvas_native_bounded_color_samples,
+                ["nativeBoundedSamplesReady"],
+            ),
+            "selectedNativeSourceKind": get_path(
+                webgpu_viewer_canvas_native_bounded_color_samples,
+                ["selectedNativeSourceKind"],
+            ),
+            "bridgeSeedSourceKind": get_path(
+                webgpu_viewer_canvas_native_bounded_color_samples,
+                ["bridgeSeedSourceKind"],
+            ),
+            "generatedFromRenderHandoff": get_path(
+                webgpu_viewer_canvas_native_bounded_color_samples,
+                ["generatedFromRenderHandoff"],
+            ),
+            "sampleTileOutputCount": get_path(
+                webgpu_viewer_canvas_native_bounded_color_samples,
+                ["sampleTileOutputCount"],
+            ),
+            "sampleRenderTargetPixelCount": get_path(
+                webgpu_viewer_canvas_native_bounded_color_samples,
+                ["sampleRenderTargetPixelCount"],
+            ),
+            "sampleTexturePixelCount": get_path(
+                webgpu_viewer_canvas_native_bounded_color_samples,
+                ["sampleTexturePixelCount"],
+            ),
+            "sourceAvailabilityBeforeBridge": get_path(
+                webgpu_viewer_canvas_native_bounded_color_samples,
+                ["sourceAvailabilityBeforeBridge"],
+                {},
+            ),
+            "sourceAvailabilityAfterBridge": get_path(
+                webgpu_viewer_canvas_native_bounded_color_samples,
+                ["sourceAvailabilityAfterBridge"],
+                {},
+            ),
+            "nativeSamplePolicy": get_path(
+                webgpu_viewer_canvas_native_bounded_color_samples,
+                ["nativeSamplePolicy"],
+                {},
+            ),
+            "step40NativeSamplesReady": get_path(
+                viewer_canvas_native_bounded_color_samples_validation,
+                ["step40NativeSamplesReady"],
+            ),
+            "step39NativeSamplesReady": get_path(
+                viewer_canvas_native_bounded_color_samples_validation,
+                ["step39NativeSamplesReady"],
+            ),
+            "step38NativeSamplesReady": get_path(
+                viewer_canvas_native_bounded_color_samples_validation,
+                ["step38NativeSamplesReady"],
+            ),
+            "renderHandoffSeedAvailable": get_path(
+                viewer_canvas_native_bounded_color_samples_validation,
+                ["renderHandoffSeedAvailable"],
+            ),
+            "firstValidationFailures": compact_list(
+                get_path(
+                    viewer_canvas_native_bounded_color_samples_validation,
+                    ["firstValidationFailures"],
+                    [],
+                )
+            ),
+            "blockers": compact_list(
+                get_path(
+                    webgpu_viewer_canvas_native_bounded_color_samples,
+                    ["blockers"],
+                    [],
+                )
+            ),
+            "nextBackendPrototypeStep": get_path(
+                webgpu_viewer_canvas_native_bounded_color_samples,
+                ["nextBackendPrototypeStep"],
+            ),
+        },
         "webgpuViewerCanvasBoundedColorSourceSelector": {
             "status": get_path(
                 webgpu_viewer_canvas_bounded_color_source_selector,
@@ -3758,6 +3861,11 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
                 ["sourceAvailability"],
                 {},
             ),
+            "nativeBridgePolicy": get_path(
+                webgpu_viewer_canvas_bounded_color_source_selector,
+                ["nativeBridgePolicy"],
+                {},
+            ),
             "fallbackPolicy": get_path(
                 webgpu_viewer_canvas_bounded_color_source_selector,
                 ["fallbackPolicy"],
@@ -3767,13 +3875,25 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
                 viewer_canvas_bounded_color_source_selector_validation,
                 ["step40SamplesAvailable"],
             ),
+            "step40NativeBridgeSamplesAvailable": get_path(
+                viewer_canvas_bounded_color_source_selector_validation,
+                ["step40NativeBridgeSamplesAvailable"],
+            ),
             "step39SamplesAvailable": get_path(
                 viewer_canvas_bounded_color_source_selector_validation,
                 ["step39SamplesAvailable"],
             ),
+            "step39NativeBridgeSamplesAvailable": get_path(
+                viewer_canvas_bounded_color_source_selector_validation,
+                ["step39NativeBridgeSamplesAvailable"],
+            ),
             "step38SamplesAvailable": get_path(
                 viewer_canvas_bounded_color_source_selector_validation,
                 ["step38SamplesAvailable"],
+            ),
+            "step38NativeBridgeSamplesAvailable": get_path(
+                viewer_canvas_bounded_color_source_selector_validation,
+                ["step38NativeBridgeSamplesAvailable"],
             ),
             "renderHandoffFallbackAvailable": get_path(
                 viewer_canvas_bounded_color_source_selector_validation,

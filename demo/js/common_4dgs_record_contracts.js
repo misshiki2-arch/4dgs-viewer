@@ -4,10 +4,10 @@ export const WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION =
 export const WEBGPU_VISIBLE_RECORD_COMPUTE_MODE =
   'webgpu-storage-buffer-compute-fixed-record';
 
-export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step48';
+export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step49';
 
 export const WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE =
-  'wgsl-valid-screen-projection-with-viewer-canvas-bounded-color-source-selector';
+  'wgsl-valid-screen-projection-with-viewer-canvas-native-bounded-color-samples';
 
 export const WEBGPU_RADIUS_FIELD_COMPUTE_MODE =
   'deferred-covariance-conic-dependent';
@@ -110,6 +110,9 @@ export const WEBGPU_VIEWER_CANVAS_CURRENT_TEXTURE_PATH_COMPUTE_MODE =
 
 export const WEBGPU_VIEWER_CANVAS_BOUNDED_FIRST_PRESENT_COMPUTE_MODE =
   'webgpu-viewer-canvas-bounded-first-present';
+
+export const WEBGPU_VIEWER_CANVAS_NATIVE_BOUNDED_COLOR_SAMPLES_COMPUTE_MODE =
+  'webgpu-viewer-canvas-native-bounded-color-samples';
 
 export const WEBGPU_VIEWER_CANVAS_BOUNDED_COLOR_PRESENT_COMPUTE_MODE =
   'webgpu-viewer-canvas-bounded-color-present';
