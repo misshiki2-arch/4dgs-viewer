@@ -4,10 +4,10 @@ export const WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION =
 export const WEBGPU_VISIBLE_RECORD_COMPUTE_MODE =
   'webgpu-storage-buffer-compute-fixed-record';
 
-export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step47';
+export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step48';
 
 export const WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE =
-  'wgsl-valid-screen-projection-with-viewer-canvas-bounded-color-present';
+  'wgsl-valid-screen-projection-with-viewer-canvas-bounded-color-source-selector';
 
 export const WEBGPU_RADIUS_FIELD_COMPUTE_MODE =
   'deferred-covariance-conic-dependent';
@@ -113,6 +113,9 @@ export const WEBGPU_VIEWER_CANVAS_BOUNDED_FIRST_PRESENT_COMPUTE_MODE =
 
 export const WEBGPU_VIEWER_CANVAS_BOUNDED_COLOR_PRESENT_COMPUTE_MODE =
   'webgpu-viewer-canvas-bounded-color-present';
+
+export const WEBGPU_VIEWER_CANVAS_BOUNDED_COLOR_SOURCE_SELECTOR_COMPUTE_MODE =
+  'webgpu-viewer-canvas-bounded-color-source-selector';
 
 export {
   WEBGPU_PROJECTION_CONTRACT_NAMES,
@@ -223,6 +226,8 @@ export const WEBGPU_VISIBLE_RECORD_FIELD_COMPUTE_MODES = Object.freeze({
     WEBGPU_VIEWER_CANVAS_CURRENT_TEXTURE_PATH_COMPUTE_MODE,
   webgpuViewerCanvasBoundedFirstPresent:
     WEBGPU_VIEWER_CANVAS_BOUNDED_FIRST_PRESENT_COMPUTE_MODE,
+  webgpuViewerCanvasBoundedColorSourceSelector:
+    WEBGPU_VIEWER_CANVAS_BOUNDED_COLOR_SOURCE_SELECTOR_COMPUTE_MODE,
   webgpuViewerCanvasBoundedColorPresent:
     WEBGPU_VIEWER_CANVAS_BOUNDED_COLOR_PRESENT_COMPUTE_MODE
 });

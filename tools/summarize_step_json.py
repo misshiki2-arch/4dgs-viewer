@@ -874,6 +874,14 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
         ["validationSummary"],
         {},
     )
+    webgpu_viewer_canvas_bounded_color_source_selector = get_path(
+        summary, ["webgpuViewerCanvasBoundedColorSourceSelector"], {}
+    )
+    viewer_canvas_bounded_color_source_selector_validation = get_path(
+        webgpu_viewer_canvas_bounded_color_source_selector,
+        ["validationSummary"],
+        {},
+    )
     webgpu_viewer_canvas_bounded_color_present = get_path(
         summary, ["webgpuViewerCanvasBoundedColorPresent"], {}
     )
@@ -3702,6 +3710,91 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             ),
             "nextBackendPrototypeStep": get_path(
                 webgpu_viewer_canvas_bounded_first_present,
+                ["nextBackendPrototypeStep"],
+            ),
+        },
+        "webgpuViewerCanvasBoundedColorSourceSelector": {
+            "status": get_path(
+                webgpu_viewer_canvas_bounded_color_source_selector,
+                ["status"],
+            ),
+            "mode": get_path(
+                webgpu_viewer_canvas_bounded_color_source_selector,
+                ["mode"],
+            ),
+            "source": get_path(
+                webgpu_viewer_canvas_bounded_color_source_selector,
+                ["source"],
+            ),
+            "boundedColorSourceSelectorImplemented": get_path(
+                webgpu_viewer_canvas_bounded_color_source_selector,
+                ["boundedColorSourceSelectorImplemented"],
+            ),
+            "boundedColorSourceReady": get_path(
+                webgpu_viewer_canvas_bounded_color_source_selector,
+                ["boundedColorSourceReady"],
+            ),
+            "selectedSourceKind": get_path(
+                webgpu_viewer_canvas_bounded_color_source_selector,
+                ["selectedSourceKind"],
+            ),
+            "selectedColorSource": get_path(
+                webgpu_viewer_canvas_bounded_color_source_selector,
+                ["selectedColorSource"],
+            ),
+            "selectedSampleCount": get_path(
+                webgpu_viewer_canvas_bounded_color_source_selector,
+                ["selectedSampleCount"],
+            ),
+            "sourcePriority": compact_list(
+                get_path(
+                    webgpu_viewer_canvas_bounded_color_source_selector,
+                    ["sourcePriority"],
+                    [],
+                )
+            ),
+            "sourceAvailability": get_path(
+                webgpu_viewer_canvas_bounded_color_source_selector,
+                ["sourceAvailability"],
+                {},
+            ),
+            "fallbackPolicy": get_path(
+                webgpu_viewer_canvas_bounded_color_source_selector,
+                ["fallbackPolicy"],
+                {},
+            ),
+            "step40SamplesAvailable": get_path(
+                viewer_canvas_bounded_color_source_selector_validation,
+                ["step40SamplesAvailable"],
+            ),
+            "step39SamplesAvailable": get_path(
+                viewer_canvas_bounded_color_source_selector_validation,
+                ["step39SamplesAvailable"],
+            ),
+            "step38SamplesAvailable": get_path(
+                viewer_canvas_bounded_color_source_selector_validation,
+                ["step38SamplesAvailable"],
+            ),
+            "renderHandoffFallbackAvailable": get_path(
+                viewer_canvas_bounded_color_source_selector_validation,
+                ["renderHandoffFallbackAvailable"],
+            ),
+            "firstValidationFailures": compact_list(
+                get_path(
+                    viewer_canvas_bounded_color_source_selector_validation,
+                    ["firstValidationFailures"],
+                    [],
+                )
+            ),
+            "blockers": compact_list(
+                get_path(
+                    webgpu_viewer_canvas_bounded_color_source_selector,
+                    ["blockers"],
+                    [],
+                )
+            ),
+            "nextBackendPrototypeStep": get_path(
+                webgpu_viewer_canvas_bounded_color_source_selector,
                 ["nextBackendPrototypeStep"],
             ),
         },

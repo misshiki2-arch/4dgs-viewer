@@ -91,8 +91,8 @@ function pushSamplesFromList({
     const x = Number.isFinite(samplePx.x) ? samplePx.x : 32 + samples.length * 24;
     const y = Number.isFinite(samplePx.y) ? samplePx.y : 32 + samples.length * 24;
     samples.push({
-      source,
-      colorSource,
+      source: sample?.source ?? source,
+      colorSource: sample?.colorSource ?? colorSource,
       recordIndex: sample?.recordIndex ?? sample?.anchorRecordIndex ?? null,
       sampleKind: sample?.sampleKind ?? null,
       srcIndex: sample?.srcIndex ?? null,
@@ -107,6 +107,7 @@ function pushSamplesFromList({
 }
 
 function buildColorSamples({
+  webgpuViewerCanvasBoundedColorSourceSelector,
   webgpuConstrainedDisplayAdapterDryRunComparison,
   webgpuRenderTargetHandoffDryRunComparison,
   webgpuFramebufferFreeTileOutputDryRunComparison,
@@ -115,6 +116,15 @@ function buildColorSamples({
   canvasHeight
 }) {
   const samples = [];
+  pushSamplesFromList({
+    samples,
+    list: webgpuViewerCanvasBoundedColorSourceSelector?.selectedColorSamples,
+    source: 'webgpuViewerCanvasBoundedColorSourceSelector.selectedColorSamples',
+    colorSource: webgpuViewerCanvasBoundedColorSourceSelector?.selectedColorSource ??
+      'Step48 selected bounded color source',
+    canvasWidth,
+    canvasHeight
+  });
   pushSamplesFromList({
     samples,
     list: webgpuConstrainedDisplayAdapterDryRunComparison?.sampleTexturePixels,
@@ -219,6 +229,7 @@ export async function buildWebGpuViewerCanvasBoundedColorPresent({
   viewerCanvasState = null,
   webgpuViewerCanvasCurrentTexturePath = null,
   webgpuViewerCanvasBoundedFirstPresent = null,
+  webgpuViewerCanvasBoundedColorSourceSelector = null,
   webgpuRenderHandoffStub = null,
   webgpuFramebufferFreeTileOutputDryRunComparison = null,
   webgpuRenderTargetHandoffDryRunComparison = null,
@@ -257,6 +268,7 @@ export async function buildWebGpuViewerCanvasBoundedColorPresent({
   const width = Math.max(1, Math.round(canvas?.width ?? canvas?.clientWidth ?? 1));
   const height = Math.max(1, Math.round(canvas?.height ?? canvas?.clientHeight ?? 1));
   const colorSamples = buildColorSamples({
+    webgpuViewerCanvasBoundedColorSourceSelector,
     webgpuConstrainedDisplayAdapterDryRunComparison,
     webgpuRenderTargetHandoffDryRunComparison,
     webgpuFramebufferFreeTileOutputDryRunComparison,
@@ -425,11 +437,16 @@ fn fsMain(in: VertexOut) -> @location(0) vec4f {
       boundedOnly: true,
       clearOnly: false,
       colorSourcesAttempted: [
+        'Step48 bounded color source selector selected samples',
         'Step40 constrained display adapter rgbaFloat samples',
         'Step39 render target handoff resolvedColor samples',
         'Step38 framebuffer-free tile output resolvedColor samples',
         'reference-assisted render payload colorAlpha.rgb samples'
       ],
+      selectorSourceKind:
+        webgpuViewerCanvasBoundedColorSourceSelector?.selectedSourceKind ?? null,
+      selectorSampleCount:
+        webgpuViewerCanvasBoundedColorSourceSelector?.selectedSampleCount ?? null,
       selectedColorSource: colorSamples[0]?.colorSource ?? null,
       sampleSources: [...new Set(colorSamples.map((sample) => sample.source))],
       presentedSamples: colorSamples,
