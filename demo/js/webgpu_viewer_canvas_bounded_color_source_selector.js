@@ -1,7 +1,13 @@
+import {
+  DEFAULT_MAX_BOUNDED_COLOR_SAMPLES,
+  colorToRgbaFloatArray,
+  normalizeBoundedColorSamples
+} from './common_4dgs_sample_contracts.js';
+
 export const WEBGPU_VIEWER_CANVAS_BOUNDED_COLOR_SOURCE_SELECTOR_MODE =
   'webgpu-viewer-canvas-bounded-color-source-selector';
 
-const MAX_SELECTED_SAMPLES = 8;
+const MAX_SELECTED_SAMPLES = DEFAULT_MAX_BOUNDED_COLOR_SAMPLES;
 
 function nowMs() {
   return typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -9,79 +15,15 @@ function nowMs() {
     : Date.now();
 }
 
-function clamp01(value, fallback) {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return fallback;
-  return Math.min(1, Math.max(0, n));
-}
-
-function normalizeColorArray(value) {
-  if (!Array.isArray(value) && !(value instanceof Float32Array)) return null;
-  if (value.length < 3) return null;
-  return {
-    r: clamp01(value[0], 0),
-    g: clamp01(value[1], 0),
-    b: clamp01(value[2], 0),
-    a: clamp01(value.length >= 4 ? value[3] : 1, 1)
-  };
-}
-
-function colorToArray(color) {
-  return [color.r, color.g, color.b, color.a];
-}
-
-function colorFromSample(sample) {
-  return (
-    normalizeColorArray(sample?.actual?.rgbaFloat) ??
-    normalizeColorArray(sample?.expected?.rgbaFloat) ??
-    normalizeColorArray(sample?.actual?.resolvedColor) ??
-    normalizeColorArray(sample?.expected?.resolvedColor) ??
-    normalizeColorArray(sample?.actual?.colorAlpha) ??
-    normalizeColorArray(sample?.expected?.colorAlpha) ??
-    normalizeColorArray(sample?.colorAlpha) ??
-    normalizeColorArray(sample?.payload?.colorAlpha) ??
-    normalizeColorArray(sample?.referenceAssisted?.colorAlpha) ??
-    normalizeColorArray(sample?.renderPayload?.colorAlpha)
-  );
-}
-
-function samplePxFromSample(sample, fallbackIndex) {
-  const px =
-    sample?.pixel ??
-    sample?.samplePx ??
-    sample?.actual?.pixel ??
-    sample?.expected?.pixel ??
-    sample?.centerPx;
-  if (Array.isArray(px) && px.length >= 2) {
-    return { x: Number(px[0]), y: Number(px[1]) };
-  }
-  if (px && typeof px === 'object') {
-    return { x: Number(px.x ?? px[0]), y: Number(px.y ?? px[1]) };
-  }
-  const offset = fallbackIndex * 24;
-  return { x: 32 + offset, y: 32 + offset };
-}
-
 function normalizeSelectedSamples({ list, source, colorSource }) {
-  const samples = [];
-  if (!Array.isArray(list)) return samples;
-  for (const sample of list) {
-    if (samples.length >= MAX_SELECTED_SAMPLES) break;
-    const color = colorFromSample(sample);
-    if (!color) continue;
-    samples.push({
-      source,
-      colorSource,
-      recordIndex: sample?.recordIndex ?? sample?.anchorRecordIndex ?? null,
-      sampleKind: sample?.sampleKind ?? null,
-      srcIndex: sample?.srcIndex ?? null,
-      valid: sample?.valid ?? null,
-      samplePx: samplePxFromSample(sample, samples.length),
-      colorAlpha: color,
-      upstreamSample: sample
-    });
-  }
-  return samples;
+  return normalizeBoundedColorSamples({
+    list,
+    source,
+    colorSource,
+    maxSamples: MAX_SELECTED_SAMPLES,
+    preserveSampleSource: false,
+    includeUpstreamSample: true
+  });
 }
 
 function buildRenderTargetSamplesFromRenderHandoff(webgpuRenderHandoffStub) {
@@ -100,12 +42,12 @@ function buildRenderTargetSamplesFromRenderHandoff(webgpuRenderHandoffStub) {
     samplePx: sample.samplePx,
     colorAlpha: sample.colorAlpha,
     expected: {
-      rgbaFloat: colorToArray(sample.colorAlpha),
-      resolvedColor: colorToArray(sample.colorAlpha)
+      rgbaFloat: colorToRgbaFloatArray(sample.colorAlpha),
+      resolvedColor: colorToRgbaFloatArray(sample.colorAlpha)
     },
     actual: {
-      rgbaFloat: colorToArray(sample.colorAlpha),
-      resolvedColor: colorToArray(sample.colorAlpha)
+      rgbaFloat: colorToRgbaFloatArray(sample.colorAlpha),
+      resolvedColor: colorToRgbaFloatArray(sample.colorAlpha)
     },
     derivation:
       'shapes Step32 reference-assisted render payload colorAlpha.rgb as a bounded render-target sample when Step38-40 samples are unavailable'

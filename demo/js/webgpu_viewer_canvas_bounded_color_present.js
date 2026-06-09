@@ -5,12 +5,17 @@ import {
   WEBGPU_BACKEND_MODE_VALUES,
   normalizeWebGpuBackendMode
 } from './webgpu_exclusive_canvas_handoff.js';
+import {
+  DEFAULT_MAX_BOUNDED_COLOR_SAMPLES,
+  normalizeBoundedColorSamples,
+  summarizeBoundedColorSampleContract
+} from './common_4dgs_sample_contracts.js';
 
 export const WEBGPU_VIEWER_CANVAS_BOUNDED_COLOR_PRESENT_MODE =
   'webgpu-viewer-canvas-bounded-color-present';
 
 const VERTEX_FLOATS = 6;
-const MAX_PRESENT_SAMPLES = 8;
+const MAX_PRESENT_SAMPLES = DEFAULT_MAX_BOUNDED_COLOR_SAMPLES;
 
 function nowMs() {
   return typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -18,84 +23,10 @@ function nowMs() {
     : Date.now();
 }
 
-function clamp01(value, fallback) {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return fallback;
-  return Math.min(1, Math.max(0, n));
-}
-
 function normalizeCanvasFormat(format) {
   return format === 'bgra8unorm' || format === 'rgba8unorm'
     ? format
     : 'rgba8unorm';
-}
-
-function normalizeColorArray(value) {
-  if (!Array.isArray(value) && !(value instanceof Float32Array)) return null;
-  if (value.length < 3) return null;
-  const a = value.length >= 4 ? value[3] : 1;
-  return {
-    r: clamp01(value[0], 0),
-    g: clamp01(value[1], 0),
-    b: clamp01(value[2], 0),
-    a: clamp01(a, 1)
-  };
-}
-
-function normalizeColorObject(value) {
-  if (!value || typeof value !== 'object') return null;
-  const r = value.r ?? value.red;
-  const g = value.g ?? value.green;
-  const b = value.b ?? value.blue;
-  if (!Number.isFinite(Number(r)) || !Number.isFinite(Number(g)) || !Number.isFinite(Number(b))) {
-    return null;
-  }
-  return {
-    r: clamp01(r, 0),
-    g: clamp01(g, 0),
-    b: clamp01(b, 0),
-    a: clamp01(value.a ?? value.alpha ?? 1, 1)
-  };
-}
-
-function normalizeColorValue(value) {
-  return normalizeColorArray(value) ?? normalizeColorObject(value);
-}
-
-function colorFromSample(sample) {
-  return (
-    normalizeColorValue(sample?.actual?.rgbaFloat) ??
-    normalizeColorValue(sample?.expected?.rgbaFloat) ??
-    normalizeColorValue(sample?.actual?.resolvedColor) ??
-    normalizeColorValue(sample?.expected?.resolvedColor) ??
-    normalizeColorValue(sample?.actual?.colorAlpha) ??
-    normalizeColorValue(sample?.expected?.colorAlpha) ??
-    normalizeColorValue(sample?.colorAlpha) ??
-    normalizeColorValue(sample?.upstreamSample?.actual?.rgbaFloat) ??
-    normalizeColorValue(sample?.upstreamSample?.expected?.rgbaFloat) ??
-    normalizeColorValue(sample?.upstreamSample?.actual?.colorAlpha) ??
-    normalizeColorValue(sample?.upstreamSample?.expected?.colorAlpha) ??
-    normalizeColorValue(sample?.payload?.colorAlpha) ??
-    normalizeColorValue(sample?.referenceAssisted?.colorAlpha) ??
-    normalizeColorValue(sample?.renderPayload?.colorAlpha)
-  );
-}
-
-function samplePxFromSample(sample, fallbackIndex) {
-  const px =
-    sample?.pixel ??
-    sample?.samplePx ??
-    sample?.actual?.pixel ??
-    sample?.expected?.pixel ??
-    sample?.centerPx;
-  if (Array.isArray(px) && px.length >= 2) {
-    return { x: Number(px[0]), y: Number(px[1]) };
-  }
-  if (px && typeof px === 'object') {
-    return { x: Number(px.x ?? px[0]), y: Number(px.y ?? px[1]) };
-  }
-  const offset = fallbackIndex * 24;
-  return { x: 32 + offset, y: 32 + offset };
 }
 
 function pushSamplesFromList({
@@ -106,26 +37,26 @@ function pushSamplesFromList({
   canvasWidth,
   canvasHeight
 }) {
-  if (!Array.isArray(list)) return;
-  for (const sample of list) {
-    if (samples.length >= MAX_PRESENT_SAMPLES) return;
-    const color = colorFromSample(sample);
-    if (!color) continue;
-    const samplePx = samplePxFromSample(sample, samples.length);
+  const remaining = Math.max(0, MAX_PRESENT_SAMPLES - samples.length);
+  const normalizedSamples = normalizeBoundedColorSamples({
+    list,
+    source,
+    colorSource,
+    maxSamples: remaining,
+    preserveSampleSource: true,
+    includeUpstreamSample: false,
+    fallbackIndexOffset: samples.length
+  });
+  for (const sample of normalizedSamples) {
+    const samplePx = sample.samplePx;
     const x = Number.isFinite(samplePx.x) ? samplePx.x : 32 + samples.length * 24;
     const y = Number.isFinite(samplePx.y) ? samplePx.y : 32 + samples.length * 24;
     samples.push({
-      source: sample?.source ?? source,
-      colorSource: sample?.colorSource ?? colorSource,
-      recordIndex: sample?.recordIndex ?? sample?.anchorRecordIndex ?? null,
-      sampleKind: sample?.sampleKind ?? null,
-      srcIndex: sample?.srcIndex ?? null,
-      valid: sample?.valid ?? null,
+      ...sample,
       samplePx: {
         x: Math.min(Math.max(0, x), Math.max(0, canvasWidth - 1)),
         y: Math.min(Math.max(0, y), Math.max(0, canvasHeight - 1))
-      },
-      colorAlpha: color
+      }
     });
   }
 }
@@ -160,6 +91,13 @@ function buildColorSamples({
     canvasWidth,
     canvasHeight
   });
+  const selectorSampleContract = summarizeBoundedColorSampleContract({
+    rawSampleCount: selectorSelectedRawSampleCount,
+    presentableSamples: samples,
+    selectionMode: 'selector-selected-samples',
+    fallbackAllowed: false,
+    fallbackSuppressedBySelectorSamples: true
+  });
   if (selectorSelectedRawSampleCount > 0) {
     return {
       samples,
@@ -167,6 +105,7 @@ function buildColorSamples({
       selectorSelectedSamplesUsed: true,
       selectorSelectedRawSampleCount,
       selectorPresentableSampleCount: samples.length,
+      sampleContract: selectorSampleContract,
       fallbackAllowed: false,
       fallbackSuppressedBySelectorSamples: true,
       fallbackCandidateSources
@@ -204,12 +143,20 @@ function buildColorSamples({
     canvasWidth,
     canvasHeight
   });
+  const fallbackSampleContract = summarizeBoundedColorSampleContract({
+    rawSampleCount: samples.length,
+    presentableSamples: samples,
+    selectionMode: 'fallback-source-scan',
+    fallbackAllowed: true,
+    fallbackSuppressedBySelectorSamples: false
+  });
   return {
     samples,
     selectionMode: 'fallback-source-scan',
     selectorSelectedSamplesUsed: false,
     selectorSelectedRawSampleCount,
     selectorPresentableSampleCount: 0,
+    sampleContract: fallbackSampleContract,
     fallbackAllowed: true,
     fallbackSuppressedBySelectorSamples: false,
     fallbackCandidateSources
@@ -517,6 +464,7 @@ fn fsMain(in: VertexOut) -> @location(0) vec4f {
       fallbackSuppressedBySelectorSamples:
         colorSampleSelection.fallbackSuppressedBySelectorSamples,
       fallbackCandidateSources: colorSampleSelection.fallbackCandidateSources,
+      sampleContract: colorSampleSelection.sampleContract,
       selectedColorSource: colorSamples[0]?.colorSource ?? null,
       sampleSources: [...new Set(colorSamples.map((sample) => sample.source))],
       presentedSamples: colorSamples,
