@@ -1,5 +1,5 @@
 export const WEBGPU_BOUNDED_COLOR_SAMPLE_CONTRACT_VERSION =
-  'phase3-step51-bounded-color-sample-contract-v1';
+  'phase3-step53-bounded-color-sample-contract-v2';
 
 export const DEFAULT_MAX_BOUNDED_COLOR_SAMPLES = 8;
 
@@ -59,11 +59,17 @@ export function colorFromBoundedSample(sample) {
     normalizeBoundedColorValue(sample?.expected?.rgbaFloat) ??
     normalizeBoundedColorValue(sample?.actual?.resolvedColor) ??
     normalizeBoundedColorValue(sample?.expected?.resolvedColor) ??
+    normalizeBoundedColorValue(sample?.actual?.resolvedRgb) ??
+    normalizeBoundedColorValue(sample?.expected?.resolvedRgb) ??
     normalizeBoundedColorValue(sample?.actual?.colorAlpha) ??
     normalizeBoundedColorValue(sample?.expected?.colorAlpha) ??
     normalizeBoundedColorValue(sample?.colorAlpha) ??
     normalizeBoundedColorValue(sample?.upstreamSample?.actual?.rgbaFloat) ??
     normalizeBoundedColorValue(sample?.upstreamSample?.expected?.rgbaFloat) ??
+    normalizeBoundedColorValue(sample?.upstreamSample?.actual?.resolvedColor) ??
+    normalizeBoundedColorValue(sample?.upstreamSample?.expected?.resolvedColor) ??
+    normalizeBoundedColorValue(sample?.upstreamSample?.actual?.resolvedRgb) ??
+    normalizeBoundedColorValue(sample?.upstreamSample?.expected?.resolvedRgb) ??
     normalizeBoundedColorValue(sample?.upstreamSample?.actual?.colorAlpha) ??
     normalizeBoundedColorValue(sample?.upstreamSample?.expected?.colorAlpha) ??
     normalizeBoundedColorValue(sample?.payload?.colorAlpha) ??

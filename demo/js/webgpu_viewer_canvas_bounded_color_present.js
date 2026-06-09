@@ -123,7 +123,7 @@ function buildColorSamples({
     samples,
     list: webgpuRenderTargetHandoffDryRunComparison?.sampleRenderTargetPixels,
     source: 'webgpuRenderTargetHandoffDryRunComparison.sampleRenderTargetPixels',
-    colorSource: 'Step39 render target handoff resolvedColor sample',
+    colorSource: 'Step39 render target handoff resolvedRgb sample',
     canvasWidth,
     canvasHeight
   });
@@ -131,7 +131,7 @@ function buildColorSamples({
     samples,
     list: webgpuFramebufferFreeTileOutputDryRunComparison?.sampleTileOutputs,
     source: 'webgpuFramebufferFreeTileOutputDryRunComparison.sampleTileOutputs',
-    colorSource: 'Step38 framebuffer-free tile output resolvedColor sample',
+    colorSource: 'Step38 framebuffer-free tile output resolvedRgb sample',
     canvasWidth,
     canvasHeight
   });
@@ -445,8 +445,8 @@ fn fsMain(in: VertexOut) -> @location(0) vec4f {
         'Step50 true native Step38-40 bounded samples',
         'Step50 native-compatible Step38-40 bounded bridge samples',
         'Step40 constrained display adapter rgbaFloat samples',
-        'Step39 render target handoff resolvedColor samples',
-        'Step38 framebuffer-free tile output resolvedColor samples',
+        'Step39 render target handoff resolvedRgb samples',
+        'Step38 framebuffer-free tile output resolvedRgb samples',
         'reference-assisted render payload colorAlpha.rgb samples'
       ],
       selectorSourceKind:

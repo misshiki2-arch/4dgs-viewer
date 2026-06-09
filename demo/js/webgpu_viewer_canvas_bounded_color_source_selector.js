@@ -74,12 +74,12 @@ export function buildWebGpuViewerCanvasBoundedColorSourceSelector({
   const nativeBridgeStep39Samples = normalizeSelectedSamples({
     list: webgpuViewerCanvasNativeBoundedColorSamples?.sampleRenderTargetPixels,
     source: 'webgpuViewerCanvasNativeBoundedColorSamples.sampleRenderTargetPixels',
-    colorSource: 'Step50 native-compatible render target resolvedColor sample'
+    colorSource: 'Step53 native-compatible render target resolvedRgb sample'
   });
   const nativeBridgeStep38Samples = normalizeSelectedSamples({
     list: webgpuViewerCanvasNativeBoundedColorSamples?.sampleTileOutputs,
     source: 'webgpuViewerCanvasNativeBoundedColorSamples.sampleTileOutputs',
-    colorSource: 'Step50 native-compatible framebuffer-free tile output sample'
+    colorSource: 'Step53 native-compatible framebuffer-free tile output resolvedRgb sample'
   });
   const step40Samples = normalizeSelectedSamples({
     list: webgpuConstrainedDisplayAdapterDryRunComparison?.sampleTexturePixels,
@@ -89,12 +89,12 @@ export function buildWebGpuViewerCanvasBoundedColorSourceSelector({
   const step39Samples = normalizeSelectedSamples({
     list: webgpuRenderTargetHandoffDryRunComparison?.sampleRenderTargetPixels,
     source: 'webgpuRenderTargetHandoffDryRunComparison.sampleRenderTargetPixels',
-    colorSource: 'Step39 render target handoff resolvedColor sample'
+    colorSource: 'Step39 render target handoff resolvedRgb sample'
   });
   const step38Samples = normalizeSelectedSamples({
     list: webgpuFramebufferFreeTileOutputDryRunComparison?.sampleTileOutputs,
     source: 'webgpuFramebufferFreeTileOutputDryRunComparison.sampleTileOutputs',
-    colorSource: 'Step38 framebuffer-free tile output resolvedColor sample'
+    colorSource: 'Step38 framebuffer-free tile output resolvedRgb sample'
   });
   const derivedRenderTargetSamples =
     buildRenderTargetSamplesFromRenderHandoff(webgpuRenderHandoffStub);

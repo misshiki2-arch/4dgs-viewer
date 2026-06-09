@@ -353,3 +353,20 @@ The frame prototype is `ok` only when all of these are true:
 This gives later WebGPU backend work a single frame-level contract to extend.
 Future steps should add more true native inputs or broader frame work inside
 this unit before connecting production display scheduling.
+
+## 11. Step53 Backend Frame Input Expansion
+
+Step53 keeps Step40 as the highest-priority stable source, but the backend
+frame no longer treats Step40 as the only true native input shape. Step39 render
+target handoff samples and Step38 framebuffer-free tile output samples are
+normalized through the same bounded sample contract:
+
+- Step40 uses `rgbaFloat` from constrained display texture samples.
+- Step39 uses `resolvedRgb` from render target handoff samples.
+- Step38 uses `resolvedRgb` from framebuffer-free tile output samples.
+
+`webgpuBackendFramePrototype.inputSourceContract` reports raw sample counts,
+presentable sample counts, selected source kind, true native source count, and
+whether input readiness has expanded beyond Step40. Selector priority is still
+Step40, then Step39, then Step38, then render-handoff-derived fallback. Fallback
+output remains a fallback and must not be classified as true native success.

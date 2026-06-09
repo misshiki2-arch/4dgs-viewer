@@ -4180,6 +4180,11 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
                 ["frameUnitContract"],
                 {},
             ),
+            "inputSourceContract": get_path(
+                webgpu_backend_frame_prototype,
+                ["inputSourceContract"],
+                {},
+            ),
             "fallbackPolicy": get_path(
                 webgpu_backend_frame_prototype,
                 ["fallbackPolicy"],
@@ -4212,6 +4217,17 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             "fallbackSuppressedBySelectorSamples": get_path(
                 webgpu_backend_frame_validation,
                 ["fallbackSuppressedBySelectorSamples"],
+            ),
+            "backendFrameInputExpandedBeyondStep40": get_path(
+                webgpu_backend_frame_validation,
+                ["backendFrameInputExpandedBeyondStep40"],
+            ),
+            "presentableTrueNativeSourceKinds": compact_list(
+                get_path(
+                    webgpu_backend_frame_validation,
+                    ["presentableTrueNativeSourceKinds"],
+                    [],
+                )
             ),
             "webgl2HybridRenderingPrevented": get_path(
                 webgpu_backend_frame_validation,

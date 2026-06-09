@@ -3883,7 +3883,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step52 coordinates currentTexture acquisition, sample selection, bounded present submission, and summary as a WebGPU backend frame prototype.',
+    scaffoldNote: 'Phase 3 Step53 expands WebGPU backend frame inputs so Step39 and Step38 true native samples are presentable alternatives before fallback.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
