@@ -2283,6 +2283,14 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
                 tile_composite_accumulation_dry_run_validation,
                 ["orderedTileIndicesShapeValid"],
             ),
+            "sourceOrderedTileIndicesShapeValid": get_path(
+                tile_composite_accumulation_dry_run_validation,
+                ["sourceOrderedTileIndicesShapeValid"],
+            ),
+            "effectiveOrderedTileIndicesShapeValid": get_path(
+                tile_composite_accumulation_dry_run_validation,
+                ["effectiveOrderedTileIndicesShapeValid"],
+            ),
             "sampleTileInputValid": get_path(
                 tile_composite_accumulation_dry_run_validation,
                 ["sampleTileInputValid"],
@@ -2298,6 +2306,18 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             "accumulationSamplesValid": get_path(
                 tile_composite_accumulation_dry_run_validation,
                 ["accumulationSamplesValid"],
+            ),
+            "seededNativeAccumulationInput": get_path(
+                tile_composite_accumulation_dry_run_validation,
+                ["seededNativeAccumulationInput"],
+            ),
+            "sampleSource": get_path(
+                tile_composite_accumulation_dry_run_validation,
+                ["sampleSource"],
+            ),
+            "seedSourceKind": get_path(
+                tile_composite_accumulation_dry_run_validation,
+                ["seedSourceKind"],
             ),
             "firstValidationFailures": compact_list(
                 get_path(
@@ -2732,6 +2752,18 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
                 webgpu_constrained_display_adapter_dry_run_comparison,
                 ["duplicatePixelCount"],
             ),
+            "duplicatePixelCountBeforeRemap": get_path(
+                webgpu_constrained_display_adapter_dry_run_comparison,
+                ["duplicatePixelCountBeforeRemap"],
+            ),
+            "duplicatePixelRemapCount": get_path(
+                webgpu_constrained_display_adapter_dry_run_comparison,
+                ["duplicatePixelRemapCount"],
+            ),
+            "duplicatePixelPolicy": get_path(
+                webgpu_constrained_display_adapter_dry_run_comparison,
+                ["duplicatePixelPolicy"],
+            ),
             "texturePixelMismatchCount": get_path(
                 webgpu_constrained_display_adapter_dry_run_comparison,
                 ["texturePixelMismatchCount"],
@@ -2763,6 +2795,18 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             "duplicatePixelFree": get_path(
                 constrained_display_adapter_dry_run_validation,
                 ["duplicatePixelFree"],
+            ),
+            "validationDuplicatePixelCountBeforeRemap": get_path(
+                constrained_display_adapter_dry_run_validation,
+                ["duplicatePixelCountBeforeRemap"],
+            ),
+            "validationDuplicatePixelRemapCount": get_path(
+                constrained_display_adapter_dry_run_validation,
+                ["duplicatePixelRemapCount"],
+            ),
+            "validationDuplicatePixelPolicy": get_path(
+                constrained_display_adapter_dry_run_validation,
+                ["duplicatePixelPolicy"],
             ),
             "displayAdapterSamplesValid": get_path(
                 constrained_display_adapter_dry_run_validation,
@@ -3991,6 +4035,30 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             "colorPresentSampleCount": get_path(
                 webgpu_viewer_canvas_bounded_color_present,
                 ["colorPresentSampleCount"],
+            ),
+            "selectionMode": get_path(
+                webgpu_viewer_canvas_bounded_color_present,
+                ["colorOutputContract.selectionMode"],
+            ),
+            "selectorSelectedSamplesUsed": get_path(
+                webgpu_viewer_canvas_bounded_color_present,
+                ["colorOutputContract.selectorSelectedSamplesUsed"],
+            ),
+            "selectorSelectedRawSampleCount": get_path(
+                webgpu_viewer_canvas_bounded_color_present,
+                ["colorOutputContract.selectorSelectedRawSampleCount"],
+            ),
+            "selectorPresentableSampleCount": get_path(
+                webgpu_viewer_canvas_bounded_color_present,
+                ["colorOutputContract.selectorPresentableSampleCount"],
+            ),
+            "fallbackAllowed": get_path(
+                webgpu_viewer_canvas_bounded_color_present,
+                ["colorOutputContract.fallbackAllowed"],
+            ),
+            "fallbackSuppressedBySelectorSamples": get_path(
+                webgpu_viewer_canvas_bounded_color_present,
+                ["colorOutputContract.fallbackSuppressedBySelectorSamples"],
             ),
             "vertexCount": get_path(
                 webgpu_viewer_canvas_bounded_color_present,

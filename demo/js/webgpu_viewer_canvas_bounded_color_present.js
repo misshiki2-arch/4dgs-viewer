@@ -42,18 +42,42 @@ function normalizeColorArray(value) {
   };
 }
 
+function normalizeColorObject(value) {
+  if (!value || typeof value !== 'object') return null;
+  const r = value.r ?? value.red;
+  const g = value.g ?? value.green;
+  const b = value.b ?? value.blue;
+  if (!Number.isFinite(Number(r)) || !Number.isFinite(Number(g)) || !Number.isFinite(Number(b))) {
+    return null;
+  }
+  return {
+    r: clamp01(r, 0),
+    g: clamp01(g, 0),
+    b: clamp01(b, 0),
+    a: clamp01(value.a ?? value.alpha ?? 1, 1)
+  };
+}
+
+function normalizeColorValue(value) {
+  return normalizeColorArray(value) ?? normalizeColorObject(value);
+}
+
 function colorFromSample(sample) {
   return (
-    normalizeColorArray(sample?.actual?.rgbaFloat) ??
-    normalizeColorArray(sample?.expected?.rgbaFloat) ??
-    normalizeColorArray(sample?.actual?.resolvedColor) ??
-    normalizeColorArray(sample?.expected?.resolvedColor) ??
-    normalizeColorArray(sample?.actual?.colorAlpha) ??
-    normalizeColorArray(sample?.expected?.colorAlpha) ??
-    normalizeColorArray(sample?.colorAlpha) ??
-    normalizeColorArray(sample?.payload?.colorAlpha) ??
-    normalizeColorArray(sample?.referenceAssisted?.colorAlpha) ??
-    normalizeColorArray(sample?.renderPayload?.colorAlpha)
+    normalizeColorValue(sample?.actual?.rgbaFloat) ??
+    normalizeColorValue(sample?.expected?.rgbaFloat) ??
+    normalizeColorValue(sample?.actual?.resolvedColor) ??
+    normalizeColorValue(sample?.expected?.resolvedColor) ??
+    normalizeColorValue(sample?.actual?.colorAlpha) ??
+    normalizeColorValue(sample?.expected?.colorAlpha) ??
+    normalizeColorValue(sample?.colorAlpha) ??
+    normalizeColorValue(sample?.upstreamSample?.actual?.rgbaFloat) ??
+    normalizeColorValue(sample?.upstreamSample?.expected?.rgbaFloat) ??
+    normalizeColorValue(sample?.upstreamSample?.actual?.colorAlpha) ??
+    normalizeColorValue(sample?.upstreamSample?.expected?.colorAlpha) ??
+    normalizeColorValue(sample?.payload?.colorAlpha) ??
+    normalizeColorValue(sample?.referenceAssisted?.colorAlpha) ??
+    normalizeColorValue(sample?.renderPayload?.colorAlpha)
   );
 }
 
@@ -116,15 +140,38 @@ function buildColorSamples({
   canvasHeight
 }) {
   const samples = [];
+  const fallbackCandidateSources = [
+    'webgpuConstrainedDisplayAdapterDryRunComparison.sampleTexturePixels',
+    'webgpuRenderTargetHandoffDryRunComparison.sampleRenderTargetPixels',
+    'webgpuFramebufferFreeTileOutputDryRunComparison.sampleTileOutputs',
+    'webgpuRenderHandoffStub.sampleRecords'
+  ];
+  const selectorSelectedColorSamples =
+    webgpuViewerCanvasBoundedColorSourceSelector?.selectedColorSamples;
+  const selectorSelectedRawSampleCount = Array.isArray(selectorSelectedColorSamples)
+    ? selectorSelectedColorSamples.length
+    : 0;
   pushSamplesFromList({
     samples,
-    list: webgpuViewerCanvasBoundedColorSourceSelector?.selectedColorSamples,
+    list: selectorSelectedColorSamples,
     source: 'webgpuViewerCanvasBoundedColorSourceSelector.selectedColorSamples',
     colorSource: webgpuViewerCanvasBoundedColorSourceSelector?.selectedColorSource ??
-      'Step49 selected bounded color source',
+      'Step50 selected bounded color source',
     canvasWidth,
     canvasHeight
   });
+  if (selectorSelectedRawSampleCount > 0) {
+    return {
+      samples,
+      selectionMode: 'selector-selected-samples',
+      selectorSelectedSamplesUsed: true,
+      selectorSelectedRawSampleCount,
+      selectorPresentableSampleCount: samples.length,
+      fallbackAllowed: false,
+      fallbackSuppressedBySelectorSamples: true,
+      fallbackCandidateSources
+    };
+  }
   pushSamplesFromList({
     samples,
     list: webgpuConstrainedDisplayAdapterDryRunComparison?.sampleTexturePixels,
@@ -157,7 +204,16 @@ function buildColorSamples({
     canvasWidth,
     canvasHeight
   });
-  return samples;
+  return {
+    samples,
+    selectionMode: 'fallback-source-scan',
+    selectorSelectedSamplesUsed: false,
+    selectorSelectedRawSampleCount,
+    selectorPresentableSampleCount: 0,
+    fallbackAllowed: true,
+    fallbackSuppressedBySelectorSamples: false,
+    fallbackCandidateSources
+  };
 }
 
 function createVertexData(samples, canvasWidth, canvasHeight) {
@@ -267,7 +323,7 @@ export async function buildWebGpuViewerCanvasBoundedColorPresent({
   );
   const width = Math.max(1, Math.round(canvas?.width ?? canvas?.clientWidth ?? 1));
   const height = Math.max(1, Math.round(canvas?.height ?? canvas?.clientHeight ?? 1));
-  const colorSamples = buildColorSamples({
+  const colorSampleSelection = buildColorSamples({
     webgpuViewerCanvasBoundedColorSourceSelector,
     webgpuConstrainedDisplayAdapterDryRunComparison,
     webgpuRenderTargetHandoffDryRunComparison,
@@ -276,6 +332,7 @@ export async function buildWebGpuViewerCanvasBoundedColorPresent({
     canvasWidth: width,
     canvasHeight: height
   });
+  const colorSamples = colorSampleSelection.samples;
   const vertexData = createVertexData(colorSamples, width, height);
 
   let context = null;
@@ -437,8 +494,9 @@ fn fsMain(in: VertexOut) -> @location(0) vec4f {
       boundedOnly: true,
       clearOnly: false,
       colorSourcesAttempted: [
-        'Step49 bounded color source selector selected samples',
-        'Step49 native-compatible Step38-40 bounded samples',
+        'Step50 bounded color source selector selected samples',
+        'Step50 true native Step38-40 bounded samples',
+        'Step50 native-compatible Step38-40 bounded bridge samples',
         'Step40 constrained display adapter rgbaFloat samples',
         'Step39 render target handoff resolvedColor samples',
         'Step38 framebuffer-free tile output resolvedColor samples',
@@ -448,6 +506,17 @@ fn fsMain(in: VertexOut) -> @location(0) vec4f {
         webgpuViewerCanvasBoundedColorSourceSelector?.selectedSourceKind ?? null,
       selectorSampleCount:
         webgpuViewerCanvasBoundedColorSourceSelector?.selectedSampleCount ?? null,
+      selectionMode: colorSampleSelection.selectionMode,
+      selectorSelectedSamplesUsed:
+        colorSampleSelection.selectorSelectedSamplesUsed,
+      selectorSelectedRawSampleCount:
+        colorSampleSelection.selectorSelectedRawSampleCount,
+      selectorPresentableSampleCount:
+        colorSampleSelection.selectorPresentableSampleCount,
+      fallbackAllowed: colorSampleSelection.fallbackAllowed,
+      fallbackSuppressedBySelectorSamples:
+        colorSampleSelection.fallbackSuppressedBySelectorSamples,
+      fallbackCandidateSources: colorSampleSelection.fallbackCandidateSources,
       selectedColorSource: colorSamples[0]?.colorSource ?? null,
       sampleSources: [...new Set(colorSamples.map((sample) => sample.source))],
       presentedSamples: colorSamples,
@@ -506,6 +575,14 @@ fn fsMain(in: VertexOut) -> @location(0) vec4f {
       guardAllowed,
       colorSamplesAvailable: colorSamples.length > 0,
       colorPresentSampleCount: colorSamples.length,
+      selectorSelectedSamplesUsed:
+        colorSampleSelection.selectorSelectedSamplesUsed,
+      selectorSelectedRawSampleCount:
+        colorSampleSelection.selectorSelectedRawSampleCount,
+      selectorPresentableSampleCount:
+        colorSampleSelection.selectorPresentableSampleCount,
+      fallbackSuppressedBySelectorSamples:
+        colorSampleSelection.fallbackSuppressedBySelectorSamples,
       viewerCanvasContextConfiguredForColorPresent: contextConfigured,
       currentTextureAvailableForColorPresent: currentTextureAcquired,
       commandBufferSubmitted,

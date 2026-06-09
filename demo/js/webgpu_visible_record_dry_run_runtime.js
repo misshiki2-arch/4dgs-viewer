@@ -3910,7 +3910,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step49 retains native-compatible Step38-40 bounded color samples in the same runtime before selector-driven viewer canvas bounded color present.',
+    scaffoldNote: 'Phase 3 Step50 promotes bounded color output through true Step37-40 native compute/render-target/display samples before selector-driven viewer canvas present.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,

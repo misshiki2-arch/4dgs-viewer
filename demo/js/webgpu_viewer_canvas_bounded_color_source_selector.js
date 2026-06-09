@@ -127,17 +127,17 @@ export function buildWebGpuViewerCanvasBoundedColorSourceSelector({
   const nativeBridgeStep40Samples = normalizeSelectedSamples({
     list: webgpuViewerCanvasNativeBoundedColorSamples?.sampleTexturePixels,
     source: 'webgpuViewerCanvasNativeBoundedColorSamples.sampleTexturePixels',
-    colorSource: 'Step49 native-compatible constrained display rgbaFloat sample'
+    colorSource: 'Step50 native-compatible constrained display rgbaFloat sample'
   });
   const nativeBridgeStep39Samples = normalizeSelectedSamples({
     list: webgpuViewerCanvasNativeBoundedColorSamples?.sampleRenderTargetPixels,
     source: 'webgpuViewerCanvasNativeBoundedColorSamples.sampleRenderTargetPixels',
-    colorSource: 'Step49 native-compatible render target resolvedColor sample'
+    colorSource: 'Step50 native-compatible render target resolvedColor sample'
   });
   const nativeBridgeStep38Samples = normalizeSelectedSamples({
     list: webgpuViewerCanvasNativeBoundedColorSamples?.sampleTileOutputs,
     source: 'webgpuViewerCanvasNativeBoundedColorSamples.sampleTileOutputs',
-    colorSource: 'Step49 native-compatible framebuffer-free tile output sample'
+    colorSource: 'Step50 native-compatible framebuffer-free tile output sample'
   });
   const step40Samples = normalizeSelectedSamples({
     list: webgpuConstrainedDisplayAdapterDryRunComparison?.sampleTexturePixels,
@@ -240,7 +240,7 @@ export function buildWebGpuViewerCanvasBoundedColorSourceSelector({
     mode: WEBGPU_VIEWER_CANVAS_BOUNDED_COLOR_SOURCE_SELECTOR_MODE,
     status: boundedColorSourceReady ? 'ok' : 'unavailable',
     source:
-      'Step49 bounded viewer-canvas color source selector for native-compatible tile/render-target/display samples',
+      'Step50 bounded viewer-canvas color source selector for true native tile/render-target/display samples',
     boundedColorSourceSelectorImplemented: true,
     boundedColorSourceReady,
     selectedSourceKind: selectedCandidate?.sourceKind ?? null,
@@ -276,7 +276,7 @@ export function buildWebGpuViewerCanvasBoundedColorSourceSelector({
         'render-handoff samples are normalized into render-target-shaped bounded samples so viewer canvas color present can consume the same selected sample contract'
     },
     nativeBridgePolicy: {
-      step49NativeBridgeEnabled:
+      nativeBridgeEnabled:
         webgpuViewerCanvasNativeBoundedColorSamples?.nativeBoundedSamplesBridgeImplemented === true,
       originalStep38To40SamplesPreferred: true,
       selectedNativeSourceKind:
@@ -313,7 +313,7 @@ export function buildWebGpuViewerCanvasBoundedColorSourceSelector({
           {
             stage: 'tile-render-target-native-samples',
             reason:
-              'selector now prefers original Step38-40 samples, then Step49 native-compatible bridge samples, before using render-handoff-derived fallback'
+              'selector prefers true Step38-40 samples, then native-compatible bridge samples, before using render-handoff-derived fallback'
           }
         ]
       : [
@@ -324,7 +324,7 @@ export function buildWebGpuViewerCanvasBoundedColorSourceSelector({
           }
         ],
     nextBackendPrototypeStep: boundedColorSourceReady
-      ? 'replace Step49 native-compatible bridge seed with true Step38-40 tile/render-target samples while keeping viewer canvas bounded color present contract stable'
+      ? 'expand true Step38-40 tile/render-target samples while keeping viewer canvas bounded color present contract stable'
       : 'restore bounded color source availability before expanding viewer canvas color output',
     timing: {
       viewerCanvasBoundedColorSourceSelectorMs: nowMs() - startMs

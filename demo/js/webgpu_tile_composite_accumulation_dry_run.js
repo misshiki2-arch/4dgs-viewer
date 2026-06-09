@@ -17,7 +17,7 @@ function nowMs() {
 
 function createBuffer(device, data, usage) {
   const buffer = device.createBuffer({
-    size: Math.max(4, Math.ceil(data.byteLength / 4) * 4),
+    size: Math.max(16, Math.ceil(data.byteLength / 4) * 4),
     usage,
     mappedAtCreation: true
   });
@@ -82,6 +82,39 @@ function makeTileSamples(webgpuTileCompositeShaderHandoff, renderPayload, maxTil
     if (samples.length >= maxTileSamples) break;
   }
   return samples;
+}
+
+function makeRenderHandoffSeededTileSamples({
+  webgpuRenderHandoffStub,
+  renderPayload,
+  maxTileSamples = 4
+}) {
+  const samples = [];
+  const recordIndices = [];
+  const recordCount = Math.max(0, Math.floor((renderPayload?.length ?? 0) / 16));
+  for (const record of webgpuRenderHandoffStub?.sampleRecords ?? []) {
+    if (samples.length >= maxTileSamples) break;
+    const recordIndex = Number(record?.recordIndex);
+    if (!Number.isFinite(recordIndex)) continue;
+    const boundedRecordIndex = Math.max(0, Math.min(recordCount - 1, recordIndex | 0));
+    if (boundedRecordIndex < 0 || boundedRecordIndex >= recordCount) continue;
+    const payload = readPayload(renderPayload, boundedRecordIndex);
+    recordIndices.push(boundedRecordIndex);
+    const sampleIndex = samples.length;
+    samples.push({
+      tileId: sampleIndex,
+      tileIndexStart: sampleIndex,
+      tileIndexEnd: sampleIndex + 1,
+      tileRefCount: 1,
+      sampleKind: 'render-handoff-seeded-native-accumulation',
+      anchorRecordIndex: boundedRecordIndex,
+      samplePx: [payload.centerPx[0], payload.centerPx[1]]
+    });
+  }
+  return {
+    samples,
+    orderedTileIndices: new Uint32Array(recordIndices)
+  };
 }
 
 function evaluateRecordAtSample(payload, recordIndex, sampleX, sampleY) {
@@ -262,11 +295,29 @@ export async function buildWebGpuTileCompositeAccumulationDryRunComparison({
     return buildUnavailable('transient-ordered-tile-indices-unavailable');
   }
 
-  const samples = makeTileSamples(
+  let effectiveOrderedTileIndices = orderedTileIndices;
+  let sampleSource = 'step35-sampleTiles';
+  let seededNativeAccumulationInput = false;
+  let seedSourceKind = null;
+  let samples = makeTileSamples(
     webgpuTileCompositeShaderHandoff,
     renderPayload,
     maxTileSamples
   );
+  if (samples.length <= 0) {
+    const seeded = makeRenderHandoffSeededTileSamples({
+      webgpuRenderHandoffStub,
+      renderPayload,
+      maxTileSamples
+    });
+    if (seeded.samples.length > 0) {
+      samples = seeded.samples;
+      effectiveOrderedTileIndices = seeded.orderedTileIndices;
+      sampleSource = 'render-handoff-seeded-native-accumulation';
+      seededNativeAccumulationInput = true;
+      seedSourceKind = 'webgpuRenderHandoffStub.sampleRecords';
+    }
+  }
   if (samples.length <= 0) {
     return buildUnavailable('tile-accumulation-samples-unavailable');
   }
@@ -368,7 +419,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   });
   const outputData = new Float32Array(samples.length * OUTPUT_FLOATS);
   const payloadBuffer = createBuffer(device, renderPayload, GPUBufferUsage.STORAGE);
-  const orderedIndicesBuffer = createBuffer(device, orderedTileIndices, GPUBufferUsage.STORAGE);
+  const orderedIndicesBuffer = createBuffer(device, effectiveOrderedTileIndices, GPUBufferUsage.STORAGE);
   const sampleBuffer = createBuffer(device, sampleData, GPUBufferUsage.STORAGE);
   const outputBuffer = createBuffer(
     device,
@@ -423,7 +474,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     const sample = samples[i];
     const expected = evaluateCpuTileAccumulation({
       renderPayload,
-      orderedTileIndices,
+      orderedTileIndices: effectiveOrderedTileIndices,
       tileIndexStart: sample.tileIndexStart,
       tileIndexEnd: sample.tileIndexEnd,
       samplePx: sample.samplePx
@@ -478,7 +529,9 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   return {
     mode: WEBGPU_TILE_COMPOSITE_ACCUMULATION_DRY_RUN_COMPARISON_MODE,
     status: anyMismatch ? 'mismatch' : 'ok',
-    source: 'webgpuTileCompositeShaderHandoff transient orderedTileIndices + webgpuRenderHandoffStub transient renderPayload',
+    source: seededNativeAccumulationInput
+      ? 'webgpuRenderHandoffStub seeded transient orderedTileIndices + transient renderPayload'
+      : 'webgpuTileCompositeShaderHandoff transient orderedTileIndices + webgpuRenderHandoffStub transient renderPayload',
     expectedSource: 'CPU reference front-to-back accumulation over bounded sample tiles',
     actualSource: 'WebGPU compute front-to-back accumulation dry-run over bounded sample tiles',
     nonDisplayOnly: true,
@@ -496,13 +549,19 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       unresolved: 'WGSL SH/color evaluation parity'
     },
     accumulationPolicy: {
-      samplePolicy: 'bounded non-empty Step35 sampleTiles at first-packet center pixel',
-      ordering: 'Step35 orderedTileIndices, ascending depth with recordIndex tie-break',
+      samplePolicy: seededNativeAccumulationInput
+        ? 'bounded render-handoff seeded samples at payload center pixel'
+        : 'bounded non-empty Step35 sampleTiles at first-packet center pixel',
+      ordering: seededNativeAccumulationInput
+        ? 'one render-handoff sample record per bounded seeded tile'
+        : 'Step35 orderedTileIndices, ascending depth with recordIndex tie-break',
       equation:
         'front-to-back accumColor += transmittance * colorAlpha.rgb * alpha; transmittance *= (1 - alpha)',
       earlyOutTransmittance: EARLY_OUT_TRANSMITTANCE,
       minAlpha: MIN_ALPHA,
-      framebufferConnection: 'deferred'
+      framebufferConnection: 'deferred',
+      seededNativeAccumulationInput,
+      seedSourceKind
     },
     anyMismatch,
     mismatchClassification: anyMismatch ? 'tileCompositeAccumulationDryRunMismatch' : 'none',
@@ -516,13 +575,23 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       renderPayloadShapeValid:
         renderPayload.length === (webgpuRenderHandoffStub.outputBuffer?.floatCount ?? renderPayload.length),
       orderedTileIndicesShapeValid:
+        effectiveOrderedTileIndices.length ===
+          (webgpuTileCompositeShaderHandoff.shaderInputBuffers?.orderedTileIndices?.length ??
+            effectiveOrderedTileIndices.length) ||
+        seededNativeAccumulationInput,
+      sourceOrderedTileIndicesShapeValid:
         orderedTileIndices.length ===
           (webgpuTileCompositeShaderHandoff.shaderInputBuffers?.orderedTileIndices?.length ??
             orderedTileIndices.length),
+      effectiveOrderedTileIndicesShapeValid:
+        effectiveOrderedTileIndices.length >= samples.length,
       sampleTileInputValid: samples.length > 0,
       sampleBufferShapeValid: sampleData.length === samples.length * SAMPLE_FLOATS,
       outputShapeValid: actualOutput.length === samples.length * OUTPUT_FLOATS,
       accumulationSamplesValid: samples.length > 0,
+      seededNativeAccumulationInput,
+      sampleSource,
+      seedSourceKind,
       firstValidationFailures: []
     },
     sampleTileAccumulations,

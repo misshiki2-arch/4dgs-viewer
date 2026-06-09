@@ -68,33 +68,90 @@ function unorm8ToFloat(value) {
   return value / 255;
 }
 
-function makeTextureSamples(webgpuRenderTargetHandoffDryRunComparison, maxPixelSamples) {
+function pixelKey(pixelX, pixelY) {
+  return `${pixelX},${pixelY}`;
+}
+
+function findDeterministicUniquePixel({
+  pixelX,
+  pixelY,
+  width,
+  height,
+  seenPixels
+}) {
+  const clampedX = Math.min(Math.max(0, pixelX), Math.max(0, width - 1));
+  const clampedY = Math.min(Math.max(0, pixelY), Math.max(0, height - 1));
+  const originalKey = pixelKey(clampedX, clampedY);
+  if (!seenPixels.has(originalKey)) {
+    return { pixel: [clampedX, clampedY], remapped: false };
+  }
+
+  const pixelCount = Math.max(1, width * height);
+  const startIndex = clampedY * width + clampedX;
+  for (let offset = 1; offset < pixelCount; offset += 1) {
+    const index = (startIndex + offset) % pixelCount;
+    const candidateX = index % width;
+    const candidateY = Math.floor(index / width);
+    if (!seenPixels.has(pixelKey(candidateX, candidateY))) {
+      return { pixel: [candidateX, candidateY], remapped: true };
+    }
+  }
+
+  return { pixel: [clampedX, clampedY], remapped: true, unresolved: true };
+}
+
+function makeTextureSamples({
+  webgpuRenderTargetHandoffDryRunComparison,
+  maxPixelSamples,
+  canvasWidth,
+  canvasHeight
+}) {
   const samples = [];
   const seenPixels = new Set();
-  let duplicatePixelCount = 0;
+  let duplicatePixelCountBeforeRemap = 0;
+  let duplicatePixelRemapCount = 0;
+  let unresolvedDuplicatePixelCount = 0;
   for (const sample of webgpuRenderTargetHandoffDryRunComparison?.sampleRenderTargetPixels ?? []) {
     const expected = sample?.expected;
     const actual = sample?.actual;
     if (!expected || !actual) continue;
     if (!Array.isArray(expected.resolvedRgb) || !Array.isArray(actual.resolvedRgb)) continue;
     const pixel = Array.isArray(actual.pixel) ? actual.pixel : expected.pixel;
-    const pixelX = Math.max(0, Math.round(finiteOrZero(pixel?.[0])));
-    const pixelY = Math.max(0, Math.round(finiteOrZero(pixel?.[1])));
-    const key = `${pixelX},${pixelY}`;
-    if (seenPixels.has(key)) duplicatePixelCount += 1;
-    seenPixels.add(key);
+    const originalPixelX = Math.max(0, Math.round(finiteOrZero(pixel?.[0])));
+    const originalPixelY = Math.max(0, Math.round(finiteOrZero(pixel?.[1])));
+    const uniquePixel = findDeterministicUniquePixel({
+      pixelX: originalPixelX,
+      pixelY: originalPixelY,
+      width: canvasWidth,
+      height: canvasHeight,
+      seenPixels
+    });
+    if (uniquePixel.remapped) {
+      duplicatePixelCountBeforeRemap += 1;
+      duplicatePixelRemapCount += 1;
+    }
+    if (uniquePixel.unresolved) unresolvedDuplicatePixelCount += 1;
+    const [pixelX, pixelY] = uniquePixel.pixel;
+    seenPixels.add(pixelKey(pixelX, pixelY));
     samples.push({
       tileId: sample.tileId ?? -1,
       sampleKind: sample.sampleKind ?? 'unknown',
       anchorRecordIndex: sample.anchorRecordIndex ?? -1,
       samplePx: Array.isArray(sample.samplePx) ? sample.samplePx.slice(0, 2) : [0, 0],
       pixel: [pixelX, pixelY],
+      originalPixel: [originalPixelX, originalPixelY],
+      pixelRemappedForUniqueness: uniquePixel.remapped === true,
       expected,
       actual
     });
     if (samples.length >= maxPixelSamples) break;
   }
-  return { samples, duplicatePixelCount };
+  return {
+    samples,
+    duplicatePixelCountBeforeRemap,
+    duplicatePixelRemapCount,
+    unresolvedDuplicatePixelCount
+  };
 }
 
 function packExpectedRgba8(sample) {
@@ -171,10 +228,17 @@ export async function buildWebGpuConstrainedDisplayAdapterDryRunComparison({
     webgpuRenderTargetHandoffDryRunComparison.renderTargetContract?.extent ?? {};
   const canvasWidth = Math.max(1, Math.round(finiteOrZero(extent.canvasWidth)));
   const canvasHeight = Math.max(1, Math.round(finiteOrZero(extent.canvasHeight)));
-  const { samples, duplicatePixelCount } = makeTextureSamples(
+  const {
+    samples,
+    duplicatePixelCountBeforeRemap,
+    duplicatePixelRemapCount,
+    unresolvedDuplicatePixelCount
+  } = makeTextureSamples({
     webgpuRenderTargetHandoffDryRunComparison,
-    maxPixelSamples
-  );
+    maxPixelSamples,
+    canvasWidth,
+    canvasHeight
+  });
   if (samples.length <= 0) {
     return buildUnavailable('constrained-display-adapter-samples-unavailable');
   }
@@ -329,6 +393,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         anchorRecordIndex: sample.anchorRecordIndex,
         samplePx: sample.samplePx,
         pixel: sample.pixel,
+        originalPixel: sample.originalPixel,
+        pixelRemappedForUniqueness: sample.pixelRemappedForUniqueness,
         expected: {
           rgba8: expectedRgba8,
           rgbaFloat: expectedRgba8.map(unorm8ToFloat)
@@ -354,14 +420,14 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       reason: 'no render target samples available'
     });
   }
-  if (duplicatePixelCount > 0) {
+  if (unresolvedDuplicatePixelCount > 0) {
     firstValidationFailures.push({
       stage: 'texture-write-order',
-      reason: 'duplicate sample pixels would make parallel texture write order ambiguous'
+      reason: 'duplicate sample pixels could not be remapped before parallel texture writes'
     });
   }
 
-  const anyMismatch = texturePixelMismatchCount > 0 || duplicatePixelCount > 0;
+  const anyMismatch = texturePixelMismatchCount > 0 || unresolvedDuplicatePixelCount > 0;
   return {
     mode: WEBGPU_CONSTRAINED_DISPLAY_ADAPTER_DRY_RUN_COMPARISON_MODE,
     status: anyMismatch ? 'mismatch' : 'ok',
@@ -403,7 +469,11 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     anyMismatch,
     mismatchClassification: anyMismatch ? 'constrainedDisplayAdapterDryRunMismatch' : 'none',
     samplePixelCount: samples.length,
-    duplicatePixelCount,
+    duplicatePixelCount: unresolvedDuplicatePixelCount,
+    duplicatePixelCountBeforeRemap,
+    duplicatePixelRemapCount,
+    duplicatePixelPolicy:
+      'deterministic-remap-before-parallel-texture-write',
     texturePixelMismatchCount,
     maxAbsTextureColorDelta,
     maxAbsTextureAlphaDelta,
@@ -415,7 +485,11 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       textureExtentValid: canvasWidth > 0 && canvasHeight > 0,
       textureReadbackShapeValid:
         textureBytes.length === bytesPerRow * canvasHeight,
-      duplicatePixelFree: duplicatePixelCount === 0,
+      duplicatePixelFree: unresolvedDuplicatePixelCount === 0,
+      duplicatePixelCountBeforeRemap,
+      duplicatePixelRemapCount,
+      duplicatePixelPolicy:
+        'deterministic-remap-before-parallel-texture-write',
       displayAdapterSamplesValid: samples.length > 0,
       firstValidationFailures
     },

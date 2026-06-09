@@ -106,12 +106,12 @@ function buildSeedSamples({ webgpuRenderHandoffStub, canvasWidth, canvasHeight }
 function makeTileOutputSamples(seeds) {
   return seeds.map((seed, index) => ({
     source: 'webgpuViewerCanvasNativeBoundedColorSamples.step38TileOutputBridge',
-    colorSource: 'Step49 native-compatible Step38 bounded tile output from render handoff colorAlpha.rgb',
+    colorSource: 'Step50 native-compatible Step38 bounded tile output from render handoff colorAlpha.rgb',
     tileId: index,
     tileIndexStart: index,
     tileIndexEnd: index + 1,
     tileRefCount: 1,
-    sampleKind: 'step49-native-compatible-tile-output',
+    sampleKind: 'step50-native-compatible-tile-output',
     anchorRecordIndex: seed.anchorRecordIndex,
     recordIndex: seed.recordIndex,
     srcIndex: seed.srcIndex,
@@ -141,12 +141,12 @@ function makeRenderTargetSamples(tileSamples, canvasWidth, canvasHeight) {
     const y = Math.min(height - 1, Math.max(0, Math.round(finiteOrZero(sample.samplePx?.[1]))));
     return {
       source: 'webgpuViewerCanvasNativeBoundedColorSamples.step39RenderTargetBridge',
-      colorSource: 'Step49 native-compatible Step39 render target sample from bounded tile output',
+      colorSource: 'Step50 native-compatible Step39 render target sample from bounded tile output',
       tileId: sample.tileId,
       tileIndexStart: sample.tileIndexStart,
       tileIndexEnd: sample.tileIndexEnd,
       tileRefCount: sample.tileRefCount,
-      sampleKind: 'step49-native-compatible-render-target',
+      sampleKind: 'step50-native-compatible-render-target',
       anchorRecordIndex: sample.anchorRecordIndex,
       recordIndex: sample.recordIndex,
       srcIndex: sample.srcIndex,
@@ -175,9 +175,9 @@ function makeRenderTargetSamples(tileSamples, canvasWidth, canvasHeight) {
 function makeTextureSamples(renderTargetSamples) {
   return renderTargetSamples.map((sample) => ({
     source: 'webgpuViewerCanvasNativeBoundedColorSamples.step40ConstrainedDisplayBridge',
-    colorSource: 'Step49 native-compatible Step40 constrained display sample from render target handoff',
+    colorSource: 'Step50 native-compatible Step40 constrained display sample from render target handoff',
     tileId: sample.tileId,
-    sampleKind: 'step49-native-compatible-constrained-display',
+    sampleKind: 'step50-native-compatible-constrained-display',
     anchorRecordIndex: sample.anchorRecordIndex,
     recordIndex: sample.recordIndex,
     srcIndex: sample.srcIndex,
@@ -273,7 +273,7 @@ export function buildWebGpuViewerCanvasNativeBoundedColorSamples({
     mode: WEBGPU_VIEWER_CANVAS_NATIVE_BOUNDED_COLOR_SAMPLES_MODE,
     status: nativeBoundedSamplesReady ? 'ok' : 'unavailable',
     source:
-      'Step49 native-compatible bounded color samples retained for viewer canvas selector',
+      'Step50 bounded color samples retained for viewer canvas selector; true Step38-40 samples are preferred before bridge samples',
     nativeBoundedSamplesBridgeImplemented: true,
     nativeBoundedSamplesReady,
     selectedNativeSourceKind,
@@ -308,7 +308,7 @@ export function buildWebGpuViewerCanvasNativeBoundedColorSamples({
       bridgeScope:
         'same runtime/capture bounded samples only; no production display connection or WebGL2 hybrid rendering',
       colorPolicy:
-        'SH evaluation remains deferred; bridge preserves reference-assisted colorAlpha.rgb as native-compatible bounded color payload'
+        'SH evaluation remains deferred; bridge preserves reference-assisted colorAlpha.rgb as native-compatible bounded color payload when true Step38-40 samples are unavailable'
     },
     validationSummary: {
       step40NativeSamplesReady: sampleTexturePixels.length > 0,
@@ -323,7 +323,7 @@ export function buildWebGpuViewerCanvasNativeBoundedColorSamples({
       {
         stage: 'tile-composite-native-accumulation',
         reason:
-          'true Step38-40 compute samples are still preferred when available; Step49 bridge keeps bounded native-shaped color output moving when accumulation samples are absent'
+          'true Step38-40 compute samples are preferred when available; bridge keeps bounded native-shaped color output moving when accumulation samples are absent'
       },
       {
         stage: 'sh-color-evaluation',
@@ -331,7 +331,7 @@ export function buildWebGpuViewerCanvasNativeBoundedColorSamples({
       }
     ],
     nextBackendPrototypeStep:
-      'replace native-compatible Step49 bridge seed with true tile accumulation samples while keeping viewer canvas selector/present contract unchanged',
+      'expand true tile accumulation samples while keeping viewer canvas selector/present contract unchanged',
     timing: {
       viewerCanvasNativeBoundedColorSamplesMs: nowMs() - startMs
     }
