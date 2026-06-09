@@ -325,3 +325,31 @@ The clean baseline before Step51 is:
 
 Future steps should preserve this baseline unless they explicitly replace it
 with a stronger true native path.
+
+## 10. Step52 Backend Frame Prototype
+
+Step52 introduces `webgpuBackendFramePrototype` as the first WebGPU backend
+frame unit. It does not connect the production viewer loop. Instead, it
+coordinates the already validated pieces as one bounded frame:
+
+1. viewer canvas currentTexture acquisition,
+2. bounded first-present guard,
+3. native bounded color sample retention,
+4. bounded color source selection,
+5. viewer canvas bounded color present submission,
+6. backend frame summary.
+
+The frame prototype is `ok` only when all of these are true:
+
+- currentTexture path is ready under `webgpu-exclusive`,
+- bounded first-present has succeeded,
+- native bounded samples are ready,
+- selector has selected samples,
+- present submitted a command buffer,
+- selector samples were used,
+- fallback samples were suppressed by selector samples,
+- WebGL2 hybrid rendering was prevented.
+
+This gives later WebGPU backend work a single frame-level contract to extend.
+Future steps should add more true native inputs or broader frame work inside
+this unit before connecting production display scheduling.

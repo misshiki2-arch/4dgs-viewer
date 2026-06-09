@@ -898,6 +898,14 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
         ["validationSummary"],
         {},
     )
+    webgpu_backend_frame_prototype = get_path(
+        summary, ["webgpuBackendFramePrototype"], {}
+    )
+    webgpu_backend_frame_validation = get_path(
+        webgpu_backend_frame_prototype,
+        ["validationSummary"],
+        {},
+    )
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -4136,6 +4144,99 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             ),
             "nextBackendPrototypeStep": get_path(
                 webgpu_viewer_canvas_bounded_color_present,
+                ["nextBackendPrototypeStep"],
+            ),
+        },
+        "webgpuBackendFramePrototype": {
+            "status": get_path(webgpu_backend_frame_prototype, ["status"]),
+            "mode": get_path(webgpu_backend_frame_prototype, ["mode"]),
+            "source": get_path(webgpu_backend_frame_prototype, ["source"]),
+            "backendFramePrototypeImplemented": get_path(
+                webgpu_backend_frame_prototype,
+                ["backendFramePrototypeImplemented"],
+            ),
+            "backendFrameReady": get_path(
+                webgpu_backend_frame_prototype,
+                ["backendFrameReady"],
+            ),
+            "requestedBackendMode": get_path(
+                webgpu_backend_frame_prototype,
+                ["requestedBackendMode"],
+            ),
+            "productionDisplayConnectionImplemented": get_path(
+                webgpu_backend_frame_prototype,
+                ["productionDisplayConnectionImplemented"],
+            ),
+            "displayConnectionAllowed": get_path(
+                webgpu_backend_frame_prototype,
+                ["displayConnectionAllowed"],
+            ),
+            "webgl2HybridRenderingAllowed": get_path(
+                webgpu_backend_frame_prototype,
+                ["webgl2HybridRenderingAllowed"],
+            ),
+            "frameUnitContract": get_path(
+                webgpu_backend_frame_prototype,
+                ["frameUnitContract"],
+                {},
+            ),
+            "fallbackPolicy": get_path(
+                webgpu_backend_frame_prototype,
+                ["fallbackPolicy"],
+                {},
+            ),
+            "currentTexturePathReady": get_path(
+                webgpu_backend_frame_validation,
+                ["currentTexturePathReady"],
+            ),
+            "boundedFirstPresentSucceeded": get_path(
+                webgpu_backend_frame_validation,
+                ["boundedFirstPresentSucceeded"],
+            ),
+            "nativeBoundedSamplesReady": get_path(
+                webgpu_backend_frame_validation,
+                ["nativeBoundedSamplesReady"],
+            ),
+            "selectorReady": get_path(
+                webgpu_backend_frame_validation,
+                ["selectorReady"],
+            ),
+            "presentSucceeded": get_path(
+                webgpu_backend_frame_validation,
+                ["presentSucceeded"],
+            ),
+            "selectorSelectedSamplesUsed": get_path(
+                webgpu_backend_frame_validation,
+                ["selectorSelectedSamplesUsed"],
+            ),
+            "fallbackSuppressedBySelectorSamples": get_path(
+                webgpu_backend_frame_validation,
+                ["fallbackSuppressedBySelectorSamples"],
+            ),
+            "webgl2HybridRenderingPrevented": get_path(
+                webgpu_backend_frame_validation,
+                ["webgl2HybridRenderingPrevented"],
+            ),
+            "cameraProjectionContractUnchanged": get_path(
+                webgpu_backend_frame_validation,
+                ["cameraProjectionContractUnchanged"],
+            ),
+            "shEvaluationDeferred": get_path(
+                webgpu_backend_frame_validation,
+                ["shEvaluationDeferred"],
+            ),
+            "firstValidationFailures": compact_list(
+                get_path(
+                    webgpu_backend_frame_validation,
+                    ["firstValidationFailures"],
+                    [],
+                )
+            ),
+            "blockers": compact_list(
+                get_path(webgpu_backend_frame_prototype, ["blockers"], [])
+            ),
+            "nextBackendPrototypeStep": get_path(
+                webgpu_backend_frame_prototype,
                 ["nextBackendPrototypeStep"],
             ),
         },

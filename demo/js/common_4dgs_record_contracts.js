@@ -4,7 +4,7 @@ export const WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION =
 export const WEBGPU_VISIBLE_RECORD_COMPUTE_MODE =
   'webgpu-storage-buffer-compute-fixed-record';
 
-export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step50';
+export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step52';
 
 export const WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE =
   'wgsl-valid-screen-projection-with-true-native-bounded-color-sources';
@@ -120,6 +120,9 @@ export const WEBGPU_VIEWER_CANVAS_BOUNDED_COLOR_PRESENT_COMPUTE_MODE =
 export const WEBGPU_VIEWER_CANVAS_BOUNDED_COLOR_SOURCE_SELECTOR_COMPUTE_MODE =
   'webgpu-viewer-canvas-bounded-color-source-selector';
 
+export const WEBGPU_BACKEND_FRAME_PROTOTYPE_COMPUTE_MODE =
+  'webgpu-backend-frame-prototype';
+
 export {
   WEBGPU_PROJECTION_CONTRACT_NAMES,
   WEBGPU_PROJECTION_CONTRACT_SCHEMA_VERSION,
@@ -234,7 +237,9 @@ export const WEBGPU_VISIBLE_RECORD_FIELD_COMPUTE_MODES = Object.freeze({
   webgpuViewerCanvasBoundedColorSourceSelector:
     WEBGPU_VIEWER_CANVAS_BOUNDED_COLOR_SOURCE_SELECTOR_COMPUTE_MODE,
   webgpuViewerCanvasBoundedColorPresent:
-    WEBGPU_VIEWER_CANVAS_BOUNDED_COLOR_PRESENT_COMPUTE_MODE
+    WEBGPU_VIEWER_CANVAS_BOUNDED_COLOR_PRESENT_COMPUTE_MODE,
+  webgpuBackendFramePrototype:
+    WEBGPU_BACKEND_FRAME_PROTOTYPE_COMPUTE_MODE
 });
 
 export const WEBGPU_VISIBLE_RECORD_DEFERRED_FIELDS = Object.freeze([

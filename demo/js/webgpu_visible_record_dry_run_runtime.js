@@ -59,11 +59,7 @@ import { buildWebGpuGuardedFirstDisplayExperiment } from './webgpu_guarded_first
 import { buildWebGpuCanvasPresentationAdapterDryRunComparison } from './webgpu_canvas_presentation_adapter_dry_run.js';
 import { buildWebGpuExclusiveCanvasHandoffReadiness } from './webgpu_exclusive_canvas_handoff.js';
 import { buildWebGpuExclusiveFrameLifecycleSwitch } from './webgpu_exclusive_frame_lifecycle_switch.js';
-import { buildWebGpuViewerCanvasCurrentTexturePathReadiness } from './webgpu_viewer_canvas_current_texture_path.js';
-import { buildWebGpuViewerCanvasBoundedFirstPresent } from './webgpu_viewer_canvas_bounded_first_present.js';
-import { buildWebGpuViewerCanvasNativeBoundedColorSamples } from './webgpu_viewer_canvas_native_bounded_color_samples.js';
-import { buildWebGpuViewerCanvasBoundedColorSourceSelector } from './webgpu_viewer_canvas_bounded_color_source_selector.js';
-import { buildWebGpuViewerCanvasBoundedColorPresent } from './webgpu_viewer_canvas_bounded_color_present.js';
+import { buildWebGpuBackendFramePrototype } from './webgpu_backend_frame_prototype.js';
 
 const DEFAULT_MAX_RECORDS = 65536;
 const DEFAULT_EPSILON = DEFAULT_COMPARISON_EPSILON;
@@ -3839,47 +3835,24 @@ export async function runWebGpuVisibleRecordDryRun({
       webgpuCanvasPresentationAdapterDryRunComparison,
       viewerCanvasState
     });
-  const webgpuViewerCanvasCurrentTexturePath =
-    await buildWebGpuViewerCanvasCurrentTexturePathReadiness({
-      device,
-      viewerCanvasState
-    });
-  const webgpuViewerCanvasBoundedFirstPresent =
-    await buildWebGpuViewerCanvasBoundedFirstPresent({
+  const webgpuBackendFramePrototype =
+    await buildWebGpuBackendFramePrototype({
       device,
       viewerCanvasState,
-      webgpuViewerCanvasCurrentTexturePath,
-      webgpuRenderHandoffStub
-    });
-  const webgpuViewerCanvasNativeBoundedColorSamples =
-    buildWebGpuViewerCanvasNativeBoundedColorSamples({
+      webgpuRenderHandoffStub,
       webgpuFramebufferFreeTileOutputDryRunComparison,
       webgpuRenderTargetHandoffDryRunComparison,
       webgpuConstrainedDisplayAdapterDryRunComparison,
-      webgpuRenderHandoffStub,
       canvasWidth,
       canvasHeight
     });
-  const webgpuViewerCanvasBoundedColorSourceSelector =
-    buildWebGpuViewerCanvasBoundedColorSourceSelector({
-      webgpuViewerCanvasNativeBoundedColorSamples,
-      webgpuConstrainedDisplayAdapterDryRunComparison,
-      webgpuRenderTargetHandoffDryRunComparison,
-      webgpuFramebufferFreeTileOutputDryRunComparison,
-      webgpuRenderHandoffStub
-    });
-  const webgpuViewerCanvasBoundedColorPresent =
-    await buildWebGpuViewerCanvasBoundedColorPresent({
-      device,
-      viewerCanvasState,
-      webgpuViewerCanvasCurrentTexturePath,
-      webgpuViewerCanvasBoundedFirstPresent,
-      webgpuViewerCanvasBoundedColorSourceSelector,
-      webgpuRenderHandoffStub,
-      webgpuFramebufferFreeTileOutputDryRunComparison,
-      webgpuRenderTargetHandoffDryRunComparison,
-      webgpuConstrainedDisplayAdapterDryRunComparison
-    });
+  const {
+    webgpuViewerCanvasCurrentTexturePath,
+    webgpuViewerCanvasBoundedFirstPresent,
+    webgpuViewerCanvasNativeBoundedColorSamples,
+    webgpuViewerCanvasBoundedColorSourceSelector,
+    webgpuViewerCanvasBoundedColorPresent
+  } = webgpuBackendFramePrototype;
   const webgpuExclusiveFrameLifecycleSwitch =
     buildWebGpuExclusiveFrameLifecycleSwitch({
       webgpuCanvasPresentationAdapterDryRunComparison,
@@ -3910,7 +3883,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step50 promotes bounded color output through true Step37-40 native compute/render-target/display samples before selector-driven viewer canvas present.',
+    scaffoldNote: 'Phase 3 Step52 coordinates currentTexture acquisition, sample selection, bounded present submission, and summary as a WebGPU backend frame prototype.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
@@ -3981,6 +3954,7 @@ export async function runWebGpuVisibleRecordDryRun({
     webgpuViewerCanvasNativeBoundedColorSamples,
     webgpuViewerCanvasBoundedColorSourceSelector,
     webgpuViewerCanvasBoundedColorPresent,
+    webgpuBackendFramePrototype,
     webgpuExclusiveFrameLifecycleSwitch,
     inputContract,
     bufferContract: inputContract,
@@ -4025,6 +3999,7 @@ export async function runWebGpuVisibleRecordDryRun({
       ...webgpuViewerCanvasNativeBoundedColorSamples.timing,
       ...webgpuViewerCanvasBoundedColorSourceSelector.timing,
       ...webgpuViewerCanvasBoundedColorPresent.timing,
+      ...webgpuBackendFramePrototype.timing,
       ...webgpuExclusiveFrameLifecycleSwitch.timing,
       ...computeResult.timing,
       compareMs,
@@ -4089,6 +4064,7 @@ export async function runWebGpuVisibleRecordDryRun({
       webgpuViewerCanvasNativeBoundedColorSamples,
       webgpuViewerCanvasBoundedColorSourceSelector,
       webgpuViewerCanvasBoundedColorPresent,
+      webgpuBackendFramePrototype,
       webgpuExclusiveFrameLifecycleSwitch,
       inputContract,
       bufferContract: inputContract,
