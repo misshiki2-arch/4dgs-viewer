@@ -4,7 +4,7 @@ export const WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION =
 export const WEBGPU_VISIBLE_RECORD_COMPUTE_MODE =
   'webgpu-storage-buffer-compute-fixed-record';
 
-export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step55';
+export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step56';
 
 export const WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE =
   'wgsl-valid-screen-projection-with-true-native-bounded-color-sources';
@@ -126,6 +126,9 @@ export const WEBGPU_BACKEND_FRAME_PROTOTYPE_COMPUTE_MODE =
 export const WEBGPU_BACKEND_FRAME_LIFECYCLE_PROTOTYPE_COMPUTE_MODE =
   'webgpu-backend-frame-lifecycle-prototype';
 
+export const WEBGPU_BACKEND_FRAME_CONTROLLED_REPEATED_EXECUTION_COMPUTE_MODE =
+  'webgpu-backend-frame-controlled-repeated-execution';
+
 export {
   WEBGPU_PROJECTION_CONTRACT_NAMES,
   WEBGPU_PROJECTION_CONTRACT_SCHEMA_VERSION,
@@ -244,7 +247,9 @@ export const WEBGPU_VISIBLE_RECORD_FIELD_COMPUTE_MODES = Object.freeze({
   webgpuBackendFramePrototype:
     WEBGPU_BACKEND_FRAME_PROTOTYPE_COMPUTE_MODE,
   webgpuBackendFrameLifecyclePrototype:
-    WEBGPU_BACKEND_FRAME_LIFECYCLE_PROTOTYPE_COMPUTE_MODE
+    WEBGPU_BACKEND_FRAME_LIFECYCLE_PROTOTYPE_COMPUTE_MODE,
+  webgpuBackendFrameControlledRepeatedExecution:
+    WEBGPU_BACKEND_FRAME_CONTROLLED_REPEATED_EXECUTION_COMPUTE_MODE
 });
 
 export const WEBGPU_VISIBLE_RECORD_DEFERRED_FIELDS = Object.freeze([

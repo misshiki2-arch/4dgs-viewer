@@ -61,6 +61,7 @@ import { buildWebGpuExclusiveCanvasHandoffReadiness } from './webgpu_exclusive_c
 import { buildWebGpuExclusiveFrameLifecycleSwitch } from './webgpu_exclusive_frame_lifecycle_switch.js';
 import { buildWebGpuBackendFramePrototype } from './webgpu_backend_frame_prototype.js';
 import { buildWebGpuBackendFrameLifecyclePrototype } from './webgpu_backend_frame_lifecycle_prototype.js';
+import { buildWebGpuBackendFrameControlledRepeatedExecution } from './webgpu_backend_frame_controlled_repeated_execution.js';
 
 const DEFAULT_MAX_RECORDS = 65536;
 const DEFAULT_EPSILON = DEFAULT_COMPARISON_EPSILON;
@@ -3852,6 +3853,24 @@ export async function runWebGpuVisibleRecordDryRun({
       webgpuBackendFramePrototype,
       repeatedFrameCount: 3
     });
+  const webgpuBackendFrameControlledRepeatedExecution =
+    await buildWebGpuBackendFrameControlledRepeatedExecution({
+      initialBackendFramePrototype: webgpuBackendFramePrototype,
+      repeatedFrameCount: 3,
+      executeBackendFrame: async ({ frameIndex, previousBackendFramePrototype }) =>
+        buildWebGpuBackendFramePrototype({
+          device,
+          viewerCanvasState,
+          webgpuRenderHandoffStub,
+          webgpuFramebufferFreeTileOutputDryRunComparison,
+          webgpuRenderTargetHandoffDryRunComparison,
+          webgpuConstrainedDisplayAdapterDryRunComparison,
+          canvasWidth,
+          canvasHeight,
+          frameIndex,
+          previousBackendFramePrototype
+        })
+    });
   const {
     webgpuViewerCanvasCurrentTexturePath,
     webgpuViewerCanvasBoundedFirstPresent,
@@ -3889,7 +3908,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step55 adds a repeated-run lifecycle prototype over the Step54 backend frame unit while preserving Step40 stable present.',
+    scaffoldNote: 'Phase 3 Step56 adds controlled repeated WebGPU backend frame execution with guarded repeated submits while preserving Step40 stable present.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
@@ -3962,6 +3981,7 @@ export async function runWebGpuVisibleRecordDryRun({
     webgpuViewerCanvasBoundedColorPresent,
     webgpuBackendFramePrototype,
     webgpuBackendFrameLifecyclePrototype,
+    webgpuBackendFrameControlledRepeatedExecution,
     webgpuExclusiveFrameLifecycleSwitch,
     inputContract,
     bufferContract: inputContract,
@@ -4008,6 +4028,7 @@ export async function runWebGpuVisibleRecordDryRun({
       ...webgpuViewerCanvasBoundedColorPresent.timing,
       ...webgpuBackendFramePrototype.timing,
       ...webgpuBackendFrameLifecyclePrototype.timing,
+      ...webgpuBackendFrameControlledRepeatedExecution.timing,
       ...webgpuExclusiveFrameLifecycleSwitch.timing,
       ...computeResult.timing,
       compareMs,
@@ -4074,6 +4095,7 @@ export async function runWebGpuVisibleRecordDryRun({
       webgpuViewerCanvasBoundedColorPresent,
       webgpuBackendFramePrototype,
       webgpuBackendFrameLifecyclePrototype,
+      webgpuBackendFrameControlledRepeatedExecution,
       webgpuExclusiveFrameLifecycleSwitch,
       inputContract,
       bufferContract: inputContract,

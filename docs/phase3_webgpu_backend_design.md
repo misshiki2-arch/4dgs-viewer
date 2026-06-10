@@ -416,3 +416,29 @@ This moves the backend prototype from a single bounded present toward a
 frame-lifecycle shape while keeping WebGPU normal backend, WebGL2 fallback /
 validation oracle, Three.js camera input adapter, and CUDA Reference roles
 separate.
+
+## 14. Step56 Controlled Repeated Execution
+
+Step56 keeps the production viewer loop disconnected, but it stops treating
+continuation frames as replay-only summaries. `webgpuBackendFrameControlledRepeatedExecution`
+uses the Step54 backend frame as frame 0, then invokes the same backend frame
+builder for continuation frames under the same guarded `webgpu-exclusive`
+ownership contract.
+
+- execution policy: the controlled run is limited to two or three backend
+  frames inside one capture. It is not a `requestAnimationFrame` production
+  scheduler.
+- per-frame guard: every executed frame must reacquire the viewer canvas
+  currentTexture path, keep bounded first-present readiness, use selector
+  samples, suppress fallback mixing, and keep WebGL2 hybrid rendering disabled.
+- submit policy: every controlled frame must submit bounded color present work
+  and wait for queue completion. The summary reports
+  `executedBackendFrameSubmissions`, `repeatedSubmitCount`, and per-frame submit
+  status.
+- state continuity: each continuation frame receives the previous backend frame
+  prototype and reports previous-frame readiness so later scheduler work can
+  replace the capture-local loop without changing the sample or fallback
+  contract.
+
+This is the first repeated-submit backend frame step. It still does not connect
+production display scheduling, mouse interaction, or WGSL SH/color parity.

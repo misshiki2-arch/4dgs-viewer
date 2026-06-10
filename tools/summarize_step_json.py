@@ -914,6 +914,14 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
         ["validationSummary"],
         {},
     )
+    webgpu_backend_frame_controlled_repeated_execution = get_path(
+        summary, ["webgpuBackendFrameControlledRepeatedExecution"], {}
+    )
+    webgpu_backend_frame_controlled_repeated_execution_validation = get_path(
+        webgpu_backend_frame_controlled_repeated_execution,
+        ["validationSummary"],
+        {},
+    )
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -4400,6 +4408,138 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             ),
             "nextBackendPrototypeStep": get_path(
                 webgpu_backend_frame_lifecycle_prototype,
+                ["nextBackendPrototypeStep"],
+            ),
+        },
+        "webgpuBackendFrameControlledRepeatedExecution": {
+            "status": get_path(
+                webgpu_backend_frame_controlled_repeated_execution,
+                ["status"],
+            ),
+            "mode": get_path(
+                webgpu_backend_frame_controlled_repeated_execution,
+                ["mode"],
+            ),
+            "source": get_path(
+                webgpu_backend_frame_controlled_repeated_execution,
+                ["source"],
+            ),
+            "contractVersion": get_path(
+                webgpu_backend_frame_controlled_repeated_execution,
+                ["contractVersion"],
+            ),
+            "controlledRepeatedExecutionImplemented": get_path(
+                webgpu_backend_frame_controlled_repeated_execution,
+                ["controlledRepeatedExecutionImplemented"],
+            ),
+            "controlledRepeatedExecutionReady": get_path(
+                webgpu_backend_frame_controlled_repeated_execution,
+                ["controlledRepeatedExecutionReady"],
+            ),
+            "productionDisplayConnectionImplemented": get_path(
+                webgpu_backend_frame_controlled_repeated_execution,
+                ["productionDisplayConnectionImplemented"],
+            ),
+            "displayConnectionAllowed": get_path(
+                webgpu_backend_frame_controlled_repeated_execution,
+                ["displayConnectionAllowed"],
+            ),
+            "webgl2HybridRenderingAllowed": get_path(
+                webgpu_backend_frame_controlled_repeated_execution,
+                ["webgl2HybridRenderingAllowed"],
+            ),
+            "requestedFrameCount": get_path(
+                webgpu_backend_frame_controlled_repeated_execution,
+                ["requestedFrameCount"],
+            ),
+            "executedBackendFrameSubmissions": get_path(
+                webgpu_backend_frame_controlled_repeated_execution,
+                ["executedBackendFrameSubmissions"],
+            ),
+            "simulatedContinuationFrameCount": get_path(
+                webgpu_backend_frame_controlled_repeated_execution,
+                ["simulatedContinuationFrameCount"],
+            ),
+            "repeatedSubmitCount": get_path(
+                webgpu_backend_frame_controlled_repeated_execution,
+                ["repeatedSubmitCount"],
+            ),
+            "controlledExecutionContract": get_path(
+                webgpu_backend_frame_controlled_repeated_execution,
+                ["controlledExecutionContract"],
+                {},
+            ),
+            "frameSummaries": compact_list(
+                get_path(
+                    webgpu_backend_frame_controlled_repeated_execution,
+                    ["frameSummaries"],
+                    [],
+                )
+            ),
+            "selectedSourceKind": get_path(
+                webgpu_backend_frame_controlled_repeated_execution,
+                ["selectedSourceKind"],
+            ),
+            "colorPresentSampleCount": get_path(
+                webgpu_backend_frame_controlled_repeated_execution,
+                ["colorPresentSampleCount"],
+            ),
+            "sampleSources": compact_list(
+                get_path(
+                    webgpu_backend_frame_controlled_repeated_execution,
+                    ["sampleSources"],
+                    [],
+                )
+            ),
+            "fallbackPolicy": get_path(
+                webgpu_backend_frame_controlled_repeated_execution,
+                ["fallbackPolicy"],
+                {},
+            ),
+            "controlledRepeatedExecutionReadyValidation": get_path(
+                webgpu_backend_frame_controlled_repeated_execution_validation,
+                ["controlledRepeatedExecutionReady"],
+            ),
+            "allFramesReady": get_path(
+                webgpu_backend_frame_controlled_repeated_execution_validation,
+                ["allFramesReady"],
+            ),
+            "frameIndicesMonotonic": get_path(
+                webgpu_backend_frame_controlled_repeated_execution_validation,
+                ["frameIndicesMonotonic"],
+            ),
+            "allFramesSubmitted": get_path(
+                webgpu_backend_frame_controlled_repeated_execution_validation,
+                ["allFramesSubmitted"],
+            ),
+            "guardStableAcrossFrames": get_path(
+                webgpu_backend_frame_controlled_repeated_execution_validation,
+                ["guardStableAcrossFrames"],
+            ),
+            "sampleCountsStable": get_path(
+                webgpu_backend_frame_controlled_repeated_execution_validation,
+                ["sampleCountsStable"],
+            ),
+            "previousFrameChainValid": get_path(
+                webgpu_backend_frame_controlled_repeated_execution_validation,
+                ["previousFrameChainValid"],
+            ),
+            "firstValidationFailures": compact_list(
+                get_path(
+                    webgpu_backend_frame_controlled_repeated_execution_validation,
+                    ["firstValidationFailures"],
+                    [],
+                )
+            ),
+            "blockers": compact_list(
+                get_path(
+                    webgpu_backend_frame_controlled_repeated_execution,
+                    ["blockers"],
+                    [],
+                )
+            ),
+            "nextBackendPrototypeStep": get_path(
+                webgpu_backend_frame_controlled_repeated_execution,
                 ["nextBackendPrototypeStep"],
             ),
         },
