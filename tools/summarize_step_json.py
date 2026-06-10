@@ -4185,6 +4185,16 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
                 ["inputSourceContract"],
                 {},
             ),
+            "frameBudgetContract": get_path(
+                webgpu_backend_frame_prototype,
+                ["frameBudgetContract"],
+                {},
+            ),
+            "continuationFrameContract": get_path(
+                webgpu_backend_frame_prototype,
+                ["continuationFrameContract"],
+                {},
+            ),
             "fallbackPolicy": get_path(
                 webgpu_backend_frame_prototype,
                 ["fallbackPolicy"],
@@ -4221,6 +4231,14 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             "backendFrameInputExpandedBeyondStep40": get_path(
                 webgpu_backend_frame_validation,
                 ["backendFrameInputExpandedBeyondStep40"],
+            ),
+            "frameBudgetReady": get_path(
+                webgpu_backend_frame_validation,
+                ["frameBudgetReady"],
+            ),
+            "continuationFrameReady": get_path(
+                webgpu_backend_frame_validation,
+                ["continuationFrameReady"],
             ),
             "presentableTrueNativeSourceKinds": compact_list(
                 get_path(

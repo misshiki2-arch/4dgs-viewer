@@ -370,3 +370,23 @@ presentable sample counts, selected source kind, true native source count, and
 whether input readiness has expanded beyond Step40. Selector priority is still
 Step40, then Step39, then Step38, then render-handoff-derived fallback. Fallback
 output remains a fallback and must not be classified as true native success.
+
+## 12. Step54 Frame Budget and Continuation Readiness
+
+Step54 keeps the production viewer loop disconnected, but the backend frame is
+prepared to behave like a repeatable frame unit. `webgpuBackendFramePrototype`
+reports two additional contracts:
+
+- `frameBudgetContract`: the bounded N-sample budget for selected and presented
+  samples. The current cap is `DEFAULT_MAX_BOUNDED_COLOR_SAMPLES`, and the
+  frame reports selected count, present count, budget utilization, and whether
+  the frame could scale within the current budget.
+- `continuationFrameContract`: a dry-run-safe repeated frame contract. It
+  records frame index, previous-frame status when provided, and confirms the
+  coordinator can be invoked repeatedly under the same exclusive canvas,
+  sample, and fallback contracts.
+
+`backendFrameReady` includes currentTexture readiness, first-present success,
+selector/present success, fallback suppression, WebGL2 hybrid prevention,
+sample-budget readiness, and continuation readiness. This is still not a
+production display connection or interactive camera implementation.

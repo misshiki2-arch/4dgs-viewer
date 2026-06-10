@@ -11,6 +11,12 @@ import {
 export const WEBGPU_BACKEND_FRAME_PROTOTYPE_MODE =
   'webgpu-backend-frame-prototype';
 
+export const WEBGPU_BACKEND_FRAME_CONTINUATION_CONTRACT_VERSION =
+  'phase3-step54-backend-frame-continuation-contract-v1';
+
+export const WEBGPU_BACKEND_FRAME_BUDGET_CONTRACT_VERSION =
+  'phase3-step54-backend-frame-budget-contract-v1';
+
 function nowMs() {
   return typeof performance !== 'undefined' && typeof performance.now === 'function'
     ? performance.now()
@@ -128,13 +134,81 @@ function buildFrameInputSourceContract({
   };
 }
 
+function buildFrameBudgetContract({
+  frameInputSourceContract,
+  webgpuViewerCanvasBoundedColorSourceSelector,
+  webgpuViewerCanvasBoundedColorPresent,
+  requestedSampleBudget = DEFAULT_MAX_BOUNDED_COLOR_SAMPLES
+}) {
+  const selectedSampleCount =
+    webgpuViewerCanvasBoundedColorSourceSelector?.selectedSampleCount ?? 0;
+  const colorPresentSampleCount =
+    webgpuViewerCanvasBoundedColorPresent?.colorPresentSampleCount ?? 0;
+  const boundedSampleBudget = Math.max(
+    1,
+    Math.min(
+      DEFAULT_MAX_BOUNDED_COLOR_SAMPLES,
+      Number.isFinite(Number(requestedSampleBudget))
+        ? Math.floor(Number(requestedSampleBudget))
+        : DEFAULT_MAX_BOUNDED_COLOR_SAMPLES
+    )
+  );
+  const sourceAvailability = frameInputSourceContract?.sourceAvailability ?? [];
+  const maxPresentableSourceSampleCount = sourceAvailability.reduce(
+    (maxCount, source) => Math.max(maxCount, source.presentableSampleCount ?? 0),
+    0
+  );
+  return {
+    contractVersion: WEBGPU_BACKEND_FRAME_BUDGET_CONTRACT_VERSION,
+    budgetMode: 'bounded-n-samples-frame-budget',
+    boundedSampleBudget,
+    maxBoundedColorSamples: DEFAULT_MAX_BOUNDED_COLOR_SAMPLES,
+    selectedSampleCount,
+    colorPresentSampleCount,
+    maxPresentableSourceSampleCount,
+    selectedSamplesWithinBudget: selectedSampleCount <= boundedSampleBudget,
+    colorPresentWithinBudget: colorPresentSampleCount <= boundedSampleBudget,
+    canScaleWithinCurrentBudget:
+      maxPresentableSourceSampleCount > colorPresentSampleCount &&
+      colorPresentSampleCount < boundedSampleBudget,
+    budgetUtilization:
+      boundedSampleBudget > 0 ? colorPresentSampleCount / boundedSampleBudget : 0,
+    sourceBudgetPolicy:
+      'Step54 keeps Step40 as selected source while exposing bounded N-sample capacity for repeated backend frames'
+  };
+}
+
+function buildContinuationFrameContract({
+  frameIndex = 0,
+  previousBackendFramePrototype = null,
+  backendFrameReady
+}) {
+  return {
+    contractVersion: WEBGPU_BACKEND_FRAME_CONTINUATION_CONTRACT_VERSION,
+    frameIndex: Number.isFinite(Number(frameIndex)) ? Math.max(0, Math.floor(Number(frameIndex))) : 0,
+    repeatedFrameCallable: true,
+    statelessDryRunFrame: true,
+    productionLoopConnected: false,
+    previousFrameProvided: !!previousBackendFramePrototype,
+    previousFrameStatus: previousBackendFramePrototype?.status ?? null,
+    previousFrameReady: previousBackendFramePrototype?.backendFrameReady ?? null,
+    currentFrameReady: backendFrameReady,
+    continuityPolicy:
+      'backend frame coordinator can be invoked repeatedly under the same exclusive canvas and sample/fallback contracts',
+    nextFrameInputReusePolicy:
+      'reuse current source priority and sample budget until production scheduling owns frame cadence'
+  };
+}
+
 function buildValidationSummary({
   webgpuViewerCanvasCurrentTexturePath,
   webgpuViewerCanvasBoundedFirstPresent,
   webgpuViewerCanvasNativeBoundedColorSamples,
   webgpuViewerCanvasBoundedColorSourceSelector,
   webgpuViewerCanvasBoundedColorPresent,
-  frameInputSourceContract
+  frameInputSourceContract,
+  frameBudgetContract,
+  continuationFrameContract
 }) {
   const colorOutputContract =
     webgpuViewerCanvasBoundedColorPresent?.colorOutputContract ?? {};
@@ -159,6 +233,12 @@ function buildValidationSummary({
     webgpuViewerCanvasBoundedColorPresent?.webgl2HybridRenderingAllowed === false;
   const backendFrameInputExpandedBeyondStep40 =
     frameInputSourceContract?.backendFrameInputExpandedBeyondStep40 === true;
+  const frameBudgetReady =
+    frameBudgetContract?.selectedSamplesWithinBudget === true &&
+    frameBudgetContract?.colorPresentWithinBudget === true;
+  const continuationFrameReady =
+    continuationFrameContract?.repeatedFrameCallable === true &&
+    continuationFrameContract?.productionLoopConnected === false;
   const backendFrameReady =
     currentTexturePathReady &&
     boundedFirstPresentSucceeded &&
@@ -167,7 +247,9 @@ function buildValidationSummary({
     presentSucceeded &&
     selectorSelectedSamplesUsed &&
     fallbackSuppressedBySelectorSamples &&
-    webgl2HybridRenderingPrevented;
+    webgl2HybridRenderingPrevented &&
+    frameBudgetReady &&
+    continuationFrameReady;
   const firstValidationFailures = [];
   if (!currentTexturePathReady) {
     firstValidationFailures.push({
@@ -217,6 +299,18 @@ function buildValidationSummary({
       reason: 'backend frame requires WebGPU presentation without WebGL2 hybrid rendering'
     });
   }
+  if (!frameBudgetReady) {
+    firstValidationFailures.push({
+      stage: 'frame-budget',
+      reason: 'selected or presented bounded samples exceed the backend frame sample budget'
+    });
+  }
+  if (!continuationFrameReady) {
+    firstValidationFailures.push({
+      stage: 'frame-continuation',
+      reason: 'backend frame is not marked reusable under the current dry-run contract'
+    });
+  }
   return {
     backendFrameReady,
     currentTexturePathReady,
@@ -228,6 +322,8 @@ function buildValidationSummary({
     fallbackSuppressedBySelectorSamples,
     webgl2HybridRenderingPrevented,
     backendFrameInputExpandedBeyondStep40,
+    frameBudgetReady,
+    continuationFrameReady,
     presentableTrueNativeSourceKinds:
       frameInputSourceContract?.presentableTrueNativeSourceKinds ?? [],
     cameraProjectionContractUnchanged:
@@ -246,7 +342,10 @@ export async function buildWebGpuBackendFramePrototype({
   webgpuRenderTargetHandoffDryRunComparison = null,
   webgpuConstrainedDisplayAdapterDryRunComparison = null,
   canvasWidth = 1,
-  canvasHeight = 1
+  canvasHeight = 1,
+  frameIndex = 0,
+  previousBackendFramePrototype = null,
+  requestedSampleBudget = DEFAULT_MAX_BOUNDED_COLOR_SAMPLES
 } = {}) {
   const startMs = nowMs();
   const webgpuViewerCanvasCurrentTexturePath =
@@ -299,20 +398,37 @@ export async function buildWebGpuBackendFramePrototype({
     webgpuViewerCanvasBoundedColorSourceSelector,
     webgpuViewerCanvasBoundedColorPresent
   });
+  const frameBudgetContract = buildFrameBudgetContract({
+    frameInputSourceContract,
+    webgpuViewerCanvasBoundedColorSourceSelector,
+    webgpuViewerCanvasBoundedColorPresent,
+    requestedSampleBudget
+  });
   const validationSummary = buildValidationSummary({
     webgpuViewerCanvasCurrentTexturePath,
     webgpuViewerCanvasBoundedFirstPresent,
     webgpuViewerCanvasNativeBoundedColorSamples,
     webgpuViewerCanvasBoundedColorSourceSelector,
     webgpuViewerCanvasBoundedColorPresent,
-    frameInputSourceContract
+    frameInputSourceContract,
+    frameBudgetContract,
+    continuationFrameContract: buildContinuationFrameContract({
+      frameIndex,
+      previousBackendFramePrototype,
+      backendFrameReady: false
+    })
   });
   const backendFrameReady = validationSummary.backendFrameReady;
+  const continuationFrameContract = buildContinuationFrameContract({
+    frameIndex,
+    previousBackendFramePrototype,
+    backendFrameReady
+  });
   return {
     mode: WEBGPU_BACKEND_FRAME_PROTOTYPE_MODE,
     status: backendFrameReady ? 'ok' : 'blocked',
     source:
-      'Phase 3 Step53 WebGPU backend frame prototype with expanded true native input source readiness',
+      'Phase 3 Step54 WebGPU backend frame prototype with bounded sample budget and continuation readiness',
     backendFramePrototypeImplemented: true,
     backendFrameReady,
     productionDisplayConnectionImplemented: false,
@@ -348,10 +464,14 @@ export async function buildWebGpuBackendFramePrototype({
         webgpuViewerCanvasBoundedColorPresent?.submittedWorkDone === true,
       sampleContract: colorOutputContract.sampleContract ?? null,
       inputSourceContract: frameInputSourceContract,
+      frameBudgetContract,
+      continuationFrameContract,
       sampleSources: colorOutputContract.sampleSources ?? [],
       presentedSamples: colorOutputContract.presentedSamples ?? []
     },
     inputSourceContract: frameInputSourceContract,
+    frameBudgetContract,
+    continuationFrameContract,
     fallbackPolicy: {
       fallbackKeptForEmptySelectorSamples: true,
       fallbackAllowedForThisFrame: colorOutputContract.fallbackAllowed === true,
@@ -382,7 +502,7 @@ export async function buildWebGpuBackendFramePrototype({
           {
             stage: 'interactive-camera',
             reason:
-              'Three.js and OrbitControls remain camera input adapters; interactive camera implementation is outside Step53'
+              'Three.js and OrbitControls remain camera input adapters; interactive camera implementation is outside Step54'
           },
           {
             stage: 'sh-color-evaluation',
