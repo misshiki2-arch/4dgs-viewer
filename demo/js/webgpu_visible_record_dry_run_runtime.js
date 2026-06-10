@@ -60,6 +60,7 @@ import { buildWebGpuCanvasPresentationAdapterDryRunComparison } from './webgpu_c
 import { buildWebGpuExclusiveCanvasHandoffReadiness } from './webgpu_exclusive_canvas_handoff.js';
 import { buildWebGpuExclusiveFrameLifecycleSwitch } from './webgpu_exclusive_frame_lifecycle_switch.js';
 import { buildWebGpuBackendFramePrototype } from './webgpu_backend_frame_prototype.js';
+import { buildWebGpuBackendFrameLifecyclePrototype } from './webgpu_backend_frame_lifecycle_prototype.js';
 
 const DEFAULT_MAX_RECORDS = 65536;
 const DEFAULT_EPSILON = DEFAULT_COMPARISON_EPSILON;
@@ -3846,6 +3847,11 @@ export async function runWebGpuVisibleRecordDryRun({
       canvasWidth,
       canvasHeight
     });
+  const webgpuBackendFrameLifecyclePrototype =
+    buildWebGpuBackendFrameLifecyclePrototype({
+      webgpuBackendFramePrototype,
+      repeatedFrameCount: 3
+    });
   const {
     webgpuViewerCanvasCurrentTexturePath,
     webgpuViewerCanvasBoundedFirstPresent,
@@ -3883,7 +3889,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step54 adds backend frame sample budget and continuation readiness while preserving Step40 stable present.',
+    scaffoldNote: 'Phase 3 Step55 adds a repeated-run lifecycle prototype over the Step54 backend frame unit while preserving Step40 stable present.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
@@ -3955,6 +3961,7 @@ export async function runWebGpuVisibleRecordDryRun({
     webgpuViewerCanvasBoundedColorSourceSelector,
     webgpuViewerCanvasBoundedColorPresent,
     webgpuBackendFramePrototype,
+    webgpuBackendFrameLifecyclePrototype,
     webgpuExclusiveFrameLifecycleSwitch,
     inputContract,
     bufferContract: inputContract,
@@ -4000,6 +4007,7 @@ export async function runWebGpuVisibleRecordDryRun({
       ...webgpuViewerCanvasBoundedColorSourceSelector.timing,
       ...webgpuViewerCanvasBoundedColorPresent.timing,
       ...webgpuBackendFramePrototype.timing,
+      ...webgpuBackendFrameLifecyclePrototype.timing,
       ...webgpuExclusiveFrameLifecycleSwitch.timing,
       ...computeResult.timing,
       compareMs,
@@ -4065,6 +4073,7 @@ export async function runWebGpuVisibleRecordDryRun({
       webgpuViewerCanvasBoundedColorSourceSelector,
       webgpuViewerCanvasBoundedColorPresent,
       webgpuBackendFramePrototype,
+      webgpuBackendFrameLifecyclePrototype,
       webgpuExclusiveFrameLifecycleSwitch,
       inputContract,
       bufferContract: inputContract,

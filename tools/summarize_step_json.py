@@ -906,6 +906,14 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
         ["validationSummary"],
         {},
     )
+    webgpu_backend_frame_lifecycle_prototype = get_path(
+        summary, ["webgpuBackendFrameLifecyclePrototype"], {}
+    )
+    webgpu_backend_frame_lifecycle_validation = get_path(
+        webgpu_backend_frame_lifecycle_prototype,
+        ["validationSummary"],
+        {},
+    )
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -4271,6 +4279,127 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             ),
             "nextBackendPrototypeStep": get_path(
                 webgpu_backend_frame_prototype,
+                ["nextBackendPrototypeStep"],
+            ),
+        },
+        "webgpuBackendFrameLifecyclePrototype": {
+            "status": get_path(
+                webgpu_backend_frame_lifecycle_prototype, ["status"]
+            ),
+            "mode": get_path(
+                webgpu_backend_frame_lifecycle_prototype, ["mode"]
+            ),
+            "source": get_path(
+                webgpu_backend_frame_lifecycle_prototype, ["source"]
+            ),
+            "contractVersion": get_path(
+                webgpu_backend_frame_lifecycle_prototype,
+                ["contractVersion"],
+            ),
+            "lifecyclePrototypeImplemented": get_path(
+                webgpu_backend_frame_lifecycle_prototype,
+                ["lifecyclePrototypeImplemented"],
+            ),
+            "lifecycleReady": get_path(
+                webgpu_backend_frame_lifecycle_prototype,
+                ["lifecycleReady"],
+            ),
+            "productionDisplayConnectionImplemented": get_path(
+                webgpu_backend_frame_lifecycle_prototype,
+                ["productionDisplayConnectionImplemented"],
+            ),
+            "displayConnectionAllowed": get_path(
+                webgpu_backend_frame_lifecycle_prototype,
+                ["displayConnectionAllowed"],
+            ),
+            "webgl2HybridRenderingAllowed": get_path(
+                webgpu_backend_frame_lifecycle_prototype,
+                ["webgl2HybridRenderingAllowed"],
+            ),
+            "requestedFrameCount": get_path(
+                webgpu_backend_frame_lifecycle_prototype,
+                ["requestedFrameCount"],
+            ),
+            "executedBackendFrameSubmissions": get_path(
+                webgpu_backend_frame_lifecycle_prototype,
+                ["executedBackendFrameSubmissions"],
+            ),
+            "simulatedContinuationFrameCount": get_path(
+                webgpu_backend_frame_lifecycle_prototype,
+                ["simulatedContinuationFrameCount"],
+            ),
+            "lifecycleContract": get_path(
+                webgpu_backend_frame_lifecycle_prototype,
+                ["lifecycleContract"],
+                {},
+            ),
+            "frameSummaries": compact_list(
+                get_path(
+                    webgpu_backend_frame_lifecycle_prototype,
+                    ["frameSummaries"],
+                    [],
+                )
+            ),
+            "selectedSourceKind": get_path(
+                webgpu_backend_frame_lifecycle_prototype,
+                ["selectedSourceKind"],
+            ),
+            "colorPresentSampleCount": get_path(
+                webgpu_backend_frame_lifecycle_prototype,
+                ["colorPresentSampleCount"],
+            ),
+            "sampleSources": compact_list(
+                get_path(
+                    webgpu_backend_frame_lifecycle_prototype,
+                    ["sampleSources"],
+                    [],
+                )
+            ),
+            "fallbackPolicy": get_path(
+                webgpu_backend_frame_lifecycle_prototype,
+                ["fallbackPolicy"],
+                {},
+            ),
+            "repeatedRunReady": get_path(
+                webgpu_backend_frame_lifecycle_validation,
+                ["repeatedRunReady"],
+            ),
+            "allFramesReady": get_path(
+                webgpu_backend_frame_lifecycle_validation,
+                ["allFramesReady"],
+            ),
+            "frameIndicesMonotonic": get_path(
+                webgpu_backend_frame_lifecycle_validation,
+                ["frameIndicesMonotonic"],
+            ),
+            "guardStableAcrossFrames": get_path(
+                webgpu_backend_frame_lifecycle_validation,
+                ["guardStableAcrossFrames"],
+            ),
+            "sampleCountsStable": get_path(
+                webgpu_backend_frame_lifecycle_validation,
+                ["sampleCountsStable"],
+            ),
+            "noExtraSubmitsAfterInitialFrame": get_path(
+                webgpu_backend_frame_lifecycle_validation,
+                ["noExtraSubmitsAfterInitialFrame"],
+            ),
+            "firstValidationFailures": compact_list(
+                get_path(
+                    webgpu_backend_frame_lifecycle_validation,
+                    ["firstValidationFailures"],
+                    [],
+                )
+            ),
+            "blockers": compact_list(
+                get_path(
+                    webgpu_backend_frame_lifecycle_prototype,
+                    ["blockers"],
+                    [],
+                )
+            ),
+            "nextBackendPrototypeStep": get_path(
+                webgpu_backend_frame_lifecycle_prototype,
                 ["nextBackendPrototypeStep"],
             ),
         },

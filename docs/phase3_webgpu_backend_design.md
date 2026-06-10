@@ -390,3 +390,29 @@ reports two additional contracts:
 selector/present success, fallback suppression, WebGL2 hybrid prevention,
 sample-budget readiness, and continuation readiness. This is still not a
 production display connection or interactive camera implementation.
+
+## 13. Step55 Repeated-Run Lifecycle Prototype
+
+Step55 keeps Step54 as the single submitted backend frame and adds
+`webgpuBackendFrameLifecyclePrototype` as the repeated-run coordinator boundary.
+The lifecycle prototype does not connect a production frame scheduler and does
+not add extra viewer canvas submissions after the initial Step54 frame. Instead,
+it validates that the same backend frame unit can be represented as a small
+sequence of frame summaries:
+
+- frame state: each summary carries `frameIndex`, previous-frame status, and
+  readiness so later work can replace the dry-run replay with a real scheduler.
+- lifecycle guards: currentTexture readiness, bounded first-present success,
+  selector-selected samples, fallback suppression, and WebGL2 hybrid prevention
+  must remain stable across the repeated frame summaries.
+- submission policy: frame 0 owns the actual Step54 command submission;
+  continuation frames are dry-run lifecycle checks and must not be counted as
+  extra production submissions.
+- budget continuity: `frameBudgetContract` and `continuationFrameContract` from
+  Step54 are carried into `lifecycleContract` so repeated frames inherit the
+  bounded sample budget and reusable-frame constraints.
+
+This moves the backend prototype from a single bounded present toward a
+frame-lifecycle shape while keeping WebGPU normal backend, WebGL2 fallback /
+validation oracle, Three.js camera input adapter, and CUDA Reference roles
+separate.
