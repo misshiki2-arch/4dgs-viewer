@@ -83,6 +83,13 @@ npm run build
 npm run demo
 ```
 
+For Phase 3 viewer/WebGPU validation, `npm run build` is the lightweight path:
+it syncs `demo/` into `build/demo` without rebuilding the Rollup library bundle.
+Use `npm run build:full` after changing `src/` or the published library entry
+points, and use `npm run build:lib` when only the library bundle needs a Rollup
+rebuild. Use `npm run rebuild` when `build/` should be deleted and recreated
+from scratch.
+
 Then open the demo from:
 
 ```text
