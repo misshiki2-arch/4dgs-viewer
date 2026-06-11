@@ -930,6 +930,14 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
         ["validationSummary"],
         {},
     )
+    webgpu_backend_viewer_lifecycle_integration = get_path(
+        summary, ["webgpuBackendViewerLifecycleIntegrationBoundary"], {}
+    )
+    webgpu_backend_viewer_lifecycle_integration_validation = get_path(
+        webgpu_backend_viewer_lifecycle_integration,
+        ["validationSummary"],
+        {},
+    )
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -4656,6 +4664,128 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             ),
             "nextBackendPrototypeStep": get_path(
                 webgpu_backend_viewer_loop_adapter,
+                ["nextBackendPrototypeStep"],
+            ),
+        },
+        "webgpuBackendViewerLifecycleIntegrationBoundary": {
+            "status": get_path(
+                webgpu_backend_viewer_lifecycle_integration, ["status"]
+            ),
+            "mode": get_path(
+                webgpu_backend_viewer_lifecycle_integration, ["mode"]
+            ),
+            "source": get_path(
+                webgpu_backend_viewer_lifecycle_integration, ["source"]
+            ),
+            "contractVersion": get_path(
+                webgpu_backend_viewer_lifecycle_integration,
+                ["contractVersion"],
+            ),
+            "integrationBoundaryImplemented": get_path(
+                webgpu_backend_viewer_lifecycle_integration,
+                ["integrationBoundaryImplemented"],
+            ),
+            "integrationBoundaryReady": get_path(
+                webgpu_backend_viewer_lifecycle_integration,
+                ["integrationBoundaryReady"],
+            ),
+            "productionDisplayConnectionImplemented": get_path(
+                webgpu_backend_viewer_lifecycle_integration,
+                ["productionDisplayConnectionImplemented"],
+            ),
+            "displayConnectionAllowed": get_path(
+                webgpu_backend_viewer_lifecycle_integration,
+                ["displayConnectionAllowed"],
+            ),
+            "webgl2HybridRenderingAllowed": get_path(
+                webgpu_backend_viewer_lifecycle_integration,
+                ["webgl2HybridRenderingAllowed"],
+            ),
+            "hookContract": get_path(
+                webgpu_backend_viewer_lifecycle_integration,
+                ["hookContract"],
+                {},
+            ),
+            "cameraSnapshotContract": get_path(
+                webgpu_backend_viewer_lifecycle_integration,
+                ["cameraSnapshotContract"],
+                {},
+            ),
+            "adapterInvocationContract": get_path(
+                webgpu_backend_viewer_lifecycle_integration,
+                ["adapterInvocationContract"],
+                {},
+            ),
+            "viewerCanvasOwnershipContract": get_path(
+                webgpu_backend_viewer_lifecycle_integration,
+                ["viewerCanvasOwnershipContract"],
+                {},
+            ),
+            "selectedSourceKind": get_path(
+                webgpu_backend_viewer_lifecycle_integration,
+                ["selectedSourceKind"],
+            ),
+            "colorPresentSampleCount": get_path(
+                webgpu_backend_viewer_lifecycle_integration,
+                ["colorPresentSampleCount"],
+            ),
+            "executedBackendFrameSubmissions": get_path(
+                webgpu_backend_viewer_lifecycle_integration,
+                ["executedBackendFrameSubmissions"],
+            ),
+            "repeatedSubmitCount": get_path(
+                webgpu_backend_viewer_lifecycle_integration,
+                ["repeatedSubmitCount"],
+            ),
+            "fallbackPolicy": get_path(
+                webgpu_backend_viewer_lifecycle_integration,
+                ["fallbackPolicy"],
+                {},
+            ),
+            "integrationBoundaryReadyValidation": get_path(
+                webgpu_backend_viewer_lifecycle_integration_validation,
+                ["integrationBoundaryReady"],
+            ),
+            "hookAllowed": get_path(
+                webgpu_backend_viewer_lifecycle_integration_validation,
+                ["hookAllowed"],
+            ),
+            "webgl2FrameLifecycleSuppressed": get_path(
+                webgpu_backend_viewer_lifecycle_integration_validation,
+                ["webgl2FrameLifecycleSuppressed"],
+            ),
+            "webgl2HybridRenderingPrevented": get_path(
+                webgpu_backend_viewer_lifecycle_integration_validation,
+                ["webgl2HybridRenderingPrevented"],
+            ),
+            "cameraSnapshotProvided": get_path(
+                webgpu_backend_viewer_lifecycle_integration_validation,
+                ["cameraSnapshotProvided"],
+            ),
+            "adapterReady": get_path(
+                webgpu_backend_viewer_lifecycle_integration_validation,
+                ["adapterReady"],
+            ),
+            "fallbackPolicyPreserved": get_path(
+                webgpu_backend_viewer_lifecycle_integration_validation,
+                ["fallbackPolicyPreserved"],
+            ),
+            "firstValidationFailures": compact_list(
+                get_path(
+                    webgpu_backend_viewer_lifecycle_integration_validation,
+                    ["firstValidationFailures"],
+                    [],
+                )
+            ),
+            "blockers": compact_list(
+                get_path(
+                    webgpu_backend_viewer_lifecycle_integration,
+                    ["blockers"],
+                    [],
+                )
+            ),
+            "nextBackendPrototypeStep": get_path(
+                webgpu_backend_viewer_lifecycle_integration,
                 ["nextBackendPrototypeStep"],
             ),
         },

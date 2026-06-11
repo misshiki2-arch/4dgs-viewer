@@ -62,6 +62,7 @@ import { buildWebGpuExclusiveFrameLifecycleSwitch } from './webgpu_exclusive_fra
 import { buildWebGpuBackendFramePrototype } from './webgpu_backend_frame_prototype.js';
 import { buildWebGpuBackendFrameLifecyclePrototype } from './webgpu_backend_frame_lifecycle_prototype.js';
 import { buildWebGpuBackendViewerLoopAdapter } from './webgpu_backend_viewer_loop_adapter.js';
+import { buildWebGpuBackendViewerLifecycleIntegrationBoundary } from './webgpu_backend_viewer_lifecycle_integration.js';
 
 const DEFAULT_MAX_RECORDS = 65536;
 const DEFAULT_EPSILON = DEFAULT_COMPARISON_EPSILON;
@@ -3879,6 +3880,33 @@ export async function runWebGpuVisibleRecordDryRun({
   const {
     webgpuBackendFrameControlledRepeatedExecution
   } = webgpuBackendViewerLoopAdapter;
+  const viewerLifecycleIntegrationRequest =
+    metadata?.viewerLifecycleIntegrationRequest ?? {};
+  const webgpuBackendViewerLifecycleIntegrationBoundary =
+    buildWebGpuBackendViewerLifecycleIntegrationBoundary({
+      requestedBackendMode:
+        viewerLifecycleIntegrationRequest.requestedBackendMode ??
+        viewerCanvasState?.requestedBackendMode ??
+        'webgl2-fallback',
+      allowViewerCanvasPresentation:
+        viewerLifecycleIntegrationRequest.allowViewerCanvasPresentation === true ||
+        viewerCanvasState?.allowViewerCanvasPresentation === true,
+      enableViewerLoopHook:
+        viewerLifecycleIntegrationRequest.webgpuBackendViewerLoopHook === true,
+      renderLifecycleStage: 'webgpu-visible-record-dry-run-runtime',
+      viewerCanvasState,
+      cameraSnapshot: {
+        deterministicState: metadata?.deterministicState ?? null,
+        projectionContract: projectionContract.summary,
+        canvasWidth,
+        canvasHeight
+      },
+      adapterResult: webgpuBackendViewerLoopAdapter,
+      adapterInvocationSource:
+        viewerLifecycleIntegrationRequest.lastRenderLifecycleIntegrationBoundary
+          ? 'viewer-render-lifecycle-hook-and-dry-run-adapter'
+          : 'webgpu-visible-record-dry-run-adapter'
+    });
   const {
     webgpuViewerCanvasCurrentTexturePath,
     webgpuViewerCanvasBoundedFirstPresent,
@@ -3916,7 +3944,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step57 adds a controlled WebGPU backend viewer loop adapter with frame execution API and resource lifecycle while preserving Step40 stable present.',
+    scaffoldNote: 'Phase 3 Step58 adds a guarded viewer render lifecycle integration boundary for the WebGPU backend viewer loop adapter while preserving Step40 stable present.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
@@ -3991,6 +4019,7 @@ export async function runWebGpuVisibleRecordDryRun({
     webgpuBackendFrameLifecyclePrototype,
     webgpuBackendFrameControlledRepeatedExecution,
     webgpuBackendViewerLoopAdapter,
+    webgpuBackendViewerLifecycleIntegrationBoundary,
     webgpuExclusiveFrameLifecycleSwitch,
     inputContract,
     bufferContract: inputContract,
@@ -4039,6 +4068,7 @@ export async function runWebGpuVisibleRecordDryRun({
       ...webgpuBackendFrameLifecyclePrototype.timing,
       ...webgpuBackendFrameControlledRepeatedExecution.timing,
       ...webgpuBackendViewerLoopAdapter.timing,
+      ...webgpuBackendViewerLifecycleIntegrationBoundary.timing,
       ...webgpuExclusiveFrameLifecycleSwitch.timing,
       ...computeResult.timing,
       compareMs,
@@ -4107,6 +4137,7 @@ export async function runWebGpuVisibleRecordDryRun({
       webgpuBackendFrameLifecyclePrototype,
       webgpuBackendFrameControlledRepeatedExecution,
       webgpuBackendViewerLoopAdapter,
+      webgpuBackendViewerLifecycleIntegrationBoundary,
       webgpuExclusiveFrameLifecycleSwitch,
       inputContract,
       bufferContract: inputContract,

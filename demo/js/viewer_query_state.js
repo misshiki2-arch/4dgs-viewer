@@ -218,6 +218,7 @@ function buildDeterministicQueryString(state) {
   appendDeterministicQueryParam(params, 'webgpuVisibleRecordFields', state?.webgpuVisibleRecordFields);
   appendDeterministicQueryParam(params, 'webgpuBackendMode', state?.webgpuBackendMode);
   appendDeterministicQueryParam(params, 'webgpuAllowViewerCanvasPresentation', state?.webgpuAllowViewerCanvasPresentation, formatDeterministicBoolean);
+  appendDeterministicQueryParam(params, 'webgpuBackendViewerLoopHook', state?.webgpuBackendViewerLoopHook, formatDeterministicBoolean);
   appendDeterministicQueryParam(params, 'bgGray', state?.bgGray);
   return params.toString();
 }
@@ -385,6 +386,10 @@ export function parseViewerQueryState(search = window.location.search) {
       params.get('webgpuAllowViewerCanvasPresentation'),
       null
     ),
+    webgpuBackendViewerLoopHook: parseBoolean(
+      params.get('webgpuBackendViewerLoopHook'),
+      null
+    ),
     bgGray: parseInteger(params.get('bgGray'), null)
   };
 
@@ -476,6 +481,7 @@ export function parseViewerQueryState(search = window.location.search) {
     'webgpuVisibleRecordFields',
     'webgpuBackendMode',
     'webgpuAllowViewerCanvasPresentation',
+    'webgpuBackendViewerLoopHook',
     'bgGray'
   ].some((key) => params.has(key));
 
@@ -609,6 +615,15 @@ export function buildViewerDeterministicSummary(queryState) {
       ? Number(state.webgpuVisibleRecordMaxCount)
       : null,
     webgpuVisibleRecordFields: state.webgpuVisibleRecordFields ?? null,
+    webgpuBackendMode: state.webgpuBackendMode ?? null,
+    webgpuAllowViewerCanvasPresentation:
+      typeof state.webgpuAllowViewerCanvasPresentation === 'boolean'
+        ? state.webgpuAllowViewerCanvasPresentation
+        : null,
+    webgpuBackendViewerLoopHook:
+      typeof state.webgpuBackendViewerLoopHook === 'boolean'
+        ? state.webgpuBackendViewerLoopHook
+        : null,
     rawQueryString: state.rawQueryString ?? '',
     deterministicQueryString: state.deterministicQueryString ?? '',
     deterministicUrlSummary: state.deterministicUrlSummary ?? ''

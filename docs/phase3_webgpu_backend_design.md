@@ -464,6 +464,27 @@ sample source contract or the exclusive canvas guard.
   the adapter does not implement interactive camera behavior or mutate the
   projection contract.
 
+## 16. Step58 Viewer Lifecycle Integration Boundary
+
+Step58 keeps the production viewer loop disconnected, but moves the Step57
+adapter closer to the existing viewer render lifecycle. The integration boundary
+is guarded by `webgpuBackendMode=webgpu-exclusive`,
+`webgpuAllowViewerCanvasPresentation=true`, and the explicit
+`webgpuBackendViewerLoopHook=true` flag.
+
+- viewer lifecycle hook: `viewer_app_gpu.renderCurrentFrame` now exposes a
+  guarded `webgpuBackendViewerLifecycleIntegrationBoundary` summary when WebGPU
+  exclusive mode suppresses the WebGL2 render frame.
+- adapter connection: the WebGPU dry-run connects the same boundary to
+  `webgpuBackendViewerLoopAdapter`, so the Step57 adapter result and the viewer
+  lifecycle hook can be validated together without enabling production
+  scheduling.
+- ownership policy: WebGL2 remains suppressed under the exclusive guard, and
+  WebGPU presentation is not mixed with an active WebGL2 viewer canvas.
+- camera boundary: the hook carries a Three.js camera snapshot into the boundary
+  contract, but it does not implement interactive camera behavior or mutate the
+  projection contract.
+
 This moves the prototype from repeated submits toward a viewer-loop-callable
 backend API while preserving WebGPU normal backend, WebGL2 fallback / validation
 oracle, and CUDA Reference role separation.

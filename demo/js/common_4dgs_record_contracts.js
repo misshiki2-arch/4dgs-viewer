@@ -4,7 +4,7 @@ export const WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION =
 export const WEBGPU_VISIBLE_RECORD_COMPUTE_MODE =
   'webgpu-storage-buffer-compute-fixed-record';
 
-export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step57';
+export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step58';
 
 export const WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE =
   'wgsl-valid-screen-projection-with-true-native-bounded-color-sources';
@@ -132,6 +132,9 @@ export const WEBGPU_BACKEND_FRAME_CONTROLLED_REPEATED_EXECUTION_COMPUTE_MODE =
 export const WEBGPU_BACKEND_VIEWER_LOOP_ADAPTER_COMPUTE_MODE =
   'webgpu-backend-viewer-loop-adapter';
 
+export const WEBGPU_BACKEND_VIEWER_LIFECYCLE_INTEGRATION_COMPUTE_MODE =
+  'webgpu-backend-viewer-lifecycle-integration-boundary';
+
 export {
   WEBGPU_PROJECTION_CONTRACT_NAMES,
   WEBGPU_PROJECTION_CONTRACT_SCHEMA_VERSION,
@@ -254,7 +257,9 @@ export const WEBGPU_VISIBLE_RECORD_FIELD_COMPUTE_MODES = Object.freeze({
   webgpuBackendFrameControlledRepeatedExecution:
     WEBGPU_BACKEND_FRAME_CONTROLLED_REPEATED_EXECUTION_COMPUTE_MODE,
   webgpuBackendViewerLoopAdapter:
-    WEBGPU_BACKEND_VIEWER_LOOP_ADAPTER_COMPUTE_MODE
+    WEBGPU_BACKEND_VIEWER_LOOP_ADAPTER_COMPUTE_MODE,
+  webgpuBackendViewerLifecycleIntegrationBoundary:
+    WEBGPU_BACKEND_VIEWER_LIFECYCLE_INTEGRATION_COMPUTE_MODE
 });
 
 export const WEBGPU_VISIBLE_RECORD_DEFERRED_FIELDS = Object.freeze([
