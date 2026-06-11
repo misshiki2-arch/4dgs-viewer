@@ -442,3 +442,28 @@ ownership contract.
 
 This is the first repeated-submit backend frame step. It still does not connect
 production display scheduling, mouse interaction, or WGSL SH/color parity.
+
+## 15. Step57 Viewer Loop Adapter Boundary
+
+Step57 keeps production scheduling disconnected, but wraps the Step56 controlled
+execution path in `webgpuBackendViewerLoopAdapter`. The adapter is the manual,
+bounded entrypoint that a future viewer loop can call without changing the
+sample source contract or the exclusive canvas guard.
+
+- frame execution API: `frameExecutionApiContract` defines a single frame call
+  shape with `frameIndex`, previous backend frame state, camera snapshot,
+  exclusive canvas guard, and sample/fallback contracts as inputs.
+- resource lifecycle: `frameResourceLifecycleContract` separates reusable
+  resources such as `GPUDevice`, `viewerCanvasState`, Step38-40 bounded samples,
+  and selector policy from per-frame resources such as currentTexture, command
+  encoder, render pass, command buffer, and queue completion.
+- adapter policy: the adapter is callable from a future viewer loop, but
+  `productionLoopConnected` remains false. It only runs the bounded controlled
+  frame count used by the capture.
+- camera boundary: Three.js camera data is treated as a camera input snapshot;
+  the adapter does not implement interactive camera behavior or mutate the
+  projection contract.
+
+This moves the prototype from repeated submits toward a viewer-loop-callable
+backend API while preserving WebGPU normal backend, WebGL2 fallback / validation
+oracle, and CUDA Reference role separation.
