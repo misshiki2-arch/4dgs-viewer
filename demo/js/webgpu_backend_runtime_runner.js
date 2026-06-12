@@ -7,7 +7,7 @@ export const WEBGPU_BACKEND_RUNTIME_RUNNER_MODE =
   'webgpu-backend-runtime-runner';
 
 export const WEBGPU_BACKEND_RUNTIME_RUNNER_CONTRACT_VERSION =
-  'phase3-step62-backend-runtime-runner-contract-v1';
+  'phase3-step63-backend-runtime-runner-contract-v1';
 
 export const WEBGPU_BACKEND_DRY_RUN_IMPLEMENTATION_KIND =
   'webgpu-visible-record-dry-run-runtime';
@@ -285,6 +285,8 @@ export async function runWebGpuBackendRuntimeFrame({
             frameIndex,
             invocationSource,
             runnerContract,
+            cameraSnapshot,
+            viewerCanvasState,
             runBackendFrame
           });
         backendFrameResult = normalBackendImplementationResult.backendFrameResult;
@@ -322,7 +324,7 @@ export async function runWebGpuBackendRuntimeFrame({
     mode: WEBGPU_BACKEND_RUNTIME_RUNNER_MODE,
     status: runtimeRunnerReady ? 'ok' : 'blocked',
     source:
-      'Phase 3 Step62 viewer backend runtime runner selects a first normal WebGPU backend implementation path',
+      'Phase 3 Step63 viewer backend runtime runner executes a normal backend with owned frame input and present output contracts',
     contractVersion: WEBGPU_BACKEND_RUNTIME_RUNNER_CONTRACT_VERSION,
     runtimeRunnerImplemented: true,
     runtimeRunnerReady,

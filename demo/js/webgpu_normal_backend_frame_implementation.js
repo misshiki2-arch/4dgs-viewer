@@ -2,7 +2,13 @@ export const WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_MODE =
   'webgpu-normal-backend-frame-implementation';
 
 export const WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_CONTRACT_VERSION =
-  'phase3-step62-normal-backend-frame-implementation-v1';
+  'phase3-step63-normal-backend-frame-implementation-v1';
+
+export const WEBGPU_NORMAL_BACKEND_FRAME_INPUT_CONTRACT_VERSION =
+  'phase3-step63-normal-backend-frame-input-contract-v1';
+
+export const WEBGPU_NORMAL_BACKEND_PRESENT_OUTPUT_CONTRACT_VERSION =
+  'phase3-step63-normal-backend-present-output-contract-v1';
 
 function nowMs() {
   return typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -41,7 +47,75 @@ function buildImplementationContract({
   };
 }
 
-function buildPresentSummary(backendFrameResult) {
+function buildFrameInputContract({
+  frameIndex,
+  invocationSource,
+  runnerContract,
+  cameraSnapshot,
+  viewerCanvasState
+}) {
+  return {
+    contractVersion: WEBGPU_NORMAL_BACKEND_FRAME_INPUT_CONTRACT_VERSION,
+    inputMode: 'normal-webgpu-backend-viewer-frame-input',
+    frameIndex,
+    invocationSource,
+    requestedBackendMode: runnerContract?.requestedBackendMode ?? null,
+    allowViewerCanvasPresentation:
+      runnerContract?.allowViewerCanvasPresentation === true,
+    enableViewerLoopHook: runnerContract?.enableViewerLoopHook === true,
+    cameraSnapshotProvided: !!cameraSnapshot,
+    cameraSnapshotSource: cameraSnapshot
+      ? 'viewer-lifecycle-camera-snapshot'
+      : 'not-provided',
+    projectionContractProvided:
+      !!cameraSnapshot?.projectionContract ||
+      !!cameraSnapshot?.deterministicState?.projectionContract,
+    canvasState: {
+      provided:
+        viewerCanvasState?.provided === true ||
+        runnerContract?.viewerCanvasProvided === true,
+      contextMode:
+        viewerCanvasState?.contextMode ??
+        runnerContract?.viewerCanvasContextMode ??
+        null,
+      requestedBackendMode:
+        viewerCanvasState?.requestedBackendMode ??
+        runnerContract?.requestedBackendMode ??
+        null,
+      allowViewerCanvasPresentation:
+        viewerCanvasState?.allowViewerCanvasPresentation === true ||
+        runnerContract?.allowViewerCanvasPresentation === true,
+      webgl2FrameLifecycleSuppressed:
+        viewerCanvasState?.webgl2FrameLifecycleSuppressed === true ||
+        runnerContract?.webgl2FrameLifecycleSuppressed === true
+    },
+    guardState: {
+      exclusiveBackendMode:
+        runnerContract?.requestedBackendMode === 'webgpu-exclusive',
+      viewerCanvasPresentationAllowed:
+        runnerContract?.allowViewerCanvasPresentation === true,
+      viewerLoopHookEnabled: runnerContract?.enableViewerLoopHook === true,
+      webgl2FrameLifecycleSuppressed:
+        runnerContract?.webgl2FrameLifecycleSuppressed === true
+    },
+    sourceSelectionPolicy: {
+      mode: 'normal-backend-owned-source-selection-contract',
+      preferredSourceKind: 'step40-constrained-display-adapter',
+      fallbackKeptForEmptySelectorSamples: true,
+      fallbackMustNotMixWithSelectedSamples: true,
+      trueNativeRequiredForSuccess: true
+    },
+    validationOracleRole:
+      'dry-run recorder may provide comparison/debug observations, but normal backend owns this frame input contract',
+    normalBackendOwnsFrameInput: true,
+    productionLoopConnected: false,
+    interactiveCameraImplemented: false,
+    streamingImplemented: false,
+    fullDatasetGpuResidencyRequired: false
+  };
+}
+
+function buildPresentOutputContract(backendFrameResult) {
   const present =
     backendFrameResult?.webgpuViewerCanvasBoundedColorPresent ?? {};
   const colorOutputContract = present?.colorOutputContract ?? {};
@@ -52,6 +126,9 @@ function buildPresentSummary(backendFrameResult) {
     ? colorOutputContract.sampleSources
     : [];
   return {
+    contractVersion: WEBGPU_NORMAL_BACKEND_PRESENT_OUTPUT_CONTRACT_VERSION,
+    outputMode: 'normal-webgpu-backend-present-output',
+    normalBackendOwnsPresentOutput: true,
     selectedSourceKind:
       backendFrameResult?.webgpuViewerCanvasBoundedColorSourceSelector
         ?.selectedSourceKind ??
@@ -61,6 +138,8 @@ function buildPresentSummary(backendFrameResult) {
     colorPresentSampleCount: present?.colorPresentSampleCount ?? null,
     commandBufferSubmitted: present?.commandBufferSubmitted === true,
     submittedWorkDone: present?.submittedWorkDone === true,
+    viewerCanvasContextConfiguredForColorPresent:
+      present?.viewerCanvasContextConfiguredForColorPresent === true,
     selectorSelectedSamplesUsed:
       colorOutputContract.selectorSelectedSamplesUsed === true,
     fallbackSuppressedBySelectorSamples:
@@ -72,7 +151,21 @@ function buildPresentSummary(backendFrameResult) {
       sampleSources.includes('webgpuRenderHandoffStub.sampleRecords') ||
       presentedSamples.some(
         (sample) => sample?.source === 'webgpuRenderHandoffStub.sampleRecords'
-      )
+      ),
+    validationOracleSource:
+      'webgpu-visible-record-dry-run-runtime-observed-present-output',
+    fallbackPolicy: {
+      fallbackKeptForEmptySelectorSamples:
+        colorOutputContract.fallbackKeptForEmptySelectorSamples === true,
+      fallbackAllowedForThisFrame:
+        colorOutputContract.fallbackAllowedForThisFrame === true,
+      fallbackSuppressedBySelectorSamples:
+        colorOutputContract.fallbackSuppressedBySelectorSamples === true,
+      selectedSamplesClassifiedAsTrueNative:
+        colorOutputContract.selectedSamplesClassifiedAsTrueNative === true ||
+        backendFrameResult?.webgpuViewerCanvasBoundedColorSourceSelector
+          ?.selectedSourceKind === 'step40-constrained-display-adapter'
+    }
   };
 }
 
@@ -101,7 +194,8 @@ function buildResourceSummary(backendFrameResult) {
 
 function buildValidationSummary({
   implementationContract,
-  presentSummary,
+  frameInputContract,
+  presentOutputContract,
   resourceSummary,
   backendFrameResult,
   executionError
@@ -110,17 +204,25 @@ function buildValidationSummary({
     implementationContract.requestedBackendMode === 'webgpu-exclusive' &&
     implementationContract.allowViewerCanvasPresentation === true &&
     implementationContract.enableViewerLoopHook === true;
+  const frameInputReady =
+    frameInputContract.normalBackendOwnsFrameInput === true &&
+    frameInputContract.guardState?.exclusiveBackendMode === true &&
+    frameInputContract.guardState?.viewerCanvasPresentationAllowed === true &&
+    frameInputContract.guardState?.viewerLoopHookEnabled === true &&
+    frameInputContract.canvasState?.webgl2FrameLifecycleSuppressed === true;
   const backendFrameResultProvided = !!backendFrameResult;
   const selectedTrueNativeSource =
-    presentSummary.selectedSourceKind === 'step40-constrained-display-adapter';
+    presentOutputContract.selectedSourceKind ===
+    'step40-constrained-display-adapter';
   const presentReady =
-    presentSummary.commandBufferSubmitted &&
-    presentSummary.submittedWorkDone &&
-    presentSummary.colorPresentSampleCount === 2 &&
-    presentSummary.presentedSampleCount === 2;
+    presentOutputContract.normalBackendOwnsPresentOutput === true &&
+    presentOutputContract.commandBufferSubmitted &&
+    presentOutputContract.submittedWorkDone &&
+    presentOutputContract.colorPresentSampleCount === 2 &&
+    presentOutputContract.presentedSampleCount === 2;
   const noFallbackMixing =
-    presentSummary.containsRenderHandoffFallback === false &&
-    presentSummary.fallbackSuppressedBySelectorSamples === true;
+    presentOutputContract.containsRenderHandoffFallback === false &&
+    presentOutputContract.fallbackSuppressedBySelectorSamples === true;
   const resourceLifecycleReady =
     resourceSummary.executedBackendFrameSubmissions === 3 &&
     resourceSummary.repeatedSubmitCount === 3 &&
@@ -129,6 +231,7 @@ function buildValidationSummary({
     implementationContract.webgl2FrameLifecycleSuppressed === true;
   const normalBackendImplementationReady =
     guardAllowed &&
+    frameInputReady &&
     backendFrameResultProvided &&
     selectedTrueNativeSource &&
     presentReady &&
@@ -148,6 +251,13 @@ function buildValidationSummary({
     firstValidationFailures.push({
       stage: 'normal-backend-frame-result',
       reason: 'normal WebGPU backend implementation did not receive backend frame output'
+    });
+  }
+  if (!frameInputReady) {
+    firstValidationFailures.push({
+      stage: 'normal-backend-frame-input',
+      reason:
+        'normal WebGPU backend implementation requires an owned frame input contract with exclusive canvas guard state'
     });
   }
   if (!selectedTrueNativeSource) {
@@ -194,6 +304,7 @@ function buildValidationSummary({
   return {
     normalBackendImplementationReady,
     guardAllowed,
+    frameInputReady,
     backendFrameResultProvided,
     selectedTrueNativeSource,
     presentReady,
@@ -208,6 +319,8 @@ export async function runWebGpuNormalBackendFrameImplementation({
   frameIndex = 0,
   invocationSource = 'webgpu-normal-backend-frame-implementation',
   runnerContract = null,
+  cameraSnapshot = null,
+  viewerCanvasState = null,
   runBackendFrame = null
 } = {}) {
   const startMs = nowMs();
@@ -215,6 +328,13 @@ export async function runWebGpuNormalBackendFrameImplementation({
     frameIndex,
     invocationSource,
     runnerContract
+  });
+  const frameInputContract = buildFrameInputContract({
+    frameIndex,
+    invocationSource,
+    runnerContract,
+    cameraSnapshot,
+    viewerCanvasState
   });
   let backendFrameResult = null;
   let executionError = null;
@@ -226,7 +346,8 @@ export async function runWebGpuNormalBackendFrameImplementation({
         runnerContract,
         backendImplementationKind:
           WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_MODE,
-        implementationContract
+        implementationContract,
+        frameInputContract
       });
     } catch (error) {
       executionError = {
@@ -235,11 +356,12 @@ export async function runWebGpuNormalBackendFrameImplementation({
       };
     }
   }
-  const presentSummary = buildPresentSummary(backendFrameResult);
+  const presentOutputContract = buildPresentOutputContract(backendFrameResult);
   const resourceSummary = buildResourceSummary(backendFrameResult);
   const validationSummary = buildValidationSummary({
     implementationContract,
-    presentSummary,
+    frameInputContract,
+    presentOutputContract,
     resourceSummary,
     backendFrameResult,
     executionError
@@ -250,7 +372,7 @@ export async function runWebGpuNormalBackendFrameImplementation({
     mode: WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_MODE,
     status: normalBackendImplementationReady ? 'ok' : 'blocked',
     source:
-      'Phase 3 Step62 first normal WebGPU backend implementation path selected by the runtime runner',
+      'Phase 3 Step63 normal WebGPU backend implementation owns frame input and present output contracts',
     contractVersion:
       WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_CONTRACT_VERSION,
     implementationKind: WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_MODE,
@@ -260,14 +382,16 @@ export async function runWebGpuNormalBackendFrameImplementation({
     displayConnectionAllowed: false,
     webgl2HybridRenderingAllowed: false,
     implementationContract,
-    presentSummary,
+    frameInputContract,
+    presentOutputContract,
+    presentSummary: presentOutputContract,
     resourceSummary,
-    selectedSourceKind: presentSummary.selectedSourceKind,
-    selectionMode: presentSummary.selectionMode,
-    colorPresentSampleCount: presentSummary.colorPresentSampleCount,
-    presentedSampleCount: presentSummary.presentedSampleCount,
-    sampleSources: presentSummary.sampleSources,
-    presentedSamples: presentSummary.presentedSamples,
+    selectedSourceKind: presentOutputContract.selectedSourceKind,
+    selectionMode: presentOutputContract.selectionMode,
+    colorPresentSampleCount: presentOutputContract.colorPresentSampleCount,
+    presentedSampleCount: presentOutputContract.presentedSampleCount,
+    sampleSources: presentOutputContract.sampleSources,
+    presentedSamples: presentOutputContract.presentedSamples,
     executedBackendFrameSubmissions:
       resourceSummary.executedBackendFrameSubmissions,
     repeatedSubmitCount: resourceSummary.repeatedSubmitCount,

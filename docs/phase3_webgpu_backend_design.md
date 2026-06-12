@@ -615,3 +615,35 @@ This moves the final segment of
 from a dry-run-only body to a selectable normal WebGPU backend implementation
 path, while preserving WebGPU exclusive ownership and WebGL2 fallback /
 validation-oracle separation.
+
+## 21. Step63 Normal Backend Frame Input and Present Output Contracts
+
+Step63 moves more responsibility into
+`webgpu-normal-backend-frame-implementation`. The normal backend implementation
+now owns a viewer frame input contract and a present output contract instead of
+only reporting dry-run observations from the validation oracle.
+
+- frame input contract: `frameInputContract` records frame index, invocation
+  source, camera snapshot availability, viewer canvas state, exclusive guard
+  state, and source selection policy. This is the normal backend's execution
+  input boundary.
+- present output contract: `presentOutputContract` records selected source
+  kind, selection mode, presented samples, sample sources, submit state,
+  queue completion, and fallback policy as the normal backend's canonical
+  output boundary.
+- oracle separation: the WebGPU visible-record dry-run can still provide
+  comparison/debug observations and the currently validated bounded samples, but
+  it does not own the normal backend frame input or present output contracts.
+- Step40 stable path: Step63 continues to require
+  `step40-constrained-display-adapter` selected samples, two presented samples,
+  no render-handoff fallback mixing, and three controlled frame submissions for
+  success.
+- scope limits: production scheduling, interactive camera implementation,
+  streaming, chunking, LOD, partial upload, and WGSL SH/color parity remain
+  future work. Full dataset GPU residency is still not required by the backend
+  boundary.
+
+This keeps the Step62 selectable implementation path, but gives the normal
+backend implementation its own input and output contracts so later production
+rendering can replace the validation-backed body without changing the viewer
+lifecycle guard.

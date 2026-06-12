@@ -4541,7 +4541,8 @@ async function renderCurrentFrame(options = {}) {
               executorContract,
               runnerContract,
               backendImplementationKind: selectedBackendImplementationKind,
-              implementationContract
+              implementationContract,
+              frameInputContract
             }) =>
               runWebGpuVisibleRecordDryRunFromViewerState({
                 options: {
@@ -4558,7 +4559,7 @@ async function renderCurrentFrame(options = {}) {
                     options.comparisonMode ??
                     (backendImplementationKind ===
                     'webgpu-normal-backend-frame-implementation'
-                      ? 'phase3-step62-normal-webgpu-backend-implementation'
+                      ? 'phase3-step63-normal-webgpu-backend-contracts'
                       : 'phase3-step61-viewer-backend-runtime-runner')
                 },
                 requestedWebGpuBackendMode: requestedBackendMode,
@@ -4580,7 +4581,7 @@ async function renderCurrentFrame(options = {}) {
                   phase:
                     backendImplementationKind ===
                     'webgpu-normal-backend-frame-implementation'
-                      ? 'phase3-step62'
+                      ? 'phase3-step63'
                       : 'phase3-step61',
                   renderLifecycleStage: 'renderCurrentFrame',
                   invocationSource: 'renderCurrentFrame-viewer-backend-executor',
@@ -4589,7 +4590,8 @@ async function renderCurrentFrame(options = {}) {
                   backendExecutorRequest: {
                     executorContract,
                     runnerContract,
-                    implementationContract
+                    implementationContract,
+                    frameInputContract
                   }
                 }
               })
