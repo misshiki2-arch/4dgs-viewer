@@ -4532,7 +4532,7 @@ async function renderCurrentFrame(options = {}) {
             integrationBoundary: webgpuBackendViewerLifecycleIntegrationBoundary,
             cameraSnapshot,
             viewerCanvasState,
-            runBackendFrame: ({ executorContract }) =>
+            runBackendFrame: ({ executorContract, runnerContract }) =>
               runWebGpuVisibleRecordDryRunFromViewerState({
                 options: {
                   ...options,
@@ -4545,7 +4545,7 @@ async function renderCurrentFrame(options = {}) {
                   webgpuBackendViewerLifecycleControlledExecution: true,
                   comparisonMode:
                     options.comparisonMode ??
-                    'phase3-step60-viewer-backend-frame-executor'
+                    'phase3-step61-viewer-backend-runtime-runner'
                 },
                 requestedWebGpuBackendMode: requestedBackendMode,
                 allowViewerCanvasPresentation,
@@ -4557,17 +4557,20 @@ async function renderCurrentFrame(options = {}) {
                     {
                       stage: 'viewer-backend-frame-executor-direct-run',
                       reason:
-                        'renderCurrentFrame invokes the WebGPU backend executor boundary instead of captureWebGpuVisibleRecordDryRunDebug'
+                        'renderCurrentFrame invokes the WebGPU backend runtime runner through the executor boundary'
                     }
                   ]
                 },
                 metadataOverrides: {
                   captureSource: 'viewer-backend-frame-executor',
-                  phase: 'phase3-step60',
+                  phase: 'phase3-step61',
                   renderLifecycleStage: 'renderCurrentFrame',
                   invocationSource: 'renderCurrentFrame-viewer-backend-executor',
                   controlledExecutionRequested: true,
-                  backendExecutorRequest: executorContract
+                  backendExecutorRequest: {
+                    executorContract,
+                    runnerContract
+                  }
                 }
               })
           })

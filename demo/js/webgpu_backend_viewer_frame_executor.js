@@ -1,6 +1,9 @@
 import {
   buildWebGpuBackendViewerLifecycleControlledExecution
 } from './webgpu_backend_viewer_lifecycle_integration.js';
+import {
+  runWebGpuBackendRuntimeFrame
+} from './webgpu_backend_runtime_runner.js';
 
 export const WEBGPU_BACKEND_VIEWER_FRAME_EXECUTOR_MODE =
   'webgpu-backend-viewer-frame-executor-boundary';
@@ -33,7 +36,7 @@ function buildExecutorContract({
     enableViewerLoopHook: enableViewerLoopHook === true,
     callableFromViewerLifecycle: true,
     captureDebugFunctionDependency: false,
-    directBackendRunner: 'runWebGpuVisibleRecordDryRun',
+    directBackendRunner: 'webgpuBackendRuntimeRunner',
     recorderRole: 'capture/dry-run debug remains validation oracle and JSON recorder',
     productionLoopConnected: false,
     streamingImplemented: false,
@@ -160,22 +163,24 @@ export async function executeWebGpuBackendViewerFrame({
   });
   let backendFrameResult = null;
   let executionError = null;
+  let runtimeRunner = null;
   if (
     typeof runBackendFrame === 'function' &&
     integrationBoundary?.integrationBoundaryReady === true
   ) {
-    try {
-      backendFrameResult = await runBackendFrame({
-        frameIndex,
-        invocationSource,
-        executorContract
-      });
-    } catch (error) {
-      executionError = {
-        name: error?.name ?? 'Error',
-        message: error?.message ?? String(error)
-      };
-    }
+    runtimeRunner = await runWebGpuBackendRuntimeFrame({
+      requestedBackendMode,
+      allowViewerCanvasPresentation,
+      enableViewerLoopHook,
+      invocationSource,
+      frameIndex,
+      cameraSnapshot,
+      viewerCanvasState,
+      executorContract,
+      runBackendFrame
+    });
+    backendFrameResult = runtimeRunner.backendFrameResult;
+    executionError = runtimeRunner.executionError;
   }
   const adapterResult = backendFrameResult?.webgpuBackendViewerLoopAdapter ?? null;
   const controlledExecution =
@@ -208,6 +213,7 @@ export async function executeWebGpuBackendViewerFrame({
     displayConnectionAllowed: false,
     webgl2HybridRenderingAllowed: false,
     executorContract,
+    runtimeRunner: runtimeRunner?.summary ?? null,
     controlledExecution,
     invocationCount: controlledExecution.invocationCount ?? 0,
     submittedFrameCount: controlledExecution.submittedFrameCount ?? 0,
@@ -218,6 +224,10 @@ export async function executeWebGpuBackendViewerFrame({
     selectionMode: controlledExecution.selectionMode ?? null,
     colorPresentSampleCount: controlledExecution.colorPresentSampleCount ?? null,
     fallbackPolicy: controlledExecution.fallbackPolicy ?? {},
+    canonicalPresentSummary:
+      runtimeRunner?.summary?.canonicalPresentSummary ?? null,
+    resourceLifecycleSummary:
+      runtimeRunner?.summary?.resourceLifecycleSummary ?? null,
     validationSummary,
     executionError,
     firstValidationFailures: validationSummary.firstValidationFailures,

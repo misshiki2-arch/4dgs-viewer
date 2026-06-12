@@ -3982,6 +3982,56 @@ export async function runWebGpuVisibleRecordDryRun({
             webgpuBackendViewerFrameExecutorMs: 0
           }
         };
+  const webgpuBackendRuntimeRunner =
+    webgpuBackendViewerFrameExecutor?.runtimeRunner
+      ? {
+          ...webgpuBackendViewerFrameExecutor.runtimeRunner,
+          recorderObservation: {
+            observedBy: 'webgpu-visible-record-dry-run-recorder',
+            recorderRole: 'validation-oracle-json-recorder',
+            executionBoundarySource:
+              'viewer_app_gpu.renderCurrentFrame webgpu backend runtime runner',
+            captureDebugFunctionIsExecutionBoundary: false
+          }
+        }
+      : {
+          mode: 'webgpu-backend-runtime-runner',
+          status: 'unavailable',
+          source:
+            'Phase 3 Step61 backend runtime runner was not observed in the latest render executor summary',
+          contractVersion: 'phase3-step61-backend-runtime-runner-contract-v1',
+          runtimeRunnerImplemented: true,
+          runtimeRunnerReady: false,
+          productionDisplayConnectionImplemented: false,
+          displayConnectionAllowed: false,
+          webgl2HybridRenderingAllowed: false,
+          recorderObservation: {
+            observedBy: 'webgpu-visible-record-dry-run-recorder',
+            recorderRole: 'validation-oracle-json-recorder',
+            executionBoundarySource: 'not-observed',
+            captureDebugFunctionIsExecutionBoundary: false
+          },
+          validationSummary: {
+            runtimeRunnerReady: false,
+            firstValidationFailures: [
+              {
+                stage: 'runtime-runner-observation',
+                reason:
+                  'run scheduleRender with webgpuBackendViewerLoopHook=true before capture so the runtime runner summary is available'
+              }
+            ]
+          },
+          firstValidationFailures: [
+            {
+              stage: 'runtime-runner-observation',
+              reason:
+                'run scheduleRender with webgpuBackendViewerLoopHook=true before capture so the runtime runner summary is available'
+            }
+          ],
+          timing: {
+            webgpuBackendRuntimeRunnerMs: 0
+          }
+        };
   const {
     webgpuViewerCanvasCurrentTexturePath,
     webgpuViewerCanvasBoundedFirstPresent,
@@ -4019,7 +4069,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step60 separates the viewer lifecycle WebGPU backend frame executor from capture/debug recording while preserving Step40 stable present.',
+    scaffoldNote: 'Phase 3 Step61 adds a replaceable viewer backend runtime runner contract below the executor while preserving Step40 stable present.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
@@ -4097,6 +4147,7 @@ export async function runWebGpuVisibleRecordDryRun({
     webgpuBackendViewerLifecycleIntegrationBoundary,
     webgpuBackendViewerLifecycleControlledExecution,
     webgpuBackendViewerFrameExecutor,
+    webgpuBackendRuntimeRunner,
     webgpuExclusiveFrameLifecycleSwitch,
     inputContract,
     bufferContract: inputContract,
@@ -4148,6 +4199,7 @@ export async function runWebGpuVisibleRecordDryRun({
       ...webgpuBackendViewerLifecycleIntegrationBoundary.timing,
       ...webgpuBackendViewerLifecycleControlledExecution.timing,
       ...webgpuBackendViewerFrameExecutor.timing,
+      ...webgpuBackendRuntimeRunner.timing,
       ...webgpuExclusiveFrameLifecycleSwitch.timing,
       ...computeResult.timing,
       compareMs,
@@ -4219,6 +4271,7 @@ export async function runWebGpuVisibleRecordDryRun({
       webgpuBackendViewerLifecycleIntegrationBoundary,
       webgpuBackendViewerLifecycleControlledExecution,
       webgpuBackendViewerFrameExecutor,
+      webgpuBackendRuntimeRunner,
       webgpuExclusiveFrameLifecycleSwitch,
       inputContract,
       bufferContract: inputContract,

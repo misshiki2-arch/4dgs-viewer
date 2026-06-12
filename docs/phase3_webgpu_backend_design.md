@@ -549,3 +549,34 @@ lifecycle.
 This moves the prototype closer to a normal WebGPU viewer backend entrypoint
 while keeping production scheduling, interactive camera ownership, streaming,
 and WGSL SH/color parity out of scope for this step.
+
+## 19. Step61 Viewer Backend Runtime Runner Contract
+
+Step61 adds a runtime runner layer below `webgpuBackendViewerFrameExecutor`.
+The executor still owns the guarded viewer lifecycle call, but the runner owns
+the replaceable backend frame execution contract. The current implementation
+still uses the validated WebGPU dry-run backend behind that contract; future
+normal WebGPU backend work can replace that implementation without changing the
+viewer lifecycle guard or recorder shape.
+
+- runner contract: `webgpuBackendRuntimeRunner` records backend mode, viewer
+  canvas guard, hook state, frame index, camera snapshot availability, canvas
+  ownership state, resource lifecycle, submit counts, and backend implementation
+  kind.
+- recorder separation: capture/debug remains a validation oracle and JSON
+  recorder. It observes runner output through `recorderObservation`; it is not
+  the runner's execution boundary.
+- canonical present summary: selected source kind, selection mode, color present
+  sample count, sample sources, presented sample count, fallback mixing status,
+  command submission, and queue completion are exposed in one runner summary.
+- replacement policy: the runner marks the current dry-run implementation as
+  replaceable. A production WebGPU backend frame runner should preserve this
+  contract while swapping the backend implementation.
+- data scale policy: Step61 still does not implement streaming, chunking, LOD,
+  or partial upload, and it continues to avoid a design requirement that all
+  Gaussians or all temporal frames must be resident in GPU/VRAM at once.
+
+This makes the path `renderCurrentFrame -> executor -> runtime runner -> backend
+implementation` explicit while preserving WebGPU exclusive ownership, WebGL2
+fallback / validation oracle separation, Three.js camera input adapter status,
+and deferred WGSL SH/color parity.
