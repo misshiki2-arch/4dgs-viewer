@@ -580,3 +580,38 @@ This makes the path `renderCurrentFrame -> executor -> runtime runner -> backend
 implementation` explicit while preserving WebGPU exclusive ownership, WebGL2
 fallback / validation oracle separation, Three.js camera input adapter status,
 and deferred WGSL SH/color parity.
+
+## 20. Step62 First Normal WebGPU Backend Implementation Path
+
+Step62 adds the first normal WebGPU backend implementation path below
+`webgpuBackendRuntimeRunner`. The runner can now select
+`webgpu-normal-backend-frame-implementation` with an explicit
+`webgpuBackendImplementation` flag instead of treating the validated dry-run
+runtime as the only callable backend body.
+
+- implementation selection: `webgpuBackendRuntimeRunner.runnerContract` records
+  the selected backend implementation kind and whether it came from the explicit
+  normal WebGPU backend path or the validation-oracle dry-run path.
+- normal implementation path: `webgpuNormalBackendFrameImplementation` owns the
+  first normal backend implementation contract, consumes the existing guarded
+  viewer canvas ownership state, and requires Step40 true native selected
+  samples, submitted bounded color present output, and preserved fallback
+  suppression.
+- recorder separation: the WebGPU visible-record dry-run remains a validation
+  oracle and JSON recorder. It can provide validated bounded input and observe
+  runner output, but the normal implementation path is now selected and reported
+  as the backend implementation body behind the runner contract.
+- fallback policy: render-handoff fallback remains available only when selector
+  samples are absent. It must not be mixed into a normal implementation success
+  that selected Step40 constrained-display-adapter samples.
+- scope limits: production scheduling, interactive camera ownership, SH color
+  parity, streaming, chunking, LOD, and partial upload remain future work. The
+  Step60/61 data-scale constraint still applies: the backend boundary must not
+  require all Gaussians or all temporal frames to be resident in GPU/VRAM at
+  once.
+
+This moves the final segment of
+`renderCurrentFrame -> executor -> runtime runner -> backend implementation`
+from a dry-run-only body to a selectable normal WebGPU backend implementation
+path, while preserving WebGPU exclusive ownership and WebGL2 fallback /
+validation-oracle separation.

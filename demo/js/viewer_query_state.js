@@ -50,6 +50,10 @@ const QUERY_WEBGPU_BACKEND_MODE_VALUES = new Set([
   'webgpu-dry-run',
   'webgpu-exclusive'
 ]);
+const QUERY_WEBGPU_BACKEND_IMPLEMENTATION_VALUES = new Set([
+  'webgpu-visible-record-dry-run-runtime',
+  'webgpu-normal-backend-frame-implementation'
+]);
 
 function parseNumber(value, fallback = null) {
   if (value === null || value === undefined || value === '') return fallback;
@@ -217,6 +221,7 @@ function buildDeterministicQueryString(state) {
   appendDeterministicQueryParam(params, 'webgpuVisibleRecordMaxCount', state?.webgpuVisibleRecordMaxCount);
   appendDeterministicQueryParam(params, 'webgpuVisibleRecordFields', state?.webgpuVisibleRecordFields);
   appendDeterministicQueryParam(params, 'webgpuBackendMode', state?.webgpuBackendMode);
+  appendDeterministicQueryParam(params, 'webgpuBackendImplementation', state?.webgpuBackendImplementation);
   appendDeterministicQueryParam(params, 'webgpuAllowViewerCanvasPresentation', state?.webgpuAllowViewerCanvasPresentation, formatDeterministicBoolean);
   appendDeterministicQueryParam(params, 'webgpuBackendViewerLoopHook', state?.webgpuBackendViewerLoopHook, formatDeterministicBoolean);
   appendDeterministicQueryParam(params, 'bgGray', state?.bgGray);
@@ -249,6 +254,7 @@ export function parseViewerQueryState(search = window.location.search) {
   const gpuVisibleRecordReadback = params.get('gpuVisibleRecordReadback');
   const gpuRawVisibleRecordReadback = params.get('gpuRawVisibleRecordReadback');
   const webgpuBackendMode = params.get('webgpuBackendMode');
+  const webgpuBackendImplementation = params.get('webgpuBackendImplementation');
 
   const state = {
     active: false,
@@ -382,6 +388,10 @@ export function parseViewerQueryState(search = window.location.search) {
     webgpuBackendMode: QUERY_WEBGPU_BACKEND_MODE_VALUES.has(webgpuBackendMode)
       ? webgpuBackendMode
       : null,
+    webgpuBackendImplementation:
+      QUERY_WEBGPU_BACKEND_IMPLEMENTATION_VALUES.has(webgpuBackendImplementation)
+        ? webgpuBackendImplementation
+        : null,
     webgpuAllowViewerCanvasPresentation: parseBoolean(
       params.get('webgpuAllowViewerCanvasPresentation'),
       null
@@ -480,6 +490,7 @@ export function parseViewerQueryState(search = window.location.search) {
     'webgpuVisibleRecordMaxCount',
     'webgpuVisibleRecordFields',
     'webgpuBackendMode',
+    'webgpuBackendImplementation',
     'webgpuAllowViewerCanvasPresentation',
     'webgpuBackendViewerLoopHook',
     'bgGray'
@@ -616,6 +627,7 @@ export function buildViewerDeterministicSummary(queryState) {
       : null,
     webgpuVisibleRecordFields: state.webgpuVisibleRecordFields ?? null,
     webgpuBackendMode: state.webgpuBackendMode ?? null,
+    webgpuBackendImplementation: state.webgpuBackendImplementation ?? null,
     webgpuAllowViewerCanvasPresentation:
       typeof state.webgpuAllowViewerCanvasPresentation === 'boolean'
         ? state.webgpuAllowViewerCanvasPresentation

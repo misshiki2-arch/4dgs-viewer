@@ -4489,6 +4489,10 @@ async function renderCurrentFrame(options = {}) {
     const enableViewerLoopHook =
       options.webgpuBackendViewerLoopHook === true ||
       deterministicQueryState.webgpuBackendViewerLoopHook === true;
+    const backendImplementationKind =
+      options.webgpuBackendImplementation ??
+      deterministicQueryState.webgpuBackendImplementation ??
+      'webgpu-visible-record-dry-run-runtime';
     camera.updateMatrixWorld(true);
     const deterministicState = buildDeterministicStateSummary();
     const cameraSnapshot = {
@@ -4532,12 +4536,19 @@ async function renderCurrentFrame(options = {}) {
             integrationBoundary: webgpuBackendViewerLifecycleIntegrationBoundary,
             cameraSnapshot,
             viewerCanvasState,
-            runBackendFrame: ({ executorContract, runnerContract }) =>
+            backendImplementationKind,
+            runBackendFrame: ({
+              executorContract,
+              runnerContract,
+              backendImplementationKind: selectedBackendImplementationKind,
+              implementationContract
+            }) =>
               runWebGpuVisibleRecordDryRunFromViewerState({
                 options: {
                   ...options,
                   ensureCurrentFrame: false,
                   webgpuBackendMode: requestedBackendMode,
+                  webgpuBackendImplementation: backendImplementationKind,
                   webgpuAllowViewerCanvasPresentation: allowViewerCanvasPresentation,
                   webgpuBackendViewerLoopHook: true,
                   webgpuBackendViewerLifecycleInvocationSource:
@@ -4545,7 +4556,10 @@ async function renderCurrentFrame(options = {}) {
                   webgpuBackendViewerLifecycleControlledExecution: true,
                   comparisonMode:
                     options.comparisonMode ??
-                    'phase3-step61-viewer-backend-runtime-runner'
+                    (backendImplementationKind ===
+                    'webgpu-normal-backend-frame-implementation'
+                      ? 'phase3-step62-normal-webgpu-backend-implementation'
+                      : 'phase3-step61-viewer-backend-runtime-runner')
                 },
                 requestedWebGpuBackendMode: requestedBackendMode,
                 allowViewerCanvasPresentation,
@@ -4563,13 +4577,19 @@ async function renderCurrentFrame(options = {}) {
                 },
                 metadataOverrides: {
                   captureSource: 'viewer-backend-frame-executor',
-                  phase: 'phase3-step61',
+                  phase:
+                    backendImplementationKind ===
+                    'webgpu-normal-backend-frame-implementation'
+                      ? 'phase3-step62'
+                      : 'phase3-step61',
                   renderLifecycleStage: 'renderCurrentFrame',
                   invocationSource: 'renderCurrentFrame-viewer-backend-executor',
                   controlledExecutionRequested: true,
+                  selectedBackendImplementationKind,
                   backendExecutorRequest: {
                     executorContract,
-                    runnerContract
+                    runnerContract,
+                    implementationContract
                   }
                 }
               })
@@ -4619,6 +4639,7 @@ async function renderCurrentFrame(options = {}) {
           webgpuBackendViewerLifecycleIntegrationBoundary?.integrationBoundaryReady === true,
         webgpuBackendViewerFrameExecutorReady:
           webgpuBackendViewerFrameExecutor?.executorReady === true,
+        webgpuBackendImplementation: backendImplementationKind,
         webgpuBackendViewerLifecycleControlledExecutionReady:
           webgpuBackendViewerLifecycleControlledExecution?.controlledExecutionReady === true,
         webgpuBackendViewerLifecycleControlledInvocationCount:

@@ -1,8 +1,16 @@
+import {
+  WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_MODE,
+  runWebGpuNormalBackendFrameImplementation
+} from './webgpu_normal_backend_frame_implementation.js';
+
 export const WEBGPU_BACKEND_RUNTIME_RUNNER_MODE =
   'webgpu-backend-runtime-runner';
 
 export const WEBGPU_BACKEND_RUNTIME_RUNNER_CONTRACT_VERSION =
-  'phase3-step61-backend-runtime-runner-contract-v1';
+  'phase3-step62-backend-runtime-runner-contract-v1';
+
+export const WEBGPU_BACKEND_DRY_RUN_IMPLEMENTATION_KIND =
+  'webgpu-visible-record-dry-run-runtime';
 
 function nowMs() {
   return typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -18,8 +26,13 @@ function buildRunnerContract({
   frameIndex,
   cameraSnapshot,
   viewerCanvasState,
-  executorContract
+  executorContract,
+  backendImplementationKind
 }) {
+  const selectedBackendImplementationKind =
+    backendImplementationKind === WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_MODE
+      ? WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_MODE
+      : WEBGPU_BACKEND_DRY_RUN_IMPLEMENTATION_KIND;
   return {
     contractVersion: WEBGPU_BACKEND_RUNTIME_RUNNER_CONTRACT_VERSION,
     runnerMode: 'viewer-backend-runtime-frame-runner',
@@ -29,7 +42,11 @@ function buildRunnerContract({
     allowViewerCanvasPresentation: allowViewerCanvasPresentation === true,
     enableViewerLoopHook: enableViewerLoopHook === true,
     callableFromViewerBackendExecutor: true,
-    backendImplementationKind: 'webgpu-visible-record-dry-run-runtime',
+    backendImplementationKind: selectedBackendImplementationKind,
+    backendImplementationSelectionMode:
+      selectedBackendImplementationKind === WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_MODE
+        ? 'explicit-normal-webgpu-backend-implementation'
+        : 'validation-oracle-dry-run-implementation',
     backendImplementationReplaceable: true,
     recorderObserverSeparated: true,
     validationOracleRole: 'capture/dry-run can observe runner output without owning execution',
@@ -108,7 +125,8 @@ function buildValidationSummary({
   backendFrameResult,
   canonicalPresentSummary,
   resourceLifecycleSummary,
-  executionError
+  executionError,
+  normalBackendImplementation
 }) {
   const guardAllowed =
     runnerContract.requestedBackendMode === 'webgpu-exclusive' &&
@@ -133,6 +151,12 @@ function buildValidationSummary({
     resourceLifecycleSummary.allFramesSubmitted === true;
   const webgl2HybridRenderingPrevented =
     runnerContract.webgl2FrameLifecycleSuppressed === true;
+  const normalBackendImplementationRequested =
+    runnerContract.backendImplementationKind ===
+    WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_MODE;
+  const normalBackendImplementationReady =
+    !normalBackendImplementationRequested ||
+    normalBackendImplementation?.normalBackendImplementationReady === true;
   const runtimeRunnerReady =
     guardAllowed &&
     backendFrameResultProvided &&
@@ -142,6 +166,7 @@ function buildValidationSummary({
     noFallbackMixing &&
     resourceLifecycleReady &&
     webgl2HybridRenderingPrevented &&
+    normalBackendImplementationReady &&
     !executionError;
   const firstValidationFailures = [];
   if (!guardAllowed) {
@@ -199,6 +224,13 @@ function buildValidationSummary({
       reason: executionError.message ?? 'runtime runner threw'
     });
   }
+  if (!normalBackendImplementationReady) {
+    firstValidationFailures.push({
+      stage: 'normal-backend-implementation',
+      reason:
+        'runtime runner selected the normal WebGPU backend implementation, but it was not ready'
+    });
+  }
   return {
     runtimeRunnerReady,
     guardAllowed,
@@ -209,6 +241,8 @@ function buildValidationSummary({
     noFallbackMixing,
     resourceLifecycleReady,
     webgl2HybridRenderingPrevented,
+    normalBackendImplementationRequested,
+    normalBackendImplementationReady,
     firstValidationFailures
   };
 }
@@ -222,6 +256,7 @@ export async function runWebGpuBackendRuntimeFrame({
   cameraSnapshot = null,
   viewerCanvasState = null,
   executorContract = null,
+  backendImplementationKind = WEBGPU_BACKEND_DRY_RUN_IMPLEMENTATION_KIND,
   runBackendFrame = null
 } = {}) {
   const startMs = nowMs();
@@ -233,17 +268,35 @@ export async function runWebGpuBackendRuntimeFrame({
     frameIndex,
     cameraSnapshot,
     viewerCanvasState,
-    executorContract
+    executorContract,
+    backendImplementationKind
   });
   let backendFrameResult = null;
   let executionError = null;
+  let normalBackendImplementationResult = null;
   if (typeof runBackendFrame === 'function') {
     try {
-      backendFrameResult = await runBackendFrame({
-        frameIndex,
-        invocationSource,
-        runnerContract
-      });
+      if (
+        runnerContract.backendImplementationKind ===
+        WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_MODE
+      ) {
+        normalBackendImplementationResult =
+          await runWebGpuNormalBackendFrameImplementation({
+            frameIndex,
+            invocationSource,
+            runnerContract,
+            runBackendFrame
+          });
+        backendFrameResult = normalBackendImplementationResult.backendFrameResult;
+        executionError = normalBackendImplementationResult.executionError;
+      } else {
+        backendFrameResult = await runBackendFrame({
+          frameIndex,
+          invocationSource,
+          runnerContract,
+          backendImplementationKind: runnerContract.backendImplementationKind
+        });
+      }
     } catch (error) {
       executionError = {
         name: error?.name ?? 'Error',
@@ -260,7 +313,8 @@ export async function runWebGpuBackendRuntimeFrame({
     backendFrameResult,
     canonicalPresentSummary,
     resourceLifecycleSummary,
-    executionError
+    executionError,
+    normalBackendImplementation: normalBackendImplementationResult?.summary ?? null
   });
   const runtimeRunnerReady =
     validationSummary.runtimeRunnerReady === true;
@@ -268,7 +322,7 @@ export async function runWebGpuBackendRuntimeFrame({
     mode: WEBGPU_BACKEND_RUNTIME_RUNNER_MODE,
     status: runtimeRunnerReady ? 'ok' : 'blocked',
     source:
-      'Phase 3 Step61 viewer backend runtime runner contract for replaceable WebGPU backend frame execution',
+      'Phase 3 Step62 viewer backend runtime runner selects a first normal WebGPU backend implementation path',
     contractVersion: WEBGPU_BACKEND_RUNTIME_RUNNER_CONTRACT_VERSION,
     runtimeRunnerImplemented: true,
     runtimeRunnerReady,
@@ -276,6 +330,8 @@ export async function runWebGpuBackendRuntimeFrame({
     displayConnectionAllowed: false,
     webgl2HybridRenderingAllowed: false,
     runnerContract,
+    webgpuNormalBackendFrameImplementation:
+      normalBackendImplementationResult?.summary ?? null,
     canonicalPresentSummary,
     resourceLifecycleSummary,
     selectedSourceKind: canonicalPresentSummary.selectedSourceKind,
@@ -316,7 +372,7 @@ export async function runWebGpuBackendRuntimeFrame({
           }
         ],
     nextBackendPrototypeStep: runtimeRunnerReady
-      ? 'replace the dry-run backend implementation behind the same runner contract with a production WebGPU backend frame implementation'
+      ? 'replace the validation-oracle-backed normal implementation body with production WebGPU backend rendering behind the same runner contract'
       : 'restore runtime runner readiness before production backend substitution',
     timing: {
       webgpuBackendRuntimeRunnerMs: nowMs() - startMs

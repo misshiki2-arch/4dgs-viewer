@@ -9,7 +9,7 @@ export const WEBGPU_BACKEND_VIEWER_FRAME_EXECUTOR_MODE =
   'webgpu-backend-viewer-frame-executor-boundary';
 
 export const WEBGPU_BACKEND_VIEWER_FRAME_EXECUTOR_CONTRACT_VERSION =
-  'phase3-step60-backend-viewer-frame-executor-boundary-v1';
+  'phase3-step62-backend-viewer-frame-executor-boundary-v1';
 
 function nowMs() {
   return typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -24,7 +24,8 @@ function buildExecutorContract({
   invocationSource,
   frameIndex,
   cameraSnapshot,
-  viewerCanvasState
+  viewerCanvasState,
+  backendImplementationKind
 }) {
   return {
     contractVersion: WEBGPU_BACKEND_VIEWER_FRAME_EXECUTOR_CONTRACT_VERSION,
@@ -37,6 +38,7 @@ function buildExecutorContract({
     callableFromViewerLifecycle: true,
     captureDebugFunctionDependency: false,
     directBackendRunner: 'webgpuBackendRuntimeRunner',
+    backendImplementationKind,
     recorderRole: 'capture/dry-run debug remains validation oracle and JSON recorder',
     productionLoopConnected: false,
     streamingImplemented: false,
@@ -149,6 +151,7 @@ export async function executeWebGpuBackendViewerFrame({
   integrationBoundary = null,
   cameraSnapshot = null,
   viewerCanvasState = null,
+  backendImplementationKind = 'webgpu-visible-record-dry-run-runtime',
   runBackendFrame = null
 } = {}) {
   const startMs = nowMs();
@@ -159,7 +162,8 @@ export async function executeWebGpuBackendViewerFrame({
     invocationSource,
     frameIndex,
     cameraSnapshot,
-    viewerCanvasState
+    viewerCanvasState,
+    backendImplementationKind
   });
   let backendFrameResult = null;
   let executionError = null;
@@ -177,6 +181,7 @@ export async function executeWebGpuBackendViewerFrame({
       cameraSnapshot,
       viewerCanvasState,
       executorContract,
+      backendImplementationKind,
       runBackendFrame
     });
     backendFrameResult = runtimeRunner.backendFrameResult;
@@ -205,7 +210,7 @@ export async function executeWebGpuBackendViewerFrame({
     mode: WEBGPU_BACKEND_VIEWER_FRAME_EXECUTOR_MODE,
     status: executorReady ? 'ok' : 'blocked',
     source:
-      'Phase 3 Step60 viewer backend frame executor boundary separates lifecycle execution from capture/debug recording',
+      'Phase 3 Step62 viewer backend frame executor delegates to a runtime runner with selectable backend implementation',
     contractVersion: WEBGPU_BACKEND_VIEWER_FRAME_EXECUTOR_CONTRACT_VERSION,
     executorImplemented: true,
     executorReady,

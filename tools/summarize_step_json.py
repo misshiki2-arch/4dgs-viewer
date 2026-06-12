@@ -962,6 +962,14 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
         ["validationSummary"],
         {},
     )
+    webgpu_normal_backend_frame_implementation = get_path(
+        summary, ["webgpuNormalBackendFrameImplementation"], {}
+    )
+    webgpu_normal_backend_frame_implementation_validation = get_path(
+        webgpu_normal_backend_frame_implementation,
+        ["validationSummary"],
+        {},
+    )
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -5177,6 +5185,120 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             ),
             "nextBackendPrototypeStep": get_path(
                 webgpu_backend_runtime_runner,
+                ["nextBackendPrototypeStep"],
+            ),
+        },
+        "webgpuNormalBackendFrameImplementation": {
+            "status": get_path(
+                webgpu_normal_backend_frame_implementation,
+                ["status"],
+            ),
+            "mode": get_path(
+                webgpu_normal_backend_frame_implementation,
+                ["mode"],
+            ),
+            "source": get_path(
+                webgpu_normal_backend_frame_implementation,
+                ["source"],
+            ),
+            "contractVersion": get_path(
+                webgpu_normal_backend_frame_implementation,
+                ["contractVersion"],
+            ),
+            "implementationKind": get_path(
+                webgpu_normal_backend_frame_implementation,
+                ["implementationKind"],
+            ),
+            "normalBackendImplementationImplemented": get_path(
+                webgpu_normal_backend_frame_implementation,
+                ["normalBackendImplementationImplemented"],
+            ),
+            "normalBackendImplementationReady": get_path(
+                webgpu_normal_backend_frame_implementation,
+                ["normalBackendImplementationReady"],
+            ),
+            "implementationContract": get_path(
+                webgpu_normal_backend_frame_implementation,
+                ["implementationContract"],
+                {},
+            ),
+            "selectedSourceKind": get_path(
+                webgpu_normal_backend_frame_implementation,
+                ["selectedSourceKind"],
+            ),
+            "selectionMode": get_path(
+                webgpu_normal_backend_frame_implementation,
+                ["selectionMode"],
+            ),
+            "colorPresentSampleCount": get_path(
+                webgpu_normal_backend_frame_implementation,
+                ["colorPresentSampleCount"],
+            ),
+            "presentedSampleCount": get_path(
+                webgpu_normal_backend_frame_implementation,
+                ["presentedSampleCount"],
+            ),
+            "sampleSources": compact_list(
+                get_path(
+                    webgpu_normal_backend_frame_implementation,
+                    ["sampleSources"],
+                    [],
+                )
+            ),
+            "presentSummary": get_path(
+                webgpu_normal_backend_frame_implementation,
+                ["presentSummary"],
+                {},
+            ),
+            "resourceSummary": get_path(
+                webgpu_normal_backend_frame_implementation,
+                ["resourceSummary"],
+                {},
+            ),
+            "normalBackendImplementationReadyValidation": get_path(
+                webgpu_normal_backend_frame_implementation_validation,
+                ["normalBackendImplementationReady"],
+            ),
+            "guardAllowed": get_path(
+                webgpu_normal_backend_frame_implementation_validation,
+                ["guardAllowed"],
+            ),
+            "selectedTrueNativeSource": get_path(
+                webgpu_normal_backend_frame_implementation_validation,
+                ["selectedTrueNativeSource"],
+            ),
+            "presentReady": get_path(
+                webgpu_normal_backend_frame_implementation_validation,
+                ["presentReady"],
+            ),
+            "noFallbackMixing": get_path(
+                webgpu_normal_backend_frame_implementation_validation,
+                ["noFallbackMixing"],
+            ),
+            "resourceLifecycleReady": get_path(
+                webgpu_normal_backend_frame_implementation_validation,
+                ["resourceLifecycleReady"],
+            ),
+            "webgl2HybridRenderingPrevented": get_path(
+                webgpu_normal_backend_frame_implementation_validation,
+                ["webgl2HybridRenderingPrevented"],
+            ),
+            "firstValidationFailures": compact_list(
+                get_path(
+                    webgpu_normal_backend_frame_implementation_validation,
+                    ["firstValidationFailures"],
+                    [],
+                )
+            ),
+            "blockers": compact_list(
+                get_path(
+                    webgpu_normal_backend_frame_implementation,
+                    ["blockers"],
+                    [],
+                )
+            ),
+            "nextBackendPrototypeStep": get_path(
+                webgpu_normal_backend_frame_implementation,
                 ["nextBackendPrototypeStep"],
             ),
         },

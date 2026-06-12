@@ -3998,8 +3998,8 @@ export async function runWebGpuVisibleRecordDryRun({
           mode: 'webgpu-backend-runtime-runner',
           status: 'unavailable',
           source:
-            'Phase 3 Step61 backend runtime runner was not observed in the latest render executor summary',
-          contractVersion: 'phase3-step61-backend-runtime-runner-contract-v1',
+            'Phase 3 Step62 backend runtime runner was not observed in the latest render executor summary',
+          contractVersion: 'phase3-step62-backend-runtime-runner-contract-v1',
           runtimeRunnerImplemented: true,
           runtimeRunnerReady: false,
           productionDisplayConnectionImplemented: false,
@@ -4030,6 +4030,43 @@ export async function runWebGpuVisibleRecordDryRun({
           ],
           timing: {
             webgpuBackendRuntimeRunnerMs: 0
+          }
+        };
+  const webgpuNormalBackendFrameImplementation =
+    webgpuBackendRuntimeRunner?.webgpuNormalBackendFrameImplementation
+      ? webgpuBackendRuntimeRunner.webgpuNormalBackendFrameImplementation
+      : {
+          mode: 'webgpu-normal-backend-frame-implementation',
+          status: 'unavailable',
+          source:
+            'Phase 3 Step62 normal WebGPU backend implementation was not selected or observed in the latest runtime runner summary',
+          contractVersion:
+            'phase3-step62-normal-backend-frame-implementation-v1',
+          implementationKind: 'webgpu-normal-backend-frame-implementation',
+          normalBackendImplementationImplemented: true,
+          normalBackendImplementationReady: false,
+          productionDisplayConnectionImplemented: false,
+          displayConnectionAllowed: false,
+          webgl2HybridRenderingAllowed: false,
+          validationSummary: {
+            normalBackendImplementationReady: false,
+            firstValidationFailures: [
+              {
+                stage: 'normal-backend-implementation-observation',
+                reason:
+                  'run with webgpuBackendImplementation=webgpu-normal-backend-frame-implementation to select the first normal WebGPU backend implementation path'
+              }
+            ]
+          },
+          firstValidationFailures: [
+            {
+              stage: 'normal-backend-implementation-observation',
+              reason:
+                'run with webgpuBackendImplementation=webgpu-normal-backend-frame-implementation to select the first normal WebGPU backend implementation path'
+            }
+          ],
+          timing: {
+            webgpuNormalBackendFrameImplementationMs: 0
           }
         };
   const {
@@ -4069,7 +4106,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step61 adds a replaceable viewer backend runtime runner contract below the executor while preserving Step40 stable present.',
+    scaffoldNote: 'Phase 3 Step62 adds a selectable first normal WebGPU backend implementation path below the runtime runner while preserving Step40 stable present.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
@@ -4148,6 +4185,7 @@ export async function runWebGpuVisibleRecordDryRun({
     webgpuBackendViewerLifecycleControlledExecution,
     webgpuBackendViewerFrameExecutor,
     webgpuBackendRuntimeRunner,
+    webgpuNormalBackendFrameImplementation,
     webgpuExclusiveFrameLifecycleSwitch,
     inputContract,
     bufferContract: inputContract,
@@ -4200,6 +4238,7 @@ export async function runWebGpuVisibleRecordDryRun({
       ...webgpuBackendViewerLifecycleControlledExecution.timing,
       ...webgpuBackendViewerFrameExecutor.timing,
       ...webgpuBackendRuntimeRunner.timing,
+      ...webgpuNormalBackendFrameImplementation.timing,
       ...webgpuExclusiveFrameLifecycleSwitch.timing,
       ...computeResult.timing,
       compareMs,
