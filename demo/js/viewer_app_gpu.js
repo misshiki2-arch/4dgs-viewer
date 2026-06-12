@@ -4493,10 +4493,67 @@ async function renderCurrentFrame(options = {}) {
       options.webgpuBackendImplementation ??
       deterministicQueryState.webgpuBackendImplementation ??
       'webgpu-visible-record-dry-run-runtime';
+    const frameIndex = Number.isFinite(latestRenderResult?.executionSummary?.frameIndex)
+      ? latestRenderResult.executionSummary.frameIndex + 1
+      : 0;
+    if (typeof camera.updateProjectionMatrix === 'function') {
+      camera.updateProjectionMatrix();
+    }
     camera.updateMatrixWorld(true);
     const deterministicState = buildDeterministicStateSummary();
+    const viewport = {
+      x: 0,
+      y: 0,
+      width: canvas.width,
+      height: canvas.height,
+      devicePixelRatio:
+        typeof window !== 'undefined' && Number.isFinite(window.devicePixelRatio)
+          ? window.devicePixelRatio
+          : 1
+    };
+    const viewMatrix = typeof camera.matrixWorldInverse?.toArray === 'function'
+      ? camera.matrixWorldInverse.toArray()
+      : null;
+    const projectionMatrix = typeof camera.projectionMatrix?.toArray === 'function'
+      ? camera.projectionMatrix.toArray()
+      : null;
+    const viewProjectionMatrix =
+      camera.projectionMatrix?.clone &&
+      typeof camera.projectionMatrix.clone === 'function' &&
+      camera.matrixWorldInverse
+        ? camera.projectionMatrix.clone().multiply(camera.matrixWorldInverse).toArray()
+        : null;
+    const frameTimeSeconds =
+      Number.isFinite(deterministicState.datasetTime)
+        ? Number(deterministicState.datasetTime)
+        : Number.isFinite(Number(ui.timeSlider?.value))
+          ? Number(ui.timeSlider.value)
+          : 0;
     const cameraSnapshot = {
       deterministicState: buildSlimDeterministicStateSummary(deterministicState),
+      frameConstants: {
+        frameIndex,
+        timeSeconds: frameTimeSeconds,
+        viewport,
+        viewMatrix,
+        projectionMatrix,
+        viewProjectionMatrix
+      },
+      projectionContract: {
+        source: 'viewer-lifecycle-camera-snapshot',
+        contractMode: 'threejs-camera-matrix-frame-constants',
+        viewMatrixProvided: Array.isArray(viewMatrix),
+        projectionMatrixProvided: Array.isArray(projectionMatrix),
+        viewProjectionMatrixProvided: Array.isArray(viewProjectionMatrix),
+        viewportProvided: true,
+        timeProvided: true,
+        fullDatasetGpuResidencyRequired: false
+      },
+      viewport,
+      timeSeconds: frameTimeSeconds,
+      viewMatrix,
+      projectionMatrix,
+      viewProjectionMatrix,
       canvasWidth: canvas.width,
       canvasHeight: canvas.height,
       cameraPosition: camera.position.toArray(),
@@ -4509,7 +4566,8 @@ async function renderCurrentFrame(options = {}) {
       contextMode: 'webgpu-exclusive-lifecycle-requested',
       requestedBackendMode,
       allowViewerCanvasPresentation,
-      webgl2FrameLifecycleSuppressed: true
+      webgl2FrameLifecycleSuppressed: true,
+      viewport
     };
     const webgpuBackendViewerLifecycleIntegrationBoundary = enableViewerLoopHook
       ? buildWebGpuBackendViewerLifecycleIntegrationBoundary({
@@ -4530,9 +4588,7 @@ async function renderCurrentFrame(options = {}) {
             allowViewerCanvasPresentation,
             enableViewerLoopHook,
             invocationSource: 'renderCurrentFrame-viewer-backend-executor',
-            frameIndex: Number.isFinite(latestRenderResult?.executionSummary?.frameIndex)
-              ? latestRenderResult.executionSummary.frameIndex + 1
-              : 0,
+            frameIndex,
             integrationBoundary: webgpuBackendViewerLifecycleIntegrationBoundary,
             cameraSnapshot,
             viewerCanvasState,
@@ -4542,7 +4598,9 @@ async function renderCurrentFrame(options = {}) {
               runnerContract,
               backendImplementationKind: selectedBackendImplementationKind,
               implementationContract,
-              frameInputContract
+              frameInputContract,
+              frameConstantsContract,
+              uniformResourcePreparationContract
             }) =>
               runWebGpuVisibleRecordDryRunFromViewerState({
                 options: {
@@ -4559,7 +4617,7 @@ async function renderCurrentFrame(options = {}) {
                     options.comparisonMode ??
                     (backendImplementationKind ===
                     'webgpu-normal-backend-frame-implementation'
-                      ? 'phase3-step63-normal-webgpu-backend-contracts'
+                      ? 'phase3-step64-normal-webgpu-backend-frame-constants'
                       : 'phase3-step61-viewer-backend-runtime-runner')
                 },
                 requestedWebGpuBackendMode: requestedBackendMode,
@@ -4581,7 +4639,7 @@ async function renderCurrentFrame(options = {}) {
                   phase:
                     backendImplementationKind ===
                     'webgpu-normal-backend-frame-implementation'
-                      ? 'phase3-step63'
+                      ? 'phase3-step64'
                       : 'phase3-step61',
                   renderLifecycleStage: 'renderCurrentFrame',
                   invocationSource: 'renderCurrentFrame-viewer-backend-executor',
@@ -4591,7 +4649,9 @@ async function renderCurrentFrame(options = {}) {
                     executorContract,
                     runnerContract,
                     implementationContract,
-                    frameInputContract
+                    frameInputContract,
+                    frameConstantsContract,
+                    uniformResourcePreparationContract
                   }
                 }
               })

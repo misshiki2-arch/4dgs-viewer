@@ -647,3 +647,33 @@ This keeps the Step62 selectable implementation path, but gives the normal
 backend implementation its own input and output contracts so later production
 rendering can replace the validation-backed body without changing the viewer
 lifecycle guard.
+
+## Step64 Frame Constants And Uniform Resource Boundary
+
+Step64 moves the normal backend input boundary from "camera snapshot exists" to
+explicit frame constants that a future WebGPU renderer can consume.
+`renderCurrentFrame()` still treats Three.js as a camera input adapter, but now
+passes view matrix, projection matrix, view-projection matrix, viewport, time,
+and frame index into `webgpu-normal-backend-frame-implementation`.
+
+- frame constants contract: `frameConstantsContract` is owned by the normal
+  backend implementation and records projection availability, camera pose
+  availability, viewport, time, frame index, and matrix readiness. This is the
+  backend-facing camera/projection input boundary.
+- uniform resource preparation contract:
+  `uniformResourcePreparationContract` defines the future uniform buffer layout
+  for frame constants, including required fields, available/missing fields,
+  byte size, padded binding size, and alignment policy. Step64 does not create
+  or upload the GPU buffer yet.
+- oracle separation: the visible-record dry-run recorder can still observe and
+  compare the frame result, but it does not own frame constants or the uniform
+  resource boundary.
+- Step63 baseline: Step40 constrained-display selected samples, two presented
+  samples, fallback suppression, and three controlled frame submissions remain
+  the success baseline.
+- scope limits: production scheduler connection, interactive camera behavior,
+  streaming, chunking, LOD, partial upload, full-dataset GPU residency, and WGSL
+  SH/color parity remain future work.
+
+This gives the first normal backend implementation a concrete shader-input
+preparation boundary without changing the validated bounded present body.

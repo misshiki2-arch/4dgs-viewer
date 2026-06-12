@@ -5227,6 +5227,16 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
                 ["frameInputContract"],
                 {},
             ),
+            "frameConstantsContract": get_path(
+                webgpu_normal_backend_frame_implementation,
+                ["frameConstantsContract"],
+                {},
+            ),
+            "uniformResourcePreparationContract": get_path(
+                webgpu_normal_backend_frame_implementation,
+                ["uniformResourcePreparationContract"],
+                {},
+            ),
             "presentOutputContract": get_path(
                 webgpu_normal_backend_frame_implementation,
                 ["presentOutputContract"],

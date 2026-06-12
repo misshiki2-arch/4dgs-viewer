@@ -2,18 +2,50 @@ export const WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_MODE =
   'webgpu-normal-backend-frame-implementation';
 
 export const WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_CONTRACT_VERSION =
-  'phase3-step63-normal-backend-frame-implementation-v1';
+  'phase3-step64-normal-backend-frame-implementation-v1';
 
 export const WEBGPU_NORMAL_BACKEND_FRAME_INPUT_CONTRACT_VERSION =
-  'phase3-step63-normal-backend-frame-input-contract-v1';
+  'phase3-step64-normal-backend-frame-input-contract-v1';
 
 export const WEBGPU_NORMAL_BACKEND_PRESENT_OUTPUT_CONTRACT_VERSION =
-  'phase3-step63-normal-backend-present-output-contract-v1';
+  'phase3-step64-normal-backend-present-output-contract-v1';
+
+export const WEBGPU_NORMAL_BACKEND_FRAME_CONSTANTS_CONTRACT_VERSION =
+  'phase3-step64-normal-backend-frame-constants-contract-v1';
+
+export const WEBGPU_NORMAL_BACKEND_UNIFORM_RESOURCE_PREPARATION_CONTRACT_VERSION =
+  'phase3-step64-normal-backend-uniform-resource-preparation-contract-v1';
 
 function nowMs() {
   return typeof performance !== 'undefined' && typeof performance.now === 'function'
     ? performance.now()
     : Date.now();
+}
+
+function isFiniteNumber(value) {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function finiteNumberArray(value, expectedLength = null) {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  if (expectedLength !== null && value.length !== expectedLength) {
+    return null;
+  }
+  if (!value.every(isFiniteNumber)) {
+    return null;
+  }
+  return value.slice();
+}
+
+function compactMatrixSummary(value) {
+  const matrix = finiteNumberArray(value, 16);
+  return {
+    provided: !!matrix,
+    elementCount: matrix ? matrix.length : 0,
+    values: matrix
+  };
 }
 
 function buildImplementationContract({
@@ -52,8 +84,14 @@ function buildFrameInputContract({
   invocationSource,
   runnerContract,
   cameraSnapshot,
-  viewerCanvasState
+  viewerCanvasState,
+  frameConstantsContract = null,
+  uniformResourcePreparationContract = null
 }) {
+  const projectionContractProvided =
+    frameConstantsContract?.projectionContractProvided === true ||
+    !!cameraSnapshot?.projectionContract ||
+    !!cameraSnapshot?.deterministicState?.projectionContract;
   return {
     contractVersion: WEBGPU_NORMAL_BACKEND_FRAME_INPUT_CONTRACT_VERSION,
     inputMode: 'normal-webgpu-backend-viewer-frame-input',
@@ -67,9 +105,15 @@ function buildFrameInputContract({
     cameraSnapshotSource: cameraSnapshot
       ? 'viewer-lifecycle-camera-snapshot'
       : 'not-provided',
-    projectionContractProvided:
-      !!cameraSnapshot?.projectionContract ||
-      !!cameraSnapshot?.deterministicState?.projectionContract,
+    projectionContractProvided,
+    frameConstantsProvided:
+      frameConstantsContract?.frameConstantsReady === true,
+    frameConstantsContractVersion:
+      frameConstantsContract?.contractVersion ?? null,
+    uniformResourcePreparationProvided:
+      uniformResourcePreparationContract?.uniformResourcePreparationReady === true,
+    uniformResourcePreparationContractVersion:
+      uniformResourcePreparationContract?.contractVersion ?? null,
     canvasState: {
       provided:
         viewerCanvasState?.provided === true ||
@@ -108,6 +152,182 @@ function buildFrameInputContract({
     validationOracleRole:
       'dry-run recorder may provide comparison/debug observations, but normal backend owns this frame input contract',
     normalBackendOwnsFrameInput: true,
+    productionLoopConnected: false,
+    interactiveCameraImplemented: false,
+    streamingImplemented: false,
+    fullDatasetGpuResidencyRequired: false
+  };
+}
+
+function buildFrameConstantsContract({
+  frameIndex,
+  invocationSource,
+  runnerContract,
+  cameraSnapshot,
+  viewerCanvasState
+}) {
+  const frameConstants = cameraSnapshot?.frameConstants ?? {};
+  const viewportSource =
+    frameConstants.viewport ??
+    cameraSnapshot?.viewport ??
+    viewerCanvasState?.viewport ??
+    null;
+  const viewport = {
+    x: isFiniteNumber(viewportSource?.x) ? viewportSource.x : 0,
+    y: isFiniteNumber(viewportSource?.y) ? viewportSource.y : 0,
+    width: isFiniteNumber(viewportSource?.width)
+      ? viewportSource.width
+      : isFiniteNumber(cameraSnapshot?.canvasWidth)
+        ? cameraSnapshot.canvasWidth
+        : null,
+    height: isFiniteNumber(viewportSource?.height)
+      ? viewportSource.height
+      : isFiniteNumber(cameraSnapshot?.canvasHeight)
+        ? cameraSnapshot.canvasHeight
+        : null,
+    devicePixelRatio: isFiniteNumber(viewportSource?.devicePixelRatio)
+      ? viewportSource.devicePixelRatio
+      : null
+  };
+  const viewMatrix = compactMatrixSummary(
+    frameConstants.viewMatrix ?? cameraSnapshot?.viewMatrix
+  );
+  const projectionMatrix = compactMatrixSummary(
+    frameConstants.projectionMatrix ?? cameraSnapshot?.projectionMatrix
+  );
+  const viewProjectionMatrix = compactMatrixSummary(
+    frameConstants.viewProjectionMatrix ?? cameraSnapshot?.viewProjectionMatrix
+  );
+  const projectionContract =
+    cameraSnapshot?.projectionContract ??
+    cameraSnapshot?.deterministicState?.projectionContract ??
+    null;
+  const timeSeconds =
+    isFiniteNumber(frameConstants.timeSeconds)
+      ? frameConstants.timeSeconds
+      : isFiniteNumber(cameraSnapshot?.timeSeconds)
+        ? cameraSnapshot.timeSeconds
+        : null;
+  const cameraPosition = finiteNumberArray(cameraSnapshot?.cameraPosition, 3);
+  const cameraQuaternion = finiteNumberArray(cameraSnapshot?.cameraQuaternion, 4);
+  const controlsTarget = finiteNumberArray(cameraSnapshot?.controlsTarget, 3);
+  const viewportReady =
+    isFiniteNumber(viewport.width) &&
+    viewport.width > 0 &&
+    isFiniteNumber(viewport.height) &&
+    viewport.height > 0;
+  const frameConstantsReady =
+    !!cameraSnapshot &&
+    viewportReady &&
+    viewMatrix.provided &&
+    projectionMatrix.provided &&
+    viewProjectionMatrix.provided;
+  return {
+    contractVersion: WEBGPU_NORMAL_BACKEND_FRAME_CONSTANTS_CONTRACT_VERSION,
+    constantsMode: 'normal-webgpu-backend-frame-constants',
+    frameIndex,
+    invocationSource,
+    requestedBackendMode: runnerContract?.requestedBackendMode ?? null,
+    normalBackendOwnsFrameConstants: true,
+    cameraSnapshotSource: cameraSnapshot
+      ? 'viewer-lifecycle-camera-snapshot'
+      : 'not-provided',
+    cameraSnapshotProvided: !!cameraSnapshot,
+    projectionContractProvided:
+      !!projectionContract ||
+      (projectionMatrix.provided && viewProjectionMatrix.provided),
+    projectionContractSource: projectionContract
+      ? 'viewer-lifecycle-camera-snapshot'
+      : projectionMatrix.provided && viewProjectionMatrix.provided
+        ? 'viewer-camera-matrix-derived'
+        : 'not-provided',
+    viewport,
+    timeSeconds,
+    frameIndexUniformValue: frameIndex,
+    camera: {
+      positionProvided: !!cameraPosition,
+      quaternionProvided: !!cameraQuaternion,
+      controlsTargetProvided: !!controlsTarget,
+      position: cameraPosition,
+      quaternion: cameraQuaternion,
+      controlsTarget
+    },
+    matrices: {
+      viewMatrix,
+      projectionMatrix,
+      viewProjectionMatrix
+    },
+    frameConstantsReady,
+    productionLoopConnected: false,
+    interactiveCameraImplemented: false,
+    streamingImplemented: false,
+    fullDatasetGpuResidencyRequired: false
+  };
+}
+
+function buildUniformResourcePreparationContract(frameConstantsContract) {
+  const matrices = frameConstantsContract?.matrices ?? {};
+  const availableUniformFields = [];
+  const missingUniformFields = [];
+  const addField = (name, ready) => {
+    if (ready) {
+      availableUniformFields.push(name);
+    } else {
+      missingUniformFields.push(name);
+    }
+  };
+  addField('frameIndex', isFiniteNumber(frameConstantsContract?.frameIndex));
+  addField('timeSeconds', frameConstantsContract?.timeSeconds !== null);
+  addField(
+    'viewport',
+    isFiniteNumber(frameConstantsContract?.viewport?.width) &&
+      isFiniteNumber(frameConstantsContract?.viewport?.height)
+  );
+  addField('viewMatrix', matrices.viewMatrix?.provided === true);
+  addField('projectionMatrix', matrices.projectionMatrix?.provided === true);
+  addField('viewProjectionMatrix', matrices.viewProjectionMatrix?.provided === true);
+  const uniformFloat32Count = 4 + 16 + 16 + 16;
+  const uniformByteLength = uniformFloat32Count * 4;
+  const paddedUniformByteLength = 256;
+  const uniformResourcePreparationReady =
+    frameConstantsContract?.frameConstantsReady === true &&
+    missingUniformFields.length === 0;
+  return {
+    contractVersion:
+      WEBGPU_NORMAL_BACKEND_UNIFORM_RESOURCE_PREPARATION_CONTRACT_VERSION,
+    resourceMode: 'normal-webgpu-backend-frame-uniform-resource-preparation',
+    normalBackendOwnsUniformResourceBoundary: true,
+    uniformBufferPlanned: true,
+    gpuUniformBufferCreatedThisStep: false,
+    gpuUniformBufferUploadExecutedThisStep: false,
+    futureGpuBufferUpdateReady: uniformResourcePreparationReady,
+    uniformResourcePreparationReady,
+    requiredUniformFields: [
+      'frameIndex',
+      'timeSeconds',
+      'viewport',
+      'viewMatrix',
+      'projectionMatrix',
+      'viewProjectionMatrix'
+    ],
+    availableUniformFields,
+    missingUniformFields,
+    layout: {
+      layoutMode: 'mat4x4-plus-vec4-frame-constants',
+      float32Order: [
+        'frameIndex_time_viewportWidth_viewportHeight',
+        'viewMatrix4x4',
+        'projectionMatrix4x4',
+        'viewProjectionMatrix4x4'
+      ],
+      uniformFloat32Count,
+      uniformByteLength,
+      paddedUniformByteLength,
+      minBindingSizeBytes: paddedUniformByteLength,
+      alignmentPolicy:
+        '256-byte padded uniform buffer binding boundary for future WebGPU updates'
+    },
+    validationOracleOwnsResource: false,
     productionLoopConnected: false,
     interactiveCameraImplemented: false,
     streamingImplemented: false,
@@ -196,6 +416,8 @@ function buildValidationSummary({
   implementationContract,
   frameInputContract,
   presentOutputContract,
+  frameConstantsContract,
+  uniformResourcePreparationContract,
   resourceSummary,
   backendFrameResult,
   executionError
@@ -210,6 +432,13 @@ function buildValidationSummary({
     frameInputContract.guardState?.viewerCanvasPresentationAllowed === true &&
     frameInputContract.guardState?.viewerLoopHookEnabled === true &&
     frameInputContract.canvasState?.webgl2FrameLifecycleSuppressed === true;
+  const frameConstantsReady =
+    frameConstantsContract?.normalBackendOwnsFrameConstants === true &&
+    frameConstantsContract?.frameConstantsReady === true &&
+    frameConstantsContract?.projectionContractProvided === true;
+  const uniformResourcePreparationReady =
+    uniformResourcePreparationContract?.normalBackendOwnsUniformResourceBoundary === true &&
+    uniformResourcePreparationContract?.uniformResourcePreparationReady === true;
   const backendFrameResultProvided = !!backendFrameResult;
   const selectedTrueNativeSource =
     presentOutputContract.selectedSourceKind ===
@@ -232,6 +461,8 @@ function buildValidationSummary({
   const normalBackendImplementationReady =
     guardAllowed &&
     frameInputReady &&
+    frameConstantsReady &&
+    uniformResourcePreparationReady &&
     backendFrameResultProvided &&
     selectedTrueNativeSource &&
     presentReady &&
@@ -258,6 +489,20 @@ function buildValidationSummary({
       stage: 'normal-backend-frame-input',
       reason:
         'normal WebGPU backend implementation requires an owned frame input contract with exclusive canvas guard state'
+    });
+  }
+  if (!frameConstantsReady) {
+    firstValidationFailures.push({
+      stage: 'normal-backend-frame-constants',
+      reason:
+        'normal WebGPU backend implementation requires view/projection/viewport frame constants from the viewer lifecycle'
+    });
+  }
+  if (!uniformResourcePreparationReady) {
+    firstValidationFailures.push({
+      stage: 'normal-backend-uniform-resource-preparation',
+      reason:
+        'normal WebGPU backend implementation requires a ready uniform resource preparation boundary for frame constants'
     });
   }
   if (!selectedTrueNativeSource) {
@@ -305,6 +550,8 @@ function buildValidationSummary({
     normalBackendImplementationReady,
     guardAllowed,
     frameInputReady,
+    frameConstantsReady,
+    uniformResourcePreparationReady,
     backendFrameResultProvided,
     selectedTrueNativeSource,
     presentReady,
@@ -329,12 +576,23 @@ export async function runWebGpuNormalBackendFrameImplementation({
     invocationSource,
     runnerContract
   });
-  const frameInputContract = buildFrameInputContract({
+  const frameConstantsContract = buildFrameConstantsContract({
     frameIndex,
     invocationSource,
     runnerContract,
     cameraSnapshot,
     viewerCanvasState
+  });
+  const uniformResourcePreparationContract =
+    buildUniformResourcePreparationContract(frameConstantsContract);
+  const frameInputContract = buildFrameInputContract({
+    frameIndex,
+    invocationSource,
+    runnerContract,
+    cameraSnapshot,
+    viewerCanvasState,
+    frameConstantsContract,
+    uniformResourcePreparationContract
   });
   let backendFrameResult = null;
   let executionError = null;
@@ -347,7 +605,9 @@ export async function runWebGpuNormalBackendFrameImplementation({
         backendImplementationKind:
           WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_MODE,
         implementationContract,
-        frameInputContract
+        frameInputContract,
+        frameConstantsContract,
+        uniformResourcePreparationContract
       });
     } catch (error) {
       executionError = {
@@ -361,6 +621,8 @@ export async function runWebGpuNormalBackendFrameImplementation({
   const validationSummary = buildValidationSummary({
     implementationContract,
     frameInputContract,
+    frameConstantsContract,
+    uniformResourcePreparationContract,
     presentOutputContract,
     resourceSummary,
     backendFrameResult,
@@ -372,7 +634,7 @@ export async function runWebGpuNormalBackendFrameImplementation({
     mode: WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_MODE,
     status: normalBackendImplementationReady ? 'ok' : 'blocked',
     source:
-      'Phase 3 Step63 normal WebGPU backend implementation owns frame input and present output contracts',
+      'Phase 3 Step64 normal WebGPU backend implementation owns frame constants and uniform resource preparation contracts',
     contractVersion:
       WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_CONTRACT_VERSION,
     implementationKind: WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_MODE,
@@ -383,6 +645,8 @@ export async function runWebGpuNormalBackendFrameImplementation({
     webgl2HybridRenderingAllowed: false,
     implementationContract,
     frameInputContract,
+    frameConstantsContract,
+    uniformResourcePreparationContract,
     presentOutputContract,
     presentSummary: presentOutputContract,
     resourceSummary,
@@ -403,7 +667,7 @@ export async function runWebGpuNormalBackendFrameImplementation({
           {
             stage: 'production-frame-scheduler',
             reason:
-              'normal backend implementation path is callable; production scheduling remains intentionally disconnected'
+              'normal backend implementation path has frame constants and a uniform resource boundary; production scheduling remains intentionally disconnected'
           },
           {
             stage: 'streaming-lod',
@@ -419,11 +683,11 @@ export async function runWebGpuNormalBackendFrameImplementation({
           {
             stage: 'normal-webgpu-backend-implementation',
             reason:
-              'normal implementation requires exclusive guards, true native selected samples, submitted present output, and preserved fallback policy'
+              'normal implementation requires exclusive guards, frame constants, uniform resource preparation, true native selected samples, submitted present output, and preserved fallback policy'
           }
         ],
     nextBackendPrototypeStep: normalBackendImplementationReady
-      ? 'replace the validation-oracle-backed bounded present body with production WebGPU backend rendering behind the same implementation contract'
+      ? 'create real GPU uniform buffer update and shader input usage behind the normal backend frame constants contract'
       : 'restore normal backend implementation readiness before replacing the implementation body',
     timing: {
       webgpuNormalBackendFrameImplementationMs: nowMs() - startMs
