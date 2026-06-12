@@ -520,3 +520,32 @@ This is the first path where the existing viewer render lifecycle can explicitly
 invoke a controlled WebGPU backend frame execution. It still does not enable the
 production requestAnimationFrame loop by default, implement interactive camera
 ownership, or complete WGSL SH/color parity.
+
+## 18. Step60 Viewer Backend Frame Executor Boundary
+
+Step60 separates viewer lifecycle execution from capture/debug recording. The
+existing `renderCurrentFrame` guarded hook now calls a viewer backend frame
+executor boundary, and that executor calls the low-level WebGPU backend frame
+runner. `captureWebGpuVisibleRecordDryRunDebug` remains a JSON recorder and
+validation oracle rather than the execution boundary used by the viewer
+lifecycle.
+
+- executor boundary: `webgpuBackendViewerFrameExecutor` records the guarded
+  viewer backend call inputs: backend mode, viewer canvas presentation guard,
+  hook flag, camera snapshot, canvas ownership state, frame index, and backend
+  submit result.
+- capture separation: capture/debug code can still record the same backend
+  result, but Step60 marks `captureDebugFunctionDependency=false` for the viewer
+  executor contract and records the capture layer as a validation oracle.
+- WebGL2 separation: the executor only runs under the same exclusive guard as
+  Step59 and keeps WebGL2 frame lifecycle suppression visible in the summary.
+- future data scale: the backend boundary must not require all Gaussians or all
+  temporal frames to be uploaded and resident in GPU/VRAM at once. Streaming,
+  chunking, LOD, and partial upload are not implemented in Step60, but record
+  contracts, buffer layouts, and backend frame boundaries should remain
+  extensible so those policies can be added without redefining the viewer
+  lifecycle ownership model.
+
+This moves the prototype closer to a normal WebGPU viewer backend entrypoint
+while keeping production scheduling, interactive camera ownership, streaming,
+and WGSL SH/color parity out of scope for this step.

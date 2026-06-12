@@ -3931,6 +3931,57 @@ export async function runWebGpuVisibleRecordDryRun({
         canvasHeight
       }
     });
+  const webgpuBackendViewerFrameExecutor =
+    viewerLifecycleIntegrationRequest.lastRenderBackendFrameExecutor
+      ? {
+          ...viewerLifecycleIntegrationRequest.lastRenderBackendFrameExecutor,
+          recorderObservation: {
+            observedBy: 'webgpu-visible-record-dry-run-recorder',
+            recorderRole: 'validation-oracle-json-recorder',
+            executionBoundarySource:
+              'viewer_app_gpu.renderCurrentFrame webgpu backend frame executor',
+            captureDebugFunctionIsExecutionBoundary: false
+          }
+        }
+      : {
+          mode: 'webgpu-backend-viewer-frame-executor-boundary',
+          status: 'unavailable',
+          source:
+            'Phase 3 Step60 viewer backend frame executor boundary was not observed in the latest render result',
+          contractVersion:
+            'phase3-step60-backend-viewer-frame-executor-boundary-v1',
+          executorImplemented: true,
+          executorReady: false,
+          productionDisplayConnectionImplemented: false,
+          displayConnectionAllowed: false,
+          webgl2HybridRenderingAllowed: false,
+          recorderObservation: {
+            observedBy: 'webgpu-visible-record-dry-run-recorder',
+            recorderRole: 'validation-oracle-json-recorder',
+            executionBoundarySource: 'not-observed',
+            captureDebugFunctionIsExecutionBoundary: false
+          },
+          validationSummary: {
+            executorReady: false,
+            firstValidationFailures: [
+              {
+                stage: 'viewer-backend-frame-executor-observation',
+                reason:
+                  'run scheduleRender with webgpuBackendViewerLoopHook=true before capture so the viewer lifecycle executor summary is available'
+              }
+            ]
+          },
+          firstValidationFailures: [
+            {
+              stage: 'viewer-backend-frame-executor-observation',
+              reason:
+                'run scheduleRender with webgpuBackendViewerLoopHook=true before capture so the viewer lifecycle executor summary is available'
+            }
+          ],
+          timing: {
+            webgpuBackendViewerFrameExecutorMs: 0
+          }
+        };
   const {
     webgpuViewerCanvasCurrentTexturePath,
     webgpuViewerCanvasBoundedFirstPresent,
@@ -3968,7 +4019,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step59 executes a controlled WebGPU backend frame path from the guarded viewer lifecycle boundary while preserving Step40 stable present.',
+    scaffoldNote: 'Phase 3 Step60 separates the viewer lifecycle WebGPU backend frame executor from capture/debug recording while preserving Step40 stable present.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
@@ -4045,6 +4096,7 @@ export async function runWebGpuVisibleRecordDryRun({
     webgpuBackendViewerLoopAdapter,
     webgpuBackendViewerLifecycleIntegrationBoundary,
     webgpuBackendViewerLifecycleControlledExecution,
+    webgpuBackendViewerFrameExecutor,
     webgpuExclusiveFrameLifecycleSwitch,
     inputContract,
     bufferContract: inputContract,
@@ -4095,6 +4147,7 @@ export async function runWebGpuVisibleRecordDryRun({
       ...webgpuBackendViewerLoopAdapter.timing,
       ...webgpuBackendViewerLifecycleIntegrationBoundary.timing,
       ...webgpuBackendViewerLifecycleControlledExecution.timing,
+      ...webgpuBackendViewerFrameExecutor.timing,
       ...webgpuExclusiveFrameLifecycleSwitch.timing,
       ...computeResult.timing,
       compareMs,
@@ -4165,6 +4218,7 @@ export async function runWebGpuVisibleRecordDryRun({
       webgpuBackendViewerLoopAdapter,
       webgpuBackendViewerLifecycleIntegrationBoundary,
       webgpuBackendViewerLifecycleControlledExecution,
+      webgpuBackendViewerFrameExecutor,
       webgpuExclusiveFrameLifecycleSwitch,
       inputContract,
       bufferContract: inputContract,

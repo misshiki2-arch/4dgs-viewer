@@ -946,6 +946,14 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
         ["validationSummary"],
         {},
     )
+    webgpu_backend_viewer_frame_executor = get_path(
+        summary, ["webgpuBackendViewerFrameExecutor"], {}
+    )
+    webgpu_backend_viewer_frame_executor_validation = get_path(
+        webgpu_backend_viewer_frame_executor,
+        ["validationSummary"],
+        {},
+    )
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -4921,6 +4929,124 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             ),
             "nextBackendPrototypeStep": get_path(
                 webgpu_backend_viewer_lifecycle_controlled_execution,
+                ["nextBackendPrototypeStep"],
+            ),
+        },
+        "webgpuBackendViewerFrameExecutor": {
+            "status": get_path(webgpu_backend_viewer_frame_executor, ["status"]),
+            "mode": get_path(webgpu_backend_viewer_frame_executor, ["mode"]),
+            "source": get_path(webgpu_backend_viewer_frame_executor, ["source"]),
+            "contractVersion": get_path(
+                webgpu_backend_viewer_frame_executor,
+                ["contractVersion"],
+            ),
+            "executorImplemented": get_path(
+                webgpu_backend_viewer_frame_executor,
+                ["executorImplemented"],
+            ),
+            "executorReady": get_path(
+                webgpu_backend_viewer_frame_executor,
+                ["executorReady"],
+            ),
+            "productionDisplayConnectionImplemented": get_path(
+                webgpu_backend_viewer_frame_executor,
+                ["productionDisplayConnectionImplemented"],
+            ),
+            "displayConnectionAllowed": get_path(
+                webgpu_backend_viewer_frame_executor,
+                ["displayConnectionAllowed"],
+            ),
+            "webgl2HybridRenderingAllowed": get_path(
+                webgpu_backend_viewer_frame_executor,
+                ["webgl2HybridRenderingAllowed"],
+            ),
+            "executorContract": get_path(
+                webgpu_backend_viewer_frame_executor,
+                ["executorContract"],
+                {},
+            ),
+            "recorderObservation": get_path(
+                webgpu_backend_viewer_frame_executor,
+                ["recorderObservation"],
+                {},
+            ),
+            "invocationCount": get_path(
+                webgpu_backend_viewer_frame_executor,
+                ["invocationCount"],
+            ),
+            "submittedFrameCount": get_path(
+                webgpu_backend_viewer_frame_executor,
+                ["submittedFrameCount"],
+            ),
+            "executedBackendFrameSubmissions": get_path(
+                webgpu_backend_viewer_frame_executor,
+                ["executedBackendFrameSubmissions"],
+            ),
+            "repeatedSubmitCount": get_path(
+                webgpu_backend_viewer_frame_executor,
+                ["repeatedSubmitCount"],
+            ),
+            "selectedSourceKind": get_path(
+                webgpu_backend_viewer_frame_executor,
+                ["selectedSourceKind"],
+            ),
+            "selectionMode": get_path(
+                webgpu_backend_viewer_frame_executor,
+                ["selectionMode"],
+            ),
+            "colorPresentSampleCount": get_path(
+                webgpu_backend_viewer_frame_executor,
+                ["colorPresentSampleCount"],
+            ),
+            "fallbackPolicy": get_path(
+                webgpu_backend_viewer_frame_executor,
+                ["fallbackPolicy"],
+                {},
+            ),
+            "executorReadyValidation": get_path(
+                webgpu_backend_viewer_frame_executor_validation,
+                ["executorReady"],
+            ),
+            "guardAllowed": get_path(
+                webgpu_backend_viewer_frame_executor_validation,
+                ["guardAllowed"],
+            ),
+            "integrationBoundaryReady": get_path(
+                webgpu_backend_viewer_frame_executor_validation,
+                ["integrationBoundaryReady"],
+            ),
+            "backendFrameResultProvided": get_path(
+                webgpu_backend_viewer_frame_executor_validation,
+                ["backendFrameResultProvided"],
+            ),
+            "adapterReady": get_path(
+                webgpu_backend_viewer_frame_executor_validation,
+                ["adapterReady"],
+            ),
+            "controlledExecutionReady": get_path(
+                webgpu_backend_viewer_frame_executor_validation,
+                ["controlledExecutionReady"],
+            ),
+            "webgl2HybridRenderingPrevented": get_path(
+                webgpu_backend_viewer_frame_executor_validation,
+                ["webgl2HybridRenderingPrevented"],
+            ),
+            "fallbackPolicyPreserved": get_path(
+                webgpu_backend_viewer_frame_executor_validation,
+                ["fallbackPolicyPreserved"],
+            ),
+            "firstValidationFailures": compact_list(
+                get_path(
+                    webgpu_backend_viewer_frame_executor_validation,
+                    ["firstValidationFailures"],
+                    [],
+                )
+            ),
+            "blockers": compact_list(
+                get_path(webgpu_backend_viewer_frame_executor, ["blockers"], [])
+            ),
+            "nextBackendPrototypeStep": get_path(
+                webgpu_backend_viewer_frame_executor,
                 ["nextBackendPrototypeStep"],
             ),
         },
