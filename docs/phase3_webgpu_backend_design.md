@@ -488,3 +488,35 @@ is guarded by `webgpuBackendMode=webgpu-exclusive`,
 This moves the prototype from repeated submits toward a viewer-loop-callable
 backend API while preserving WebGPU normal backend, WebGL2 fallback / validation
 oracle, and CUDA Reference role separation.
+
+## 17. Step59 Controlled Viewer Lifecycle Execution Path
+
+Step59 keeps production scheduling disconnected, but advances the Step58
+boundary from hook readiness to a guarded controlled execution path. When the
+viewer frame enters `renderCurrentFrame` with `webgpuBackendMode=webgpu-exclusive`,
+`webgpuAllowViewerCanvasPresentation=true`, and the explicit
+`webgpuBackendViewerLoopHook=true` flag, the hook can invoke one bounded WebGPU
+backend execution path and summarize the result as
+`webgpuBackendViewerLifecycleControlledExecution`.
+
+- guarded invocation: the controlled path is only requested after the Step58
+  integration boundary is ready. WebGL2 rendering remains suppressed for that
+  frame, so WebGPU presentation is not mixed with an active WebGL2 viewer
+  canvas.
+- adapter execution: the hook calls the same Step57 viewer-loop adapter path
+  used by the dry-run backend frame prototype, then records invocation count,
+  submitted frame count, repeated submit count, selected source, and sample
+  count without storing the full backend dry-run result in the viewer render
+  result.
+- viewer-owned inputs: the hook passes a viewer lifecycle camera snapshot,
+  canvas state, backend mode, presentation guard, and frame invocation source
+  into the controlled execution summary. Three.js / OrbitControls remain camera
+  input adapters rather than the WebGPU renderer core.
+- fallback policy: Step40 true native selected samples remain the success path.
+  Render-handoff or reference-assisted fallback remains available only when no
+  selector samples exist and must not be reported as true native success.
+
+This is the first path where the existing viewer render lifecycle can explicitly
+invoke a controlled WebGPU backend frame execution. It still does not enable the
+production requestAnimationFrame loop by default, implement interactive camera
+ownership, or complete WGSL SH/color parity.

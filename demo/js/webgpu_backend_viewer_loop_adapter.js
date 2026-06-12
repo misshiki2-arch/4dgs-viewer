@@ -203,6 +203,8 @@ export async function buildWebGpuBackendViewerLoopAdapter({
     webgpuBackendFrameControlledRepeatedExecution,
     selectedSourceKind:
       webgpuBackendFrameControlledRepeatedExecution?.selectedSourceKind ?? null,
+    selectionMode:
+      webgpuBackendFrameControlledRepeatedExecution?.selectionMode ?? null,
     colorPresentSampleCount:
       webgpuBackendFrameControlledRepeatedExecution?.colorPresentSampleCount ?? null,
     executedBackendFrameSubmissions:

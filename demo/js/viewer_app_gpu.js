@@ -83,7 +83,10 @@ import { runGpuVisibleRecordDryRun } from './gpu_visible_record_dry_run_runtime.
 import { runGpuRawVisibleRecordDryRun } from './gpu_visible_record_raw_dry_run_runtime.js';
 import { runWebGpuVisibleRecordDryRun } from './webgpu_visible_record_dry_run_runtime.js';
 import { shouldUseWebGpuExclusiveFrameLifecycle } from './webgpu_exclusive_frame_lifecycle_switch.js';
-import { buildWebGpuBackendViewerLifecycleIntegrationBoundary } from './webgpu_backend_viewer_lifecycle_integration.js';
+import {
+  buildWebGpuBackendViewerLifecycleControlledExecution,
+  buildWebGpuBackendViewerLifecycleIntegrationBoundary
+} from './webgpu_backend_viewer_lifecycle_integration.js';
 import {
   buildGpuCandidateShadowOptionsFromQuery,
   isGpuCandidateShadowCompareEnabled,
@@ -2110,8 +2113,15 @@ async function captureWebGpuVisibleRecordDryRunDebug(options = {}) {
         requestedBackendMode: requestedWebGpuBackendMode,
         allowViewerCanvasPresentation,
         renderLifecycleStage: 'captureWebGpuVisibleRecordDryRunDebug',
+        invocationSource:
+          options.webgpuBackendViewerLifecycleInvocationSource ??
+          'captureWebGpuVisibleRecordDryRunDebug',
+        controlledExecutionRequested:
+          options.webgpuBackendViewerLifecycleControlledExecution === true,
         lastRenderLifecycleIntegrationBoundary:
-          debugRender.renderResult?.webgpuBackendViewerLifecycleIntegrationBoundary ?? null
+          debugRender.renderResult?.webgpuBackendViewerLifecycleIntegrationBoundary ?? null,
+        lastRenderLifecycleControlledExecution:
+          debugRender.renderResult?.webgpuBackendViewerLifecycleControlledExecution ?? null
       }
     }
   });
@@ -3676,6 +3686,8 @@ function buildRenderResultInspectionSummary(renderResult) {
     gpuScreenExecutionSummary: renderResult?.gpuScreenExecutionSummary ?? null,
     webgpuBackendViewerLifecycleIntegrationBoundary:
       renderResult?.webgpuBackendViewerLifecycleIntegrationBoundary ?? null,
+    webgpuBackendViewerLifecycleControlledExecution:
+      renderResult?.webgpuBackendViewerLifecycleControlledExecution ?? null,
     tileAccumulationPayloadSummary: renderResult?.tileAccumulationPayloadSummary
       ? {
           payloadContract: renderResult.tileAccumulationPayloadSummary.payloadContract ?? 'none',
@@ -4447,6 +4459,14 @@ async function renderCurrentFrame(options = {}) {
       deterministicQueryState.webgpuBackendViewerLoopHook === true;
     camera.updateMatrixWorld(true);
     const deterministicState = buildDeterministicStateSummary();
+    const cameraSnapshot = {
+      deterministicState: buildSlimDeterministicStateSummary(deterministicState),
+      canvasWidth: canvas.width,
+      canvasHeight: canvas.height,
+      cameraPosition: camera.position.toArray(),
+      cameraQuaternion: camera.quaternion.toArray(),
+      controlsTarget: controls.target.toArray()
+    };
     const webgpuBackendViewerLifecycleIntegrationBoundary = enableViewerLoopHook
       ? buildWebGpuBackendViewerLifecycleIntegrationBoundary({
           requestedBackendMode,
@@ -4461,29 +4481,71 @@ async function renderCurrentFrame(options = {}) {
             allowViewerCanvasPresentation,
             webgl2FrameLifecycleSuppressed: true
           },
-          cameraSnapshot: {
-            deterministicState: buildSlimDeterministicStateSummary(deterministicState),
-            canvasWidth: canvas.width,
-            canvasHeight: canvas.height,
-            cameraPosition: camera.position.toArray(),
-            cameraQuaternion: camera.quaternion.toArray(),
-            controlsTarget: controls.target.toArray()
-          },
+          cameraSnapshot,
           adapterResult: null,
           adapterInvocationSource: 'viewer-render-lifecycle-hook-boundary'
         })
       : null;
+    let controlledExecutionResult = null;
+    let controlledExecutionError = null;
+    if (webgpuBackendViewerLifecycleIntegrationBoundary?.integrationBoundaryReady === true) {
+      try {
+        controlledExecutionResult = await captureWebGpuVisibleRecordDryRunDebug({
+          ...options,
+          ensureCurrentFrame: false,
+          webgpuBackendMode: requestedBackendMode,
+          webgpuAllowViewerCanvasPresentation: allowViewerCanvasPresentation,
+          webgpuBackendViewerLoopHook: true,
+          webgpuBackendViewerLifecycleInvocationSource: 'renderCurrentFrame',
+          webgpuBackendViewerLifecycleControlledExecution: true,
+          comparisonMode:
+            options.comparisonMode ??
+            'phase3-step59-render-current-frame-controlled-webgpu-backend-execution'
+        });
+      } catch (error) {
+        controlledExecutionError = {
+          name: error?.name ?? 'Error',
+          message: error?.message ?? String(error)
+        };
+      }
+    }
+    const webgpuBackendViewerLifecycleControlledExecution =
+      webgpuBackendViewerLifecycleIntegrationBoundary
+        ? buildWebGpuBackendViewerLifecycleControlledExecution({
+            integrationBoundary: webgpuBackendViewerLifecycleIntegrationBoundary,
+            adapterResult:
+              controlledExecutionResult?.webgpuBackendViewerLoopAdapter ?? null,
+            invocationRequested:
+              webgpuBackendViewerLifecycleIntegrationBoundary.integrationBoundaryReady === true,
+            invocationSource: controlledExecutionError
+              ? 'renderCurrentFrame-controlled-execution-error'
+              : 'renderCurrentFrame-controlled-execution',
+            webgl2FrameLifecycleSuppressed: true,
+            cameraSnapshot
+          })
+        : null;
+    if (
+      webgpuBackendViewerLifecycleControlledExecution &&
+      controlledExecutionError
+    ) {
+      webgpuBackendViewerLifecycleControlledExecution.controlledExecutionError =
+        controlledExecutionError;
+    }
     const renderResult = {
       status: 'webgpu-exclusive-frame-lifecycle-pending',
       reason:
         'webgpu-exclusive mode owns the viewer canvas lifecycle; WebGL2 render frame is suppressed',
       webgpuExclusiveFrameLifecyclePending: true,
       webgpuBackendViewerLifecycleIntegrationBoundary,
+      webgpuBackendViewerLifecycleControlledExecution,
       drawPathSummary: {
         requestedPath: 'webgpu-exclusive',
-        actualPath: webgpuBackendViewerLifecycleIntegrationBoundary?.integrationBoundaryReady
-          ? 'webgpu-exclusive-viewer-loop-hook-ready'
-          : 'webgpu-exclusive-pending'
+        actualPath:
+          webgpuBackendViewerLifecycleControlledExecution?.controlledExecutionReady
+            ? 'webgpu-exclusive-controlled-backend-frame-executed'
+            : webgpuBackendViewerLifecycleIntegrationBoundary?.integrationBoundaryReady
+              ? 'webgpu-exclusive-viewer-loop-hook-ready'
+              : 'webgpu-exclusive-pending'
       },
       executionSummary: {
         backendMode: 'webgpu-exclusive',
@@ -4491,7 +4553,13 @@ async function renderCurrentFrame(options = {}) {
         displayConnectionImplemented: false,
         webgpuBackendViewerLoopHookEnabled: enableViewerLoopHook,
         webgpuBackendViewerLoopHookReady:
-          webgpuBackendViewerLifecycleIntegrationBoundary?.integrationBoundaryReady === true
+          webgpuBackendViewerLifecycleIntegrationBoundary?.integrationBoundaryReady === true,
+        webgpuBackendViewerLifecycleControlledExecutionReady:
+          webgpuBackendViewerLifecycleControlledExecution?.controlledExecutionReady === true,
+        webgpuBackendViewerLifecycleControlledInvocationCount:
+          webgpuBackendViewerLifecycleControlledExecution?.invocationCount ?? 0,
+        webgpuBackendViewerLifecycleControlledSubmittedFrameCount:
+          webgpuBackendViewerLifecycleControlledExecution?.submittedFrameCount ?? 0
       },
       limitedDrawRuntimeSummary: null
     };

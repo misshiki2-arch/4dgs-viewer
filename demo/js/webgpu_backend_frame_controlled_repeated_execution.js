@@ -243,6 +243,7 @@ export async function buildWebGpuBackendFrameControlledRepeatedExecution({
     },
     frameSummaries,
     selectedSourceKind: firstFrameUnitContract.selectedSourceKind ?? null,
+    selectionMode: firstFrameUnitContract.selectionMode ?? null,
     colorPresentSampleCount: firstFrameUnitContract.colorPresentSampleCount ?? null,
     sampleSources: firstFrameUnitContract.sampleSources ?? [],
     fallbackPolicy: backendFramePrototypes[0]?.fallbackPolicy ?? {},

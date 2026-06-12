@@ -6,6 +6,12 @@ export const WEBGPU_BACKEND_VIEWER_LIFECYCLE_INTEGRATION_MODE =
 export const WEBGPU_BACKEND_VIEWER_LIFECYCLE_INTEGRATION_CONTRACT_VERSION =
   'phase3-step58-backend-viewer-lifecycle-integration-boundary-v1';
 
+export const WEBGPU_BACKEND_VIEWER_LIFECYCLE_CONTROLLED_EXECUTION_MODE =
+  'webgpu-backend-viewer-lifecycle-controlled-execution';
+
+export const WEBGPU_BACKEND_VIEWER_LIFECYCLE_CONTROLLED_EXECUTION_CONTRACT_VERSION =
+  'phase3-step59-backend-viewer-lifecycle-controlled-execution-v1';
+
 function nowMs() {
   return typeof performance !== 'undefined' && typeof performance.now === 'function'
     ? performance.now()
@@ -73,6 +79,131 @@ function buildAdapterInvocationContract({ adapterResult, adapterInvocationSource
     repeatedSubmitCount: adapterResult?.repeatedSubmitCount ?? null,
     selectedSourceKind: adapterResult?.selectedSourceKind ?? null,
     colorPresentSampleCount: adapterResult?.colorPresentSampleCount ?? null
+  };
+}
+
+function buildControlledExecutionInvocationContract({
+  invocationRequested,
+  invocationSource,
+  integrationBoundary,
+  adapterResult
+}) {
+  const adapterReady = adapterResult?.viewerLoopAdapterReady === true;
+  const controlledRepeatedExecution =
+    adapterResult?.webgpuBackendFrameControlledRepeatedExecution ?? {};
+  return {
+    contractVersion:
+      WEBGPU_BACKEND_VIEWER_LIFECYCLE_CONTROLLED_EXECUTION_CONTRACT_VERSION,
+    invocationMode: 'guarded-render-current-frame-controlled-webgpu-backend-execution',
+    invocationSource,
+    invocationRequested: invocationRequested === true,
+    invocationCount: adapterResult ? 1 : 0,
+    integrationBoundaryReady: integrationBoundary?.integrationBoundaryReady === true,
+    adapterResultProvided: !!adapterResult,
+    adapterReady,
+    requestedFrameCount:
+      adapterResult?.requestedFrameCount ??
+      controlledRepeatedExecution?.requestedFrameCount ??
+      null,
+    executedBackendFrameSubmissions:
+      adapterResult?.executedBackendFrameSubmissions ??
+      controlledRepeatedExecution?.executedBackendFrameSubmissions ??
+      null,
+    repeatedSubmitCount:
+      adapterResult?.repeatedSubmitCount ??
+      controlledRepeatedExecution?.repeatedSubmitCount ??
+      null,
+    selectedSourceKind: adapterResult?.selectedSourceKind ?? null,
+    selectionMode:
+      adapterResult?.selectionMode ??
+      controlledRepeatedExecution?.selectionMode ??
+      adapterResult?.initialBackendFramePrototype?.webgpuViewerCanvasBoundedColorPresent
+        ?.selectionMode ??
+      null,
+    colorPresentSampleCount: adapterResult?.colorPresentSampleCount ?? null
+  };
+}
+
+function buildControlledExecutionValidationSummary({
+  invocationContract,
+  integrationBoundary,
+  webgl2FrameLifecycleSuppressed,
+  cameraSnapshot
+}) {
+  const invocationRequested = invocationContract.invocationRequested === true;
+  const integrationBoundaryReady =
+    integrationBoundary?.integrationBoundaryReady === true;
+  const adapterReady = invocationContract.adapterReady === true;
+  const submittedFrameCount = invocationContract.executedBackendFrameSubmissions ?? 0;
+  const repeatedSubmitCount = invocationContract.repeatedSubmitCount ?? 0;
+  const webgl2HybridRenderingPrevented = webgl2FrameLifecycleSuppressed === true;
+  const cameraSnapshotProvided = !!cameraSnapshot;
+  const fallbackPolicyPreserved =
+    integrationBoundary?.fallbackPolicy?.selectorSelectedSamplesUsed !== false;
+  const controlledExecutionReady =
+    invocationRequested &&
+    integrationBoundaryReady &&
+    adapterReady &&
+    submittedFrameCount > 0 &&
+    repeatedSubmitCount > 0 &&
+    webgl2HybridRenderingPrevented &&
+    cameraSnapshotProvided &&
+    fallbackPolicyPreserved;
+  const firstValidationFailures = [];
+  if (!invocationRequested) {
+    firstValidationFailures.push({
+      stage: 'controlled-execution-invocation',
+      reason: 'controlled WebGPU backend execution was not requested by the guarded viewer hook'
+    });
+  }
+  if (!integrationBoundaryReady) {
+    firstValidationFailures.push({
+      stage: 'viewer-lifecycle-integration-boundary',
+      reason: 'controlled execution requires a ready Step58 integration boundary'
+    });
+  }
+  if (!adapterReady) {
+    firstValidationFailures.push({
+      stage: 'viewer-loop-adapter',
+      reason: 'controlled execution requires a ready WebGPU backend viewer loop adapter result'
+    });
+  }
+  if (submittedFrameCount <= 0 || repeatedSubmitCount <= 0) {
+    firstValidationFailures.push({
+      stage: 'backend-frame-submit',
+      reason: 'controlled execution must submit at least one guarded WebGPU backend frame'
+    });
+  }
+  if (!webgl2HybridRenderingPrevented) {
+    firstValidationFailures.push({
+      stage: 'webgl2-lifecycle-suppression',
+      reason: 'controlled execution cannot mix WebGPU presentation with WebGL2 rendering in the same frame'
+    });
+  }
+  if (!cameraSnapshotProvided) {
+    firstValidationFailures.push({
+      stage: 'camera-snapshot',
+      reason: 'controlled execution needs the viewer lifecycle camera snapshot'
+    });
+  }
+  if (!fallbackPolicyPreserved) {
+    firstValidationFailures.push({
+      stage: 'fallback-policy',
+      reason: 'controlled execution must not report fallback-presented samples as true native success'
+    });
+  }
+  return {
+    controlledExecutionReady,
+    invocationRequested,
+    integrationBoundaryReady,
+    adapterReady,
+    submittedFrameCount,
+    repeatedSubmitCount,
+    webgl2FrameLifecycleSuppressed: webgl2FrameLifecycleSuppressed === true,
+    webgl2HybridRenderingPrevented,
+    cameraSnapshotProvided,
+    fallbackPolicyPreserved,
+    firstValidationFailures
   };
 }
 
@@ -243,6 +374,86 @@ export function buildWebGpuBackendViewerLifecycleIntegrationBoundary({
       : 'restore guarded viewer lifecycle integration readiness before scheduler wiring',
     timing: {
       webgpuBackendViewerLifecycleIntegrationBoundaryMs: nowMs() - startMs
+    }
+  };
+}
+
+export function buildWebGpuBackendViewerLifecycleControlledExecution({
+  integrationBoundary = null,
+  adapterResult = null,
+  invocationRequested = false,
+  invocationSource = 'not-invoked',
+  webgl2FrameLifecycleSuppressed = false,
+  cameraSnapshot = null
+} = {}) {
+  const startMs = nowMs();
+  const invocationContract = buildControlledExecutionInvocationContract({
+    invocationRequested,
+    invocationSource,
+    integrationBoundary,
+    adapterResult
+  });
+  const validationSummary = buildControlledExecutionValidationSummary({
+    invocationContract,
+    integrationBoundary,
+    webgl2FrameLifecycleSuppressed,
+    cameraSnapshot
+  });
+  const controlledExecutionReady =
+    validationSummary.controlledExecutionReady === true;
+  return {
+    mode: WEBGPU_BACKEND_VIEWER_LIFECYCLE_CONTROLLED_EXECUTION_MODE,
+    status: controlledExecutionReady ? 'ok' : 'blocked',
+    source:
+      'Phase 3 Step59 guarded renderCurrentFrame hook executes a controlled WebGPU backend frame path behind explicit exclusive flags',
+    contractVersion:
+      WEBGPU_BACKEND_VIEWER_LIFECYCLE_CONTROLLED_EXECUTION_CONTRACT_VERSION,
+    controlledExecutionImplemented: true,
+    controlledExecutionReady,
+    productionDisplayConnectionImplemented: false,
+    displayConnectionAllowed: false,
+    webgl2HybridRenderingAllowed: false,
+    invocationContract,
+    selectedSourceKind: invocationContract.selectedSourceKind,
+    selectionMode: invocationContract.selectionMode,
+    colorPresentSampleCount: invocationContract.colorPresentSampleCount,
+    invocationCount: invocationContract.invocationCount,
+    submittedFrameCount: validationSummary.submittedFrameCount,
+    executedBackendFrameSubmissions:
+      invocationContract.executedBackendFrameSubmissions,
+    repeatedSubmitCount: invocationContract.repeatedSubmitCount,
+    fallbackPolicy: adapterResult?.fallbackPolicy ?? {},
+    validationSummary,
+    firstValidationFailures: validationSummary.firstValidationFailures,
+    blockers: controlledExecutionReady
+      ? [
+          {
+            stage: 'production-frame-scheduler',
+            reason:
+              'controlled execution is callable from renderCurrentFrame, but the production requestAnimationFrame loop remains intentionally disconnected'
+          },
+          {
+            stage: 'interactive-camera',
+            reason:
+              'camera data is a snapshot boundary; interactive camera ownership remains outside Step59'
+          },
+          {
+            stage: 'sh-color-evaluation',
+            reason: 'WGSL SH/color evaluation parity remains deferred'
+          }
+        ]
+      : [
+          {
+            stage: 'controlled-webgpu-backend-frame-execution',
+            reason:
+              'controlled execution requires the explicit hook guard, ready integration boundary, ready adapter, and at least one backend submit'
+          }
+        ],
+    nextBackendPrototypeStep: controlledExecutionReady
+      ? 'promote the guarded controlled execution path toward a scheduler-owned backend frame loop without enabling it by default'
+      : 'restore controlled viewer lifecycle execution readiness before scheduler integration',
+    timing: {
+      webgpuBackendViewerLifecycleControlledExecutionMs: nowMs() - startMs
     }
   };
 }
