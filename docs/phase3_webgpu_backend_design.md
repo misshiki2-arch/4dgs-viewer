@@ -710,3 +710,31 @@ the lifecycle as `uniformResourceLifecycleContract`.
 
 This is the first normal backend step where frame constants become a real GPU
 resource instead of only a summary contract.
+
+## Step66 Bind Group And Minimal Uniform Consumption
+
+Step66 connects the Step65 uniform buffer to a real bind group and a minimal
+WGSL compute pass owned by `webgpu-normal-backend-frame-implementation`.
+The pass reads the first `vec4<f32>` of the frame constants uniform and writes it
+to a small storage buffer that is copied back for validation.
+
+- bind group ownership: the normal backend creates the bind group layout and
+  bind group for the frame constants uniform. This confirms the resource is not
+  only writable, but also bindable by a backend shader boundary.
+- minimal WGSL consumption: Step66 uses a one-workgroup compute pass to read
+  `frameIndex`, `timeSeconds`, `viewport.width`, and `viewport.height` from the
+  uniform buffer. The readback must match the packed frame constants prefix.
+- validation output: `uniformShaderConsumptionContract` records bind group
+  layout creation, bind group creation, compute pipeline creation, dispatch,
+  readback completion, expected values, actual values, and max absolute
+  difference.
+- baseline: Step40 constrained-display selected samples, two presented samples,
+  fallback suppression, and three controlled frame submissions remain the
+  success baseline.
+- scope limits: this is not production Gaussian shading. WGSL SH/color parity,
+  scene-data shader consumption, production scheduling, interactive camera
+  behavior, streaming, chunking, LOD, partial upload, and full-dataset GPU
+  residency remain future work.
+
+This gives the normal backend a small but real shader consumption boundary for
+frame constants before the backend starts consuming scene data.

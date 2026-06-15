@@ -5247,6 +5247,11 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
                 ["uniformResourceLifecycleSummary"],
                 {},
             ),
+            "uniformShaderConsumptionContract": get_path(
+                webgpu_normal_backend_frame_implementation,
+                ["uniformShaderConsumptionContract"],
+                {},
+            ),
             "presentOutputContract": get_path(
                 webgpu_normal_backend_frame_implementation,
                 ["presentOutputContract"],

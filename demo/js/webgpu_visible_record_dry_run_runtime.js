@@ -3998,8 +3998,8 @@ export async function runWebGpuVisibleRecordDryRun({
           mode: 'webgpu-backend-runtime-runner',
           status: 'unavailable',
           source:
-            'Phase 3 Step65 backend runtime runner was not observed in the latest render executor summary',
-          contractVersion: 'phase3-step65-backend-runtime-runner-contract-v1',
+            'Phase 3 Step66 backend runtime runner was not observed in the latest render executor summary',
+          contractVersion: 'phase3-step66-backend-runtime-runner-contract-v1',
           runtimeRunnerImplemented: true,
           runtimeRunnerReady: false,
           productionDisplayConnectionImplemented: false,
@@ -4039,9 +4039,9 @@ export async function runWebGpuVisibleRecordDryRun({
           mode: 'webgpu-normal-backend-frame-implementation',
           status: 'unavailable',
           source:
-            'Phase 3 Step65 normal WebGPU backend implementation was not selected or observed in the latest runtime runner summary',
+            'Phase 3 Step66 normal WebGPU backend implementation was not selected or observed in the latest runtime runner summary',
           contractVersion:
-            'phase3-step65-normal-backend-frame-implementation-v1',
+            'phase3-step66-normal-backend-frame-implementation-v1',
           implementationKind: 'webgpu-normal-backend-frame-implementation',
           normalBackendImplementationImplemented: true,
           normalBackendImplementationReady: false,
@@ -4106,7 +4106,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step65 moves frame constants into a normal-backend-owned GPU uniform buffer lifecycle while preserving Step40 stable present.',
+    scaffoldNote: 'Phase 3 Step66 connects normal-backend-owned frame constants uniform buffer to bind group and minimal WGSL consumption while preserving Step40 stable present.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,

@@ -9,7 +9,7 @@ export const WEBGPU_BACKEND_VIEWER_FRAME_EXECUTOR_MODE =
   'webgpu-backend-viewer-frame-executor-boundary';
 
 export const WEBGPU_BACKEND_VIEWER_FRAME_EXECUTOR_CONTRACT_VERSION =
-  'phase3-step65-backend-viewer-frame-executor-boundary-v1';
+  'phase3-step66-backend-viewer-frame-executor-boundary-v1';
 
 function nowMs() {
   return typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -210,7 +210,7 @@ export async function executeWebGpuBackendViewerFrame({
     mode: WEBGPU_BACKEND_VIEWER_FRAME_EXECUTOR_MODE,
     status: executorReady ? 'ok' : 'blocked',
     source:
-      'Phase 3 Step65 viewer backend frame executor delegates GPU uniform resource lifecycle ownership through the runtime runner',
+      'Phase 3 Step66 viewer backend frame executor delegates bind group uniform consumption ownership through the runtime runner',
     contractVersion: WEBGPU_BACKEND_VIEWER_FRAME_EXECUTOR_CONTRACT_VERSION,
     executorImplemented: true,
     executorReady,

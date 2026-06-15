@@ -6,19 +6,19 @@ export const WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_MODE =
   'webgpu-normal-backend-frame-implementation';
 
 export const WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_CONTRACT_VERSION =
-  'phase3-step65-normal-backend-frame-implementation-v1';
+  'phase3-step66-normal-backend-frame-implementation-v1';
 
 export const WEBGPU_NORMAL_BACKEND_FRAME_INPUT_CONTRACT_VERSION =
-  'phase3-step65-normal-backend-frame-input-contract-v1';
+  'phase3-step66-normal-backend-frame-input-contract-v1';
 
 export const WEBGPU_NORMAL_BACKEND_PRESENT_OUTPUT_CONTRACT_VERSION =
-  'phase3-step65-normal-backend-present-output-contract-v1';
+  'phase3-step66-normal-backend-present-output-contract-v1';
 
 export const WEBGPU_NORMAL_BACKEND_FRAME_CONSTANTS_CONTRACT_VERSION =
-  'phase3-step65-normal-backend-frame-constants-contract-v1';
+  'phase3-step66-normal-backend-frame-constants-contract-v1';
 
 export const WEBGPU_NORMAL_BACKEND_UNIFORM_RESOURCE_PREPARATION_CONTRACT_VERSION =
-  'phase3-step65-normal-backend-uniform-resource-preparation-contract-v1';
+  'phase3-step66-normal-backend-uniform-resource-preparation-contract-v1';
 
 function nowMs() {
   return typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -433,6 +433,16 @@ function buildUniformResourceLifecycleSummary(uniformResourceLifecycleContract) 
       uniformResourceLifecycleContract?.queueWriteBufferUsed === true,
     bindGroupReadyBoundary:
       uniformResourceLifecycleContract?.bindGroupReadyBoundary === true,
+    bindGroupLayoutCreated:
+      uniformResourceLifecycleContract?.bindGroupLayoutCreated === true,
+    bindGroupCreatedThisStep:
+      uniformResourceLifecycleContract?.bindGroupCreatedThisStep === true,
+    shaderConsumptionImplemented:
+      uniformResourceLifecycleContract?.shaderConsumptionImplemented === true,
+    uniformReadbackCompleted:
+      uniformResourceLifecycleContract?.uniformReadbackCompleted === true,
+    uniformReadMatchesPackedFrameConstants:
+      uniformResourceLifecycleContract?.uniformReadMatchesPackedFrameConstants === true,
     deviceOwnershipMode:
       uniformResourceLifecycleContract?.deviceOwnershipMode ?? null,
     packedByteLength:
@@ -478,6 +488,12 @@ function buildValidationSummary({
     uniformResourceLifecycleContract?.uniformBufferWriteSubmitted === true &&
     uniformResourceLifecycleContract?.queueWriteBufferUsed === true &&
     uniformResourceLifecycleContract?.bindGroupReadyBoundary === true;
+  const uniformShaderConsumptionReady =
+    uniformResourceLifecycleContract?.bindGroupLayoutCreated === true &&
+    uniformResourceLifecycleContract?.bindGroupCreatedThisStep === true &&
+    uniformResourceLifecycleContract?.shaderConsumptionImplemented === true &&
+    uniformResourceLifecycleContract?.uniformReadbackCompleted === true &&
+    uniformResourceLifecycleContract?.uniformReadMatchesPackedFrameConstants === true;
   const backendFrameResultProvided = !!backendFrameResult;
   const selectedTrueNativeSource =
     presentOutputContract.selectedSourceKind ===
@@ -503,6 +519,7 @@ function buildValidationSummary({
     frameConstantsReady &&
     uniformResourcePreparationReady &&
     uniformResourceLifecycleReady &&
+    uniformShaderConsumptionReady &&
     backendFrameResultProvided &&
     selectedTrueNativeSource &&
     presentReady &&
@@ -550,6 +567,13 @@ function buildValidationSummary({
       stage: 'normal-backend-uniform-resource-lifecycle',
       reason:
         'normal WebGPU backend implementation requires GPU uniform buffer creation and queue.writeBuffer ownership'
+    });
+  }
+  if (!uniformShaderConsumptionReady) {
+    firstValidationFailures.push({
+      stage: 'normal-backend-uniform-shader-consumption',
+      reason:
+        'normal WebGPU backend implementation requires bind group creation and minimal WGSL uniform read validation'
     });
   }
   if (!selectedTrueNativeSource) {
@@ -600,6 +624,7 @@ function buildValidationSummary({
     frameConstantsReady,
     uniformResourcePreparationReady,
     uniformResourceLifecycleReady,
+    uniformShaderConsumptionReady,
     backendFrameResultProvided,
     selectedTrueNativeSource,
     presentReady,
@@ -674,6 +699,8 @@ export async function runWebGpuNormalBackendFrameImplementation({
   const resourceSummary = buildResourceSummary(backendFrameResult);
   const uniformResourceLifecycleSummary =
     buildUniformResourceLifecycleSummary(uniformResourceLifecycleContract);
+  const uniformShaderConsumptionContract =
+    uniformResourceLifecycleContract?.uniformShaderConsumptionContract ?? null;
   const validationSummary = buildValidationSummary({
     implementationContract,
     frameInputContract,
@@ -691,7 +718,7 @@ export async function runWebGpuNormalBackendFrameImplementation({
     mode: WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_MODE,
     status: normalBackendImplementationReady ? 'ok' : 'blocked',
     source:
-      'Phase 3 Step65 normal WebGPU backend implementation owns GPU uniform buffer resource lifecycle for frame constants',
+      'Phase 3 Step66 normal WebGPU backend implementation owns bind group and minimal WGSL uniform consumption boundary',
     contractVersion:
       WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_CONTRACT_VERSION,
     implementationKind: WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_MODE,
@@ -706,6 +733,7 @@ export async function runWebGpuNormalBackendFrameImplementation({
     uniformResourcePreparationContract,
     uniformResourceLifecycleContract,
     uniformResourceLifecycleSummary,
+    uniformShaderConsumptionContract,
     presentOutputContract,
     presentSummary: presentOutputContract,
     resourceSummary,
@@ -726,7 +754,7 @@ export async function runWebGpuNormalBackendFrameImplementation({
           {
             stage: 'production-frame-scheduler',
             reason:
-              'normal backend implementation path owns frame constants and a GPU uniform resource lifecycle; production scheduling remains intentionally disconnected'
+              'normal backend implementation path owns frame constants, bind group creation, and minimal uniform shader consumption; production scheduling remains intentionally disconnected'
           },
           {
             stage: 'streaming-lod',
@@ -742,11 +770,11 @@ export async function runWebGpuNormalBackendFrameImplementation({
           {
             stage: 'normal-webgpu-backend-implementation',
             reason:
-              'normal implementation requires exclusive guards, frame constants, GPU uniform resource lifecycle, true native selected samples, submitted present output, and preserved fallback policy'
+              'normal implementation requires exclusive guards, frame constants, GPU uniform lifecycle, bind group uniform consumption, true native selected samples, submitted present output, and preserved fallback policy'
           }
         ],
     nextBackendPrototypeStep: normalBackendImplementationReady
-      ? 'connect the normal backend uniform buffer resource to a bind group and shader input boundary'
+      ? 'connect the validated uniform bind group boundary to a normal backend render or compute stage that consumes scene data'
       : 'restore normal backend implementation readiness before replacing the implementation body',
     timing: {
       webgpuNormalBackendFrameImplementationMs: nowMs() - startMs
