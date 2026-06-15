@@ -5252,6 +5252,11 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
                 ["uniformShaderConsumptionContract"],
                 {},
             ),
+            "sampleResourceLifecycleContract": get_path(
+                webgpu_normal_backend_frame_implementation,
+                ["sampleResourceLifecycleContract"],
+                {},
+            ),
             "presentOutputContract": get_path(
                 webgpu_normal_backend_frame_implementation,
                 ["presentOutputContract"],
@@ -5313,6 +5318,10 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             "resourceLifecycleReady": get_path(
                 webgpu_normal_backend_frame_implementation_validation,
                 ["resourceLifecycleReady"],
+            ),
+            "sampleResourceConsumptionReady": get_path(
+                webgpu_normal_backend_frame_implementation_validation,
+                ["sampleResourceConsumptionReady"],
             ),
             "webgl2HybridRenderingPrevented": get_path(
                 webgpu_normal_backend_frame_implementation_validation,

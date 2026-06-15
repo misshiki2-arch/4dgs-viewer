@@ -7,7 +7,7 @@ export const WEBGPU_BACKEND_RUNTIME_RUNNER_MODE =
   'webgpu-backend-runtime-runner';
 
 export const WEBGPU_BACKEND_RUNTIME_RUNNER_CONTRACT_VERSION =
-  'phase3-step66-backend-runtime-runner-contract-v1';
+  'phase3-step67-backend-runtime-runner-contract-v1';
 
 export const WEBGPU_BACKEND_DRY_RUN_IMPLEMENTATION_KIND =
   'webgpu-visible-record-dry-run-runtime';
@@ -324,7 +324,7 @@ export async function runWebGpuBackendRuntimeFrame({
     mode: WEBGPU_BACKEND_RUNTIME_RUNNER_MODE,
     status: runtimeRunnerReady ? 'ok' : 'blocked',
     source:
-      'Phase 3 Step66 viewer backend runtime runner executes a normal backend with bind group uniform consumption ownership',
+      'Phase 3 Step67 viewer backend runtime runner executes a normal backend with uniform and sample buffer consumption ownership',
     contractVersion: WEBGPU_BACKEND_RUNTIME_RUNNER_CONTRACT_VERSION,
     runtimeRunnerImplemented: true,
     runtimeRunnerReady,

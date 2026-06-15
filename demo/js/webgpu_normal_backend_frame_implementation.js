@@ -6,19 +6,19 @@ export const WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_MODE =
   'webgpu-normal-backend-frame-implementation';
 
 export const WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_CONTRACT_VERSION =
-  'phase3-step66-normal-backend-frame-implementation-v1';
+  'phase3-step67-normal-backend-frame-implementation-v1';
 
 export const WEBGPU_NORMAL_BACKEND_FRAME_INPUT_CONTRACT_VERSION =
-  'phase3-step66-normal-backend-frame-input-contract-v1';
+  'phase3-step67-normal-backend-frame-input-contract-v1';
 
 export const WEBGPU_NORMAL_BACKEND_PRESENT_OUTPUT_CONTRACT_VERSION =
-  'phase3-step66-normal-backend-present-output-contract-v1';
+  'phase3-step67-normal-backend-present-output-contract-v1';
 
 export const WEBGPU_NORMAL_BACKEND_FRAME_CONSTANTS_CONTRACT_VERSION =
-  'phase3-step66-normal-backend-frame-constants-contract-v1';
+  'phase3-step67-normal-backend-frame-constants-contract-v1';
 
 export const WEBGPU_NORMAL_BACKEND_UNIFORM_RESOURCE_PREPARATION_CONTRACT_VERSION =
-  'phase3-step66-normal-backend-uniform-resource-preparation-contract-v1';
+  'phase3-step67-normal-backend-uniform-resource-preparation-contract-v1';
 
 function nowMs() {
   return typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -429,6 +429,14 @@ function buildUniformResourceLifecycleSummary(uniformResourceLifecycleContract) 
       uniformResourceLifecycleContract?.uniformBufferWriteCompleted === true,
     uniformBufferDestroyed:
       uniformResourceLifecycleContract?.uniformBufferDestroyed === true,
+    sampleBufferCreated:
+      uniformResourceLifecycleContract?.sampleBufferCreated === true,
+    sampleBufferWriteSubmitted:
+      uniformResourceLifecycleContract?.sampleBufferWriteSubmitted === true,
+    sampleBufferWriteCompleted:
+      uniformResourceLifecycleContract?.sampleBufferWriteCompleted === true,
+    sampleBufferDestroyed:
+      uniformResourceLifecycleContract?.sampleBufferDestroyed === true,
     queueWriteBufferUsed:
       uniformResourceLifecycleContract?.queueWriteBufferUsed === true,
     bindGroupReadyBoundary:
@@ -443,6 +451,10 @@ function buildUniformResourceLifecycleSummary(uniformResourceLifecycleContract) 
       uniformResourceLifecycleContract?.uniformReadbackCompleted === true,
     uniformReadMatchesPackedFrameConstants:
       uniformResourceLifecycleContract?.uniformReadMatchesPackedFrameConstants === true,
+    sampleStorageBufferReadbackCompleted:
+      uniformResourceLifecycleContract?.sampleStorageBufferReadbackCompleted === true,
+    sampleReadMatchesPackedSelectedSamples:
+      uniformResourceLifecycleContract?.sampleReadMatchesPackedSelectedSamples === true,
     deviceOwnershipMode:
       uniformResourceLifecycleContract?.deviceOwnershipMode ?? null,
     packedByteLength:
@@ -450,7 +462,11 @@ function buildUniformResourceLifecycleSummary(uniformResourceLifecycleContract) 
     paddedUniformByteLength:
       uniformResourceLifecycleContract?.paddedUniformByteLength ?? null,
     minBindingSizeBytes:
-      uniformResourceLifecycleContract?.minBindingSizeBytes ?? null
+      uniformResourceLifecycleContract?.minBindingSizeBytes ?? null,
+    samplePackedByteLength:
+      uniformResourceLifecycleContract?.samplePackedByteLength ?? null,
+    samplePackedFloat32Count:
+      uniformResourceLifecycleContract?.samplePackedFloat32Count ?? null
   };
 }
 
@@ -494,6 +510,15 @@ function buildValidationSummary({
     uniformResourceLifecycleContract?.shaderConsumptionImplemented === true &&
     uniformResourceLifecycleContract?.uniformReadbackCompleted === true &&
     uniformResourceLifecycleContract?.uniformReadMatchesPackedFrameConstants === true;
+  const sampleResourceConsumptionReady =
+    uniformResourceLifecycleContract?.sampleResourceLifecycleContract
+      ?.normalBackendOwnsGpuSampleResource === true &&
+    uniformResourceLifecycleContract?.sampleBufferCreated === true &&
+    uniformResourceLifecycleContract?.sampleBufferWriteSubmitted === true &&
+    uniformResourceLifecycleContract?.sampleStorageBufferReadbackCompleted === true &&
+    uniformResourceLifecycleContract?.sampleReadMatchesPackedSelectedSamples === true &&
+    uniformResourceLifecycleContract?.sampleResourceLifecycleContract
+      ?.containsRenderHandoffFallback === false;
   const backendFrameResultProvided = !!backendFrameResult;
   const selectedTrueNativeSource =
     presentOutputContract.selectedSourceKind ===
@@ -520,6 +545,7 @@ function buildValidationSummary({
     uniformResourcePreparationReady &&
     uniformResourceLifecycleReady &&
     uniformShaderConsumptionReady &&
+    sampleResourceConsumptionReady &&
     backendFrameResultProvided &&
     selectedTrueNativeSource &&
     presentReady &&
@@ -576,6 +602,13 @@ function buildValidationSummary({
         'normal WebGPU backend implementation requires bind group creation and minimal WGSL uniform read validation'
     });
   }
+  if (!sampleResourceConsumptionReady) {
+    firstValidationFailures.push({
+      stage: 'normal-backend-sample-storage-buffer-consumption',
+      reason:
+        'normal WebGPU backend implementation requires Step40 selected samples packed into a GPU storage buffer and read back through WGSL without fallback mixing'
+    });
+  }
   if (!selectedTrueNativeSource) {
     firstValidationFailures.push({
       stage: 'normal-backend-source-selection',
@@ -625,6 +658,7 @@ function buildValidationSummary({
     uniformResourcePreparationReady,
     uniformResourceLifecycleReady,
     uniformShaderConsumptionReady,
+    sampleResourceConsumptionReady,
     backendFrameResultProvided,
     selectedTrueNativeSource,
     presentReady,
@@ -658,11 +692,6 @@ export async function runWebGpuNormalBackendFrameImplementation({
   });
   const uniformResourcePreparationContract =
     buildUniformResourcePreparationContract(frameConstantsContract);
-  const uniformResourceLifecycleContract =
-    await prepareNormalBackendUniformResources({
-      frameConstantsContract,
-      uniformResourcePreparationContract
-    });
   const frameInputContract = buildFrameInputContract({
     frameIndex,
     invocationSource,
@@ -674,6 +703,7 @@ export async function runWebGpuNormalBackendFrameImplementation({
   });
   let backendFrameResult = null;
   let executionError = null;
+  let uniformResourceLifecycleContract = null;
   if (typeof runBackendFrame === 'function') {
     try {
       backendFrameResult = await runBackendFrame({
@@ -686,7 +716,7 @@ export async function runWebGpuNormalBackendFrameImplementation({
         frameInputContract,
         frameConstantsContract,
         uniformResourcePreparationContract,
-        uniformResourceLifecycleContract
+        uniformResourceLifecycleContract: null
       });
     } catch (error) {
       executionError = {
@@ -696,6 +726,12 @@ export async function runWebGpuNormalBackendFrameImplementation({
     }
   }
   const presentOutputContract = buildPresentOutputContract(backendFrameResult);
+  uniformResourceLifecycleContract =
+    await prepareNormalBackendUniformResources({
+      frameConstantsContract,
+      uniformResourcePreparationContract,
+      selectedSamples: presentOutputContract.presentedSamples
+    });
   const resourceSummary = buildResourceSummary(backendFrameResult);
   const uniformResourceLifecycleSummary =
     buildUniformResourceLifecycleSummary(uniformResourceLifecycleContract);
@@ -718,7 +754,7 @@ export async function runWebGpuNormalBackendFrameImplementation({
     mode: WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_MODE,
     status: normalBackendImplementationReady ? 'ok' : 'blocked',
     source:
-      'Phase 3 Step66 normal WebGPU backend implementation owns bind group and minimal WGSL uniform consumption boundary',
+      'Phase 3 Step67 normal WebGPU backend implementation owns uniform and selected sample GPU buffer consumption boundary',
     contractVersion:
       WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_CONTRACT_VERSION,
     implementationKind: WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_MODE,
@@ -733,6 +769,8 @@ export async function runWebGpuNormalBackendFrameImplementation({
     uniformResourcePreparationContract,
     uniformResourceLifecycleContract,
     uniformResourceLifecycleSummary,
+    sampleResourceLifecycleContract:
+      uniformResourceLifecycleContract?.sampleResourceLifecycleContract ?? null,
     uniformShaderConsumptionContract,
     presentOutputContract,
     presentSummary: presentOutputContract,
@@ -754,7 +792,7 @@ export async function runWebGpuNormalBackendFrameImplementation({
           {
             stage: 'production-frame-scheduler',
             reason:
-              'normal backend implementation path owns frame constants, bind group creation, and minimal uniform shader consumption; production scheduling remains intentionally disconnected'
+              'normal backend implementation path owns frame constants, bind group creation, and minimal uniform/sample shader consumption; production scheduling remains intentionally disconnected'
           },
           {
             stage: 'streaming-lod',
@@ -770,11 +808,11 @@ export async function runWebGpuNormalBackendFrameImplementation({
           {
             stage: 'normal-webgpu-backend-implementation',
             reason:
-              'normal implementation requires exclusive guards, frame constants, GPU uniform lifecycle, bind group uniform consumption, true native selected samples, submitted present output, and preserved fallback policy'
+              'normal implementation requires exclusive guards, frame constants, GPU uniform/sample lifecycle, bind group shader consumption, true native selected samples, submitted present output, and preserved fallback policy'
           }
         ],
     nextBackendPrototypeStep: normalBackendImplementationReady
-      ? 'connect the validated uniform bind group boundary to a normal backend render or compute stage that consumes scene data'
+      ? 'connect the validated uniform and selected sample storage buffer boundary to a normal backend render or compute stage'
       : 'restore normal backend implementation readiness before replacing the implementation body',
     timing: {
       webgpuNormalBackendFrameImplementationMs: nowMs() - startMs

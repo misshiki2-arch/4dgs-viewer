@@ -738,3 +738,31 @@ to a small storage buffer that is copied back for validation.
 
 This gives the normal backend a small but real shader consumption boundary for
 frame constants before the backend starts consuming scene data.
+
+## Step67 Selected Sample Storage Buffer Consumption
+
+Step67 extends the Step66 uniform bind group boundary with a normal-backend-owned
+storage buffer for the Step40 true native selected samples. The selected samples
+remain the same constrained-display source used by the stable present path; the
+normal backend now packs their minimal pixel, color, source classification, and
+record fields into GPU memory and validates that WGSL can read those fields.
+
+- sample resource ownership: `webgpu-normal-backend-frame-implementation`
+  creates and writes a transient selected-sample storage buffer after the
+  Step40 selector/present output is known.
+- packed sample fields: each sample stores `samplePx.x`, `samplePx.y`,
+  `colorAlpha.rgba`, a numeric source-kind code, and `recordIndex`.
+- minimal WGSL consumption: the Step67 compute pass reads both the frame
+  constants uniform and the first packed selected sample through one bind group,
+  then copies the combined output back for CPU comparison.
+- fallback policy: render-handoff fallback samples are rejected as sample-buffer
+  input when selector-selected Step40 samples are present.
+- baseline: Step66 uniform readback, Step40 selected source, two presented
+  samples, fallback suppression, and three controlled frame submissions remain
+  the success baseline.
+- scope limits: this is still not production Gaussian shading, WGSL SH/color
+  parity, production scheduling, interactive camera behavior, streaming,
+  chunking, LOD, partial upload, or full-dataset GPU residency.
+
+This gives the normal backend its first tiny scene-data GPU consumption boundary
+without changing the viewer loop into a production scheduler.
