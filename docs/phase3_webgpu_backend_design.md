@@ -677,3 +677,36 @@ and frame index into `webgpu-normal-backend-frame-implementation`.
 
 This gives the first normal backend implementation a concrete shader-input
 preparation boundary without changing the validated bounded present body.
+
+## Step65 Normal Backend Uniform Resource Lifecycle
+
+Step65 turns the Step64 uniform preparation boundary into an actual WebGPU
+resource lifecycle owned by `webgpu-normal-backend-frame-implementation`.
+The normal backend now packs frame constants into a `Float32Array`, creates a
+uniform `GPUBuffer`, writes the packed data with `queue.writeBuffer`, and records
+the lifecycle as `uniformResourceLifecycleContract`.
+
+- resource ownership: the normal backend owns the uniform buffer resource
+  lifecycle. The visible-record recorder can observe the result, but it does not
+  own buffer creation, update, or disposal.
+- packed layout: Step65 uses the Step64 layout
+  `frameIndex_time_viewportWidth_viewportHeight`, `viewMatrix4x4`,
+  `projectionMatrix4x4`, and `viewProjectionMatrix4x4`. The payload is 52
+  `float32` values, 208 bytes, padded to the 256-byte binding boundary recorded
+  by the preparation contract.
+- lifecycle policy: Step65 uses a per-call transient buffer for controlled
+  execution and destroys it after write validation. A future runner-owned device
+  and resource cache can replace this without changing the frame constants
+  contract.
+- bind group boundary: Step65 records that the resource is ready for a future
+  bind group boundary, but it does not create bind groups or consume the uniform
+  in WGSL yet.
+- baseline: Step40 constrained-display selected samples, two presented samples,
+  fallback suppression, and three controlled frame submissions remain the
+  success baseline.
+- scope limits: production scheduling, interactive camera behavior, streaming,
+  chunking, LOD, partial upload, full-dataset GPU residency, and WGSL SH/color
+  parity remain future work.
+
+This is the first normal backend step where frame constants become a real GPU
+resource instead of only a summary contract.
