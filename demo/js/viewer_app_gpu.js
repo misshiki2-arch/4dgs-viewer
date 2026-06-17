@@ -4608,7 +4608,7 @@ async function renderCurrentFrame(options = {}) {
                   ...options,
                   ensureCurrentFrame: false,
                   webgpuBackendMode: requestedBackendMode,
-                  webgpuBackendImplementation: backendImplementationKind,
+                  webgpuBackendImplementation: 'webgpu-visible-record-dry-run-runtime',
                   webgpuAllowViewerCanvasPresentation: allowViewerCanvasPresentation,
                   webgpuBackendViewerLoopHook: true,
                   webgpuBackendViewerLifecycleInvocationSource:
@@ -4618,7 +4618,7 @@ async function renderCurrentFrame(options = {}) {
                     options.comparisonMode ??
                     (backendImplementationKind ===
                     'webgpu-normal-backend-frame-implementation'
-                      ? 'phase3-step67-normal-webgpu-backend-sample-consumption'
+                      ? 'phase3-step68-normal-webgpu-backend-color-output-surface'
                       : 'phase3-step61-viewer-backend-runtime-runner')
                 },
                 requestedWebGpuBackendMode: requestedBackendMode,
@@ -4640,12 +4640,14 @@ async function renderCurrentFrame(options = {}) {
                   phase:
                     backendImplementationKind ===
                     'webgpu-normal-backend-frame-implementation'
-                      ? 'phase3-step67'
+                      ? 'phase3-step68'
                       : 'phase3-step61',
                   renderLifecycleStage: 'renderCurrentFrame',
                   invocationSource: 'renderCurrentFrame-viewer-backend-executor',
                   controlledExecutionRequested: true,
                   selectedBackendImplementationKind,
+                  validationOracleBackendImplementationKind:
+                    'webgpu-visible-record-dry-run-runtime',
                   backendExecutorRequest: {
                     executorContract,
                     runnerContract,

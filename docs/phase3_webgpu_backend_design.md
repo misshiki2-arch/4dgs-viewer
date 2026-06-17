@@ -766,3 +766,32 @@ record fields into GPU memory and validates that WGSL can read those fields.
 
 This gives the normal backend its first tiny scene-data GPU consumption boundary
 without changing the viewer loop into a production scheduler.
+
+## Step68 Minimal GPU Color Output Surface
+
+Step68 turns the Step67 selected-sample consumption boundary into a minimal GPU
+color output surface generation boundary. The normal backend still uses the
+Step40 constrained-display selected samples, but the compute pass now writes
+`colorAlpha.rgba` into an RGBA float storage-buffer surface at coordinates
+derived from each sample's `samplePx.x/y`.
+
+- output resource ownership: `webgpu-normal-backend-frame-implementation`
+  creates a transient `storage-buffer-rgba-float-surface` owned by the normal
+  backend.
+- GPU write path: WGSL reads the selected sample storage buffer, computes a
+  bounded pixel index from `samplePx.x/y`, and writes the sample color into the
+  output surface.
+- validation output: the output surface is copied back and compared with a CPU
+  expected surface built from the same Step40 selected sample fields.
+- presentation boundary: the surface is marked as ready for a future
+  viewer-canvas currentTexture, render-target texture, or storage-texture copy
+  path, but Step68 does not connect it to production presentation.
+- baseline: Step67 uniform/sample readback, Step40 selected source, two
+  presented samples, fallback suppression, and three controlled frame
+  submissions remain the success baseline.
+- scope limits: this is not production Gaussian shading, WGSL SH/color parity,
+  production scheduling, interactive camera behavior, streaming, chunking, LOD,
+  partial upload, or full-dataset GPU residency.
+
+This gives the normal backend a GPU-generated color surface that can become the
+next handoff target before it is wired to viewer-canvas presentation.

@@ -6,19 +6,19 @@ export const WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_MODE =
   'webgpu-normal-backend-frame-implementation';
 
 export const WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_CONTRACT_VERSION =
-  'phase3-step67-normal-backend-frame-implementation-v1';
+  'phase3-step68-normal-backend-frame-implementation-v1';
 
 export const WEBGPU_NORMAL_BACKEND_FRAME_INPUT_CONTRACT_VERSION =
-  'phase3-step67-normal-backend-frame-input-contract-v1';
+  'phase3-step68-normal-backend-frame-input-contract-v1';
 
 export const WEBGPU_NORMAL_BACKEND_PRESENT_OUTPUT_CONTRACT_VERSION =
-  'phase3-step67-normal-backend-present-output-contract-v1';
+  'phase3-step68-normal-backend-present-output-contract-v1';
 
 export const WEBGPU_NORMAL_BACKEND_FRAME_CONSTANTS_CONTRACT_VERSION =
-  'phase3-step67-normal-backend-frame-constants-contract-v1';
+  'phase3-step68-normal-backend-frame-constants-contract-v1';
 
 export const WEBGPU_NORMAL_BACKEND_UNIFORM_RESOURCE_PREPARATION_CONTRACT_VERSION =
-  'phase3-step67-normal-backend-uniform-resource-preparation-contract-v1';
+  'phase3-step68-normal-backend-uniform-resource-preparation-contract-v1';
 
 function nowMs() {
   return typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -455,6 +455,16 @@ function buildUniformResourceLifecycleSummary(uniformResourceLifecycleContract) 
       uniformResourceLifecycleContract?.sampleStorageBufferReadbackCompleted === true,
     sampleReadMatchesPackedSelectedSamples:
       uniformResourceLifecycleContract?.sampleReadMatchesPackedSelectedSamples === true,
+    colorOutputSurfaceCreated:
+      uniformResourceLifecycleContract?.colorOutputSurfaceCreated === true,
+    colorOutputSurfaceWriteSubmitted:
+      uniformResourceLifecycleContract?.colorOutputSurfaceWriteSubmitted === true,
+    colorOutputSurfaceReadbackCompleted:
+      uniformResourceLifecycleContract?.colorOutputSurfaceReadbackCompleted === true,
+    colorOutputSurfaceDestroyed:
+      uniformResourceLifecycleContract?.colorOutputSurfaceDestroyed === true,
+    colorOutputSurfaceMatchesExpected:
+      uniformResourceLifecycleContract?.colorOutputSurfaceMatchesExpected === true,
     deviceOwnershipMode:
       uniformResourceLifecycleContract?.deviceOwnershipMode ?? null,
     packedByteLength:
@@ -466,7 +476,9 @@ function buildUniformResourceLifecycleSummary(uniformResourceLifecycleContract) 
     samplePackedByteLength:
       uniformResourceLifecycleContract?.samplePackedByteLength ?? null,
     samplePackedFloat32Count:
-      uniformResourceLifecycleContract?.samplePackedFloat32Count ?? null
+      uniformResourceLifecycleContract?.samplePackedFloat32Count ?? null,
+    colorOutputSurfacePackedByteLength:
+      uniformResourceLifecycleContract?.colorOutputSurfacePackedByteLength ?? null
   };
 }
 
@@ -519,6 +531,15 @@ function buildValidationSummary({
     uniformResourceLifecycleContract?.sampleReadMatchesPackedSelectedSamples === true &&
     uniformResourceLifecycleContract?.sampleResourceLifecycleContract
       ?.containsRenderHandoffFallback === false;
+  const colorOutputSurfaceReady =
+    uniformResourceLifecycleContract?.colorOutputSurfaceLifecycleContract
+      ?.presentationReadyBoundary === true &&
+    uniformResourceLifecycleContract?.colorOutputSurfaceCreated === true &&
+    uniformResourceLifecycleContract?.colorOutputSurfaceWriteSubmitted === true &&
+    uniformResourceLifecycleContract?.colorOutputSurfaceReadbackCompleted === true &&
+    uniformResourceLifecycleContract?.colorOutputSurfaceMatchesExpected === true &&
+    uniformResourceLifecycleContract?.colorOutputSurfaceLifecycleContract
+      ?.productionPresentationConnected === false;
   const backendFrameResultProvided = !!backendFrameResult;
   const selectedTrueNativeSource =
     presentOutputContract.selectedSourceKind ===
@@ -546,6 +567,7 @@ function buildValidationSummary({
     uniformResourceLifecycleReady &&
     uniformShaderConsumptionReady &&
     sampleResourceConsumptionReady &&
+    colorOutputSurfaceReady &&
     backendFrameResultProvided &&
     selectedTrueNativeSource &&
     presentReady &&
@@ -609,6 +631,13 @@ function buildValidationSummary({
         'normal WebGPU backend implementation requires Step40 selected samples packed into a GPU storage buffer and read back through WGSL without fallback mixing'
     });
   }
+  if (!colorOutputSurfaceReady) {
+    firstValidationFailures.push({
+      stage: 'normal-backend-color-output-surface-generation',
+      reason:
+        'normal WebGPU backend implementation requires selected sample pixel/color fields to generate a GPU color output surface with readback validation'
+    });
+  }
   if (!selectedTrueNativeSource) {
     firstValidationFailures.push({
       stage: 'normal-backend-source-selection',
@@ -659,6 +688,7 @@ function buildValidationSummary({
     uniformResourceLifecycleReady,
     uniformShaderConsumptionReady,
     sampleResourceConsumptionReady,
+    colorOutputSurfaceReady,
     backendFrameResultProvided,
     selectedTrueNativeSource,
     presentReady,
@@ -737,6 +767,8 @@ export async function runWebGpuNormalBackendFrameImplementation({
     buildUniformResourceLifecycleSummary(uniformResourceLifecycleContract);
   const uniformShaderConsumptionContract =
     uniformResourceLifecycleContract?.uniformShaderConsumptionContract ?? null;
+  const colorOutputSurfaceLifecycleContract =
+    uniformResourceLifecycleContract?.colorOutputSurfaceLifecycleContract ?? null;
   const validationSummary = buildValidationSummary({
     implementationContract,
     frameInputContract,
@@ -754,7 +786,7 @@ export async function runWebGpuNormalBackendFrameImplementation({
     mode: WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_MODE,
     status: normalBackendImplementationReady ? 'ok' : 'blocked',
     source:
-      'Phase 3 Step67 normal WebGPU backend implementation owns uniform and selected sample GPU buffer consumption boundary',
+      'Phase 3 Step68 normal WebGPU backend implementation generates a minimal GPU color output surface from selected samples',
     contractVersion:
       WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_CONTRACT_VERSION,
     implementationKind: WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_MODE,
@@ -771,6 +803,7 @@ export async function runWebGpuNormalBackendFrameImplementation({
     uniformResourceLifecycleSummary,
     sampleResourceLifecycleContract:
       uniformResourceLifecycleContract?.sampleResourceLifecycleContract ?? null,
+    colorOutputSurfaceLifecycleContract,
     uniformShaderConsumptionContract,
     presentOutputContract,
     presentSummary: presentOutputContract,
@@ -792,7 +825,7 @@ export async function runWebGpuNormalBackendFrameImplementation({
           {
             stage: 'production-frame-scheduler',
             reason:
-              'normal backend implementation path owns frame constants, bind group creation, and minimal uniform/sample shader consumption; production scheduling remains intentionally disconnected'
+              'normal backend implementation path owns frame constants, selected samples, and minimal GPU color output surface generation; production scheduling remains intentionally disconnected'
           },
           {
             stage: 'streaming-lod',
@@ -808,11 +841,11 @@ export async function runWebGpuNormalBackendFrameImplementation({
           {
             stage: 'normal-webgpu-backend-implementation',
             reason:
-              'normal implementation requires exclusive guards, frame constants, GPU uniform/sample lifecycle, bind group shader consumption, true native selected samples, submitted present output, and preserved fallback policy'
+              'normal implementation requires exclusive guards, frame constants, GPU uniform/sample lifecycle, minimal color output surface generation, true native selected samples, submitted present output, and preserved fallback policy'
           }
         ],
     nextBackendPrototypeStep: normalBackendImplementationReady
-      ? 'connect the validated uniform and selected sample storage buffer boundary to a normal backend render or compute stage'
+      ? 'connect the validated minimal GPU color output surface to a normal backend render-target or viewer-canvas presentation path'
       : 'restore normal backend implementation readiness before replacing the implementation body',
     timing: {
       webgpuNormalBackendFrameImplementationMs: nowMs() - startMs
