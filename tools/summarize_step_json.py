@@ -5262,6 +5262,24 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
                 ["colorOutputSurfaceLifecycleContract"],
                 {},
             ),
+            "normalBackendOutputContract": get_path(
+                webgpu_normal_backend_frame_implementation,
+                ["normalBackendOutputContract"],
+                {},
+            ),
+            "presentationHandoffContract": get_path(
+                webgpu_normal_backend_frame_implementation,
+                ["presentationHandoffContract"],
+                {},
+            ),
+            "normalBackendOutputValidation": get_path(
+                webgpu_normal_backend_frame_implementation,
+                [
+                    "uniformShaderConsumptionContract",
+                    "normalBackendOutputValidation",
+                ],
+                {},
+            ),
             "presentOutputContract": get_path(
                 webgpu_normal_backend_frame_implementation,
                 ["presentOutputContract"],
@@ -5331,6 +5349,14 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             "colorOutputSurfaceReady": get_path(
                 webgpu_normal_backend_frame_implementation_validation,
                 ["colorOutputSurfaceReady"],
+            ),
+            "normalBackendOutputReady": get_path(
+                webgpu_normal_backend_frame_implementation_validation,
+                ["normalBackendOutputReady"],
+            ),
+            "presentationHandoffReady": get_path(
+                webgpu_normal_backend_frame_implementation_validation,
+                ["presentationHandoffReady"],
             ),
             "webgl2HybridRenderingPrevented": get_path(
                 webgpu_normal_backend_frame_implementation_validation,

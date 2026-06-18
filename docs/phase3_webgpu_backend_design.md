@@ -795,3 +795,34 @@ derived from each sample's `samplePx.x/y`.
 
 This gives the normal backend a GPU-generated color surface that can become the
 next handoff target before it is wired to viewer-canvas presentation.
+
+## Step69 Normal Backend Output / Presentation Handoff Boundary
+
+Step69 keeps the Step68 storage-buffer RGBA float surface, then treats it as
+the normal backend's current frame output. The compute-generated surface is
+copied on the GPU into a backend-owned handoff buffer, and that handoff buffer is
+read back only to validate that the future presentation boundary receives the
+same pixels.
+
+- output contract: `common_4dgs_backend_output_contracts.js` builds and
+  validates `normalBackendOutputContract`; it records format, extent,
+  coordinate origin, source surface, ownership, lifecycle, and future
+  presentation targets from explicit inputs.
+- GPU-side handoff: the Step68 color output surface is connected to the handoff
+  resource with `copyBufferToBuffer`; CPU readback validates the handoff without
+  turning it into production presentation.
+- ownership: `webgpu-normal-backend-frame-implementation` owns the current
+  frame output until a future viewer-canvas currentTexture, render-target, or
+  storage-texture copy adapter explicitly accepts it.
+- guardrails: viewer canvas presentation, render target presentation, and
+  production scheduling remain disconnected; WebGL2 is still a fallback and
+  validation oracle, not a same-frame presentation partner.
+- baseline: Step67 uniform/sample consumption, Step68 output surface generation,
+  Step40 selected samples, fallback suppression, and three controlled frame
+  submissions remain required.
+- failure behavior: unavailable or mismatch cases still return structured
+  output/handoff contracts, so summary generation does not depend on free
+  variables from the implementation body.
+
+This creates the resource/contract boundary needed before the normal backend
+output can be wired to an actual presentation pass.

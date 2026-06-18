@@ -1,14 +1,20 @@
+import {
+  buildNormalBackendOutputContract,
+  buildUnavailableNormalBackendOutputContracts,
+  validateNormalBackendOutputContracts
+} from './common_4dgs_backend_output_contracts.js';
+
 export const WEBGPU_NORMAL_BACKEND_UNIFORM_RESOURCE_LIFECYCLE_CONTRACT_VERSION =
-  'phase3-step68-normal-backend-uniform-resource-lifecycle-v1';
+  'phase3-step69-normal-backend-uniform-resource-lifecycle-v1';
 
 export const WEBGPU_NORMAL_BACKEND_UNIFORM_SHADER_CONSUMPTION_CONTRACT_VERSION =
-  'phase3-step68-normal-backend-uniform-sample-color-output-consumption-v1';
+  'phase3-step69-normal-backend-uniform-sample-color-output-consumption-v1';
 
 export const WEBGPU_NORMAL_BACKEND_SAMPLE_RESOURCE_CONTRACT_VERSION =
-  'phase3-step68-normal-backend-sample-storage-resource-v1';
+  'phase3-step69-normal-backend-sample-storage-resource-v1';
 
 export const WEBGPU_NORMAL_BACKEND_COLOR_OUTPUT_SURFACE_CONTRACT_VERSION =
-  'phase3-step68-normal-backend-color-output-surface-resource-v1';
+  'phase3-step69-normal-backend-color-output-surface-resource-v1';
 
 const SAMPLE_FLOAT_STRIDE = 8;
 
@@ -25,6 +31,7 @@ function getMatrixValues(matrixSummary) {
 }
 
 function createUnavailableSummary(reason, extra = {}) {
+  const outputContracts = buildUnavailableNormalBackendOutputContracts(reason);
   return {
     contractVersion:
       WEBGPU_NORMAL_BACKEND_UNIFORM_RESOURCE_LIFECYCLE_CONTRACT_VERSION,
@@ -42,18 +49,24 @@ function createUnavailableSummary(reason, extra = {}) {
     colorOutputSurfaceWriteSubmitted: false,
     colorOutputSurfaceReadbackCompleted: false,
     colorOutputSurfaceDestroyed: false,
+    normalBackendOutputResourceCreated: false,
+    normalBackendOutputHandoffCopySubmitted: false,
+    normalBackendOutputReadbackCompleted: false,
+    normalBackendOutputResourceDestroyed: false,
     queueWriteBufferUsed: false,
     bindGroupReadyBoundary: false,
     bindGroupLayoutCreated: false,
     bindGroupCreatedThisStep: false,
     shaderConsumptionImplemented: false,
     uniformShaderConsumptionContract: createUnavailableConsumptionSummary(reason),
+    ...outputContracts,
     reason,
     ...extra
   };
 }
 
 function createUnavailableConsumptionSummary(reason, extra = {}) {
+  const outputContracts = buildUnavailableNormalBackendOutputContracts(reason);
   return {
     contractVersion:
       WEBGPU_NORMAL_BACKEND_UNIFORM_SHADER_CONSUMPTION_CONTRACT_VERSION,
@@ -71,6 +84,10 @@ function createUnavailableConsumptionSummary(reason, extra = {}) {
     colorOutputSurfaceWritten: false,
     colorOutputSurfaceReadbackCompleted: false,
     colorOutputSurfaceMatchesExpected: false,
+    normalBackendOutputHandoffCopySubmitted: false,
+    normalBackendOutputReadbackCompleted: false,
+    normalBackendOutputMatchesExpected: false,
+    ...outputContracts,
     reason,
     ...extra
   };
@@ -239,11 +256,16 @@ function buildExpectedColorOutputSurface(sampleData, sampleCount) {
       status: writtenPixelCount > 0 ? 'ok' : 'blocked',
       outputSurfaceMode: 'normal-backend-minimal-rgba-storage-buffer-surface',
       outputResourceKind: 'storage-buffer-rgba-float-surface',
+      outputFormat: 'rgba32float',
       presentationReadyBoundary: true,
       connectedToViewerCanvasPresentation: false,
       surfaceWidth: boundedWidth,
       surfaceHeight: boundedHeight,
+      outputExtent: { width: boundedWidth, height: boundedHeight },
       surfaceOriginPx: { x: originX, y: originY },
+      coordinateOrigin: 'top-left-bounded-sample-pixel-origin',
+      coordinateMapping:
+        'surface pixel = floor(samplePx.xy) - surfaceOriginPx, then rgba is copied from colorAlpha',
       surfacePixelCount: boundedWidth * boundedHeight,
       colorChannels: 4,
       packedFloat32Count: data.length,
@@ -306,6 +328,19 @@ async function consumeUniformWithMinimalCompute({
   });
   const colorOutputSurfaceReadbackBuffer = device.createBuffer({
     label: 'phase3-step68-normal-backend-color-output-surface-readback',
+    size: expectedColorOutputSurface.data.byteLength,
+    usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+  });
+  const normalBackendOutputHandoffBuffer = device.createBuffer({
+    label: 'phase3-step69-normal-backend-output-handoff-buffer',
+    size: expectedColorOutputSurface.data.byteLength,
+    usage:
+      GPUBufferUsage.STORAGE |
+      GPUBufferUsage.COPY_SRC |
+      GPUBufferUsage.COPY_DST
+  });
+  const normalBackendOutputHandoffReadbackBuffer = device.createBuffer({
+    label: 'phase3-step69-normal-backend-output-handoff-readback',
     size: expectedColorOutputSurface.data.byteLength,
     usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
   });
@@ -429,6 +464,20 @@ fn main() {
     0,
     expectedColorOutputSurface.data.byteLength
   );
+  encoder.copyBufferToBuffer(
+    colorOutputSurfaceBuffer,
+    0,
+    normalBackendOutputHandoffBuffer,
+    0,
+    expectedColorOutputSurface.data.byteLength
+  );
+  encoder.copyBufferToBuffer(
+    normalBackendOutputHandoffBuffer,
+    0,
+    normalBackendOutputHandoffReadbackBuffer,
+    0,
+    expectedColorOutputSurface.data.byteLength
+  );
   device.queue.submit([encoder.finish()]);
   let submittedWorkDone = false;
   if (typeof device.queue.onSubmittedWorkDone === 'function') {
@@ -450,6 +499,13 @@ fn main() {
     )
   );
   colorOutputSurfaceReadbackBuffer.unmap();
+  await normalBackendOutputHandoffReadbackBuffer.mapAsync(GPUMapMode.READ);
+  const actualNormalBackendOutputHandoff = Array.from(
+    new Float32Array(
+      normalBackendOutputHandoffReadbackBuffer.getMappedRange()
+    ).slice(0, expectedColorOutputSurface.data.length)
+  );
+  normalBackendOutputHandoffReadbackBuffer.unmap();
   if (typeof outputBuffer.destroy === 'function') {
     outputBuffer.destroy();
   }
@@ -461,6 +517,12 @@ fn main() {
   }
   if (typeof colorOutputSurfaceReadbackBuffer.destroy === 'function') {
     colorOutputSurfaceReadbackBuffer.destroy();
+  }
+  if (typeof normalBackendOutputHandoffBuffer.destroy === 'function') {
+    normalBackendOutputHandoffBuffer.destroy();
+  }
+  if (typeof normalBackendOutputHandoffReadbackBuffer.destroy === 'function') {
+    normalBackendOutputHandoffReadbackBuffer.destroy();
   }
   const epsilon = 1e-6;
   const maxAbsDiff = actual.reduce((maxDiff, value, index) => {
@@ -483,6 +545,27 @@ fn main() {
   const sampleReadMatchesPackedSelectedSamples = sampleMaxAbsDiff <= epsilon;
   const colorOutputSurfaceMatchesExpected =
     colorOutputSurfaceMaxAbsDiff <= epsilon;
+  const {
+    normalBackendOutputContract,
+    presentationHandoffContract
+  } = buildNormalBackendOutputContract({
+    expectedSurfaceSummary: expectedColorOutputSurface.summary,
+    expectedSurfaceData: expectedColorOutputSurface.data,
+    colorOutputSurfaceReadback: actualColorOutputSurface,
+    handoffReadback: actualNormalBackendOutputHandoff,
+    sampleCount,
+    sourceKind: 'step40-constrained-display-adapter',
+    fallbackSamplesMixed: false,
+    epsilon
+  });
+  const normalBackendOutputValidation = validateNormalBackendOutputContracts({
+    normalBackendOutputContract,
+    presentationHandoffContract
+  });
+  const normalBackendOutputMatchesExpected =
+    normalBackendOutputContract.normalBackendOutputMatchesExpected === true;
+  const handoffReadbackMatchesColorOutputSurface =
+    normalBackendOutputContract.handoffReadbackMatchesColorOutputSurface === true;
   return {
     contractVersion:
       WEBGPU_NORMAL_BACKEND_UNIFORM_SHADER_CONSUMPTION_CONTRACT_VERSION,
@@ -491,7 +574,9 @@ fn main() {
     status:
       uniformReadMatchesPackedFrameConstants &&
       sampleReadMatchesPackedSelectedSamples &&
-      colorOutputSurfaceMatchesExpected
+      colorOutputSurfaceMatchesExpected &&
+      normalBackendOutputMatchesExpected &&
+      handoffReadbackMatchesColorOutputSurface
         ? 'ok'
         : 'mismatch',
     bindGroupLayoutCreated: true,
@@ -502,10 +587,15 @@ fn main() {
     sampleStorageBufferReadbackCompleted: true,
     colorOutputSurfaceWritten: true,
     colorOutputSurfaceReadbackCompleted: true,
+    normalBackendOutputHandoffCopySubmitted: true,
+    normalBackendOutputReadbackCompleted: true,
     submittedWorkDone,
     uniformReadMatchesPackedFrameConstants,
     sampleReadMatchesPackedSelectedSamples,
     colorOutputSurfaceMatchesExpected,
+    normalBackendOutputMatchesExpected,
+    handoffReadbackMatchesColorOutputSurface,
+    normalBackendOutputValidation,
     expectedFrameUniformPrefix: expected,
     readbackFrameUniformPrefix: actual,
     expectedFirstSamplePackedFields: expectedSample,
@@ -515,6 +605,8 @@ fn main() {
     maxAbsDiff,
     sampleMaxAbsDiff,
     colorOutputSurfaceMaxAbsDiff,
+    normalBackendOutputMaxAbsDiff:
+      normalBackendOutputContract.normalBackendOutputMaxAbsDiff ?? null,
     epsilon,
     shaderEntryPoint: 'main',
     workgroupCount: 1,
@@ -558,6 +650,8 @@ fn main() {
       expectedFirstPixels: expectedColorOutputArray.slice(0, 16),
       readbackFirstPixels: actualColorOutputSurface.slice(0, 16)
     },
+    normalBackendOutputContract,
+    presentationHandoffContract,
     samplePackedFields: [
       'samplePx.x',
       'samplePx.y',
@@ -730,6 +824,19 @@ export async function prepareNormalBackendUniformResources({
       colorOutputSurfaceDestroyed: true,
       colorOutputSurfaceMatchesExpected:
         uniformShaderConsumptionContract?.colorOutputSurfaceMatchesExpected === true,
+      normalBackendOutputResourceCreated:
+        uniformShaderConsumptionContract?.normalBackendOutputHandoffCopySubmitted === true,
+      normalBackendOutputHandoffCopySubmitted:
+        uniformShaderConsumptionContract?.normalBackendOutputHandoffCopySubmitted === true,
+      normalBackendOutputReadbackCompleted:
+        uniformShaderConsumptionContract?.normalBackendOutputReadbackCompleted === true,
+      normalBackendOutputResourceDestroyed: true,
+      normalBackendOutputMatchesExpected:
+        uniformShaderConsumptionContract?.normalBackendOutputMatchesExpected === true,
+      handoffReadbackMatchesColorOutputSurface:
+        uniformShaderConsumptionContract?.handoffReadbackMatchesColorOutputSurface === true,
+      normalBackendOutputValidation:
+        uniformShaderConsumptionContract?.normalBackendOutputValidation ?? null,
       uniformShaderConsumptionContract,
       sampleResourceLifecycleContract: {
         ...packedSamples.summary,
@@ -745,6 +852,10 @@ export async function prepareNormalBackendUniformResources({
       },
       colorOutputSurfaceLifecycleContract:
         uniformShaderConsumptionContract?.colorOutputSurfaceContract ?? null,
+      normalBackendOutputContract:
+        uniformShaderConsumptionContract?.normalBackendOutputContract ?? null,
+      presentationHandoffContract:
+        uniformShaderConsumptionContract?.presentationHandoffContract ?? null,
       packedFloat32Count: uniformData.length,
       packedByteLength: uniformData.byteLength,
       paddedUniformByteLength:
@@ -757,13 +868,16 @@ export async function prepareNormalBackendUniformResources({
       colorOutputSurfacePackedByteLength:
         uniformShaderConsumptionContract?.colorOutputSurfaceContract
           ?.packedByteLength ?? null,
+      normalBackendOutputPackedByteLength:
+        uniformShaderConsumptionContract?.normalBackendOutputContract
+          ?.packedByteLength ?? null,
       usage: ['UNIFORM', 'STORAGE', 'COPY_DST', 'COPY_SRC'],
       layoutMode:
         uniformResourcePreparationContract?.layout?.layoutMode ?? null,
       reusePolicy:
-        'future runner-owned device/resource cache; Step68 uses per-call transient uniform, sample, and color output surface buffers with one bind group',
+        'future runner-owned device/resource cache; Step69 uses per-call transient uniform, sample, color output surface, and handoff buffers with one bind group',
       disposePolicy:
-        'destroy transient uniform, sample, and color output buffers after minimal shader consumption validation',
+        'destroy transient uniform, sample, color output, and handoff buffers after minimal shader consumption and handoff validation',
       lifecycleEvents,
       validationOracleOwnsResource: false,
       productionLoopConnected: false,

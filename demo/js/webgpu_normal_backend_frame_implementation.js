@@ -6,19 +6,19 @@ export const WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_MODE =
   'webgpu-normal-backend-frame-implementation';
 
 export const WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_CONTRACT_VERSION =
-  'phase3-step68-normal-backend-frame-implementation-v1';
+  'phase3-step69-normal-backend-frame-implementation-v1';
 
 export const WEBGPU_NORMAL_BACKEND_FRAME_INPUT_CONTRACT_VERSION =
-  'phase3-step68-normal-backend-frame-input-contract-v1';
+  'phase3-step69-normal-backend-frame-input-contract-v1';
 
 export const WEBGPU_NORMAL_BACKEND_PRESENT_OUTPUT_CONTRACT_VERSION =
-  'phase3-step68-normal-backend-present-output-contract-v1';
+  'phase3-step69-normal-backend-present-output-contract-v1';
 
 export const WEBGPU_NORMAL_BACKEND_FRAME_CONSTANTS_CONTRACT_VERSION =
-  'phase3-step68-normal-backend-frame-constants-contract-v1';
+  'phase3-step69-normal-backend-frame-constants-contract-v1';
 
 export const WEBGPU_NORMAL_BACKEND_UNIFORM_RESOURCE_PREPARATION_CONTRACT_VERSION =
-  'phase3-step68-normal-backend-uniform-resource-preparation-contract-v1';
+  'phase3-step69-normal-backend-uniform-resource-preparation-contract-v1';
 
 function nowMs() {
   return typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -478,7 +478,24 @@ function buildUniformResourceLifecycleSummary(uniformResourceLifecycleContract) 
     samplePackedFloat32Count:
       uniformResourceLifecycleContract?.samplePackedFloat32Count ?? null,
     colorOutputSurfacePackedByteLength:
-      uniformResourceLifecycleContract?.colorOutputSurfacePackedByteLength ?? null
+      uniformResourceLifecycleContract?.colorOutputSurfacePackedByteLength ?? null,
+    normalBackendOutputResourceCreated:
+      uniformResourceLifecycleContract?.normalBackendOutputResourceCreated === true,
+    normalBackendOutputHandoffCopySubmitted:
+      uniformResourceLifecycleContract?.normalBackendOutputHandoffCopySubmitted === true,
+    normalBackendOutputReadbackCompleted:
+      uniformResourceLifecycleContract?.normalBackendOutputReadbackCompleted === true,
+    normalBackendOutputResourceDestroyed:
+      uniformResourceLifecycleContract?.normalBackendOutputResourceDestroyed === true,
+    normalBackendOutputMatchesExpected:
+      uniformResourceLifecycleContract?.normalBackendOutputMatchesExpected === true,
+    handoffReadbackMatchesColorOutputSurface:
+      uniformResourceLifecycleContract?.handoffReadbackMatchesColorOutputSurface === true,
+    normalBackendOutputPackedByteLength:
+      uniformResourceLifecycleContract?.normalBackendOutputPackedByteLength ?? null,
+    presentationHandoffReady:
+      uniformResourceLifecycleContract?.presentationHandoffContract
+        ?.presentationHandoffReady === true
   };
 }
 
@@ -540,6 +557,21 @@ function buildValidationSummary({
     uniformResourceLifecycleContract?.colorOutputSurfaceMatchesExpected === true &&
     uniformResourceLifecycleContract?.colorOutputSurfaceLifecycleContract
       ?.productionPresentationConnected === false;
+  const normalBackendOutputReady =
+    uniformResourceLifecycleContract?.normalBackendOutputContract
+      ?.normalBackendOwnsCurrentFrameOutput === true &&
+    uniformResourceLifecycleContract?.normalBackendOutputResourceCreated === true &&
+    uniformResourceLifecycleContract?.normalBackendOutputHandoffCopySubmitted === true &&
+    uniformResourceLifecycleContract?.normalBackendOutputReadbackCompleted === true &&
+    uniformResourceLifecycleContract?.normalBackendOutputMatchesExpected === true &&
+    uniformResourceLifecycleContract?.handoffReadbackMatchesColorOutputSurface === true;
+  const presentationHandoffReady =
+    uniformResourceLifecycleContract?.presentationHandoffContract
+      ?.presentationHandoffReady === true &&
+    uniformResourceLifecycleContract?.presentationHandoffContract
+      ?.productionPresentationConnected === false &&
+    uniformResourceLifecycleContract?.presentationHandoffContract
+      ?.viewerCanvasCurrentTextureConnected === false;
   const backendFrameResultProvided = !!backendFrameResult;
   const selectedTrueNativeSource =
     presentOutputContract.selectedSourceKind ===
@@ -568,6 +600,8 @@ function buildValidationSummary({
     uniformShaderConsumptionReady &&
     sampleResourceConsumptionReady &&
     colorOutputSurfaceReady &&
+    normalBackendOutputReady &&
+    presentationHandoffReady &&
     backendFrameResultProvided &&
     selectedTrueNativeSource &&
     presentReady &&
@@ -638,6 +672,20 @@ function buildValidationSummary({
         'normal WebGPU backend implementation requires selected sample pixel/color fields to generate a GPU color output surface with readback validation'
     });
   }
+  if (!normalBackendOutputReady) {
+    firstValidationFailures.push({
+      stage: 'normal-backend-frame-output-handoff',
+      reason:
+        'normal WebGPU backend implementation requires a backend-owned current frame output resource copied from the GPU color output surface with readback validation'
+    });
+  }
+  if (!presentationHandoffReady) {
+    firstValidationFailures.push({
+      stage: 'normal-backend-presentation-handoff-boundary',
+      reason:
+        'normal WebGPU backend implementation requires a presentation handoff boundary without connecting production viewer canvas presentation'
+    });
+  }
   if (!selectedTrueNativeSource) {
     firstValidationFailures.push({
       stage: 'normal-backend-source-selection',
@@ -689,6 +737,8 @@ function buildValidationSummary({
     uniformShaderConsumptionReady,
     sampleResourceConsumptionReady,
     colorOutputSurfaceReady,
+    normalBackendOutputReady,
+    presentationHandoffReady,
     backendFrameResultProvided,
     selectedTrueNativeSource,
     presentReady,
@@ -769,6 +819,10 @@ export async function runWebGpuNormalBackendFrameImplementation({
     uniformResourceLifecycleContract?.uniformShaderConsumptionContract ?? null;
   const colorOutputSurfaceLifecycleContract =
     uniformResourceLifecycleContract?.colorOutputSurfaceLifecycleContract ?? null;
+  const normalBackendOutputContract =
+    uniformResourceLifecycleContract?.normalBackendOutputContract ?? null;
+  const presentationHandoffContract =
+    uniformResourceLifecycleContract?.presentationHandoffContract ?? null;
   const validationSummary = buildValidationSummary({
     implementationContract,
     frameInputContract,
@@ -786,7 +840,7 @@ export async function runWebGpuNormalBackendFrameImplementation({
     mode: WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_MODE,
     status: normalBackendImplementationReady ? 'ok' : 'blocked',
     source:
-      'Phase 3 Step68 normal WebGPU backend implementation generates a minimal GPU color output surface from selected samples',
+      'Phase 3 Step69 normal WebGPU backend implementation owns a frame output resource and presentation handoff boundary from the minimal GPU color output surface',
     contractVersion:
       WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_CONTRACT_VERSION,
     implementationKind: WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_MODE,
@@ -804,6 +858,8 @@ export async function runWebGpuNormalBackendFrameImplementation({
     sampleResourceLifecycleContract:
       uniformResourceLifecycleContract?.sampleResourceLifecycleContract ?? null,
     colorOutputSurfaceLifecycleContract,
+    normalBackendOutputContract,
+    presentationHandoffContract,
     uniformShaderConsumptionContract,
     presentOutputContract,
     presentSummary: presentOutputContract,
@@ -823,9 +879,14 @@ export async function runWebGpuNormalBackendFrameImplementation({
     blockers: normalBackendImplementationReady
       ? [
           {
+            stage: 'presentation-handoff-connection',
+            reason:
+              'normal backend output is copied into a handoff resource, but viewer canvas currentTexture and render-target presentation remain intentionally disconnected'
+          },
+          {
             stage: 'production-frame-scheduler',
             reason:
-              'normal backend implementation path owns frame constants, selected samples, and minimal GPU color output surface generation; production scheduling remains intentionally disconnected'
+              'normal backend implementation path owns frame constants, selected samples, minimal GPU color output surface generation, and output handoff; production scheduling remains intentionally disconnected'
           },
           {
             stage: 'streaming-lod',
@@ -841,11 +902,11 @@ export async function runWebGpuNormalBackendFrameImplementation({
           {
             stage: 'normal-webgpu-backend-implementation',
             reason:
-              'normal implementation requires exclusive guards, frame constants, GPU uniform/sample lifecycle, minimal color output surface generation, true native selected samples, submitted present output, and preserved fallback policy'
+              'normal implementation requires exclusive guards, frame constants, GPU uniform/sample lifecycle, minimal color output surface generation, normal backend output handoff, true native selected samples, submitted present output, and preserved fallback policy'
           }
         ],
     nextBackendPrototypeStep: normalBackendImplementationReady
-      ? 'connect the validated minimal GPU color output surface to a normal backend render-target or viewer-canvas presentation path'
+      ? 'connect the validated normal backend output handoff resource to a render-target or viewer-canvas presentation pass'
       : 'restore normal backend implementation readiness before replacing the implementation body',
     timing: {
       webgpuNormalBackendFrameImplementationMs: nowMs() - startMs

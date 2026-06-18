@@ -3998,8 +3998,8 @@ export async function runWebGpuVisibleRecordDryRun({
           mode: 'webgpu-backend-runtime-runner',
           status: 'unavailable',
           source:
-            'Phase 3 Step68 backend runtime runner was not observed in the latest render executor summary',
-          contractVersion: 'phase3-step68-backend-runtime-runner-contract-v1',
+            'Phase 3 Step69 backend runtime runner was not observed in the latest render executor summary',
+          contractVersion: 'phase3-step69-backend-runtime-runner-contract-v1',
           runtimeRunnerImplemented: true,
           runtimeRunnerReady: false,
           productionDisplayConnectionImplemented: false,
@@ -4039,9 +4039,9 @@ export async function runWebGpuVisibleRecordDryRun({
           mode: 'webgpu-normal-backend-frame-implementation',
           status: 'unavailable',
           source:
-            'Phase 3 Step68 normal WebGPU backend implementation was not selected or observed in the latest runtime runner summary',
+            'Phase 3 Step69 normal WebGPU backend implementation was not selected or observed in the latest runtime runner summary',
           contractVersion:
-            'phase3-step68-normal-backend-frame-implementation-v1',
+            'phase3-step69-normal-backend-frame-implementation-v1',
           implementationKind: 'webgpu-normal-backend-frame-implementation',
           normalBackendImplementationImplemented: true,
           normalBackendImplementationReady: false,
@@ -4106,7 +4106,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step68 uses Step40 selected sample pixel/color fields to generate a minimal normal-backend-owned GPU color output surface while preserving Step67 buffer consumption.',
+    scaffoldNote: 'Phase 3 Step69 copies the minimal GPU color output surface into a normal-backend-owned frame output handoff resource while preserving Step67/68 validation.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
