@@ -1,5 +1,6 @@
 import {
   buildGuardedPresentationAdapterContract,
+  buildPresentationBridgeContract,
   buildUnavailableGuardedPresentationAdapterContract
 } from './common_4dgs_backend_output_contracts.js';
 
@@ -68,8 +69,22 @@ export async function runWebGpuOnlyGuardedPresentationAdapter({
     format: targetFormat,
     usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.COPY_SRC
   });
+  const bridgeTexture = device.createTexture({
+    label: 'phase3-step71-viewer-presentation-render-target-bridge-texture',
+    size: { width, height },
+    format: targetFormat,
+    usage:
+      GPUTextureUsage.COPY_DST |
+      GPUTextureUsage.COPY_SRC |
+      GPUTextureUsage.RENDER_ATTACHMENT
+  });
   const readbackBuffer = device.createBuffer({
     label: 'phase3-step70-webgpu-only-guarded-presentation-target-readback',
+    size: readbackBufferSize,
+    usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+  });
+  const bridgeReadbackBuffer = device.createBuffer({
+    label: 'phase3-step71-viewer-presentation-render-target-bridge-readback',
     size: readbackBufferSize,
     usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
   });
@@ -155,6 +170,16 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
     { buffer: readbackBuffer, bytesPerRow, rowsPerImage: height },
     { width, height }
   );
+  encoder.copyTextureToTexture(
+    { texture: targetTexture },
+    { texture: bridgeTexture },
+    { width, height }
+  );
+  encoder.copyTextureToBuffer(
+    { texture: bridgeTexture },
+    { buffer: bridgeReadbackBuffer, bytesPerRow, rowsPerImage: height },
+    { width, height }
+  );
   device.queue.submit([encoder.finish()]);
   let submittedWorkDone = false;
   if (typeof device.queue.onSubmittedWorkDone === 'function') {
@@ -168,23 +193,78 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
   );
   const compactReadback = readTextureRows(paddedReadback, width, height, bytesPerRow);
   readbackBuffer.unmap();
+  await bridgeReadbackBuffer.mapAsync(GPUMapMode.READ);
+  const paddedBridgeReadback = new Uint8Array(
+    bridgeReadbackBuffer.getMappedRange()
+  ).slice(0, readbackBufferSize);
+  const compactBridgeReadback = readTextureRows(
+    paddedBridgeReadback,
+    width,
+    height,
+    bytesPerRow
+  );
+  bridgeReadbackBuffer.unmap();
+  const guardedPresentationAdapterContract =
+    buildGuardedPresentationAdapterContract({
+      normalBackendOutputContract,
+      presentationHandoffContract,
+      targetFormat,
+      targetWidth: width,
+      targetHeight: height,
+      expectedBytes,
+      readbackBytes: compactReadback,
+      gpuWriteSubmitted: true,
+      readbackCompleted: true,
+      submittedWorkDone,
+      epsilon: 0
+    });
+  const presentationBridgeContract = buildPresentationBridgeContract({
+    guardedPresentationAdapterContract,
+    normalBackendOutputContract,
+    presentationHandoffContract,
+    targetFormat,
+    targetKind: 'render-target-texture-presentation-bridge',
+    targetWidth: width,
+    targetHeight: height,
+    expectedBytes: compactReadback,
+    readbackBytes: compactBridgeReadback,
+    renderTargetCreated: true,
+    gpuCopySubmitted: true,
+    readbackCompleted: true,
+    currentTextureConnectionAttempted: true,
+    currentTextureConnected: false,
+    currentTextureBlockedReason:
+      'viewer-canvas-currentTexture direct connection requires a viewer canvas WebGPU context owned by the guarded viewer lifecycle; Step71 uses a render-target bridge until that context is passed into the adapter boundary',
+    submittedWorkDone,
+    epsilon: 0
+  });
   if (typeof readbackBuffer.destroy === 'function') {
     readbackBuffer.destroy();
+  }
+  if (typeof bridgeReadbackBuffer.destroy === 'function') {
+    bridgeReadbackBuffer.destroy();
   }
   if (typeof targetTexture.destroy === 'function') {
     targetTexture.destroy();
   }
-  return buildGuardedPresentationAdapterContract({
-    normalBackendOutputContract,
-    presentationHandoffContract,
-    targetFormat,
-    targetWidth: width,
-    targetHeight: height,
-    expectedBytes,
-    readbackBytes: compactReadback,
-    gpuWriteSubmitted: true,
-    readbackCompleted: true,
-    submittedWorkDone,
-    epsilon: 0
-  });
+  if (typeof bridgeTexture.destroy === 'function') {
+    bridgeTexture.destroy();
+  }
+  return {
+    ...guardedPresentationAdapterContract,
+    presentationBridgeContract,
+    viewerPresentationBridgeReady:
+      presentationBridgeContract.viewerPresentationBridgeReady === true,
+    currentTextureConnectionAttempted:
+      presentationBridgeContract.currentTextureConnectionAttempted === true,
+    currentTextureConnected:
+      presentationBridgeContract.currentTextureConnected === true,
+    currentTextureBlockedReason:
+      presentationBridgeContract.currentTextureBlockedReason ?? null,
+    renderTargetBridgeReady:
+      presentationBridgeContract.renderTargetBridgeReady === true,
+    renderTargetTextureConnected:
+      presentationBridgeContract.renderTargetTextureConnected === true,
+    bridgeGpuCommandPath: presentationBridgeContract.gpuCommandPath
+  };
 }

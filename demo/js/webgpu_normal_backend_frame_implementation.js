@@ -6,19 +6,19 @@ export const WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_MODE =
   'webgpu-normal-backend-frame-implementation';
 
 export const WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_CONTRACT_VERSION =
-  'phase3-step70-normal-backend-frame-implementation-v1';
+  'phase3-step71-normal-backend-frame-implementation-v1';
 
 export const WEBGPU_NORMAL_BACKEND_FRAME_INPUT_CONTRACT_VERSION =
-  'phase3-step70-normal-backend-frame-input-contract-v1';
+  'phase3-step71-normal-backend-frame-input-contract-v1';
 
 export const WEBGPU_NORMAL_BACKEND_PRESENT_OUTPUT_CONTRACT_VERSION =
-  'phase3-step70-normal-backend-present-output-contract-v1';
+  'phase3-step71-normal-backend-present-output-contract-v1';
 
 export const WEBGPU_NORMAL_BACKEND_FRAME_CONSTANTS_CONTRACT_VERSION =
-  'phase3-step70-normal-backend-frame-constants-contract-v1';
+  'phase3-step71-normal-backend-frame-constants-contract-v1';
 
 export const WEBGPU_NORMAL_BACKEND_UNIFORM_RESOURCE_PREPARATION_CONTRACT_VERSION =
-  'phase3-step70-normal-backend-uniform-resource-preparation-contract-v1';
+  'phase3-step71-normal-backend-uniform-resource-preparation-contract-v1';
 
 function nowMs() {
   return typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -499,7 +499,15 @@ function buildUniformResourceLifecycleSummary(uniformResourceLifecycleContract) 
     guardedPresentationAdapterCalled:
       uniformResourceLifecycleContract?.guardedPresentationAdapterCalled === true,
     guardedPresentationAdapterReady:
-      uniformResourceLifecycleContract?.guardedPresentationAdapterReady === true
+      uniformResourceLifecycleContract?.guardedPresentationAdapterReady === true,
+    viewerPresentationBridgeReady:
+      uniformResourceLifecycleContract?.viewerPresentationBridgeReady === true,
+    renderTargetBridgeReady:
+      uniformResourceLifecycleContract?.renderTargetBridgeReady === true,
+    currentTextureConnectionAttempted:
+      uniformResourceLifecycleContract?.currentTextureConnectionAttempted === true,
+    currentTextureConnected:
+      uniformResourceLifecycleContract?.currentTextureConnected === true
   };
 }
 
@@ -587,6 +595,21 @@ function buildValidationSummary({
       ?.productionCanvasPresentationConnected === false &&
     uniformResourceLifecycleContract?.guardedPresentationAdapterContract
       ?.viewerCanvasCurrentTextureConnected === false;
+  const viewerPresentationBridgeReady =
+    uniformResourceLifecycleContract?.presentationBridgeContract
+      ?.viewerPresentationBridgeReady === true &&
+    uniformResourceLifecycleContract?.presentationBridgeContract
+      ?.guardedPresentationAdapterOutputConsumed === true &&
+    uniformResourceLifecycleContract?.presentationBridgeContract
+      ?.renderTargetBridgeReady === true &&
+    uniformResourceLifecycleContract?.presentationBridgeContract
+      ?.renderTargetMatchesAdapterOutput === true &&
+    uniformResourceLifecycleContract?.presentationBridgeContract
+      ?.currentTextureConnectionAttempted === true &&
+    uniformResourceLifecycleContract?.presentationBridgeContract
+      ?.productionCanvasPresentationConnected === false &&
+    uniformResourceLifecycleContract?.presentationBridgeContract
+      ?.webgl2HybridRenderingAllowed === false;
   const backendFrameResultProvided = !!backendFrameResult;
   const selectedTrueNativeSource =
     presentOutputContract.selectedSourceKind ===
@@ -618,6 +641,7 @@ function buildValidationSummary({
     normalBackendOutputReady &&
     presentationHandoffReady &&
     guardedPresentationAdapterReady &&
+    viewerPresentationBridgeReady &&
     backendFrameResultProvided &&
     selectedTrueNativeSource &&
     presentReady &&
@@ -709,6 +733,13 @@ function buildValidationSummary({
         'normal WebGPU backend implementation requires the guarded presentation adapter to consume the handoff output into an offscreen presentation-compatible target'
     });
   }
+  if (!viewerPresentationBridgeReady) {
+    firstValidationFailures.push({
+      stage: 'viewer-canvas-render-target-presentation-bridge',
+      reason:
+        'normal WebGPU backend implementation requires the guarded adapter output to be connected to a currentTexture attempt or render-target bridge boundary'
+    });
+  }
   if (!selectedTrueNativeSource) {
     firstValidationFailures.push({
       stage: 'normal-backend-source-selection',
@@ -763,6 +794,7 @@ function buildValidationSummary({
     normalBackendOutputReady,
     presentationHandoffReady,
     guardedPresentationAdapterReady,
+    viewerPresentationBridgeReady,
     backendFrameResultProvided,
     selectedTrueNativeSource,
     presentReady,
@@ -849,6 +881,8 @@ export async function runWebGpuNormalBackendFrameImplementation({
     uniformResourceLifecycleContract?.presentationHandoffContract ?? null;
   const guardedPresentationAdapterContract =
     uniformResourceLifecycleContract?.guardedPresentationAdapterContract ?? null;
+  const presentationBridgeContract =
+    uniformResourceLifecycleContract?.presentationBridgeContract ?? null;
   const validationSummary = buildValidationSummary({
     implementationContract,
     frameInputContract,
@@ -866,7 +900,7 @@ export async function runWebGpuNormalBackendFrameImplementation({
     mode: WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_MODE,
     status: normalBackendImplementationReady ? 'ok' : 'blocked',
     source:
-      'Phase 3 Step70 normal WebGPU backend implementation invokes a WebGPU-only guarded presentation adapter for the handoff output',
+      'Phase 3 Step71 normal WebGPU backend implementation bridges the guarded presentation adapter output toward viewer presentation lifecycle targets',
     contractVersion:
       WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_CONTRACT_VERSION,
     implementationKind: WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_MODE,
@@ -887,6 +921,7 @@ export async function runWebGpuNormalBackendFrameImplementation({
     normalBackendOutputContract,
     presentationHandoffContract,
     guardedPresentationAdapterContract,
+    presentationBridgeContract,
     uniformShaderConsumptionContract,
     presentOutputContract,
     presentSummary: presentOutputContract,
@@ -908,12 +943,12 @@ export async function runWebGpuNormalBackendFrameImplementation({
           {
             stage: 'presentation-handoff-connection',
             reason:
-              'normal backend output is consumed by an offscreen guarded presentation adapter, while viewer canvas currentTexture and render-target presentation remain intentionally disconnected'
+              'normal backend output is consumed by an offscreen guarded presentation adapter and copied into a render-target bridge; viewer canvas currentTexture remains blocked until the viewer canvas WebGPU context is passed into this adapter boundary'
           },
           {
             stage: 'production-frame-scheduler',
             reason:
-              'normal backend implementation path owns frame constants, selected samples, minimal GPU color output surface generation, output handoff, and guarded adapter consumption; production scheduling remains intentionally disconnected'
+              'normal backend implementation path owns frame constants, selected samples, minimal GPU color output surface generation, output handoff, guarded adapter consumption, and render-target bridge output; production scheduling remains intentionally disconnected'
           },
           {
             stage: 'streaming-lod',
@@ -929,11 +964,11 @@ export async function runWebGpuNormalBackendFrameImplementation({
           {
             stage: 'normal-webgpu-backend-implementation',
             reason:
-              'normal implementation requires exclusive guards, frame constants, GPU uniform/sample lifecycle, minimal color output surface generation, normal backend output handoff, guarded presentation adapter consumption, true native selected samples, submitted present output, and preserved fallback policy'
+              'normal implementation requires exclusive guards, frame constants, GPU uniform/sample lifecycle, minimal color output surface generation, normal backend output handoff, guarded presentation adapter consumption, render-target bridge readiness, true native selected samples, submitted present output, and preserved fallback policy'
           }
         ],
     nextBackendPrototypeStep: normalBackendImplementationReady
-      ? 'connect the validated guarded presentation adapter target to a render-target or viewer-canvas currentTexture pass'
+      ? 'pass the viewer canvas WebGPU context into the guarded bridge boundary and promote the render-target bridge to a currentTexture render/copy pass'
       : 'restore normal backend implementation readiness before replacing the implementation body',
     timing: {
       webgpuNormalBackendFrameImplementationMs: nowMs() - startMs

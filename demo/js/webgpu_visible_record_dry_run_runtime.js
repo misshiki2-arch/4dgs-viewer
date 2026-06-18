@@ -3998,8 +3998,8 @@ export async function runWebGpuVisibleRecordDryRun({
           mode: 'webgpu-backend-runtime-runner',
           status: 'unavailable',
           source:
-            'Phase 3 Step70 backend runtime runner was not observed in the latest render executor summary',
-          contractVersion: 'phase3-step70-backend-runtime-runner-contract-v1',
+            'Phase 3 Step71 backend runtime runner was not observed in the latest render executor summary',
+          contractVersion: 'phase3-step71-backend-runtime-runner-contract-v1',
           runtimeRunnerImplemented: true,
           runtimeRunnerReady: false,
           productionDisplayConnectionImplemented: false,
@@ -4039,9 +4039,9 @@ export async function runWebGpuVisibleRecordDryRun({
           mode: 'webgpu-normal-backend-frame-implementation',
           status: 'unavailable',
           source:
-            'Phase 3 Step70 normal WebGPU backend implementation was not selected or observed in the latest runtime runner summary',
+            'Phase 3 Step71 normal WebGPU backend implementation was not selected or observed in the latest runtime runner summary',
           contractVersion:
-            'phase3-step70-normal-backend-frame-implementation-v1',
+            'phase3-step71-normal-backend-frame-implementation-v1',
           implementationKind: 'webgpu-normal-backend-frame-implementation',
           normalBackendImplementationImplemented: true,
           normalBackendImplementationReady: false,
@@ -4106,7 +4106,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step70 consumes the normal-backend-owned handoff output through a WebGPU-only guarded presentation adapter while preserving Step67/68/69 validation.',
+    scaffoldNote: 'Phase 3 Step71 bridges the guarded presentation adapter output into a render-target presentation boundary while preserving Step67/68/69/70 validation.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,

@@ -8,10 +8,10 @@ import {
 } from './webgpu_guarded_presentation_adapter.js';
 
 export const WEBGPU_NORMAL_BACKEND_UNIFORM_RESOURCE_LIFECYCLE_CONTRACT_VERSION =
-  'phase3-step70-normal-backend-uniform-resource-lifecycle-v1';
+  'phase3-step71-normal-backend-uniform-resource-lifecycle-v1';
 
 export const WEBGPU_NORMAL_BACKEND_UNIFORM_SHADER_CONSUMPTION_CONTRACT_VERSION =
-  'phase3-step70-normal-backend-uniform-sample-color-output-consumption-v1';
+  'phase3-step71-normal-backend-uniform-sample-color-output-consumption-v1';
 
 export const WEBGPU_NORMAL_BACKEND_SAMPLE_RESOURCE_CONTRACT_VERSION =
   'phase3-step69-normal-backend-sample-storage-resource-v1';
@@ -58,6 +58,10 @@ function createUnavailableSummary(reason, extra = {}) {
     normalBackendOutputResourceDestroyed: false,
     guardedPresentationAdapterCalled: false,
     guardedPresentationAdapterReady: false,
+    viewerPresentationBridgeReady: false,
+    renderTargetBridgeReady: false,
+    currentTextureConnectionAttempted: false,
+    currentTextureConnected: false,
     queueWriteBufferUsed: false,
     bindGroupReadyBoundary: false,
     bindGroupLayoutCreated: false,
@@ -94,6 +98,10 @@ function createUnavailableConsumptionSummary(reason, extra = {}) {
     normalBackendOutputMatchesExpected: false,
     guardedPresentationAdapterCalled: false,
     guardedPresentationAdapterReady: false,
+    viewerPresentationBridgeReady: false,
+    renderTargetBridgeReady: false,
+    currentTextureConnectionAttempted: false,
+    currentTextureConnected: false,
     ...outputContracts,
     reason,
     ...extra
@@ -565,6 +573,10 @@ fn main() {
     });
   const guardedPresentationAdapterReady =
     guardedPresentationAdapterContract?.guardedPresentationAdapterReady === true;
+  const presentationBridgeContract =
+    guardedPresentationAdapterContract?.presentationBridgeContract ?? null;
+  const viewerPresentationBridgeReady =
+    presentationBridgeContract?.viewerPresentationBridgeReady === true;
   if (typeof outputBuffer.destroy === 'function') {
     outputBuffer.destroy();
   }
@@ -594,7 +606,8 @@ fn main() {
       colorOutputSurfaceMatchesExpected &&
       normalBackendOutputMatchesExpected &&
       handoffReadbackMatchesColorOutputSurface &&
-      guardedPresentationAdapterReady
+      guardedPresentationAdapterReady &&
+      viewerPresentationBridgeReady
         ? 'ok'
         : 'mismatch',
     bindGroupLayoutCreated: true,
@@ -609,6 +622,13 @@ fn main() {
     normalBackendOutputReadbackCompleted: true,
     guardedPresentationAdapterCalled: true,
     guardedPresentationAdapterReady,
+    viewerPresentationBridgeReady,
+    renderTargetBridgeReady:
+      presentationBridgeContract?.renderTargetBridgeReady === true,
+    currentTextureConnectionAttempted:
+      presentationBridgeContract?.currentTextureConnectionAttempted === true,
+    currentTextureConnected:
+      presentationBridgeContract?.currentTextureConnected === true,
     submittedWorkDone,
     uniformReadMatchesPackedFrameConstants,
     sampleReadMatchesPackedSelectedSamples,
@@ -617,6 +637,7 @@ fn main() {
     handoffReadbackMatchesColorOutputSurface,
     normalBackendOutputValidation,
     guardedPresentationAdapterContract,
+    presentationBridgeContract,
     expectedFrameUniformPrefix: expected,
     readbackFrameUniformPrefix: actual,
     expectedFirstSamplePackedFields: expectedSample,
@@ -674,6 +695,7 @@ fn main() {
     normalBackendOutputContract,
     presentationHandoffContract,
     guardedPresentationAdapterContract,
+    presentationBridgeContract,
     samplePackedFields: [
       'samplePx.x',
       'samplePx.y',
@@ -785,6 +807,9 @@ export async function prepareNormalBackendUniformResources({
     if (uniformShaderConsumptionContract?.guardedPresentationAdapterReady === true) {
       lifecycleEvents.push('guarded-presentation-adapter-consumed-handoff-output');
     }
+    if (uniformShaderConsumptionContract?.viewerPresentationBridgeReady === true) {
+      lifecycleEvents.push('viewer-presentation-render-target-bridge-ready');
+    }
     const submittedWorkDone =
       uniformShaderConsumptionContract?.submittedWorkDone === true;
     if (submittedWorkDone) {
@@ -867,6 +892,14 @@ export async function prepareNormalBackendUniformResources({
         uniformShaderConsumptionContract?.guardedPresentationAdapterCalled === true,
       guardedPresentationAdapterReady:
         uniformShaderConsumptionContract?.guardedPresentationAdapterReady === true,
+      viewerPresentationBridgeReady:
+        uniformShaderConsumptionContract?.viewerPresentationBridgeReady === true,
+      renderTargetBridgeReady:
+        uniformShaderConsumptionContract?.renderTargetBridgeReady === true,
+      currentTextureConnectionAttempted:
+        uniformShaderConsumptionContract?.currentTextureConnectionAttempted === true,
+      currentTextureConnected:
+        uniformShaderConsumptionContract?.currentTextureConnected === true,
       normalBackendOutputValidation:
         uniformShaderConsumptionContract?.normalBackendOutputValidation ?? null,
       uniformShaderConsumptionContract,
@@ -890,6 +923,8 @@ export async function prepareNormalBackendUniformResources({
         uniformShaderConsumptionContract?.presentationHandoffContract ?? null,
       guardedPresentationAdapterContract:
         uniformShaderConsumptionContract?.guardedPresentationAdapterContract ?? null,
+      presentationBridgeContract:
+        uniformShaderConsumptionContract?.presentationBridgeContract ?? null,
       packedFloat32Count: uniformData.length,
       packedByteLength: uniformData.byteLength,
       paddedUniformByteLength:
@@ -909,9 +944,9 @@ export async function prepareNormalBackendUniformResources({
       layoutMode:
         uniformResourcePreparationContract?.layout?.layoutMode ?? null,
       reusePolicy:
-        'future runner-owned device/resource cache; Step70 uses per-call transient uniform, sample, color output, handoff, and guarded presentation adapter resources',
+        'future runner-owned device/resource cache; Step71 uses per-call transient uniform, sample, color output, handoff, guarded presentation adapter, and render-target bridge resources',
       disposePolicy:
-        'destroy transient uniform, sample, color output, handoff, and offscreen presentation target resources after validation',
+        'destroy transient uniform, sample, color output, handoff, offscreen presentation target, and render-target bridge resources after validation',
       lifecycleEvents,
       validationOracleOwnsResource: false,
       productionLoopConnected: false,

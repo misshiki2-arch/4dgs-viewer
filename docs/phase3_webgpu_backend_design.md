@@ -853,3 +853,32 @@ compatible with a future presentation path.
 
 This gives the normal backend its first WebGPU presentation-layer consumer
 without yet taking over production viewer-canvas presentation.
+
+## Step71 Viewer Presentation Bridge Boundary
+
+Step71 promotes the Step70 adapter output from a validated offscreen consumer
+into a viewer presentation lifecycle bridge. The adapter still consumes the
+Step69 handoff resource, but it now also copies the adapter's `rgba8unorm`
+texture into a render-target bridge texture that a future viewer presentation
+pass can own.
+
+- currentTexture attempt: the contract records a guarded currentTexture
+  connection attempt. The Step71 normal backend does not yet receive the viewer
+  canvas WebGPU context at this boundary, so direct currentTexture connection is
+  blocked with an explicit reason instead of being silently skipped.
+- render-target bridge: `webgpu_guarded_presentation_adapter.js` performs a
+  GPU-side `copyTextureToTexture` from the Step70 adapter target into a
+  presentation bridge texture, then validates the bridge readback against the
+  adapter output.
+- contract output: `common_4dgs_backend_output_contracts.js` builds
+  `presentationBridgeContract` with currentTexture capability state, bridge
+  resource format/extent/ownership/lifecycle, GPU command path, and future
+  presentation targets.
+- guardrails: the bridge remains WebGPU-only, keeps WebGL2 hybrid rendering
+  disabled, does not enter production scheduling, and preserves the Step67
+  uniform/sample, Step68 color output surface, Step69 handoff, and Step70
+  adapter readiness requirements.
+
+This creates a concrete render-target handoff for the viewer presentation
+lifecycle while leaving currentTexture takeover for the next guarded boundary
+where the viewer canvas WebGPU context is explicitly passed into the adapter.
