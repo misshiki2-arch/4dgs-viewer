@@ -5376,6 +5376,10 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
                 webgpu_normal_backend_frame_implementation_validation,
                 ["viewerPresentationBridgeReady"],
             ),
+            "currentTextureConnectionReady": get_path(
+                webgpu_normal_backend_frame_implementation_validation,
+                ["currentTextureConnectionReady"],
+            ),
             "renderTargetBridgeReady": get_path(
                 webgpu_normal_backend_frame_implementation,
                 ["presentationBridgeContract", "renderTargetBridgeReady"],
@@ -5390,6 +5394,17 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             "currentTextureConnected": get_path(
                 webgpu_normal_backend_frame_implementation,
                 ["presentationBridgeContract", "currentTextureConnected"],
+            ),
+            "currentTextureConfigured": get_path(
+                webgpu_normal_backend_frame_implementation,
+                ["presentationBridgeContract", "currentTextureConfigured"],
+            ),
+            "currentTextureReadbackMatchesAdapterOutput": get_path(
+                webgpu_normal_backend_frame_implementation,
+                [
+                    "presentationBridgeContract",
+                    "currentTextureReadbackMatchesAdapterOutput",
+                ],
             ),
             "webgl2HybridRenderingPrevented": get_path(
                 webgpu_normal_backend_frame_implementation_validation,

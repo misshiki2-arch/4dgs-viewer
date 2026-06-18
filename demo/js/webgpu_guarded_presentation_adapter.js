@@ -21,6 +21,28 @@ function buildExpectedRgba8Surface(floatSurfaceData) {
   return bytes;
 }
 
+function buildExpectedTextureReadbackBytes(rgbaBytes, textureFormat) {
+  if (textureFormat !== 'bgra8unorm') {
+    return rgbaBytes;
+  }
+  const bgraBytes = new Uint8Array(rgbaBytes.length);
+  for (let i = 0; i < rgbaBytes.length; i += 4) {
+    bgraBytes[i] = rgbaBytes[i + 2];
+    bgraBytes[i + 1] = rgbaBytes[i + 1];
+    bgraBytes[i + 2] = rgbaBytes[i];
+    bgraBytes[i + 3] = rgbaBytes[i + 3];
+  }
+  return bgraBytes;
+}
+
+function bytesMatch(actual, expected) {
+  if (actual.length !== expected.length) return false;
+  for (let i = 0; i < expected.length; i++) {
+    if (actual[i] !== expected[i]) return false;
+  }
+  return true;
+}
+
 function readTextureRows(readbackBytes, width, height, bytesPerRow) {
   const rowBytes = width * 4;
   const compact = new Uint8Array(rowBytes * height);
@@ -41,6 +63,7 @@ export async function runWebGpuOnlyGuardedPresentationAdapter({
   expectedSurfaceData,
   normalBackendOutputContract,
   presentationHandoffContract,
+  viewerCanvasState = null,
   targetFormat = 'rgba8unorm'
 } = {}) {
   if (!device || !handoffBuffer) {
@@ -67,7 +90,10 @@ export async function runWebGpuOnlyGuardedPresentationAdapter({
     label: 'phase3-step70-webgpu-only-guarded-presentation-target-texture',
     size: { width, height },
     format: targetFormat,
-    usage: GPUTextureUsage.STORAGE_BINDING | GPUTextureUsage.COPY_SRC
+    usage:
+      GPUTextureUsage.STORAGE_BINDING |
+      GPUTextureUsage.TEXTURE_BINDING |
+      GPUTextureUsage.COPY_SRC
   });
   const bridgeTexture = device.createTexture({
     label: 'phase3-step71-viewer-presentation-render-target-bridge-texture',
@@ -88,6 +114,32 @@ export async function runWebGpuOnlyGuardedPresentationAdapter({
     size: readbackBufferSize,
     usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
   });
+  const viewerCanvas = viewerCanvasState?.canvas ?? null;
+  const currentTextureConnectionAttempted = true;
+  const currentTextureGuardAllowed =
+    viewerCanvasState?.requestedBackendMode === 'webgpu-exclusive' &&
+    viewerCanvasState?.allowViewerCanvasPresentation === true &&
+    viewerCanvasState?.webgl2FrameLifecycleSuppressed === true &&
+    viewerCanvasState?.provided === true &&
+    !!viewerCanvas;
+  const preferredCanvasFormat =
+    typeof navigator !== 'undefined' && navigator.gpu?.getPreferredCanvasFormat
+      ? navigator.gpu.getPreferredCanvasFormat()
+      : 'rgba8unorm';
+  const currentTextureFormat =
+    preferredCanvasFormat === 'bgra8unorm' ? 'bgra8unorm' : 'rgba8unorm';
+  let currentTextureContext = null;
+  let currentTexture = null;
+  let currentTextureReadbackBuffer = null;
+  let currentTextureConfigured = false;
+  let currentTextureAcquired = false;
+  let currentTextureRenderPassSubmitted = false;
+  let currentTextureReadbackCompleted = false;
+  let currentTextureReadbackMatchesAdapterOutput = false;
+  let currentTextureReadback = new Uint8Array(0);
+  let currentTextureBlockedReason = currentTextureGuardAllowed
+    ? 'viewer-canvas-currentTexture-render-pass-not-submitted'
+    : 'viewer-canvas-currentTexture guard requires webgpu-exclusive mode, presentation permission, WebGL2 lifecycle suppression, and a provided viewer canvas';
   const bindGroupLayout = device.createBindGroupLayout({
     label: 'phase3-step70-webgpu-only-guarded-presentation-bind-group-layout',
     entries: [
@@ -180,6 +232,140 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
     { buffer: bridgeReadbackBuffer, bytesPerRow, rowsPerImage: height },
     { width, height }
   );
+  if (currentTextureGuardAllowed) {
+    try {
+      currentTextureContext = viewerCanvas.getContext?.('webgpu') ?? null;
+      if (currentTextureContext) {
+        currentTextureContext.configure({
+          device,
+          format: currentTextureFormat,
+          usage:
+            GPUTextureUsage.RENDER_ATTACHMENT |
+            GPUTextureUsage.COPY_SRC |
+            GPUTextureUsage.COPY_DST,
+          alphaMode: 'premultiplied'
+        });
+        currentTextureConfigured = true;
+        currentTexture = currentTextureContext.getCurrentTexture();
+        currentTextureAcquired = !!currentTexture;
+        currentTextureReadbackBuffer = device.createBuffer({
+          label: 'phase3-step72-viewer-current-texture-readback',
+          size: readbackBufferSize,
+          usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+        });
+        const sampler = device.createSampler({
+          label: 'phase3-step72-viewer-current-texture-bridge-sampler',
+          magFilter: 'nearest',
+          minFilter: 'nearest'
+        });
+        const currentTextureBindGroupLayout = device.createBindGroupLayout({
+          label: 'phase3-step72-viewer-current-texture-bridge-bind-group-layout',
+          entries: [
+            {
+              binding: 0,
+              visibility: GPUShaderStage.FRAGMENT,
+              sampler: {}
+            },
+            {
+              binding: 1,
+              visibility: GPUShaderStage.FRAGMENT,
+              texture: { sampleType: 'float', viewDimension: '2d' }
+            }
+          ]
+        });
+        const currentTextureBindGroup = device.createBindGroup({
+          label: 'phase3-step72-viewer-current-texture-bridge-bind-group',
+          layout: currentTextureBindGroupLayout,
+          entries: [
+            { binding: 0, resource: sampler },
+            { binding: 1, resource: targetTexture.createView() }
+          ]
+        });
+        const currentTextureShader = device.createShaderModule({
+          label: 'phase3-step72-viewer-current-texture-bridge-wgsl',
+          code: `
+struct VertexOut {
+  @builtin(position) position: vec4f,
+  @location(0) uv: vec2f,
+};
+
+@vertex
+fn vsMain(@builtin(vertex_index) vertexIndex: u32) -> VertexOut {
+  var positions = array<vec2f, 3>(
+    vec2f(-1.0, -1.0),
+    vec2f(3.0, -1.0),
+    vec2f(-1.0, 3.0)
+  );
+  var uvs = array<vec2f, 3>(
+    vec2f(0.0, 1.0),
+    vec2f(2.0, 1.0),
+    vec2f(0.0, -1.0)
+  );
+  var out: VertexOut;
+  out.position = vec4f(positions[vertexIndex], 0.0, 1.0);
+  out.uv = uvs[vertexIndex];
+  return out;
+}
+
+@group(0) @binding(0) var bridgeSampler: sampler;
+@group(0) @binding(1) var bridgeTexture: texture_2d<f32>;
+
+@fragment
+fn fsMain(in: VertexOut) -> @location(0) vec4f {
+  return textureSample(bridgeTexture, bridgeSampler, in.uv);
+}
+`
+        });
+        const currentTexturePipeline = device.createRenderPipeline({
+          label: 'phase3-step72-viewer-current-texture-bridge-pipeline',
+          layout: device.createPipelineLayout({
+            label: 'phase3-step72-viewer-current-texture-bridge-pipeline-layout',
+            bindGroupLayouts: [currentTextureBindGroupLayout]
+          }),
+          vertex: {
+            module: currentTextureShader,
+            entryPoint: 'vsMain'
+          },
+          fragment: {
+            module: currentTextureShader,
+            entryPoint: 'fsMain',
+            targets: [{ format: currentTextureFormat }]
+          },
+          primitive: { topology: 'triangle-list' }
+        });
+        const currentTexturePass = encoder.beginRenderPass({
+          label: 'phase3-step72-viewer-current-texture-bridge-pass',
+          colorAttachments: [
+            {
+              view: currentTexture.createView(),
+              clearValue: { r: 0, g: 0, b: 0, a: 0 },
+              loadOp: 'clear',
+              storeOp: 'store'
+            }
+          ]
+        });
+        currentTexturePass.setPipeline(currentTexturePipeline);
+        currentTexturePass.setBindGroup(0, currentTextureBindGroup);
+        currentTexturePass.draw(3);
+        currentTexturePass.end();
+        currentTextureRenderPassSubmitted = true;
+        encoder.copyTextureToBuffer(
+          { texture: currentTexture },
+          {
+            buffer: currentTextureReadbackBuffer,
+            bytesPerRow,
+            rowsPerImage: height
+          },
+          { width, height }
+        );
+      } else {
+        currentTextureBlockedReason =
+          'viewer canvas WebGPU context was unavailable at the guarded adapter boundary';
+      }
+    } catch (error) {
+      currentTextureBlockedReason = error?.message ?? String(error);
+    }
+  }
   device.queue.submit([encoder.finish()]);
   let submittedWorkDone = false;
   if (typeof device.queue.onSubmittedWorkDone === 'function') {
@@ -204,6 +390,28 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
     bytesPerRow
   );
   bridgeReadbackBuffer.unmap();
+  if (currentTextureReadbackBuffer) {
+    await currentTextureReadbackBuffer.mapAsync(GPUMapMode.READ);
+    const paddedCurrentTextureReadback = new Uint8Array(
+      currentTextureReadbackBuffer.getMappedRange()
+    ).slice(0, readbackBufferSize);
+    currentTextureReadback = readTextureRows(
+      paddedCurrentTextureReadback,
+      width,
+      height,
+      bytesPerRow
+    );
+    currentTextureReadbackBuffer.unmap();
+    currentTextureReadbackCompleted = true;
+    const expectedCurrentTextureBytes = buildExpectedTextureReadbackBytes(
+      compactReadback,
+      currentTextureFormat
+    );
+    currentTextureReadbackMatchesAdapterOutput = bytesMatch(
+      currentTextureReadback,
+      expectedCurrentTextureBytes
+    );
+  }
   const guardedPresentationAdapterContract =
     buildGuardedPresentationAdapterContract({
       normalBackendOutputContract,
@@ -232,9 +440,20 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
     gpuCopySubmitted: true,
     readbackCompleted: true,
     currentTextureConnectionAttempted: true,
-    currentTextureConnected: false,
-    currentTextureBlockedReason:
-      'viewer-canvas-currentTexture direct connection requires a viewer canvas WebGPU context owned by the guarded viewer lifecycle; Step71 uses a render-target bridge until that context is passed into the adapter boundary',
+    currentTextureConnected:
+      currentTextureAcquired &&
+      currentTextureRenderPassSubmitted &&
+      currentTextureReadbackCompleted &&
+      currentTextureReadbackMatchesAdapterOutput,
+    currentTextureContextProvided: !!currentTextureContext,
+    currentTextureConfigured,
+    currentTextureAcquired,
+    currentTextureRenderPassSubmitted,
+    currentTextureReadbackCompleted,
+    currentTextureReadbackMatchesAdapterOutput,
+    currentTextureFormat,
+    currentTextureReadbackBytes: currentTextureReadback,
+    currentTextureBlockedReason,
     submittedWorkDone,
     epsilon: 0
   });
@@ -243,6 +462,12 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
   }
   if (typeof bridgeReadbackBuffer.destroy === 'function') {
     bridgeReadbackBuffer.destroy();
+  }
+  if (
+    currentTextureReadbackBuffer &&
+    typeof currentTextureReadbackBuffer.destroy === 'function'
+  ) {
+    currentTextureReadbackBuffer.destroy();
   }
   if (typeof targetTexture.destroy === 'function') {
     targetTexture.destroy();

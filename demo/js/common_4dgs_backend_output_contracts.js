@@ -8,7 +8,7 @@ export const WEBGPU_NORMAL_BACKEND_GUARDED_PRESENTATION_ADAPTER_CONTRACT_VERSION
   'phase3-step70-webgpu-only-guarded-presentation-adapter-v1';
 
 export const WEBGPU_NORMAL_BACKEND_PRESENTATION_BRIDGE_CONTRACT_VERSION =
-  'phase3-step71-viewer-canvas-render-target-presentation-bridge-v1';
+  'phase3-step72-viewer-canvas-current-texture-presentation-bridge-v1';
 
 const DEFAULT_FUTURE_PRESENTATION_TARGETS = [
   'viewer-canvas-current-texture',
@@ -41,6 +41,18 @@ function maxAbsDiff(actual, expected) {
     );
   }
   return diff;
+}
+
+function convertRgbaBytesForTextureFormat(bytes, textureFormat) {
+  const source = arrayFrom(bytes);
+  if (textureFormat !== 'bgra8unorm') return source;
+  const converted = source.slice();
+  for (let i = 0; i + 3 < converted.length; i += 4) {
+    const r = converted[i];
+    converted[i] = converted[i + 2];
+    converted[i + 2] = r;
+  }
+  return converted;
 }
 
 export function buildPresentationHandoffContract({
@@ -338,6 +350,12 @@ export function buildUnavailablePresentationBridgeContract(reason, extra = {}) {
     guardedPresentationAdapterOutputConsumed: false,
     currentTextureConnectionAttempted: false,
     currentTextureConnected: false,
+    currentTextureContextProvided: false,
+    currentTextureConfigured: false,
+    currentTextureAcquired: false,
+    currentTextureRenderPassSubmitted: false,
+    currentTextureReadbackCompleted: false,
+    currentTextureReadbackMatchesAdapterOutput: false,
     currentTextureConnectionMode: 'not-attempted',
     currentTextureBlockedReason: reason,
     renderTargetBridgeReady: false,
@@ -368,6 +386,14 @@ export function buildPresentationBridgeContract({
   readbackCompleted = false,
   currentTextureConnectionAttempted = true,
   currentTextureConnected = false,
+  currentTextureContextProvided = false,
+  currentTextureConfigured = false,
+  currentTextureAcquired = false,
+  currentTextureRenderPassSubmitted = false,
+  currentTextureReadbackCompleted = false,
+  currentTextureReadbackMatchesAdapterOutput = false,
+  currentTextureFormat = null,
+  currentTextureReadbackBytes,
   currentTextureBlockedReason =
     'viewer-canvas-current-texture-context-not-owned-by-guarded-adapter',
   submittedWorkDone = false,
@@ -378,6 +404,19 @@ export function buildPresentationBridgeContract({
   const renderTargetMaxAbsDiff = maxAbsDiff(readbackArray, expectedArray);
   const renderTargetMatchesAdapterOutput =
     readbackCompleted === true && renderTargetMaxAbsDiff <= epsilon;
+  const currentTextureReadbackArray = arrayFrom(currentTextureReadbackBytes);
+  const expectedCurrentTextureArray = convertRgbaBytesForTextureFormat(
+    expectedArray,
+    currentTextureFormat
+  );
+  const currentTextureMaxAbsDiff = maxAbsDiff(
+    currentTextureReadbackArray,
+    expectedCurrentTextureArray
+  );
+  const currentTextureMatchesAdapterOutput =
+    currentTextureReadbackCompleted === true &&
+    currentTextureReadbackMatchesAdapterOutput === true &&
+    currentTextureMaxAbsDiff <= epsilon;
   const guardedAdapterReady =
     guardedPresentationAdapterContract?.guardedPresentationAdapterReady === true &&
     guardedPresentationAdapterContract?.presentationTargetMatchesExpected === true;
@@ -389,8 +428,10 @@ export function buildPresentationBridgeContract({
   const viewerPresentationBridgeReady =
     currentTextureConnected === true || renderTargetBridgeReady;
   const currentTextureConnectionMode = currentTextureConnected
-    ? 'viewer-canvas-current-texture'
-    : 'blocked-render-target-bridge';
+    ? 'viewer-canvas-current-texture-render-pass'
+    : currentTextureConnectionAttempted
+      ? 'attempted-render-target-bridge-fallback'
+      : 'not-attempted-render-target-bridge';
   const reason = viewerPresentationBridgeReady
     ? null
     : 'viewer-presentation-bridge-validation-not-ready';
@@ -417,6 +458,23 @@ export function buildPresentationBridgeContract({
       null,
     currentTextureConnectionAttempted,
     currentTextureConnected,
+    currentTextureContextProvided,
+    currentTextureConfigured,
+    currentTextureAcquired,
+    currentTextureRenderPassSubmitted,
+    currentTextureReadbackCompleted,
+    currentTextureReadbackMatchesAdapterOutput:
+      currentTextureMatchesAdapterOutput,
+    currentTextureMaxAbsDiff,
+    currentTextureFormat,
+    currentTextureTargetResourceKind: 'viewer-canvas-currentTexture',
+    currentTextureLifecycle: {
+      owner: 'viewer canvas WebGPU lifecycle under webgpu-exclusive guard',
+      configuredBy: 'webgpu-only-guarded-presentation-adapter',
+      commandPath:
+        'render pass samples the guarded adapter target into currentTexture',
+      productionSchedulerConnected: false
+    },
     currentTextureConnectionMode,
     currentTextureBlockedReason: currentTextureConnected
       ? null
@@ -425,7 +483,12 @@ export function buildPresentationBridgeContract({
       attempted: currentTextureConnectionAttempted,
       webgpuExclusiveRequired: true,
       allowViewerCanvasPresentationRequired: true,
-      viewerCanvasWebGpuContextProvided: false,
+      viewerCanvasWebGpuContextProvided: currentTextureContextProvided,
+      viewerCanvasWebGpuContextConfigured: currentTextureConfigured,
+      viewerCanvasCurrentTextureAcquired: currentTextureAcquired,
+      renderPassSubmitted: currentTextureRenderPassSubmitted,
+      readbackCompleted: currentTextureReadbackCompleted,
+      readbackMatchesAdapterOutput: currentTextureMatchesAdapterOutput,
       reason: currentTextureConnected ? null : currentTextureBlockedReason
     },
     renderTargetBridgeReady,
@@ -448,14 +511,20 @@ export function buildPresentationBridgeContract({
     outputOwnership: {
       owner: 'webgpu-only-guarded-presentation-adapter',
       lifecycle:
-        'transient render-target bridge texture is GPU-copied from adapter output and destroyed after validation',
-      futureOwner: 'viewer presentation lifecycle'
+        currentTextureConnected
+          ? 'adapter output is rendered to viewer canvas currentTexture; render-target bridge remains a validation handoff'
+          : 'transient render-target bridge texture is GPU-copied from adapter output and destroyed after validation',
+      futureOwner: currentTextureConnected
+        ? 'viewer canvas currentTexture lifecycle'
+        : 'viewer presentation lifecycle'
     },
     connectionMode: currentTextureConnected
       ? 'current-texture-direct'
       : 'render-target-bridge',
     gpuCommandPath:
-      'copyTextureToTexture-guarded-adapter-target-to-render-target-bridge',
+      currentTextureConnected
+        ? 'render-pass-sample-guarded-adapter-target-to-viewer-canvas-currentTexture'
+        : 'copyTextureToTexture-guarded-adapter-target-to-render-target-bridge',
     productionCanvasPresentationConnected: false,
     viewerCanvasCurrentTextureConnected: currentTextureConnected === true,
     renderTargetTextureConnected: renderTargetBridgeReady,

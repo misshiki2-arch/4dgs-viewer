@@ -6,19 +6,19 @@ export const WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_MODE =
   'webgpu-normal-backend-frame-implementation';
 
 export const WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_CONTRACT_VERSION =
-  'phase3-step71-normal-backend-frame-implementation-v1';
+  'phase3-step72-normal-backend-frame-implementation-v1';
 
 export const WEBGPU_NORMAL_BACKEND_FRAME_INPUT_CONTRACT_VERSION =
-  'phase3-step71-normal-backend-frame-input-contract-v1';
+  'phase3-step72-normal-backend-frame-input-contract-v1';
 
 export const WEBGPU_NORMAL_BACKEND_PRESENT_OUTPUT_CONTRACT_VERSION =
-  'phase3-step71-normal-backend-present-output-contract-v1';
+  'phase3-step72-normal-backend-present-output-contract-v1';
 
 export const WEBGPU_NORMAL_BACKEND_FRAME_CONSTANTS_CONTRACT_VERSION =
-  'phase3-step71-normal-backend-frame-constants-contract-v1';
+  'phase3-step72-normal-backend-frame-constants-contract-v1';
 
 export const WEBGPU_NORMAL_BACKEND_UNIFORM_RESOURCE_PREPARATION_CONTRACT_VERSION =
-  'phase3-step71-normal-backend-uniform-resource-preparation-contract-v1';
+  'phase3-step72-normal-backend-uniform-resource-preparation-contract-v1';
 
 function nowMs() {
   return typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -610,6 +610,21 @@ function buildValidationSummary({
       ?.productionCanvasPresentationConnected === false &&
     uniformResourceLifecycleContract?.presentationBridgeContract
       ?.webgl2HybridRenderingAllowed === false;
+  const currentTextureConnectionReady =
+    uniformResourceLifecycleContract?.presentationBridgeContract
+      ?.currentTextureConnectionAttempted === true &&
+    uniformResourceLifecycleContract?.presentationBridgeContract
+      ?.currentTextureConnected === true &&
+    uniformResourceLifecycleContract?.presentationBridgeContract
+      ?.currentTextureConfigured === true &&
+    uniformResourceLifecycleContract?.presentationBridgeContract
+      ?.currentTextureAcquired === true &&
+    uniformResourceLifecycleContract?.presentationBridgeContract
+      ?.currentTextureRenderPassSubmitted === true &&
+    uniformResourceLifecycleContract?.presentationBridgeContract
+      ?.currentTextureReadbackCompleted === true &&
+    uniformResourceLifecycleContract?.presentationBridgeContract
+      ?.currentTextureReadbackMatchesAdapterOutput === true;
   const backendFrameResultProvided = !!backendFrameResult;
   const selectedTrueNativeSource =
     presentOutputContract.selectedSourceKind ===
@@ -642,6 +657,7 @@ function buildValidationSummary({
     presentationHandoffReady &&
     guardedPresentationAdapterReady &&
     viewerPresentationBridgeReady &&
+    currentTextureConnectionReady &&
     backendFrameResultProvided &&
     selectedTrueNativeSource &&
     presentReady &&
@@ -740,6 +756,13 @@ function buildValidationSummary({
         'normal WebGPU backend implementation requires the guarded adapter output to be connected to a currentTexture attempt or render-target bridge boundary'
     });
   }
+  if (!currentTextureConnectionReady) {
+    firstValidationFailures.push({
+      stage: 'viewer-canvas-current-texture-connection',
+      reason:
+        'normal WebGPU backend implementation requires the Step72 guarded adapter boundary to render the bridge output into viewer canvas currentTexture'
+    });
+  }
   if (!selectedTrueNativeSource) {
     firstValidationFailures.push({
       stage: 'normal-backend-source-selection',
@@ -795,6 +818,7 @@ function buildValidationSummary({
     presentationHandoffReady,
     guardedPresentationAdapterReady,
     viewerPresentationBridgeReady,
+    currentTextureConnectionReady,
     backendFrameResultProvided,
     selectedTrueNativeSource,
     presentReady,
@@ -866,7 +890,8 @@ export async function runWebGpuNormalBackendFrameImplementation({
     await prepareNormalBackendUniformResources({
       frameConstantsContract,
       uniformResourcePreparationContract,
-      selectedSamples: presentOutputContract.presentedSamples
+      selectedSamples: presentOutputContract.presentedSamples,
+      viewerCanvasState
     });
   const resourceSummary = buildResourceSummary(backendFrameResult);
   const uniformResourceLifecycleSummary =
@@ -900,7 +925,7 @@ export async function runWebGpuNormalBackendFrameImplementation({
     mode: WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_MODE,
     status: normalBackendImplementationReady ? 'ok' : 'blocked',
     source:
-      'Phase 3 Step71 normal WebGPU backend implementation bridges the guarded presentation adapter output toward viewer presentation lifecycle targets',
+      'Phase 3 Step72 normal WebGPU backend implementation passes viewer canvas currentTexture lifecycle into the guarded presentation adapter boundary',
     contractVersion:
       WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_CONTRACT_VERSION,
     implementationKind: WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_MODE,
@@ -943,12 +968,12 @@ export async function runWebGpuNormalBackendFrameImplementation({
           {
             stage: 'presentation-handoff-connection',
             reason:
-              'normal backend output is consumed by an offscreen guarded presentation adapter and copied into a render-target bridge; viewer canvas currentTexture remains blocked until the viewer canvas WebGPU context is passed into this adapter boundary'
+              'normal backend output is consumed by the guarded adapter, copied into a render-target bridge, and rendered into viewer canvas currentTexture under the exclusive WebGPU guard'
           },
           {
             stage: 'production-frame-scheduler',
             reason:
-              'normal backend implementation path owns frame constants, selected samples, minimal GPU color output surface generation, output handoff, guarded adapter consumption, and render-target bridge output; production scheduling remains intentionally disconnected'
+              'normal backend implementation path owns frame constants, selected samples, minimal GPU color output surface generation, output handoff, guarded adapter consumption, render-target bridge output, and currentTexture handoff; production scheduling remains intentionally disconnected'
           },
           {
             stage: 'streaming-lod',
@@ -964,11 +989,11 @@ export async function runWebGpuNormalBackendFrameImplementation({
           {
             stage: 'normal-webgpu-backend-implementation',
             reason:
-              'normal implementation requires exclusive guards, frame constants, GPU uniform/sample lifecycle, minimal color output surface generation, normal backend output handoff, guarded presentation adapter consumption, render-target bridge readiness, true native selected samples, submitted present output, and preserved fallback policy'
+              'normal implementation requires exclusive guards, frame constants, GPU uniform/sample lifecycle, minimal color output surface generation, normal backend output handoff, guarded presentation adapter consumption, render-target bridge readiness, currentTexture connection readiness, true native selected samples, submitted present output, and preserved fallback policy'
           }
         ],
     nextBackendPrototypeStep: normalBackendImplementationReady
-      ? 'pass the viewer canvas WebGPU context into the guarded bridge boundary and promote the render-target bridge to a currentTexture render/copy pass'
+      ? 'lift the guarded currentTexture handoff from validation boundary into a scheduler-owned viewer presentation pass'
       : 'restore normal backend implementation readiness before replacing the implementation body',
     timing: {
       webgpuNormalBackendFrameImplementationMs: nowMs() - startMs

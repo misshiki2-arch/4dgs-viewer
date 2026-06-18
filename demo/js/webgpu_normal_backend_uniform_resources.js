@@ -8,10 +8,10 @@ import {
 } from './webgpu_guarded_presentation_adapter.js';
 
 export const WEBGPU_NORMAL_BACKEND_UNIFORM_RESOURCE_LIFECYCLE_CONTRACT_VERSION =
-  'phase3-step71-normal-backend-uniform-resource-lifecycle-v1';
+  'phase3-step72-normal-backend-uniform-resource-lifecycle-v1';
 
 export const WEBGPU_NORMAL_BACKEND_UNIFORM_SHADER_CONSUMPTION_CONTRACT_VERSION =
-  'phase3-step71-normal-backend-uniform-sample-color-output-consumption-v1';
+  'phase3-step72-normal-backend-uniform-sample-color-output-consumption-v1';
 
 export const WEBGPU_NORMAL_BACKEND_SAMPLE_RESOURCE_CONTRACT_VERSION =
   'phase3-step69-normal-backend-sample-storage-resource-v1';
@@ -312,7 +312,8 @@ async function consumeUniformWithMinimalCompute({
   sampleBuffer,
   uniformData,
   sampleData,
-  minBindingSizeBytes
+  minBindingSizeBytes,
+  viewerCanvasState = null
 }) {
   if (typeof GPUBufferUsage === 'undefined' || typeof GPUMapMode === 'undefined') {
     return createUnavailableConsumptionSummary('webgpu-buffer-usage-unavailable');
@@ -569,7 +570,8 @@ fn main() {
       handoffBuffer: normalBackendOutputHandoffBuffer,
       expectedSurfaceData: expectedColorOutputSurface.data,
       normalBackendOutputContract,
-      presentationHandoffContract
+      presentationHandoffContract,
+      viewerCanvasState
     });
   const guardedPresentationAdapterReady =
     guardedPresentationAdapterContract?.guardedPresentationAdapterReady === true;
@@ -716,7 +718,8 @@ export async function prepareNormalBackendUniformResources({
   frameConstantsContract,
   uniformResourcePreparationContract,
   selectedSamples = [],
-  device = null
+  device = null,
+  viewerCanvasState = null
 } = {}) {
   const startMs =
     typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -795,7 +798,8 @@ export async function prepareNormalBackendUniformResources({
         sampleBuffer,
         uniformData,
         sampleData: packedSamples.data,
-        minBindingSizeBytes: paddedByteLength
+        minBindingSizeBytes: paddedByteLength,
+        viewerCanvasState
       });
     lifecycleEvents.push('bind-group-layout-created');
     lifecycleEvents.push('bind-group-created');
@@ -944,9 +948,9 @@ export async function prepareNormalBackendUniformResources({
       layoutMode:
         uniformResourcePreparationContract?.layout?.layoutMode ?? null,
       reusePolicy:
-        'future runner-owned device/resource cache; Step71 uses per-call transient uniform, sample, color output, handoff, guarded presentation adapter, and render-target bridge resources',
+        'future runner-owned device/resource cache; Step72 uses per-call transient uniform, sample, color output, handoff, guarded presentation adapter, render-target bridge, and currentTexture handoff resources',
       disposePolicy:
-        'destroy transient uniform, sample, color output, handoff, offscreen presentation target, and render-target bridge resources after validation',
+        'destroy transient uniform, sample, color output, handoff, offscreen presentation target, render-target bridge, and readback resources after validation; currentTexture lifecycle remains canvas-owned',
       lifecycleEvents,
       validationOracleOwnsResource: false,
       productionLoopConnected: false,

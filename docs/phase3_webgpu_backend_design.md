@@ -882,3 +882,29 @@ pass can own.
 This creates a concrete render-target handoff for the viewer presentation
 lifecycle while leaving currentTexture takeover for the next guarded boundary
 where the viewer canvas WebGPU context is explicitly passed into the adapter.
+
+## Step72 Guarded CurrentTexture Handoff Boundary
+
+Step72 passes the viewer canvas lifecycle state into the Step70/71 guarded
+presentation adapter. The normal backend now provides `viewerCanvasState` to
+the uniform/sample/color output resource lifecycle, and the adapter can use that
+canvas only under `webgpu-exclusive`, `webgpuAllowViewerCanvasPresentation=true`,
+and suppressed WebGL2 frame lifecycle.
+
+- currentTexture path: the adapter configures the viewer canvas WebGPU context,
+  acquires `getCurrentTexture()`, renders the adapter output texture into that
+  currentTexture with a small render pass, and validates the copied readback
+  against the adapter output.
+- format policy: the bridge samples the `rgba8unorm` adapter target in a render
+  pass instead of using a blind texture copy, so `rgba8unorm` and `bgra8unorm`
+  canvas formats remain an explicit render-target conversion boundary.
+- render-target bridge: the Step71 render-target bridge remains available as a
+  lifecycle validation handoff, but Step72 readiness additionally requires the
+  currentTexture render pass, readback, and match result.
+- guardrails: WebGL2 hybrid rendering stays disabled, production scheduling is
+  not connected, fallback samples are not promoted to true native output, and
+  full-dataset GPU residency is still not required.
+
+This is the first normal-backend guarded path where the presentation adapter
+receives viewer canvas lifecycle state and writes the adapter output into the
+actual viewer canvas currentTexture boundary.
