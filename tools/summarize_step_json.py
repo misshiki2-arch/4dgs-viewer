@@ -5272,6 +5272,11 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
                 ["presentationHandoffContract"],
                 {},
             ),
+            "guardedPresentationAdapterContract": get_path(
+                webgpu_normal_backend_frame_implementation,
+                ["guardedPresentationAdapterContract"],
+                {},
+            ),
             "normalBackendOutputValidation": get_path(
                 webgpu_normal_backend_frame_implementation,
                 [
@@ -5357,6 +5362,10 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             "presentationHandoffReady": get_path(
                 webgpu_normal_backend_frame_implementation_validation,
                 ["presentationHandoffReady"],
+            ),
+            "guardedPresentationAdapterReady": get_path(
+                webgpu_normal_backend_frame_implementation_validation,
+                ["guardedPresentationAdapterReady"],
             ),
             "webgl2HybridRenderingPrevented": get_path(
                 webgpu_normal_backend_frame_implementation_validation,

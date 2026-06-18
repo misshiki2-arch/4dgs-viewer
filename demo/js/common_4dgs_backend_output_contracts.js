@@ -4,6 +4,9 @@ export const WEBGPU_NORMAL_BACKEND_OUTPUT_HANDOFF_CONTRACT_VERSION =
 export const WEBGPU_NORMAL_BACKEND_PRESENTATION_HANDOFF_CONTRACT_VERSION =
   'phase3-step69-normal-backend-presentation-handoff-boundary-v1';
 
+export const WEBGPU_NORMAL_BACKEND_GUARDED_PRESENTATION_ADAPTER_CONTRACT_VERSION =
+  'phase3-step70-webgpu-only-guarded-presentation-adapter-v1';
+
 const DEFAULT_FUTURE_PRESENTATION_TARGETS = [
   'viewer-canvas-current-texture',
   'render-target-texture',
@@ -193,5 +196,120 @@ export function validateNormalBackendOutputContracts({
     presentationHandoffReady,
     status:
       normalBackendOutputReady && presentationHandoffReady ? 'ok' : 'blocked'
+  };
+}
+
+export function buildUnavailableGuardedPresentationAdapterContract(
+  reason,
+  extra = {}
+) {
+  return {
+    contractVersion:
+      WEBGPU_NORMAL_BACKEND_GUARDED_PRESENTATION_ADAPTER_CONTRACT_VERSION,
+    status: 'unavailable',
+    adapterMode: 'webgpu-only-guarded-presentation-adapter',
+    guardedPresentationAdapterReady: false,
+    webgpuOnlyGuardedPresentationAdapterCalled: false,
+    normalBackendOutputConsumed: false,
+    handoffResourceConsumedGpuSide: false,
+    presentationCompatibleTargetCreated: false,
+    presentationTargetWriteSubmitted: false,
+    presentationTargetReadbackCompleted: false,
+    presentationTargetMatchesExpected: false,
+    productionCanvasPresentationConnected: false,
+    viewerCanvasCurrentTextureConnected: false,
+    webgl2HybridRenderingAllowed: false,
+    reason,
+    ...extra
+  };
+}
+
+export function buildGuardedPresentationAdapterContract({
+  normalBackendOutputContract,
+  presentationHandoffContract,
+  targetFormat = 'rgba8unorm',
+  targetKind = 'offscreen-storage-texture-presentation-compatible-target',
+  targetWidth = 0,
+  targetHeight = 0,
+  expectedBytes,
+  readbackBytes,
+  gpuWriteSubmitted = false,
+  readbackCompleted = false,
+  submittedWorkDone = false,
+  epsilon = 0
+} = {}) {
+  const expectedArray = arrayFrom(expectedBytes);
+  const readbackArray = arrayFrom(readbackBytes);
+  const targetMaxAbsDiff = maxAbsDiff(readbackArray, expectedArray);
+  const presentationTargetMatchesExpected =
+    readbackCompleted === true && targetMaxAbsDiff <= epsilon;
+  const normalBackendOutputReady =
+    normalBackendOutputContract?.normalBackendOutputReady === true;
+  const handoffReady =
+    presentationHandoffContract?.presentationHandoffReady === true;
+  const guardedPresentationAdapterReady =
+    normalBackendOutputReady &&
+    handoffReady &&
+    gpuWriteSubmitted === true &&
+    presentationTargetMatchesExpected;
+  const reason = guardedPresentationAdapterReady
+    ? null
+    : 'guarded-presentation-adapter-validation-not-ready';
+  return {
+    contractVersion:
+      WEBGPU_NORMAL_BACKEND_GUARDED_PRESENTATION_ADAPTER_CONTRACT_VERSION,
+    status: guardedPresentationAdapterReady ? 'ok' : 'blocked',
+    adapterMode: 'webgpu-only-guarded-presentation-adapter',
+    guardedPresentationAdapterReady,
+    webgpuOnlyGuardedPresentationAdapterCalled: true,
+    normalBackendOutputConsumed: normalBackendOutputReady,
+    handoffResourceConsumedGpuSide: gpuWriteSubmitted === true,
+    sourceOutputContractVersion:
+      normalBackendOutputContract?.contractVersion ?? null,
+    sourcePresentationHandoffContractVersion:
+      presentationHandoffContract?.contractVersion ?? null,
+    sourceHandoffResourceKind:
+      normalBackendOutputContract?.handoffResourceKind ?? null,
+    sourceFormat: normalBackendOutputContract?.outputFormat ?? null,
+    sourceWidth: normalBackendOutputContract?.outputWidth ?? null,
+    sourceHeight: normalBackendOutputContract?.outputHeight ?? null,
+    sourceCoordinateOrigin:
+      normalBackendOutputContract?.coordinateOrigin ?? null,
+    sourceCoordinateMapping:
+      normalBackendOutputContract?.coordinateMapping ?? null,
+    targetResourceKind: targetKind,
+    targetFormat,
+    targetWidth,
+    targetHeight,
+    targetExtent: { width: targetWidth, height: targetHeight },
+    targetCoordinateOrigin:
+      normalBackendOutputContract?.coordinateOrigin ?? null,
+    targetCoordinateMapping:
+      'adapter writes normalized handoff rgba into the same bounded texture coordinates',
+    presentationCompatibleTargetCreated: targetWidth > 0 && targetHeight > 0,
+    presentationTargetWriteSubmitted: gpuWriteSubmitted === true,
+    presentationTargetReadbackCompleted: readbackCompleted === true,
+    presentationTargetMatchesExpected,
+    presentationTargetMaxAbsDiff: targetMaxAbsDiff,
+    expectedFirstBytes: expectedArray.slice(0, 16),
+    readbackFirstBytes: readbackArray.slice(0, 16),
+    submittedWorkDone,
+    gpuCommandPath:
+      'compute-pass-read-normal-backend-handoff-buffer-write-offscreen-storage-texture',
+    futurePresentationTargets:
+      presentationHandoffContract?.futurePresentationTargets ??
+      DEFAULT_FUTURE_PRESENTATION_TARGETS,
+    productionCanvasPresentationConnected: false,
+    viewerCanvasCurrentTextureConnected: false,
+    renderTargetTextureConnected: false,
+    storageTextureCopyConnected: false,
+    webgl2HybridRenderingAllowed: false,
+    fallbackSamplesMixed:
+      normalBackendOutputContract?.inputSamples?.fallbackSamplesMixed === true,
+    productionShaderImplemented: false,
+    shColorParityImplemented: false,
+    streamingImplemented: false,
+    fullDatasetGpuResidencyRequired: false,
+    reason
   };
 }

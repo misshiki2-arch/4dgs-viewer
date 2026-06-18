@@ -3,12 +3,15 @@ import {
   buildUnavailableNormalBackendOutputContracts,
   validateNormalBackendOutputContracts
 } from './common_4dgs_backend_output_contracts.js';
+import {
+  runWebGpuOnlyGuardedPresentationAdapter
+} from './webgpu_guarded_presentation_adapter.js';
 
 export const WEBGPU_NORMAL_BACKEND_UNIFORM_RESOURCE_LIFECYCLE_CONTRACT_VERSION =
-  'phase3-step69-normal-backend-uniform-resource-lifecycle-v1';
+  'phase3-step70-normal-backend-uniform-resource-lifecycle-v1';
 
 export const WEBGPU_NORMAL_BACKEND_UNIFORM_SHADER_CONSUMPTION_CONTRACT_VERSION =
-  'phase3-step69-normal-backend-uniform-sample-color-output-consumption-v1';
+  'phase3-step70-normal-backend-uniform-sample-color-output-consumption-v1';
 
 export const WEBGPU_NORMAL_BACKEND_SAMPLE_RESOURCE_CONTRACT_VERSION =
   'phase3-step69-normal-backend-sample-storage-resource-v1';
@@ -53,6 +56,8 @@ function createUnavailableSummary(reason, extra = {}) {
     normalBackendOutputHandoffCopySubmitted: false,
     normalBackendOutputReadbackCompleted: false,
     normalBackendOutputResourceDestroyed: false,
+    guardedPresentationAdapterCalled: false,
+    guardedPresentationAdapterReady: false,
     queueWriteBufferUsed: false,
     bindGroupReadyBoundary: false,
     bindGroupLayoutCreated: false,
@@ -87,6 +92,8 @@ function createUnavailableConsumptionSummary(reason, extra = {}) {
     normalBackendOutputHandoffCopySubmitted: false,
     normalBackendOutputReadbackCompleted: false,
     normalBackendOutputMatchesExpected: false,
+    guardedPresentationAdapterCalled: false,
+    guardedPresentationAdapterReady: false,
     ...outputContracts,
     reason,
     ...extra
@@ -506,24 +513,6 @@ fn main() {
     ).slice(0, expectedColorOutputSurface.data.length)
   );
   normalBackendOutputHandoffReadbackBuffer.unmap();
-  if (typeof outputBuffer.destroy === 'function') {
-    outputBuffer.destroy();
-  }
-  if (typeof readbackBuffer.destroy === 'function') {
-    readbackBuffer.destroy();
-  }
-  if (typeof colorOutputSurfaceBuffer.destroy === 'function') {
-    colorOutputSurfaceBuffer.destroy();
-  }
-  if (typeof colorOutputSurfaceReadbackBuffer.destroy === 'function') {
-    colorOutputSurfaceReadbackBuffer.destroy();
-  }
-  if (typeof normalBackendOutputHandoffBuffer.destroy === 'function') {
-    normalBackendOutputHandoffBuffer.destroy();
-  }
-  if (typeof normalBackendOutputHandoffReadbackBuffer.destroy === 'function') {
-    normalBackendOutputHandoffReadbackBuffer.destroy();
-  }
   const epsilon = 1e-6;
   const maxAbsDiff = actual.reduce((maxDiff, value, index) => {
     return Math.max(maxDiff, Math.abs(value - expected[index]));
@@ -566,6 +555,34 @@ fn main() {
     normalBackendOutputContract.normalBackendOutputMatchesExpected === true;
   const handoffReadbackMatchesColorOutputSurface =
     normalBackendOutputContract.handoffReadbackMatchesColorOutputSurface === true;
+  const guardedPresentationAdapterContract =
+    await runWebGpuOnlyGuardedPresentationAdapter({
+      device,
+      handoffBuffer: normalBackendOutputHandoffBuffer,
+      expectedSurfaceData: expectedColorOutputSurface.data,
+      normalBackendOutputContract,
+      presentationHandoffContract
+    });
+  const guardedPresentationAdapterReady =
+    guardedPresentationAdapterContract?.guardedPresentationAdapterReady === true;
+  if (typeof outputBuffer.destroy === 'function') {
+    outputBuffer.destroy();
+  }
+  if (typeof readbackBuffer.destroy === 'function') {
+    readbackBuffer.destroy();
+  }
+  if (typeof colorOutputSurfaceBuffer.destroy === 'function') {
+    colorOutputSurfaceBuffer.destroy();
+  }
+  if (typeof colorOutputSurfaceReadbackBuffer.destroy === 'function') {
+    colorOutputSurfaceReadbackBuffer.destroy();
+  }
+  if (typeof normalBackendOutputHandoffBuffer.destroy === 'function') {
+    normalBackendOutputHandoffBuffer.destroy();
+  }
+  if (typeof normalBackendOutputHandoffReadbackBuffer.destroy === 'function') {
+    normalBackendOutputHandoffReadbackBuffer.destroy();
+  }
   return {
     contractVersion:
       WEBGPU_NORMAL_BACKEND_UNIFORM_SHADER_CONSUMPTION_CONTRACT_VERSION,
@@ -576,7 +593,8 @@ fn main() {
       sampleReadMatchesPackedSelectedSamples &&
       colorOutputSurfaceMatchesExpected &&
       normalBackendOutputMatchesExpected &&
-      handoffReadbackMatchesColorOutputSurface
+      handoffReadbackMatchesColorOutputSurface &&
+      guardedPresentationAdapterReady
         ? 'ok'
         : 'mismatch',
     bindGroupLayoutCreated: true,
@@ -589,6 +607,8 @@ fn main() {
     colorOutputSurfaceReadbackCompleted: true,
     normalBackendOutputHandoffCopySubmitted: true,
     normalBackendOutputReadbackCompleted: true,
+    guardedPresentationAdapterCalled: true,
+    guardedPresentationAdapterReady,
     submittedWorkDone,
     uniformReadMatchesPackedFrameConstants,
     sampleReadMatchesPackedSelectedSamples,
@@ -596,6 +616,7 @@ fn main() {
     normalBackendOutputMatchesExpected,
     handoffReadbackMatchesColorOutputSurface,
     normalBackendOutputValidation,
+    guardedPresentationAdapterContract,
     expectedFrameUniformPrefix: expected,
     readbackFrameUniformPrefix: actual,
     expectedFirstSamplePackedFields: expectedSample,
@@ -652,6 +673,7 @@ fn main() {
     },
     normalBackendOutputContract,
     presentationHandoffContract,
+    guardedPresentationAdapterContract,
     samplePackedFields: [
       'samplePx.x',
       'samplePx.y',
@@ -757,6 +779,12 @@ export async function prepareNormalBackendUniformResources({
     lifecycleEvents.push('bind-group-created');
     lifecycleEvents.push('color-output-surface-buffer-created');
     lifecycleEvents.push('minimal-uniform-sample-color-output-compute-dispatched');
+    if (uniformShaderConsumptionContract?.guardedPresentationAdapterCalled === true) {
+      lifecycleEvents.push('guarded-presentation-adapter-called');
+    }
+    if (uniformShaderConsumptionContract?.guardedPresentationAdapterReady === true) {
+      lifecycleEvents.push('guarded-presentation-adapter-consumed-handoff-output');
+    }
     const submittedWorkDone =
       uniformShaderConsumptionContract?.submittedWorkDone === true;
     if (submittedWorkDone) {
@@ -835,6 +863,10 @@ export async function prepareNormalBackendUniformResources({
         uniformShaderConsumptionContract?.normalBackendOutputMatchesExpected === true,
       handoffReadbackMatchesColorOutputSurface:
         uniformShaderConsumptionContract?.handoffReadbackMatchesColorOutputSurface === true,
+      guardedPresentationAdapterCalled:
+        uniformShaderConsumptionContract?.guardedPresentationAdapterCalled === true,
+      guardedPresentationAdapterReady:
+        uniformShaderConsumptionContract?.guardedPresentationAdapterReady === true,
       normalBackendOutputValidation:
         uniformShaderConsumptionContract?.normalBackendOutputValidation ?? null,
       uniformShaderConsumptionContract,
@@ -856,6 +888,8 @@ export async function prepareNormalBackendUniformResources({
         uniformShaderConsumptionContract?.normalBackendOutputContract ?? null,
       presentationHandoffContract:
         uniformShaderConsumptionContract?.presentationHandoffContract ?? null,
+      guardedPresentationAdapterContract:
+        uniformShaderConsumptionContract?.guardedPresentationAdapterContract ?? null,
       packedFloat32Count: uniformData.length,
       packedByteLength: uniformData.byteLength,
       paddedUniformByteLength:
@@ -875,9 +909,9 @@ export async function prepareNormalBackendUniformResources({
       layoutMode:
         uniformResourcePreparationContract?.layout?.layoutMode ?? null,
       reusePolicy:
-        'future runner-owned device/resource cache; Step69 uses per-call transient uniform, sample, color output surface, and handoff buffers with one bind group',
+        'future runner-owned device/resource cache; Step70 uses per-call transient uniform, sample, color output, handoff, and guarded presentation adapter resources',
       disposePolicy:
-        'destroy transient uniform, sample, color output, and handoff buffers after minimal shader consumption and handoff validation',
+        'destroy transient uniform, sample, color output, handoff, and offscreen presentation target resources after validation',
       lifecycleEvents,
       validationOracleOwnsResource: false,
       productionLoopConnected: false,

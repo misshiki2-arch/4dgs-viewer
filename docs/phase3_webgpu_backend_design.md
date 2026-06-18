@@ -826,3 +826,30 @@ same pixels.
 
 This creates the resource/contract boundary needed before the normal backend
 output can be wired to an actual presentation pass.
+
+## Step70 WebGPU-Only Guarded Presentation Adapter
+
+Step70 consumes the Step69 normal-backend output with a WebGPU-only guarded
+presentation adapter. The adapter is invoked from the normal backend runtime
+chain while the handoff buffer is still alive, then a compute pass reads that
+handoff buffer and writes an offscreen `rgba8unorm` storage texture that is
+compatible with a future presentation path.
+
+- adapter contract: `common_4dgs_backend_output_contracts.js` builds
+  `guardedPresentationAdapterContract`, including success and unavailable
+  readiness fields.
+- GPU consumption: `webgpu_guarded_presentation_adapter.js` reads the handoff
+  storage buffer and writes an offscreen storage texture with a WebGPU compute
+  command.
+- validation output: the offscreen texture is copied back with padded
+  `bytesPerRow` handling and compared against the expected quantized RGBA8
+  surface derived from the Step69 handoff data.
+- guardrails: currentTexture and render-target presentation remain
+  disconnected; the adapter proves consumption of the handoff output without
+  entering production scheduling or same-frame WebGL2 presentation.
+- baseline: Step67 uniform/sample consumption, Step68 color output surface,
+  and Step69 handoff output contracts remain required before the adapter can
+  report ready.
+
+This gives the normal backend its first WebGPU presentation-layer consumer
+without yet taking over production viewer-canvas presentation.
