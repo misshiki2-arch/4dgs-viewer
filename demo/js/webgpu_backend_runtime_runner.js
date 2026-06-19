@@ -7,7 +7,7 @@ export const WEBGPU_BACKEND_RUNTIME_RUNNER_MODE =
   'webgpu-backend-runtime-runner';
 
 export const WEBGPU_BACKEND_RUNTIME_RUNNER_CONTRACT_VERSION =
-  'phase3-step72-backend-runtime-runner-contract-v1';
+  'phase3-step73-backend-runtime-runner-contract-v1';
 
 export const WEBGPU_BACKEND_DRY_RUN_IMPLEMENTATION_KIND =
   'webgpu-visible-record-dry-run-runtime';
@@ -324,7 +324,7 @@ export async function runWebGpuBackendRuntimeFrame({
     mode: WEBGPU_BACKEND_RUNTIME_RUNNER_MODE,
     status: runtimeRunnerReady ? 'ok' : 'blocked',
     source:
-      'Phase 3 Step72 viewer backend runtime runner executes a normal backend with guarded currentTexture presentation handoff',
+      'Phase 3 Step73 viewer backend runtime runner feeds the viewer-owned guarded WebGPU presentation pass boundary',
     contractVersion: WEBGPU_BACKEND_RUNTIME_RUNNER_CONTRACT_VERSION,
     runtimeRunnerImplemented: true,
     runtimeRunnerReady,
@@ -374,7 +374,7 @@ export async function runWebGpuBackendRuntimeFrame({
           }
         ],
     nextBackendPrototypeStep: runtimeRunnerReady
-      ? 'move the guarded currentTexture handoff into a scheduler-owned viewer presentation pass behind the same runner contract'
+      ? 'promote the viewer-owned guarded presentation pass into a scheduler contract behind the same runner boundary'
       : 'restore runtime runner readiness before production backend substitution',
     timing: {
       webgpuBackendRuntimeRunnerMs: nowMs() - startMs

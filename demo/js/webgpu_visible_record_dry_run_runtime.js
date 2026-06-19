@@ -3947,9 +3947,9 @@ export async function runWebGpuVisibleRecordDryRun({
           mode: 'webgpu-backend-viewer-frame-executor-boundary',
           status: 'unavailable',
           source:
-            'Phase 3 Step60 viewer backend frame executor boundary was not observed in the latest render result',
+            'Phase 3 Step73 viewer backend frame executor boundary was not observed in the latest render result',
           contractVersion:
-            'phase3-step60-backend-viewer-frame-executor-boundary-v1',
+            'phase3-step73-backend-viewer-frame-executor-boundary-v1',
           executorImplemented: true,
           executorReady: false,
           productionDisplayConnectionImplemented: false,
@@ -3998,8 +3998,8 @@ export async function runWebGpuVisibleRecordDryRun({
           mode: 'webgpu-backend-runtime-runner',
           status: 'unavailable',
           source:
-            'Phase 3 Step72 backend runtime runner was not observed in the latest render executor summary',
-          contractVersion: 'phase3-step72-backend-runtime-runner-contract-v1',
+            'Phase 3 Step73 backend runtime runner was not observed in the latest render executor summary',
+          contractVersion: 'phase3-step73-backend-runtime-runner-contract-v1',
           runtimeRunnerImplemented: true,
           runtimeRunnerReady: false,
           productionDisplayConnectionImplemented: false,
@@ -4032,6 +4032,10 @@ export async function runWebGpuVisibleRecordDryRun({
             webgpuBackendRuntimeRunnerMs: 0
           }
         };
+  const webgpuBackendViewerFramePresentationPass =
+    webgpuBackendViewerFrameExecutor?.webgpuBackendViewerFramePresentationPass ??
+    webgpuBackendViewerFrameExecutor?.viewerFramePresentationPassContract ??
+    null;
   const webgpuNormalBackendFrameImplementation =
     webgpuBackendRuntimeRunner?.webgpuNormalBackendFrameImplementation
       ? webgpuBackendRuntimeRunner.webgpuNormalBackendFrameImplementation
@@ -4106,7 +4110,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step72 passes viewer canvas WebGPU context/currentTexture lifecycle into the guarded adapter boundary while preserving Step67/68/69/70/71 validation.',
+    scaffoldNote: 'Phase 3 Step73 lets the viewer frame lifecycle own the guarded WebGPU presentation pass boundary while preserving Step67/68/69/70/71/72 validation.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
@@ -4184,6 +4188,7 @@ export async function runWebGpuVisibleRecordDryRun({
     webgpuBackendViewerLifecycleIntegrationBoundary,
     webgpuBackendViewerLifecycleControlledExecution,
     webgpuBackendViewerFrameExecutor,
+    webgpuBackendViewerFramePresentationPass,
     webgpuBackendRuntimeRunner,
     webgpuNormalBackendFrameImplementation,
     webgpuExclusiveFrameLifecycleSwitch,
@@ -4310,6 +4315,7 @@ export async function runWebGpuVisibleRecordDryRun({
       webgpuBackendViewerLifecycleIntegrationBoundary,
       webgpuBackendViewerLifecycleControlledExecution,
       webgpuBackendViewerFrameExecutor,
+      webgpuBackendViewerFramePresentationPass,
       webgpuBackendRuntimeRunner,
       webgpuExclusiveFrameLifecycleSwitch,
       inputContract,

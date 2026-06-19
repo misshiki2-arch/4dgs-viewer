@@ -2,6 +2,9 @@ import {
   buildWebGpuBackendViewerLifecycleControlledExecution
 } from './webgpu_backend_viewer_lifecycle_integration.js';
 import {
+  buildViewerFramePresentationPassContract
+} from './common_4dgs_backend_output_contracts.js';
+import {
   runWebGpuBackendRuntimeFrame
 } from './webgpu_backend_runtime_runner.js';
 
@@ -9,7 +12,7 @@ export const WEBGPU_BACKEND_VIEWER_FRAME_EXECUTOR_MODE =
   'webgpu-backend-viewer-frame-executor-boundary';
 
 export const WEBGPU_BACKEND_VIEWER_FRAME_EXECUTOR_CONTRACT_VERSION =
-  'phase3-step72-backend-viewer-frame-executor-boundary-v1';
+  'phase3-step73-backend-viewer-frame-executor-boundary-v1';
 
 function nowMs() {
   return typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -53,6 +56,7 @@ function buildValidationSummary({
   integrationBoundary,
   backendFrameResult,
   controlledExecution,
+  viewerFramePresentationPassContract,
   executionError
 }) {
   const guardAllowed =
@@ -70,12 +74,15 @@ function buildValidationSummary({
     integrationBoundary?.validationSummary?.webgl2HybridRenderingPrevented === true;
   const fallbackPolicyPreserved =
     controlledExecution?.validationSummary?.fallbackPolicyPreserved === true;
+  const viewerFramePresentationPassReady =
+    viewerFramePresentationPassContract?.viewerFramePresentationPassReady === true;
   const executorReady =
     guardAllowed &&
     integrationBoundaryReady &&
     backendFrameResultProvided &&
     adapterReady &&
     controlledExecutionReady &&
+    viewerFramePresentationPassReady &&
     webgl2HybridRenderingPrevented &&
     fallbackPolicyPreserved &&
     !executionError;
@@ -111,6 +118,13 @@ function buildValidationSummary({
       reason: 'viewer backend executor controlled execution summary is not ready'
     });
   }
+  if (!viewerFramePresentationPassReady) {
+    firstValidationFailures.push({
+      stage: 'viewer-frame-presentation-pass',
+      reason:
+        'viewer backend executor requires the Step73 viewer-owned guarded WebGPU presentation pass to consume the currentTexture handoff'
+    });
+  }
   if (!webgl2HybridRenderingPrevented) {
     firstValidationFailures.push({
       stage: 'webgl2-lifecycle-suppression',
@@ -136,6 +150,7 @@ function buildValidationSummary({
     backendFrameResultProvided,
     adapterReady,
     controlledExecutionReady,
+    viewerFramePresentationPassReady,
     webgl2HybridRenderingPrevented,
     fallbackPolicyPreserved,
     firstValidationFailures
@@ -198,11 +213,23 @@ export async function executeWebGpuBackendViewerFrame({
         viewerCanvasState?.webgl2FrameLifecycleSuppressed === true,
       cameraSnapshot
     });
+  const normalBackendImplementation =
+    runtimeRunner?.summary?.webgpuNormalBackendFrameImplementation ?? null;
+  const viewerFramePresentationPassContract =
+    buildViewerFramePresentationPassContract({
+      executorContract,
+      runtimeRunner: runtimeRunner?.summary ?? null,
+      presentationBridgeContract:
+        normalBackendImplementation?.presentationBridgeContract ?? null,
+      invocationSource,
+      frameIndex
+    });
   const validationSummary = buildValidationSummary({
     executorContract,
     integrationBoundary,
     backendFrameResult,
     controlledExecution,
+    viewerFramePresentationPassContract,
     executionError
   });
   const executorReady = validationSummary.executorReady === true;
@@ -210,7 +237,7 @@ export async function executeWebGpuBackendViewerFrame({
     mode: WEBGPU_BACKEND_VIEWER_FRAME_EXECUTOR_MODE,
     status: executorReady ? 'ok' : 'blocked',
     source:
-      'Phase 3 Step72 viewer backend frame executor delegates guarded currentTexture handoff through the runtime runner',
+      'Phase 3 Step73 viewer backend frame executor owns a guarded WebGPU presentation pass boundary over the currentTexture handoff',
     contractVersion: WEBGPU_BACKEND_VIEWER_FRAME_EXECUTOR_CONTRACT_VERSION,
     executorImplemented: true,
     executorReady,
@@ -220,6 +247,9 @@ export async function executeWebGpuBackendViewerFrame({
     executorContract,
     runtimeRunner: runtimeRunner?.summary ?? null,
     controlledExecution,
+    viewerFramePresentationPassContract,
+    webgpuBackendViewerFramePresentationPass:
+      viewerFramePresentationPassContract,
     invocationCount: controlledExecution.invocationCount ?? 0,
     submittedFrameCount: controlledExecution.submittedFrameCount ?? 0,
     executedBackendFrameSubmissions:
@@ -233,6 +263,8 @@ export async function executeWebGpuBackendViewerFrame({
       runtimeRunner?.summary?.canonicalPresentSummary ?? null,
     resourceLifecycleSummary:
       runtimeRunner?.summary?.resourceLifecycleSummary ?? null,
+    presentationBridgeContract:
+      normalBackendImplementation?.presentationBridgeContract ?? null,
     validationSummary,
     executionError,
     firstValidationFailures: validationSummary.firstValidationFailures,
@@ -241,7 +273,7 @@ export async function executeWebGpuBackendViewerFrame({
           {
             stage: 'production-frame-scheduler',
             reason:
-              'viewer backend executor is ready; production scheduling remains intentionally disconnected'
+              'viewer frame lifecycle owns the guarded presentation pass boundary; production scheduling remains intentionally disconnected'
           },
           {
             stage: 'streaming-lod',
@@ -257,11 +289,11 @@ export async function executeWebGpuBackendViewerFrame({
           {
             stage: 'viewer-backend-frame-executor',
             reason:
-              'executor requires exclusive guards, a ready integration boundary, ready adapter result, and preserved fallback policy'
+              'executor requires exclusive guards, a ready integration boundary, ready adapter result, viewer-owned presentation pass readiness, and preserved fallback policy'
           }
         ],
     nextBackendPrototypeStep: executorReady
-      ? 'connect the viewer backend executor to a scheduler-owned frame loop without using capture/debug as the execution boundary'
+      ? 'connect the viewer-owned guarded WebGPU presentation pass to a scheduler contract without using capture/debug as the execution boundary'
       : 'restore viewer backend executor readiness before scheduler integration',
     timing: {
       webgpuBackendViewerFrameExecutorMs: nowMs() - startMs

@@ -10,6 +10,9 @@ export const WEBGPU_NORMAL_BACKEND_GUARDED_PRESENTATION_ADAPTER_CONTRACT_VERSION
 export const WEBGPU_NORMAL_BACKEND_PRESENTATION_BRIDGE_CONTRACT_VERSION =
   'phase3-step72-viewer-canvas-current-texture-presentation-bridge-v1';
 
+export const WEBGPU_VIEWER_FRAME_PRESENTATION_PASS_CONTRACT_VERSION =
+  'phase3-step73-viewer-frame-lifecycle-owned-presentation-pass-v1';
+
 const DEFAULT_FUTURE_PRESENTATION_TARGETS = [
   'viewer-canvas-current-texture',
   'render-target-texture',
@@ -368,6 +371,133 @@ export function buildUnavailablePresentationBridgeContract(reason, extra = {}) {
     webgl2HybridRenderingAllowed: false,
     reason,
     ...extra
+  };
+}
+
+export function buildUnavailableViewerFramePresentationPassContract(
+  reason,
+  extra = {}
+) {
+  return {
+    contractVersion: WEBGPU_VIEWER_FRAME_PRESENTATION_PASS_CONTRACT_VERSION,
+    status: 'unavailable',
+    presentationPassMode:
+      'viewer-frame-lifecycle-owned-guarded-webgpu-presentation-pass',
+    viewerFramePresentationPassReady: false,
+    calledFromViewerFrameLifecycle: false,
+    calledFromExecutorChain: false,
+    debugCaptureOwnsPresentationPass: false,
+    viewerOwnsCurrentTextureLifecycle: false,
+    currentTextureConnectionAttempted: false,
+    currentTextureConnected: false,
+    currentTextureAcquired: false,
+    currentTextureRenderPassSubmitted: false,
+    currentTextureReadbackCompleted: false,
+    currentTextureReadbackMatchesAdapterOutput: false,
+    webgl2HybridRenderingAllowed: false,
+    fallbackSamplesMixed: false,
+    productionSchedulerConnected: false,
+    reason,
+    ...extra
+  };
+}
+
+export function buildViewerFramePresentationPassContract({
+  executorContract,
+  runtimeRunner,
+  presentationBridgeContract,
+  invocationSource = 'viewer-frame-lifecycle-presentation-pass',
+  frameIndex = 0
+} = {}) {
+  const currentTextureConnected =
+    presentationBridgeContract?.currentTextureConnected === true;
+  const currentTextureReadbackMatchesAdapterOutput =
+    presentationBridgeContract?.currentTextureReadbackMatchesAdapterOutput ===
+    true;
+  const calledFromViewerFrameLifecycle =
+    executorContract?.callableFromViewerLifecycle === true &&
+    String(invocationSource).includes('renderCurrentFrame');
+  const calledFromExecutorChain =
+    executorContract?.directBackendRunner === 'webgpuBackendRuntimeRunner' &&
+    runtimeRunner?.runtimeRunnerReady === true;
+  const guardAllowed =
+    executorContract?.requestedBackendMode === 'webgpu-exclusive' &&
+    executorContract?.allowViewerCanvasPresentation === true &&
+    executorContract?.enableViewerLoopHook === true;
+  const webgl2HybridRenderingPrevented =
+    presentationBridgeContract?.webgl2HybridRenderingAllowed === false;
+  const fallbackSamplesMixed =
+    presentationBridgeContract?.fallbackSamplesMixed === true;
+  const viewerFramePresentationPassReady =
+    guardAllowed &&
+    calledFromViewerFrameLifecycle &&
+    calledFromExecutorChain &&
+    currentTextureConnected &&
+    presentationBridgeContract?.currentTextureAcquired === true &&
+    presentationBridgeContract?.currentTextureRenderPassSubmitted === true &&
+    presentationBridgeContract?.currentTextureReadbackCompleted === true &&
+    currentTextureReadbackMatchesAdapterOutput &&
+    webgl2HybridRenderingPrevented &&
+    fallbackSamplesMixed === false;
+  const reason = viewerFramePresentationPassReady
+    ? null
+    : 'viewer-frame-lifecycle-owned-presentation-pass-validation-not-ready';
+  return {
+    contractVersion: WEBGPU_VIEWER_FRAME_PRESENTATION_PASS_CONTRACT_VERSION,
+    status: viewerFramePresentationPassReady ? 'ok' : 'blocked',
+    presentationPassMode:
+      'viewer-frame-lifecycle-owned-guarded-webgpu-presentation-pass',
+    viewerFramePresentationPassReady,
+    calledFromViewerFrameLifecycle,
+    calledFromExecutorChain,
+    invocationSource,
+    frameIndex,
+    owner: 'viewer-frame-lifecycle',
+    executorContractVersion: executorContract?.contractVersion ?? null,
+    runtimeRunnerContractVersion: runtimeRunner?.contractVersion ?? null,
+    sourcePresentationBridgeContractVersion:
+      presentationBridgeContract?.contractVersion ?? null,
+    sourceConnectionMode:
+      presentationBridgeContract?.currentTextureConnectionMode ?? null,
+    targetResourceKind:
+      presentationBridgeContract?.currentTextureTargetResourceKind ?? null,
+    targetFormat: presentationBridgeContract?.currentTextureFormat ?? null,
+    currentTextureLifecycle:
+      presentationBridgeContract?.currentTextureLifecycle ?? null,
+    currentTextureCapabilityCheck:
+      presentationBridgeContract?.currentTextureCapabilityCheck ?? null,
+    viewerOwnsCurrentTextureLifecycle: currentTextureConnected,
+    currentTextureConnectionAttempted:
+      presentationBridgeContract?.currentTextureConnectionAttempted === true,
+    currentTextureConnected,
+    currentTextureContextProvided:
+      presentationBridgeContract?.currentTextureContextProvided === true,
+    currentTextureConfigured:
+      presentationBridgeContract?.currentTextureConfigured === true,
+    currentTextureAcquired:
+      presentationBridgeContract?.currentTextureAcquired === true,
+    currentTextureRenderPassSubmitted:
+      presentationBridgeContract?.currentTextureRenderPassSubmitted === true,
+    currentTextureReadbackCompleted:
+      presentationBridgeContract?.currentTextureReadbackCompleted === true,
+    currentTextureReadbackMatchesAdapterOutput,
+    currentTextureMaxAbsDiff:
+      presentationBridgeContract?.currentTextureMaxAbsDiff ?? null,
+    submittedWorkDone: presentationBridgeContract?.submittedWorkDone === true,
+    gpuCommandPath: presentationBridgeContract?.gpuCommandPath ?? null,
+    renderTargetBridgeRetainedForValidation:
+      presentationBridgeContract?.renderTargetBridgeReady === true,
+    debugCaptureOwnsPresentationPass: false,
+    validationOracleRole:
+      'capture/dry-run observes the viewer-owned presentation pass but does not own it',
+    productionSchedulerConnected: false,
+    productionCanvasPresentationConnected:
+      presentationBridgeContract?.productionCanvasPresentationConnected === true,
+    webgl2HybridRenderingAllowed:
+      presentationBridgeContract?.webgl2HybridRenderingAllowed === true,
+    fallbackSamplesMixed,
+    fullDatasetGpuResidencyRequired: false,
+    reason
   };
 }
 

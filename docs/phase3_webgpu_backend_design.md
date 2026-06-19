@@ -908,3 +908,31 @@ and suppressed WebGL2 frame lifecycle.
 This is the first normal-backend guarded path where the presentation adapter
 receives viewer canvas lifecycle state and writes the adapter output into the
 actual viewer canvas currentTexture boundary.
+
+## Step73 Viewer-Owned Guarded Presentation Pass Boundary
+
+Step73 keeps the Step72 currentTexture render pass intact, but moves ownership
+of that result up to the viewer frame lifecycle. The `renderCurrentFrame()`
+guarded path now receives a structured viewer-owned presentation pass contract
+from `webgpuBackendViewerFrameExecutor`, so the pass is no longer represented
+only as a normal-backend validation artifact.
+
+- viewer-owned pass: `webgpuBackendViewerFrameExecutor` consumes the runtime
+  runner's normal backend `presentationBridgeContract` and builds a
+  `viewerFramePresentationPassContract` through the shared backend output
+  contract helper.
+- ownership contract: the contract records that `renderCurrentFrame` invoked
+  the executor chain, the runtime runner completed, currentTexture was
+  acquired/configured, a render pass was submitted, and readback matched the
+  adapter output.
+- recorder separation: dry-run capture observes the executor-owned contract and
+  remains a validation oracle; it does not own the presentation pass.
+- guardrails: the pass still requires `webgpu-exclusive`,
+  `webgpuAllowViewerCanvasPresentation=true`, `webgpuBackendViewerLoopHook=true`,
+  suppressed WebGL2 frame lifecycle, no fallback sample mixing, and no
+  production scheduler connection.
+
+This establishes the viewer frame lifecycle as the owner of the guarded WebGPU
+presentation pass boundary. A future step can promote this boundary into a
+scheduler contract without changing the WebGPU/WebGL2 separation or requiring
+full dataset GPU residency.

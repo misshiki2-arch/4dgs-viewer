@@ -949,6 +949,9 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
     webgpu_backend_viewer_frame_executor = get_path(
         summary, ["webgpuBackendViewerFrameExecutor"], {}
     )
+    webgpu_backend_viewer_frame_presentation_pass = get_path(
+        summary, ["webgpuBackendViewerFramePresentationPass"], {}
+    )
     webgpu_backend_viewer_frame_executor_validation = get_path(
         webgpu_backend_viewer_frame_executor,
         ["validationSummary"],
@@ -4986,6 +4989,51 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
                 ["recorderObservation"],
                 {},
             ),
+            "viewerFramePresentationPassContract": get_path(
+                webgpu_backend_viewer_frame_executor,
+                ["viewerFramePresentationPassContract"],
+                {},
+            ),
+            "webgpuBackendViewerFramePresentationPass": get_path(
+                webgpu_backend_viewer_frame_executor,
+                ["webgpuBackendViewerFramePresentationPass"],
+                {},
+            ),
+            "viewerFramePresentationPassReady": get_path(
+                webgpu_backend_viewer_frame_executor,
+                [
+                    "viewerFramePresentationPassContract",
+                    "viewerFramePresentationPassReady",
+                ],
+            ),
+            "viewerOwnsCurrentTextureLifecycle": get_path(
+                webgpu_backend_viewer_frame_executor,
+                [
+                    "viewerFramePresentationPassContract",
+                    "viewerOwnsCurrentTextureLifecycle",
+                ],
+            ),
+            "presentationPassCurrentTextureConnected": get_path(
+                webgpu_backend_viewer_frame_executor,
+                [
+                    "viewerFramePresentationPassContract",
+                    "currentTextureConnected",
+                ],
+            ),
+            "presentationPassCurrentTextureReadbackMatchesAdapterOutput": get_path(
+                webgpu_backend_viewer_frame_executor,
+                [
+                    "viewerFramePresentationPassContract",
+                    "currentTextureReadbackMatchesAdapterOutput",
+                ],
+            ),
+            "presentationPassDebugCaptureOwnsPresentationPass": get_path(
+                webgpu_backend_viewer_frame_executor,
+                [
+                    "viewerFramePresentationPassContract",
+                    "debugCaptureOwnsPresentationPass",
+                ],
+            ),
             "invocationCount": get_path(
                 webgpu_backend_viewer_frame_executor,
                 ["invocationCount"],
@@ -5043,6 +5091,10 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
                 webgpu_backend_viewer_frame_executor_validation,
                 ["controlledExecutionReady"],
             ),
+            "viewerFramePresentationPassReadyValidation": get_path(
+                webgpu_backend_viewer_frame_executor_validation,
+                ["viewerFramePresentationPassReady"],
+            ),
             "webgl2HybridRenderingPrevented": get_path(
                 webgpu_backend_viewer_frame_executor_validation,
                 ["webgl2HybridRenderingPrevented"],
@@ -5064,6 +5116,80 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             "nextBackendPrototypeStep": get_path(
                 webgpu_backend_viewer_frame_executor,
                 ["nextBackendPrototypeStep"],
+            ),
+        },
+        "webgpuBackendViewerFramePresentationPass": {
+            "status": get_path(
+                webgpu_backend_viewer_frame_presentation_pass,
+                ["status"],
+            ),
+            "contractVersion": get_path(
+                webgpu_backend_viewer_frame_presentation_pass,
+                ["contractVersion"],
+            ),
+            "presentationPassMode": get_path(
+                webgpu_backend_viewer_frame_presentation_pass,
+                ["presentationPassMode"],
+            ),
+            "viewerFramePresentationPassReady": get_path(
+                webgpu_backend_viewer_frame_presentation_pass,
+                ["viewerFramePresentationPassReady"],
+            ),
+            "calledFromViewerFrameLifecycle": get_path(
+                webgpu_backend_viewer_frame_presentation_pass,
+                ["calledFromViewerFrameLifecycle"],
+            ),
+            "calledFromExecutorChain": get_path(
+                webgpu_backend_viewer_frame_presentation_pass,
+                ["calledFromExecutorChain"],
+            ),
+            "viewerOwnsCurrentTextureLifecycle": get_path(
+                webgpu_backend_viewer_frame_presentation_pass,
+                ["viewerOwnsCurrentTextureLifecycle"],
+            ),
+            "currentTextureConnectionAttempted": get_path(
+                webgpu_backend_viewer_frame_presentation_pass,
+                ["currentTextureConnectionAttempted"],
+            ),
+            "currentTextureConnected": get_path(
+                webgpu_backend_viewer_frame_presentation_pass,
+                ["currentTextureConnected"],
+            ),
+            "currentTextureAcquired": get_path(
+                webgpu_backend_viewer_frame_presentation_pass,
+                ["currentTextureAcquired"],
+            ),
+            "currentTextureRenderPassSubmitted": get_path(
+                webgpu_backend_viewer_frame_presentation_pass,
+                ["currentTextureRenderPassSubmitted"],
+            ),
+            "currentTextureReadbackCompleted": get_path(
+                webgpu_backend_viewer_frame_presentation_pass,
+                ["currentTextureReadbackCompleted"],
+            ),
+            "currentTextureReadbackMatchesAdapterOutput": get_path(
+                webgpu_backend_viewer_frame_presentation_pass,
+                ["currentTextureReadbackMatchesAdapterOutput"],
+            ),
+            "debugCaptureOwnsPresentationPass": get_path(
+                webgpu_backend_viewer_frame_presentation_pass,
+                ["debugCaptureOwnsPresentationPass"],
+            ),
+            "productionSchedulerConnected": get_path(
+                webgpu_backend_viewer_frame_presentation_pass,
+                ["productionSchedulerConnected"],
+            ),
+            "webgl2HybridRenderingAllowed": get_path(
+                webgpu_backend_viewer_frame_presentation_pass,
+                ["webgl2HybridRenderingAllowed"],
+            ),
+            "fallbackSamplesMixed": get_path(
+                webgpu_backend_viewer_frame_presentation_pass,
+                ["fallbackSamplesMixed"],
+            ),
+            "reason": get_path(
+                webgpu_backend_viewer_frame_presentation_pass,
+                ["reason"],
             ),
         },
         "webgpuBackendRuntimeRunner": {
