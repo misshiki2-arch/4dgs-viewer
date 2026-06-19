@@ -1,6 +1,9 @@
 import {
   prepareNormalBackendUniformResources
 } from './webgpu_normal_backend_uniform_resources.js';
+import {
+  buildCameraAwareVisibleOutputContract
+} from './common_4dgs_backend_output_contracts.js';
 
 export const WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_MODE =
   'webgpu-normal-backend-frame-implementation';
@@ -393,6 +396,79 @@ function buildPresentOutputContract(backendFrameResult) {
   };
 }
 
+function buildCameraAwareVisibleOutputInputContract({
+  backendFrameResult,
+  presentOutputContract,
+  frameConstantsContract,
+  implementationContract
+}) {
+  const visibleOutput = backendFrameResult?.webgpuCameraAwareVisibleOutput ?? {};
+  const visibleSamples = Array.isArray(visibleOutput.visibleSamples)
+    ? visibleOutput.visibleSamples
+    : [];
+  const selectedSamples = Array.isArray(presentOutputContract?.presentedSamples)
+    ? presentOutputContract.presentedSamples
+    : [];
+  const usingVisibleRecords = visibleSamples.length > 0;
+  const samples = usingVisibleRecords ? visibleSamples : selectedSamples;
+  const sourceMode = usingVisibleRecords
+    ? visibleOutput.contract?.sourceMode ??
+      'webgpu-visible-record-compute-camera-aware-samples'
+    : 'step40-constrained-display-adapter-expanded-bounded-samples';
+  const outputPointRadiusPx = usingVisibleRecords ? 9 : 48;
+  const schedulerBoundary =
+    backendFrameResult?.webgpuSchedulerFramePresentationBoundary ?? {};
+  const invokedFromViewerFramePath =
+    implementationContract?.invocationSource ===
+    'renderCurrentFrame-viewer-backend-executor';
+  const contract = buildCameraAwareVisibleOutputContract({
+    status: samples.length > 0 ? 'ok' : 'blocked',
+    sourceMode,
+    sampleCount: samples.length,
+    maxSampleCount:
+      visibleOutput.contract?.maxSampleCount ?? samples.length,
+    candidateRecordCount:
+      visibleOutput.contract?.candidateRecordCount ??
+      backendFrameResult?.recordCount ??
+      null,
+    validRecordCount:
+      visibleOutput.contract?.validRecordCount ??
+      backendFrameResult?.validRecordCount ??
+      null,
+    outputPointRadiusPx,
+    visibleSamples: samples,
+    cameraSnapshotProvided:
+      frameConstantsContract?.cameraSnapshotProvided === true,
+    projectionContractProvided:
+      frameConstantsContract?.projectionContractProvided === true,
+    frameConstantsReady:
+      frameConstantsContract?.frameConstantsReady === true,
+    schedulerFramePresentationBoundaryReady:
+      schedulerBoundary.schedulerFramePresentationBoundaryReady === true ||
+      invokedFromViewerFramePath,
+    schedulerOwnsFrameRequest:
+      schedulerBoundary.schedulerOwnsFrameRequest === true ||
+      invokedFromViewerFramePath,
+    currentTextureConnected: false,
+    currentTextureRenderPassSubmitted: false,
+    currentTextureReadbackMatchesAdapterOutput: false,
+    webgl2HybridRenderingAllowed:
+      schedulerBoundary.webgl2HybridRenderingAllowed === true,
+    fallbackSamplesMixed:
+      presentOutputContract?.containsRenderHandoffFallback === true,
+    reason:
+      samples.length > 0
+        ? null
+        : 'camera-aware-visible-output-input-samples-empty'
+  });
+  return {
+    samples,
+    contract,
+    usingVisibleRecords,
+    outputPointRadiusPx
+  };
+}
+
 function buildResourceSummary(backendFrameResult) {
   const repeated =
     backendFrameResult?.webgpuBackendFrameControlledRepeatedExecution ?? {};
@@ -507,7 +583,25 @@ function buildUniformResourceLifecycleSummary(uniformResourceLifecycleContract) 
     currentTextureConnectionAttempted:
       uniformResourceLifecycleContract?.currentTextureConnectionAttempted === true,
     currentTextureConnected:
-      uniformResourceLifecycleContract?.currentTextureConnected === true
+      uniformResourceLifecycleContract?.currentTextureConnected === true,
+    cameraAwareVisibleOutputReady:
+      uniformResourceLifecycleContract?.cameraAwareVisibleOutputContract
+        ?.cameraAwareVisibleOutputReady === true,
+    visibleOutputSampleCount:
+      uniformResourceLifecycleContract?.cameraAwareVisibleOutputContract
+        ?.sampleCount ?? 0,
+    visibleOutputSourceMode:
+      uniformResourceLifecycleContract?.cameraAwareVisibleOutputContract
+        ?.sourceMode ?? null,
+    visibleOutputUsesCameraProjection:
+      uniformResourceLifecycleContract?.cameraAwareVisibleOutputContract
+        ?.visibleOutputUsesCameraProjection === true,
+    visibleOutputUsesSchedulerOwnedFramePath:
+      uniformResourceLifecycleContract?.cameraAwareVisibleOutputContract
+        ?.visibleOutputUsesSchedulerOwnedFramePath === true,
+    visibleOutputUsesCurrentTexturePath:
+      uniformResourceLifecycleContract?.cameraAwareVisibleOutputContract
+        ?.visibleOutputUsesCurrentTexturePath === true
   };
 }
 
@@ -625,6 +719,9 @@ function buildValidationSummary({
       ?.currentTextureReadbackCompleted === true &&
     uniformResourceLifecycleContract?.presentationBridgeContract
       ?.currentTextureReadbackMatchesAdapterOutput === true;
+  const cameraAwareVisibleOutputReady =
+    uniformResourceLifecycleContract?.cameraAwareVisibleOutputContract
+      ?.cameraAwareVisibleOutputReady === true;
   const backendFrameResultProvided = !!backendFrameResult;
   const selectedTrueNativeSource =
     presentOutputContract.selectedSourceKind ===
@@ -658,6 +755,7 @@ function buildValidationSummary({
     guardedPresentationAdapterReady &&
     viewerPresentationBridgeReady &&
     currentTextureConnectionReady &&
+    cameraAwareVisibleOutputReady &&
     backendFrameResultProvided &&
     selectedTrueNativeSource &&
     presentReady &&
@@ -763,6 +861,13 @@ function buildValidationSummary({
         'normal WebGPU backend implementation requires the Step72 guarded adapter boundary to render the bridge output into viewer canvas currentTexture'
     });
   }
+  if (!cameraAwareVisibleOutputReady) {
+    firstValidationFailures.push({
+      stage: 'normal-backend-camera-aware-visible-output',
+      reason:
+        'normal WebGPU backend implementation requires camera/projection-derived visible samples to be enlarged into a GPU color surface and presented through the scheduler-owned currentTexture path'
+    });
+  }
   if (!selectedTrueNativeSource) {
     firstValidationFailures.push({
       stage: 'normal-backend-source-selection',
@@ -819,6 +924,7 @@ function buildValidationSummary({
     guardedPresentationAdapterReady,
     viewerPresentationBridgeReady,
     currentTextureConnectionReady,
+    cameraAwareVisibleOutputReady,
     backendFrameResultProvided,
     selectedTrueNativeSource,
     presentReady,
@@ -886,11 +992,21 @@ export async function runWebGpuNormalBackendFrameImplementation({
     }
   }
   const presentOutputContract = buildPresentOutputContract(backendFrameResult);
+  const cameraAwareVisibleOutputInput =
+    buildCameraAwareVisibleOutputInputContract({
+      backendFrameResult,
+      presentOutputContract,
+      frameConstantsContract,
+      implementationContract
+    });
   uniformResourceLifecycleContract =
     await prepareNormalBackendUniformResources({
       frameConstantsContract,
       uniformResourcePreparationContract,
       selectedSamples: presentOutputContract.presentedSamples,
+      visibleOutputSamples: cameraAwareVisibleOutputInput.samples,
+      cameraAwareVisibleOutputContract:
+        cameraAwareVisibleOutputInput.contract,
       viewerCanvasState
     });
   const resourceSummary = buildResourceSummary(backendFrameResult);
@@ -908,6 +1024,8 @@ export async function runWebGpuNormalBackendFrameImplementation({
     uniformResourceLifecycleContract?.guardedPresentationAdapterContract ?? null;
   const presentationBridgeContract =
     uniformResourceLifecycleContract?.presentationBridgeContract ?? null;
+  const cameraAwareVisibleOutputContract =
+    uniformResourceLifecycleContract?.cameraAwareVisibleOutputContract ?? null;
   const validationSummary = buildValidationSummary({
     implementationContract,
     frameInputContract,
@@ -925,7 +1043,7 @@ export async function runWebGpuNormalBackendFrameImplementation({
     mode: WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_MODE,
     status: normalBackendImplementationReady ? 'ok' : 'blocked',
     source:
-      'Phase 3 Step72 normal WebGPU backend implementation passes viewer canvas currentTexture lifecycle into the guarded presentation adapter boundary',
+      'Phase 3 Step75 normal WebGPU backend implementation renders camera-aware visible WebGPU output through the scheduler-owned currentTexture path',
     contractVersion:
       WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_CONTRACT_VERSION,
     implementationKind: WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_MODE,
@@ -947,6 +1065,7 @@ export async function runWebGpuNormalBackendFrameImplementation({
     presentationHandoffContract,
     guardedPresentationAdapterContract,
     presentationBridgeContract,
+    cameraAwareVisibleOutputContract,
     uniformShaderConsumptionContract,
     presentOutputContract,
     presentSummary: presentOutputContract,
@@ -954,6 +1073,17 @@ export async function runWebGpuNormalBackendFrameImplementation({
     selectedSourceKind: presentOutputContract.selectedSourceKind,
     selectionMode: presentOutputContract.selectionMode,
     colorPresentSampleCount: presentOutputContract.colorPresentSampleCount,
+    cameraAwareVisibleOutputReady:
+      cameraAwareVisibleOutputContract?.cameraAwareVisibleOutputReady === true,
+    visibleOutputSampleCount:
+      cameraAwareVisibleOutputContract?.sampleCount ?? 0,
+    visibleOutputUsesCameraProjection:
+      cameraAwareVisibleOutputContract?.visibleOutputUsesCameraProjection === true,
+    visibleOutputUsesSchedulerOwnedFramePath:
+      cameraAwareVisibleOutputContract
+        ?.visibleOutputUsesSchedulerOwnedFramePath === true,
+    visibleOutputUsesCurrentTexturePath:
+      cameraAwareVisibleOutputContract?.visibleOutputUsesCurrentTexturePath === true,
     presentedSampleCount: presentOutputContract.presentedSampleCount,
     sampleSources: presentOutputContract.sampleSources,
     presentedSamples: presentOutputContract.presentedSamples,
@@ -969,6 +1099,11 @@ export async function runWebGpuNormalBackendFrameImplementation({
             stage: 'presentation-handoff-connection',
             reason:
               'normal backend output is consumed by the guarded adapter, copied into a render-target bridge, and rendered into viewer canvas currentTexture under the exclusive WebGPU guard'
+          },
+          {
+            stage: 'camera-aware-visible-output',
+            reason:
+              'visible output now uses viewer camera/projection-derived sample positions and enlarged GPU-written color patches instead of fixed debug fill'
           },
           {
             stage: 'production-frame-scheduler',
@@ -989,7 +1124,7 @@ export async function runWebGpuNormalBackendFrameImplementation({
           {
             stage: 'normal-webgpu-backend-implementation',
             reason:
-              'normal implementation requires exclusive guards, frame constants, GPU uniform/sample lifecycle, minimal color output surface generation, normal backend output handoff, guarded presentation adapter consumption, render-target bridge readiness, currentTexture connection readiness, true native selected samples, submitted present output, and preserved fallback policy'
+              'normal implementation requires exclusive guards, frame constants, camera-aware visible sample input, GPU uniform/sample lifecycle, visible color output surface generation, normal backend output handoff, guarded presentation adapter consumption, render-target bridge readiness, currentTexture connection readiness, true native selected samples, submitted present output, and preserved fallback policy'
           }
         ],
     nextBackendPrototypeStep: normalBackendImplementationReady

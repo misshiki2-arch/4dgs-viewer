@@ -16,6 +16,9 @@ export const WEBGPU_VIEWER_FRAME_PRESENTATION_PASS_CONTRACT_VERSION =
 export const WEBGPU_SCHEDULER_FRAME_PRESENTATION_BOUNDARY_CONTRACT_VERSION =
   'phase3-step74-scheduler-owned-guarded-webgpu-frame-presentation-boundary-v1';
 
+export const WEBGPU_CAMERA_AWARE_VISIBLE_OUTPUT_CONTRACT_VERSION =
+  'phase3-step75-camera-control-scheduler-aware-visible-output-v1';
+
 const DEFAULT_FUTURE_PRESENTATION_TARGETS = [
   'viewer-canvas-current-texture',
   'render-target-texture',
@@ -59,6 +62,87 @@ function convertRgbaBytesForTextureFormat(bytes, textureFormat) {
     converted[i + 2] = r;
   }
   return converted;
+}
+
+export function buildCameraAwareVisibleOutputContract({
+  status = 'ok',
+  sourceMode = 'webgpu-visible-record-camera-aware-samples',
+  sampleCount = 0,
+  maxSampleCount = 0,
+  candidateRecordCount = null,
+  validRecordCount = null,
+  outputPointRadiusPx = 0,
+  visibleSamples = [],
+  cameraSnapshotProvided = false,
+  projectionContractProvided = false,
+  frameConstantsReady = false,
+  schedulerFramePresentationBoundaryReady = false,
+  schedulerOwnsFrameRequest = false,
+  currentTextureConnected = false,
+  currentTextureRenderPassSubmitted = false,
+  currentTextureReadbackMatchesAdapterOutput = false,
+  webgl2HybridRenderingAllowed = false,
+  fallbackSamplesMixed = false,
+  reason = null
+} = {}) {
+  const cameraAwareVisibleOutputReady =
+    status === 'ok' &&
+    sampleCount > 0 &&
+    cameraSnapshotProvided === true &&
+    projectionContractProvided === true &&
+    frameConstantsReady === true &&
+    schedulerFramePresentationBoundaryReady === true &&
+    schedulerOwnsFrameRequest === true &&
+    currentTextureConnected === true &&
+    currentTextureRenderPassSubmitted === true &&
+    currentTextureReadbackMatchesAdapterOutput === true &&
+    webgl2HybridRenderingAllowed === false &&
+    fallbackSamplesMixed === false;
+  return {
+    contractVersion: WEBGPU_CAMERA_AWARE_VISIBLE_OUTPUT_CONTRACT_VERSION,
+    status: cameraAwareVisibleOutputReady ? 'ok' : status,
+    outputMode: 'camera-control-scheduler-aware-visible-webgpu-output',
+    cameraAwareVisibleOutputReady,
+    visibleOutputUsesCameraProjection: true,
+    visibleOutputUsesSchedulerOwnedFramePath: true,
+    visibleOutputUsesCurrentTexturePath: true,
+    sourceMode,
+    sampleCount,
+    maxSampleCount,
+    candidateRecordCount,
+    validRecordCount,
+    outputPointRadiusPx,
+    cameraSnapshotProvided,
+    projectionContractProvided,
+    frameConstantsReady,
+    schedulerFramePresentationBoundaryReady,
+    schedulerOwnsFrameRequest,
+    currentTextureConnected,
+    currentTextureRenderPassSubmitted,
+    currentTextureReadbackMatchesAdapterOutput,
+    webgl2HybridRenderingAllowed,
+    fallbackSamplesMixed,
+    samplePreview: visibleSamples.slice(0, 8),
+    successCriteria: [
+      'viewer camera/projection produces samplePx positions',
+      'normal backend consumes visible samples as GPU storage input',
+      'GPU compute writes an enlarged visible color output surface',
+      'guarded adapter presents that surface through currentTexture',
+      'WebGL2 rendering is not mixed into the same display frame'
+    ],
+    reason
+  };
+}
+
+export function buildUnavailableCameraAwareVisibleOutputContract(
+  reason,
+  extra = {}
+) {
+  return buildCameraAwareVisibleOutputContract({
+    status: 'unavailable',
+    reason,
+    ...extra
+  });
 }
 
 export function buildPresentationHandoffContract({

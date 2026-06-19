@@ -1,4 +1,5 @@
 import {
+  buildCameraAwareVisibleOutputContract,
   buildNormalBackendOutputContract,
   buildUnavailableNormalBackendOutputContracts,
   validateNormalBackendOutputContracts
@@ -150,6 +151,9 @@ function sourceKindToCode(source) {
   if (source === 'webgpuRenderHandoffStub.sampleRecords') {
     return -1;
   }
+  if (source === 'webgpuVisibleRecordDryRun.cameraAwareVisibleRecords') {
+    return 75;
+  }
   return 0;
 }
 
@@ -226,7 +230,10 @@ export function packNormalBackendSelectedSampleData(samples) {
   };
 }
 
-function buildExpectedColorOutputSurface(sampleData, sampleCount) {
+function buildExpectedColorOutputSurface(sampleData, sampleCount, {
+  pointRadiusPx = 0
+} = {}) {
+  const radius = Math.max(0, Math.min(64, Math.floor(pointRadiusPx)));
   let minX = Number.POSITIVE_INFINITY;
   let minY = Number.POSITIVE_INFINITY;
   let maxX = 0;
@@ -235,10 +242,10 @@ function buildExpectedColorOutputSurface(sampleData, sampleCount) {
     const offset = i * SAMPLE_FLOAT_STRIDE;
     const x = Math.floor(finiteNumberOr(sampleData[offset + 0], 0));
     const y = Math.floor(finiteNumberOr(sampleData[offset + 1], 0));
-    minX = Math.min(minX, x);
-    minY = Math.min(minY, y);
-    maxX = Math.max(maxX, x);
-    maxY = Math.max(maxY, y);
+    minX = Math.min(minX, x - radius);
+    minY = Math.min(minY, y - radius);
+    maxX = Math.max(maxX, x + radius);
+    maxY = Math.max(maxY, y + radius);
   }
   const originX = Number.isFinite(minX) ? minX : 0;
   const originY = Number.isFinite(minY) ? minY : 0;
@@ -251,18 +258,22 @@ function buildExpectedColorOutputSurface(sampleData, sampleCount) {
     const sampleOffset = i * SAMPLE_FLOAT_STRIDE;
     const sourceX = Math.floor(finiteNumberOr(sampleData[sampleOffset + 0], 0));
     const sourceY = Math.floor(finiteNumberOr(sampleData[sampleOffset + 1], 0));
-    const x = sourceX - originX;
-    const y = sourceY - originY;
-    if (x < 0 || y < 0 || x >= boundedWidth || y >= boundedHeight) {
-      continue;
+    for (let dy = -radius; dy <= radius; dy += 1) {
+      for (let dx = -radius; dx <= radius; dx += 1) {
+        const x = sourceX + dx - originX;
+        const y = sourceY + dy - originY;
+        if (x < 0 || y < 0 || x >= boundedWidth || y >= boundedHeight) {
+          continue;
+        }
+        const pixelOffset = (y * boundedWidth + x) * 4;
+        data[pixelOffset + 0] = finiteNumberOr(sampleData[sampleOffset + 2], 0);
+        data[pixelOffset + 1] = finiteNumberOr(sampleData[sampleOffset + 3], 0);
+        data[pixelOffset + 2] = finiteNumberOr(sampleData[sampleOffset + 4], 0);
+        data[pixelOffset + 3] = finiteNumberOr(sampleData[sampleOffset + 5], 0);
+        writtenPixelCount += 1;
+      }
     }
-    const pixelOffset = (y * boundedWidth + x) * 4;
-    data[pixelOffset + 0] = finiteNumberOr(sampleData[sampleOffset + 2], 0);
-    data[pixelOffset + 1] = finiteNumberOr(sampleData[sampleOffset + 3], 0);
-    data[pixelOffset + 2] = finiteNumberOr(sampleData[sampleOffset + 4], 0);
-    data[pixelOffset + 3] = finiteNumberOr(sampleData[sampleOffset + 5], 0);
-    writtenPixelCount += 1;
-    writtenPixels.push({ x, y, sourceX, sourceY, sampleIndex: i });
+    writtenPixels.push({ sourceX, sourceY, sampleIndex: i, radius });
   }
   return {
     data,
@@ -280,7 +291,8 @@ function buildExpectedColorOutputSurface(sampleData, sampleCount) {
       surfaceOriginPx: { x: originX, y: originY },
       coordinateOrigin: 'top-left-bounded-sample-pixel-origin',
       coordinateMapping:
-        'surface pixel = floor(samplePx.xy) - surfaceOriginPx, then rgba is copied from colorAlpha',
+        'surface pixels = floor(samplePx.xy) plus point radius, then rgba is copied from colorAlpha',
+      outputPointRadiusPx: radius,
       surfacePixelCount: boundedWidth * boundedHeight,
       colorChannels: 4,
       packedFloat32Count: data.length,
@@ -313,7 +325,8 @@ async function consumeUniformWithMinimalCompute({
   uniformData,
   sampleData,
   minBindingSizeBytes,
-  viewerCanvasState = null
+  viewerCanvasState = null,
+  cameraAwareVisibleOutputContract = null
 }) {
   if (typeof GPUBufferUsage === 'undefined' || typeof GPUMapMode === 'undefined') {
     return createUnavailableConsumptionSummary('webgpu-buffer-usage-unavailable');
@@ -323,7 +336,11 @@ async function consumeUniformWithMinimalCompute({
   const sampleCount = Math.floor(sampleData.length / SAMPLE_FLOAT_STRIDE);
   const expectedColorOutputSurface = buildExpectedColorOutputSurface(
     sampleData,
-    sampleCount
+    sampleCount,
+    {
+      pointRadiusPx:
+        cameraAwareVisibleOutputContract?.outputPointRadiusPx ?? 0
+    }
   );
   const outputFloatCount = 4 + SAMPLE_FLOAT_STRIDE;
   const outputByteLength = outputFloatCount * 4;
@@ -425,6 +442,7 @@ const surfaceWidth: u32 = ${expectedColorOutputSurface.summary.surfaceWidth}u;
 const surfaceHeight: u32 = ${expectedColorOutputSurface.summary.surfaceHeight}u;
 const surfaceOriginX: f32 = ${expectedColorOutputSurface.summary.surfaceOriginPx.x}.0;
 const surfaceOriginY: f32 = ${expectedColorOutputSurface.summary.surfaceOriginPx.y}.0;
+const pointRadius: i32 = ${expectedColorOutputSurface.summary.outputPointRadiusPx};
 
 @compute @workgroup_size(1)
 fn main() {
@@ -437,14 +455,20 @@ fn main() {
   }
   for (var sampleIndex: u32 = 0u; sampleIndex < sampleCount; sampleIndex = sampleIndex + 1u) {
     let base = sampleIndex * sampleFloatStride;
-    let x = u32(max(selectedSamples[base + 0u] - surfaceOriginX, 0.0));
-    let y = u32(max(selectedSamples[base + 1u] - surfaceOriginY, 0.0));
-    if (x < surfaceWidth && y < surfaceHeight) {
-      let pixelBase = ((y * surfaceWidth) + x) * 4u;
-      colorOutputSurface[pixelBase + 0u] = selectedSamples[base + 2u];
-      colorOutputSurface[pixelBase + 1u] = selectedSamples[base + 3u];
-      colorOutputSurface[pixelBase + 2u] = selectedSamples[base + 4u];
-      colorOutputSurface[pixelBase + 3u] = selectedSamples[base + 5u];
+    let centerX = i32(floor(selectedSamples[base + 0u] - surfaceOriginX));
+    let centerY = i32(floor(selectedSamples[base + 1u] - surfaceOriginY));
+    for (var dy: i32 = -pointRadius; dy <= pointRadius; dy = dy + 1) {
+      for (var dx: i32 = -pointRadius; dx <= pointRadius; dx = dx + 1) {
+        let px = centerX + dx;
+        let py = centerY + dy;
+        if (px >= 0 && py >= 0 && u32(px) < surfaceWidth && u32(py) < surfaceHeight) {
+          let pixelBase = ((u32(py) * surfaceWidth) + u32(px)) * 4u;
+          colorOutputSurface[pixelBase + 0u] = selectedSamples[base + 2u];
+          colorOutputSurface[pixelBase + 1u] = selectedSamples[base + 3u];
+          colorOutputSurface[pixelBase + 2u] = selectedSamples[base + 4u];
+          colorOutputSurface[pixelBase + 3u] = selectedSamples[base + 5u];
+        }
+      }
     }
   }
 }
@@ -579,6 +603,32 @@ fn main() {
     guardedPresentationAdapterContract?.presentationBridgeContract ?? null;
   const viewerPresentationBridgeReady =
     presentationBridgeContract?.viewerPresentationBridgeReady === true;
+  const cameraAwareVisibleOutputFinalContract =
+    buildCameraAwareVisibleOutputContract({
+      ...(cameraAwareVisibleOutputContract ?? {}),
+      status:
+        cameraAwareVisibleOutputContract?.sampleCount > 0 &&
+        presentationBridgeContract?.currentTextureConnected === true
+          ? 'ok'
+          : 'blocked',
+      currentTextureConnected:
+        presentationBridgeContract?.currentTextureConnected === true,
+      currentTextureRenderPassSubmitted:
+        presentationBridgeContract?.currentTextureRenderPassSubmitted === true,
+      currentTextureReadbackMatchesAdapterOutput:
+        presentationBridgeContract?.currentTextureReadbackMatchesAdapterOutput === true,
+      webgl2HybridRenderingAllowed:
+        presentationBridgeContract?.webgl2HybridRenderingAllowed === true,
+      fallbackSamplesMixed:
+        cameraAwareVisibleOutputContract?.fallbackSamplesMixed === true,
+      reason:
+        cameraAwareVisibleOutputContract?.sampleCount > 0
+          ? presentationBridgeContract?.currentTextureConnected === true
+            ? null
+            : 'camera-aware-visible-output-currentTexture-not-connected'
+          : cameraAwareVisibleOutputContract?.reason ??
+            'camera-aware-visible-output-samples-empty'
+    });
   if (typeof outputBuffer.destroy === 'function') {
     outputBuffer.destroy();
   }
@@ -638,6 +688,7 @@ fn main() {
     normalBackendOutputMatchesExpected,
     handoffReadbackMatchesColorOutputSurface,
     normalBackendOutputValidation,
+    cameraAwareVisibleOutputContract: cameraAwareVisibleOutputFinalContract,
     guardedPresentationAdapterContract,
     presentationBridgeContract,
     expectedFrameUniformPrefix: expected,
@@ -685,6 +736,10 @@ fn main() {
     sampleStorageBufferConsumed: true,
     colorOutputSurfaceContract: {
       ...expectedColorOutputSurface.summary,
+      visibleOutputMode:
+        cameraAwareVisibleOutputFinalContract.outputMode ?? null,
+      cameraAwareVisibleOutputReady:
+        cameraAwareVisibleOutputFinalContract.cameraAwareVisibleOutputReady === true,
       colorOutputSurfaceCreated: true,
       colorOutputSurfaceWriteSubmitted: true,
       colorOutputSurfaceReadbackCompleted: true,
@@ -718,6 +773,8 @@ export async function prepareNormalBackendUniformResources({
   frameConstantsContract,
   uniformResourcePreparationContract,
   selectedSamples = [],
+  visibleOutputSamples = [],
+  cameraAwareVisibleOutputContract = null,
   device = null,
   viewerCanvasState = null
 } = {}) {
@@ -738,7 +795,11 @@ export async function prepareNormalBackendUniformResources({
       packedByteLength: uniformData.byteLength
     });
   }
-  const packedSamples = packNormalBackendSelectedSampleData(selectedSamples);
+  const outputSamples =
+    Array.isArray(visibleOutputSamples) && visibleOutputSamples.length > 0
+      ? visibleOutputSamples
+      : selectedSamples;
+  const packedSamples = packNormalBackendSelectedSampleData(outputSamples);
   if (!packedSamples?.data) {
     return createUnavailableSummary(
       packedSamples?.summary?.reason ?? 'selected-sample-pack-failed',
@@ -799,7 +860,8 @@ export async function prepareNormalBackendUniformResources({
         uniformData,
         sampleData: packedSamples.data,
         minBindingSizeBytes: paddedByteLength,
-        viewerCanvasState
+        viewerCanvasState,
+        cameraAwareVisibleOutputContract
       });
     lifecycleEvents.push('bind-group-layout-created');
     lifecycleEvents.push('bind-group-created');
@@ -909,6 +971,10 @@ export async function prepareNormalBackendUniformResources({
       uniformShaderConsumptionContract,
       sampleResourceLifecycleContract: {
         ...packedSamples.summary,
+        outputSampleSourceMode:
+          Array.isArray(visibleOutputSamples) && visibleOutputSamples.length > 0
+            ? 'camera-aware-visible-output-samples'
+            : 'selected-present-samples',
         normalBackendOwnsGpuSampleResource: true,
         sampleBufferCreated: true,
         sampleBufferWriteSubmitted: true,
@@ -929,6 +995,8 @@ export async function prepareNormalBackendUniformResources({
         uniformShaderConsumptionContract?.guardedPresentationAdapterContract ?? null,
       presentationBridgeContract:
         uniformShaderConsumptionContract?.presentationBridgeContract ?? null,
+      cameraAwareVisibleOutputContract:
+        uniformShaderConsumptionContract?.cameraAwareVisibleOutputContract ?? null,
       packedFloat32Count: uniformData.length,
       packedByteLength: uniformData.byteLength,
       paddedUniformByteLength:

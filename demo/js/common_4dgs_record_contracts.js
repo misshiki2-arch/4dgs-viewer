@@ -4,7 +4,7 @@ export const WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION =
 export const WEBGPU_VISIBLE_RECORD_COMPUTE_MODE =
   'webgpu-storage-buffer-compute-fixed-record';
 
-export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step74';
+export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step75';
 
 export const WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE =
   'wgsl-valid-screen-projection-with-true-native-bounded-color-sources';
@@ -147,6 +147,9 @@ export const WEBGPU_BACKEND_VIEWER_FRAME_PRESENTATION_PASS_COMPUTE_MODE =
 export const WEBGPU_SCHEDULER_FRAME_PRESENTATION_BOUNDARY_COMPUTE_MODE =
   'scheduler-owned-guarded-webgpu-frame-presentation-boundary';
 
+export const WEBGPU_CAMERA_AWARE_VISIBLE_OUTPUT_COMPUTE_MODE =
+  'camera-control-scheduler-aware-visible-webgpu-output';
+
 export const WEBGPU_BACKEND_RUNTIME_RUNNER_COMPUTE_MODE =
   'webgpu-backend-runtime-runner';
 
@@ -286,6 +289,8 @@ export const WEBGPU_VISIBLE_RECORD_FIELD_COMPUTE_MODES = Object.freeze({
     WEBGPU_BACKEND_VIEWER_FRAME_PRESENTATION_PASS_COMPUTE_MODE,
   webgpuSchedulerFramePresentationBoundary:
     WEBGPU_SCHEDULER_FRAME_PRESENTATION_BOUNDARY_COMPUTE_MODE,
+  webgpuCameraAwareVisibleOutput:
+    WEBGPU_CAMERA_AWARE_VISIBLE_OUTPUT_COMPUTE_MODE,
   webgpuBackendRuntimeRunner:
     WEBGPU_BACKEND_RUNTIME_RUNNER_COMPUTE_MODE,
   webgpuNormalBackendFrameImplementation:

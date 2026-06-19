@@ -67,6 +67,8 @@ import {
   buildWebGpuBackendViewerLifecycleIntegrationBoundary
 } from './webgpu_backend_viewer_lifecycle_integration.js';
 import {
+  buildCameraAwareVisibleOutputContract,
+  buildUnavailableCameraAwareVisibleOutputContract,
   buildUnavailableSchedulerFramePresentationBoundaryContract
 } from './common_4dgs_backend_output_contracts.js';
 
@@ -1983,6 +1985,135 @@ function buildRawXyzOpacityForCandidates(raw, candidateIndices) {
   return out;
 }
 
+function boostedVisibleColor({ r, g, b, a, depth, recordIndex }) {
+  const alpha = Math.max(0.35, Math.min(1, Number.isFinite(a) ? a : 1));
+  const sourceRgb = [
+    Number.isFinite(r) ? r : 0,
+    Number.isFinite(g) ? g : 0,
+    Number.isFinite(b) ? b : 0
+  ].map((value) => Math.max(0, Math.min(1, value)));
+  const luminance =
+    sourceRgb[0] * 0.2126 + sourceRgb[1] * 0.7152 + sourceRgb[2] * 0.0722;
+  if (luminance >= 0.04) {
+    return {
+      r: Math.min(1, sourceRgb[0] * 2.5 + 0.04),
+      g: Math.min(1, sourceRgb[1] * 2.5 + 0.04),
+      b: Math.min(1, sourceRgb[2] * 2.5 + 0.04),
+      a: alpha,
+      visibilityBoostApplied: true
+    };
+  }
+  const depthTone = Number.isFinite(depth)
+    ? Math.max(0, Math.min(1, 1 / (1 + Math.abs(depth) * 0.02)))
+    : 0.5;
+  const phase = (recordIndex % 17) / 16;
+  return {
+    r: Math.min(1, 0.15 + depthTone * 0.65),
+    g: Math.min(1, 0.18 + phase * 0.55),
+    b: Math.min(1, 0.25 + (1 - depthTone) * 0.45),
+    a: alpha,
+    visibilityBoostApplied: true
+  };
+}
+
+function buildCameraAwareVisibleOutputSamples({
+  webgpuRecords,
+  renderPayloadReference,
+  recordCount,
+  validRecordCount,
+  canvasWidth,
+  canvasHeight,
+  maxSampleCount = 192,
+  outputPointRadiusPx = 9
+}) {
+  if (!webgpuRecords || recordCount <= 0) {
+    return {
+      visibleSamples: [],
+      contract: buildUnavailableCameraAwareVisibleOutputContract(
+        'webgpu-visible-record-output-unavailable',
+        {
+          candidateRecordCount: recordCount,
+          validRecordCount,
+          maxSampleCount,
+          outputPointRadiusPx
+        }
+      )
+    };
+  }
+  const visibleSamples = [];
+  const stride = Math.max(
+    1,
+    Math.floor(recordCount / Math.max(1, maxSampleCount * 3))
+  );
+  for (
+    let i = 0;
+    i < recordCount && visibleSamples.length < maxSampleCount;
+    i += stride
+  ) {
+    const base = i * RECORD_FLOATS;
+    if (webgpuRecords[base + 1] < 0.5) {
+      continue;
+    }
+    const px = Number(webgpuRecords[base + 2]);
+    const py = Number(webgpuRecords[base + 3]);
+    if (
+      !Number.isFinite(px) ||
+      !Number.isFinite(py) ||
+      px < 0 ||
+      py < 0 ||
+      px >= canvasWidth ||
+      py >= canvasHeight
+    ) {
+      continue;
+    }
+    const depth = Number(webgpuRecords[base + 4]);
+    const payloadBase = i * 8;
+    const color = boostedVisibleColor({
+      r: renderPayloadReference?.[payloadBase + 5],
+      g: renderPayloadReference?.[payloadBase + 6],
+      b: renderPayloadReference?.[payloadBase + 7],
+      a: renderPayloadReference?.[payloadBase + 4],
+      depth,
+      recordIndex: i
+    });
+    visibleSamples.push({
+      source: 'webgpuVisibleRecordDryRun.cameraAwareVisibleRecords',
+      recordIndex: i,
+      srcIndex: Number(webgpuRecords[base + 0]),
+      samplePx: { x: px, y: py },
+      depth,
+      colorAlpha: {
+        r: color.r,
+        g: color.g,
+        b: color.b,
+        a: color.a
+      },
+      cameraAware: true,
+      visibilityBoostApplied: color.visibilityBoostApplied === true
+    });
+  }
+  const contract = buildCameraAwareVisibleOutputContract({
+    status: visibleSamples.length > 0 ? 'ok' : 'blocked',
+    sourceMode: 'webgpu-visible-record-compute-camera-aware-samples',
+    sampleCount: visibleSamples.length,
+    maxSampleCount,
+    candidateRecordCount: recordCount,
+    validRecordCount,
+    outputPointRadiusPx,
+    visibleSamples,
+    cameraSnapshotProvided: true,
+    projectionContractProvided: true,
+    frameConstantsReady: true,
+    webgl2HybridRenderingAllowed: false,
+    fallbackSamplesMixed: false,
+    reason:
+      visibleSamples.length > 0
+        ? null
+        : 'no-valid-webgpu-visible-records-for-camera-aware-output'
+  });
+  return { visibleSamples, contract };
+}
+
 function buildStatePositionsForCandidates(raw, candidateIndices, buildConfig) {
   const count = candidateIndices.length;
   const out = new Float32Array(count * 4);
@@ -3753,6 +3884,15 @@ export async function runWebGpuVisibleRecordDryRun({
     projectionParams: projectionContract.data,
     rawCount
   });
+  const webgpuCameraAwareVisibleOutput =
+    buildCameraAwareVisibleOutputSamples({
+      webgpuRecords: computeResult.records,
+      renderPayloadReference: cpuReference.renderPayloadReference,
+      recordCount: cpuReference.count,
+      validRecordCount: cpuReference.validCount,
+      canvasWidth,
+      canvasHeight
+    });
   const depthSortComparison = buildDepthSortComparison({
     tileRanges: cpuReference.tileRanges,
     tileCountsToOffsetsDryRun,
@@ -4122,7 +4262,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step74 lets the scheduler/frame loop own the guarded WebGPU frame presentation boundary while preserving Step67/68/69/70/71/72/73 validation.',
+    scaffoldNote: 'Phase 3 Step75 renders camera-aware visible WebGPU output through the scheduler-owned guarded currentTexture path while preserving Step67/68/69/70/71/72/73/74 validation.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
@@ -4202,6 +4342,7 @@ export async function runWebGpuVisibleRecordDryRun({
     webgpuBackendViewerFrameExecutor,
     webgpuBackendViewerFramePresentationPass,
     webgpuSchedulerFramePresentationBoundary,
+    webgpuCameraAwareVisibleOutput,
     webgpuBackendRuntimeRunner,
     webgpuNormalBackendFrameImplementation,
     webgpuExclusiveFrameLifecycleSwitch,

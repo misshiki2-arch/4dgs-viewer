@@ -962,3 +962,36 @@ presentation pass as a structured contract.
 The next step can decide how much of this guarded scheduler boundary should
 become the regular WebGPU frame loop contract without mixing WebGPU presentation
 with WebGL2 rendering.
+
+## Step75 Camera/Control/Scheduler-Aware Visible Output Boundary
+
+Step75 changes the success criterion from "the guarded currentTexture plumbing
+exists" to "the WebGPU normal backend produces camera-aware visible output
+through that plumbing." The implementation keeps Three.js and OrbitControls on
+the input-adapter side: the backend consumes the viewer camera snapshot, frame
+constants, projection matrices, viewport, and scheduler frame state, but does
+not own or mutate controls.
+
+- selected approach: Step75 combines the Step40 true-native bounded source with
+  visible-record data. When WebGPU visible records are available, their
+  camera/projection-derived `px/py/depth` and reference-assisted `colorAlpha`
+  become normal-backend visible samples. If that input is unavailable, the
+  contract clearly falls back to enlarged Step40 true-native selected samples
+  rather than render-handoff fallback samples.
+- visible output: the normal backend packs these visible samples into its GPU
+  sample storage buffer. The minimal WGSL pass writes enlarged color patches
+  into the backend-owned color output surface, then the existing output handoff,
+  guarded presentation adapter, presentation bridge, viewer-owned pass, and
+  scheduler-owned currentTexture boundary consume the result.
+- scheduler contract: `cameraAwareVisibleOutputContract` records that the
+  visible output used camera/projection data, scheduler-owned frame request
+  state, and the guarded currentTexture path. This is intentionally stronger
+  than a debug clear or fixed-color rectangle.
+- guardrails: WebGPU and WebGL2 display paths remain non-hybrid,
+  fallback samples are not mixed with selector-selected samples, production
+  scheduling is not fully connected, and full-dataset GPU residency is not
+  required.
+
+This gives Phase 3 its first explicitly visible WebGPU normal-backend output
+boundary while preserving the validation-oracle role of the dry-run recorder
+and the WebGL2 fallback path.
