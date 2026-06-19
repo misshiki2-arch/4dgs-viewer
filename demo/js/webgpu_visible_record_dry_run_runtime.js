@@ -66,6 +66,9 @@ import {
   buildWebGpuBackendViewerLifecycleControlledExecution,
   buildWebGpuBackendViewerLifecycleIntegrationBoundary
 } from './webgpu_backend_viewer_lifecycle_integration.js';
+import {
+  buildUnavailableSchedulerFramePresentationBoundaryContract
+} from './common_4dgs_backend_output_contracts.js';
 
 const DEFAULT_MAX_RECORDS = 65536;
 const DEFAULT_EPSILON = DEFAULT_COMPARISON_EPSILON;
@@ -4036,6 +4039,15 @@ export async function runWebGpuVisibleRecordDryRun({
     webgpuBackendViewerFrameExecutor?.webgpuBackendViewerFramePresentationPass ??
     webgpuBackendViewerFrameExecutor?.viewerFramePresentationPassContract ??
     null;
+  const webgpuSchedulerFramePresentationBoundary =
+    viewerLifecycleIntegrationRequest.lastRenderSchedulerFramePresentationBoundary ??
+    buildUnavailableSchedulerFramePresentationBoundaryContract(
+      'scheduler-owned guarded WebGPU frame presentation boundary was not observed in the latest render result',
+      {
+        validationOracleRole:
+          'capture/dry-run observes scheduler-owned presentation boundary output but does not own it'
+      }
+    );
   const webgpuNormalBackendFrameImplementation =
     webgpuBackendRuntimeRunner?.webgpuNormalBackendFrameImplementation
       ? webgpuBackendRuntimeRunner.webgpuNormalBackendFrameImplementation
@@ -4110,7 +4122,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step73 lets the viewer frame lifecycle own the guarded WebGPU presentation pass boundary while preserving Step67/68/69/70/71/72 validation.',
+    scaffoldNote: 'Phase 3 Step74 lets the scheduler/frame loop own the guarded WebGPU frame presentation boundary while preserving Step67/68/69/70/71/72/73 validation.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
@@ -4189,6 +4201,7 @@ export async function runWebGpuVisibleRecordDryRun({
     webgpuBackendViewerLifecycleControlledExecution,
     webgpuBackendViewerFrameExecutor,
     webgpuBackendViewerFramePresentationPass,
+    webgpuSchedulerFramePresentationBoundary,
     webgpuBackendRuntimeRunner,
     webgpuNormalBackendFrameImplementation,
     webgpuExclusiveFrameLifecycleSwitch,
@@ -4316,6 +4329,7 @@ export async function runWebGpuVisibleRecordDryRun({
       webgpuBackendViewerLifecycleControlledExecution,
       webgpuBackendViewerFrameExecutor,
       webgpuBackendViewerFramePresentationPass,
+      webgpuSchedulerFramePresentationBoundary,
       webgpuBackendRuntimeRunner,
       webgpuExclusiveFrameLifecycleSwitch,
       inputContract,

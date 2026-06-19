@@ -37,6 +37,7 @@ KNOWN_SUFFIXES = [
     "gpu_visible_record_dryrun_compare",
     "gpu_raw_visible_record_dryrun_compare",
     "webgpu_visible_record_dryrun_compare",
+    "webgpu_visible_record_dryrun_capture_status",
     "gpu_candidate_source_compare",
     "gpu_candidate_coverage",
     "gpu_candidate_runtime_summary",
@@ -100,6 +101,20 @@ def compact_list(value: Any, max_items: int = 8) -> Any:
     if len(value) <= max_items:
         return value
     return value[:max_items] + [f"...({len(value) - max_items} more)"]
+
+
+def extract_capture_status(data: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "captureTarget": get_path(data, ["captureTarget"]),
+        "captureStatus": get_path(data, ["status"]),
+        "captureReason": get_path(data, ["reason"]),
+        "captureFatalError": get_path(data, ["captureFatalError"]),
+        "captureExceptionRecorded": get_path(data, ["captureExceptionRecorded"]),
+        "captureErrorName": get_path(data, ["captureErrorName"]),
+        "captureErrorMessage": get_path(data, ["captureErrorMessage"]),
+        "captureErrorString": get_path(data, ["captureErrorString"]),
+        "captureErrorStack": get_path(data, ["captureErrorStack"]),
+    }
 
 
 def extract_candidate_compare(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -952,6 +967,9 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
     webgpu_backend_viewer_frame_presentation_pass = get_path(
         summary, ["webgpuBackendViewerFramePresentationPass"], {}
     )
+    webgpu_scheduler_frame_presentation_boundary = get_path(
+        summary, ["webgpuSchedulerFramePresentationBoundary"], {}
+    )
     webgpu_backend_viewer_frame_executor_validation = get_path(
         webgpu_backend_viewer_frame_executor,
         ["validationSummary"],
@@ -979,6 +997,12 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
         "computeMode": get_path(summary, ["computeMode"]),
         "scaffoldMode": get_path(summary, ["scaffoldMode"]),
         "phaseStep": get_path(summary, ["phaseStep"]),
+        "captureStatus": "ok",
+        "captureReason": "compare-json-present",
+        "captureFatalError": False,
+        "captureExceptionRecorded": False,
+        "captureErrorName": None,
+        "captureErrorMessage": None,
         "implementedFields": get_path(summary, ["implementedFields"], []),
         "wgslComputedFields": get_path(summary, ["wgslComputedFields"], []),
         "wgslReferenceAssistedFields": get_path(
@@ -5192,6 +5216,92 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
                 ["reason"],
             ),
         },
+        "webgpuSchedulerFramePresentationBoundary": {
+            "status": get_path(
+                webgpu_scheduler_frame_presentation_boundary,
+                ["status"],
+            ),
+            "contractVersion": get_path(
+                webgpu_scheduler_frame_presentation_boundary,
+                ["contractVersion"],
+            ),
+            "boundaryMode": get_path(
+                webgpu_scheduler_frame_presentation_boundary,
+                ["boundaryMode"],
+            ),
+            "schedulerFramePresentationBoundaryReady": get_path(
+                webgpu_scheduler_frame_presentation_boundary,
+                ["schedulerFramePresentationBoundaryReady"],
+            ),
+            "schedulerOwnsFrameRequest": get_path(
+                webgpu_scheduler_frame_presentation_boundary,
+                ["schedulerOwnsFrameRequest"],
+            ),
+            "schedulerOwnsPresentationBoundary": get_path(
+                webgpu_scheduler_frame_presentation_boundary,
+                ["schedulerOwnsPresentationBoundary"],
+            ),
+            "calledFromSchedulerFrameLoop": get_path(
+                webgpu_scheduler_frame_presentation_boundary,
+                ["calledFromSchedulerFrameLoop"],
+            ),
+            "frameRequestIssued": get_path(
+                webgpu_scheduler_frame_presentation_boundary,
+                ["frameRequestIssued"],
+            ),
+            "requestAnimationFrameCallbackEntered": get_path(
+                webgpu_scheduler_frame_presentation_boundary,
+                ["requestAnimationFrameCallbackEntered"],
+            ),
+            "renderFrameInvoked": get_path(
+                webgpu_scheduler_frame_presentation_boundary,
+                ["renderFrameInvoked"],
+            ),
+            "renderFrameCompleted": get_path(
+                webgpu_scheduler_frame_presentation_boundary,
+                ["renderFrameCompleted"],
+            ),
+            "viewerFramePresentationPassConsumed": get_path(
+                webgpu_scheduler_frame_presentation_boundary,
+                ["viewerFramePresentationPassConsumed"],
+            ),
+            "currentTextureConnected": get_path(
+                webgpu_scheduler_frame_presentation_boundary,
+                ["currentTextureConnected"],
+            ),
+            "currentTextureRenderPassSubmitted": get_path(
+                webgpu_scheduler_frame_presentation_boundary,
+                ["currentTextureRenderPassSubmitted"],
+            ),
+            "currentTextureReadbackCompleted": get_path(
+                webgpu_scheduler_frame_presentation_boundary,
+                ["currentTextureReadbackCompleted"],
+            ),
+            "currentTextureReadbackMatchesAdapterOutput": get_path(
+                webgpu_scheduler_frame_presentation_boundary,
+                ["currentTextureReadbackMatchesAdapterOutput"],
+            ),
+            "debugCaptureOwnsPresentationPass": get_path(
+                webgpu_scheduler_frame_presentation_boundary,
+                ["debugCaptureOwnsPresentationPass"],
+            ),
+            "productionSchedulerConnected": get_path(
+                webgpu_scheduler_frame_presentation_boundary,
+                ["productionSchedulerConnected"],
+            ),
+            "webgl2HybridRenderingAllowed": get_path(
+                webgpu_scheduler_frame_presentation_boundary,
+                ["webgl2HybridRenderingAllowed"],
+            ),
+            "fallbackSamplesMixed": get_path(
+                webgpu_scheduler_frame_presentation_boundary,
+                ["fallbackSamplesMixed"],
+            ),
+            "reason": get_path(
+                webgpu_scheduler_frame_presentation_boundary,
+                ["reason"],
+            ),
+        },
         "webgpuBackendRuntimeRunner": {
             "status": get_path(webgpu_backend_runtime_runner, ["status"]),
             "mode": get_path(webgpu_backend_runtime_runner, ["mode"]),
@@ -5734,10 +5844,27 @@ def summarize_step(base_dir: Path, prefix: str) -> Dict[str, Any]:
             loaded["gpu_raw_visible_record_dryrun_compare"]
         )
 
+    webgpu_visible_capture_status = None
+    if "webgpu_visible_record_dryrun_capture_status" in loaded:
+        webgpu_visible_capture_status = extract_capture_status(
+            loaded["webgpu_visible_record_dryrun_capture_status"]
+        )
+
     if "webgpu_visible_record_dryrun_compare" in loaded:
         result["webgpuVisibleRecordDryRun"] = extract_webgpu_visible_record_dryrun(
             loaded["webgpu_visible_record_dryrun_compare"]
         )
+        if webgpu_visible_capture_status is not None:
+            result["webgpuVisibleRecordDryRun"].update(webgpu_visible_capture_status)
+    elif webgpu_visible_capture_status is not None:
+        result["webgpuVisibleRecordDryRun"] = {
+            "status": webgpu_visible_capture_status.get("captureStatus"),
+            "reason": webgpu_visible_capture_status.get("captureReason"),
+            "computeMode": None,
+            "scaffoldMode": None,
+            "phaseStep": None,
+            **webgpu_visible_capture_status,
+        }
 
     if "association" in loaded:
         result["association"] = extract_association(loaded["association"])

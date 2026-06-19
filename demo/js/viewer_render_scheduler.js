@@ -1,4 +1,9 @@
-export function createRenderScheduler({ renderFrame, tokenRef, isPlaying }) {
+export function createRenderScheduler({
+  renderFrame,
+  tokenRef,
+  isPlaying,
+  buildFramePresentationBoundary
+}) {
   const state = {
     renderPending: false,
     rendering: false,
@@ -12,14 +17,36 @@ export function createRenderScheduler({ renderFrame, tokenRef, isPlaying }) {
     }
 
     state.renderPending = true;
+    const schedulerFrameState = {
+      calledFromSchedulerFrameLoop: true,
+      frameRequestIssued: true,
+      requestAnimationFrameCallbackEntered: false,
+      renderFrameInvoked: false,
+      renderFrameCompleted: false
+    };
 
     requestAnimationFrame(async () => {
       state.renderPending = false;
       state.rendering = true;
       state.needsRenderAgain = false;
+      schedulerFrameState.requestAnimationFrameCallbackEntered = true;
 
       try {
-        await renderFrame();
+        schedulerFrameState.renderFrameInvoked = true;
+        const renderResult = await renderFrame({
+          schedulerFrameState
+        });
+        schedulerFrameState.renderFrameCompleted = true;
+        if (
+          renderResult &&
+          typeof buildFramePresentationBoundary === 'function'
+        ) {
+          renderResult.webgpuSchedulerFramePresentationBoundary =
+            buildFramePresentationBoundary({
+              schedulerFrameState,
+              renderResult
+            });
+        }
       } finally {
         state.rendering = false;
 

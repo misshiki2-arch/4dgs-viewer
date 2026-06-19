@@ -13,6 +13,9 @@ export const WEBGPU_NORMAL_BACKEND_PRESENTATION_BRIDGE_CONTRACT_VERSION =
 export const WEBGPU_VIEWER_FRAME_PRESENTATION_PASS_CONTRACT_VERSION =
   'phase3-step73-viewer-frame-lifecycle-owned-presentation-pass-v1';
 
+export const WEBGPU_SCHEDULER_FRAME_PRESENTATION_BOUNDARY_CONTRACT_VERSION =
+  'phase3-step74-scheduler-owned-guarded-webgpu-frame-presentation-boundary-v1';
+
 const DEFAULT_FUTURE_PRESENTATION_TARGETS = [
   'viewer-canvas-current-texture',
   'render-target-texture',
@@ -495,6 +498,145 @@ export function buildViewerFramePresentationPassContract({
       presentationBridgeContract?.productionCanvasPresentationConnected === true,
     webgl2HybridRenderingAllowed:
       presentationBridgeContract?.webgl2HybridRenderingAllowed === true,
+    fallbackSamplesMixed,
+    fullDatasetGpuResidencyRequired: false,
+    reason
+  };
+}
+
+export function buildUnavailableSchedulerFramePresentationBoundaryContract(
+  reason,
+  extra = {}
+) {
+  return {
+    contractVersion:
+      WEBGPU_SCHEDULER_FRAME_PRESENTATION_BOUNDARY_CONTRACT_VERSION,
+    status: 'unavailable',
+    boundaryMode:
+      'scheduler-owned-guarded-webgpu-frame-presentation-boundary',
+    schedulerFramePresentationBoundaryReady: false,
+    schedulerOwnsFrameRequest: false,
+    schedulerOwnsPresentationBoundary: false,
+    calledFromSchedulerFrameLoop: false,
+    frameRequestIssued: false,
+    requestAnimationFrameCallbackEntered: false,
+    renderFrameInvoked: false,
+    renderFrameCompleted: false,
+    viewerFramePresentationPassConsumed: false,
+    currentTextureConnected: false,
+    currentTextureRenderPassSubmitted: false,
+    currentTextureReadbackCompleted: false,
+    currentTextureReadbackMatchesAdapterOutput: false,
+    debugCaptureOwnsPresentationPass: false,
+    productionSchedulerConnected: false,
+    webgl2HybridRenderingAllowed: false,
+    fallbackSamplesMixed: false,
+    fullDatasetGpuResidencyRequired: false,
+    reason,
+    ...extra
+  };
+}
+
+export function buildSchedulerFramePresentationBoundaryContract({
+  schedulerState,
+  viewerFramePresentationPassContract,
+  requestedBackendMode = 'webgl2-fallback',
+  allowViewerCanvasPresentation = false,
+  enableViewerLoopHook = false,
+  backendImplementationKind = null,
+  frameIndex = 0,
+  phase = 'completed'
+} = {}) {
+  const calledFromSchedulerFrameLoop =
+    schedulerState?.calledFromSchedulerFrameLoop === true;
+  const frameRequestIssued = schedulerState?.frameRequestIssued === true;
+  const requestAnimationFrameCallbackEntered =
+    schedulerState?.requestAnimationFrameCallbackEntered === true;
+  const renderFrameInvoked = schedulerState?.renderFrameInvoked === true;
+  const renderFrameCompleted = schedulerState?.renderFrameCompleted === true;
+  const guardAllowed =
+    requestedBackendMode === 'webgpu-exclusive' &&
+    allowViewerCanvasPresentation === true &&
+    enableViewerLoopHook === true &&
+    backendImplementationKind ===
+      'webgpu-normal-backend-frame-implementation';
+  const viewerFramePresentationPassReady =
+    viewerFramePresentationPassContract?.viewerFramePresentationPassReady ===
+    true;
+  const currentTextureConnected =
+    viewerFramePresentationPassContract?.currentTextureConnected === true;
+  const currentTextureRenderPassSubmitted =
+    viewerFramePresentationPassContract?.currentTextureRenderPassSubmitted ===
+    true;
+  const currentTextureReadbackCompleted =
+    viewerFramePresentationPassContract?.currentTextureReadbackCompleted ===
+    true;
+  const currentTextureReadbackMatchesAdapterOutput =
+    viewerFramePresentationPassContract
+      ?.currentTextureReadbackMatchesAdapterOutput === true;
+  const webgl2HybridRenderingAllowed =
+    viewerFramePresentationPassContract?.webgl2HybridRenderingAllowed === true;
+  const fallbackSamplesMixed =
+    viewerFramePresentationPassContract?.fallbackSamplesMixed === true;
+  const schedulerFramePresentationBoundaryReady =
+    phase === 'completed' &&
+    guardAllowed &&
+    calledFromSchedulerFrameLoop &&
+    frameRequestIssued &&
+    requestAnimationFrameCallbackEntered &&
+    renderFrameInvoked &&
+    renderFrameCompleted &&
+    viewerFramePresentationPassReady &&
+    currentTextureConnected &&
+    currentTextureRenderPassSubmitted &&
+    currentTextureReadbackCompleted &&
+    currentTextureReadbackMatchesAdapterOutput &&
+    webgl2HybridRenderingAllowed === false &&
+    fallbackSamplesMixed === false;
+  const reason = schedulerFramePresentationBoundaryReady
+    ? null
+    : 'scheduler-owned-guarded-webgpu-frame-presentation-boundary-validation-not-ready';
+  return {
+    contractVersion:
+      WEBGPU_SCHEDULER_FRAME_PRESENTATION_BOUNDARY_CONTRACT_VERSION,
+    status: schedulerFramePresentationBoundaryReady ? 'ok' : 'blocked',
+    boundaryMode:
+      'scheduler-owned-guarded-webgpu-frame-presentation-boundary',
+    schedulerFramePresentationBoundaryReady,
+    schedulerOwnsFrameRequest: frameRequestIssued,
+    schedulerOwnsPresentationBoundary:
+      schedulerFramePresentationBoundaryReady,
+    calledFromSchedulerFrameLoop,
+    frameRequestIssued,
+    requestAnimationFrameCallbackEntered,
+    renderFrameInvoked,
+    renderFrameCompleted,
+    frameIndex,
+    requestedBackendMode,
+    allowViewerCanvasPresentation: allowViewerCanvasPresentation === true,
+    enableViewerLoopHook: enableViewerLoopHook === true,
+    backendImplementationKind,
+    guardAllowed,
+    sourceViewerFramePresentationPassContractVersion:
+      viewerFramePresentationPassContract?.contractVersion ?? null,
+    viewerFramePresentationPassConsumed: viewerFramePresentationPassReady,
+    viewerFramePresentationPassReady,
+    currentTextureConnected,
+    currentTextureAcquired:
+      viewerFramePresentationPassContract?.currentTextureAcquired === true,
+    currentTextureRenderPassSubmitted,
+    currentTextureReadbackCompleted,
+    currentTextureReadbackMatchesAdapterOutput,
+    currentTextureMaxAbsDiff:
+      viewerFramePresentationPassContract?.currentTextureMaxAbsDiff ?? null,
+    gpuCommandPath: viewerFramePresentationPassContract?.gpuCommandPath ?? null,
+    debugCaptureOwnsPresentationPass: false,
+    validationOracleRole:
+      'capture/dry-run observes the scheduler-owned frame presentation boundary but does not own it',
+    productionSchedulerConnected: false,
+    productionSchedulerConnectionMode:
+      'guarded-scheduler-boundary-only',
+    webgl2HybridRenderingAllowed,
     fallbackSamplesMixed,
     fullDatasetGpuResidencyRequired: false,
     reason

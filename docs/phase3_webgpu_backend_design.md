@@ -936,3 +936,29 @@ This establishes the viewer frame lifecycle as the owner of the guarded WebGPU
 presentation pass boundary. A future step can promote this boundary into a
 scheduler contract without changing the WebGPU/WebGL2 separation or requiring
 full dataset GPU residency.
+
+## Step74 Scheduler-Owned Guarded Frame Presentation Boundary
+
+Step74 promotes the Step73 viewer-owned presentation pass into a guarded
+scheduler/frame-loop boundary. The existing `createRenderScheduler()` remains a
+bounded requestAnimationFrame scheduler, but it now records the frame request,
+callback entry, render invocation, render completion, and consumed viewer-owned
+presentation pass as a structured contract.
+
+- scheduler boundary: `viewer_render_scheduler` passes a scheduler frame state
+  into `renderCurrentFrame()` and attaches `webgpuSchedulerFramePresentationBoundary`
+  to the returned render result.
+- ownership split: the scheduler owns frame request and completion accounting;
+  `renderCurrentFrame -> executor -> runtime runner -> normal backend` still owns
+  the guarded WebGPU work and currentTexture render pass.
+- contract source: the scheduler boundary consumes Step73
+  `viewerFramePresentationPassContract` through the shared backend output
+  contract builder and reports currentTexture acquire/render/readback readiness.
+- scope limits: this is a scheduler-owned guarded boundary, not a full
+  production scheduler connection. WebGL2 hybrid rendering stays disabled,
+  fallback samples are not promoted to true native output, and full-dataset GPU
+  residency is not required.
+
+The next step can decide how much of this guarded scheduler boundary should
+become the regular WebGPU frame loop contract without mixing WebGPU presentation
+with WebGL2 rendering.

@@ -91,6 +91,9 @@ import {
   executeWebGpuBackendViewerFrame
 } from './webgpu_backend_viewer_frame_executor.js';
 import {
+  buildSchedulerFramePresentationBoundaryContract
+} from './common_4dgs_backend_output_contracts.js';
+import {
   buildGpuCandidateShadowOptionsFromQuery,
   isGpuCandidateShadowCompareEnabled,
   runGpuCandidateShadowCompare
@@ -2107,7 +2110,9 @@ async function runWebGpuVisibleRecordDryRunFromViewerState({
         lastRenderLifecycleControlledExecution:
           debugRender.renderResult?.webgpuBackendViewerLifecycleControlledExecution ?? null,
         lastRenderBackendFrameExecutor:
-          debugRender.renderResult?.webgpuBackendViewerFrameExecutor ?? null
+          debugRender.renderResult?.webgpuBackendViewerFrameExecutor ?? null,
+        lastRenderSchedulerFramePresentationBoundary:
+          debugRender.renderResult?.webgpuSchedulerFramePresentationBoundary ?? null
       }
     }
   });
@@ -4618,7 +4623,7 @@ async function renderCurrentFrame(options = {}) {
                     options.comparisonMode ??
                     (backendImplementationKind ===
                     'webgpu-normal-backend-frame-implementation'
-                      ? 'phase3-step73-viewer-owned-webgpu-presentation-pass'
+                      ? 'phase3-step74-scheduler-owned-webgpu-frame-presentation-boundary'
                       : 'phase3-step61-viewer-backend-runtime-runner')
                 },
                 requestedWebGpuBackendMode: requestedBackendMode,
@@ -4640,7 +4645,7 @@ async function renderCurrentFrame(options = {}) {
                   phase:
                     backendImplementationKind ===
                     'webgpu-normal-backend-frame-implementation'
-                      ? 'phase3-step73'
+                      ? 'phase3-step74'
                       : 'phase3-step61',
                   renderLifecycleStage: 'renderCurrentFrame',
                   invocationSource: 'renderCurrentFrame-viewer-backend-executor',
@@ -4663,6 +4668,10 @@ async function renderCurrentFrame(options = {}) {
         : null;
     const webgpuBackendViewerFrameExecutor =
       backendFrameExecutorResult?.summary ?? null;
+    const webgpuBackendViewerFramePresentationPass =
+      webgpuBackendViewerFrameExecutor?.webgpuBackendViewerFramePresentationPass ??
+      webgpuBackendViewerFrameExecutor?.viewerFramePresentationPassContract ??
+      null;
     const webgpuBackendViewerLifecycleControlledExecution =
       backendFrameExecutorResult?.controlledExecution ??
       (webgpuBackendViewerLifecycleIntegrationBoundary
@@ -4684,6 +4693,7 @@ async function renderCurrentFrame(options = {}) {
       webgpuBackendViewerLifecycleIntegrationBoundary,
       webgpuBackendViewerLifecycleControlledExecution,
       webgpuBackendViewerFrameExecutor,
+      webgpuBackendViewerFramePresentationPass,
       drawPathSummary: {
         requestedPath: 'webgpu-exclusive',
         actualPath:
@@ -5018,7 +5028,28 @@ function bindSliderTextUpdates() {
 const scheduler = createRenderScheduler({
   renderFrame: renderCurrentFrame,
   tokenRef,
-  isPlaying: () => (playback ? playback.isPlaying() : false)
+  isPlaying: () => (playback ? playback.isPlaying() : false),
+  buildFramePresentationBoundary: ({ schedulerFrameState, renderResult }) => {
+    const executor = renderResult?.webgpuBackendViewerFrameExecutor ?? null;
+    const pass =
+      renderResult?.webgpuBackendViewerFramePresentationPass ??
+      executor?.webgpuBackendViewerFramePresentationPass ??
+      executor?.viewerFramePresentationPassContract ??
+      null;
+    return buildSchedulerFramePresentationBoundaryContract({
+      schedulerState: schedulerFrameState,
+      viewerFramePresentationPassContract: pass,
+      requestedBackendMode:
+        deterministicQueryState.webgpuBackendMode ?? 'webgl2-fallback',
+      allowViewerCanvasPresentation:
+        deterministicQueryState.webgpuAllowViewerCanvasPresentation === true,
+      enableViewerLoopHook:
+        deterministicQueryState.webgpuBackendViewerLoopHook === true,
+      backendImplementationKind:
+        deterministicQueryState.webgpuBackendImplementation ?? null,
+      frameIndex: renderResult?.executionSummary?.frameIndex ?? 0
+    });
+  }
 });
 
 playback = createViewerPlayback({

@@ -227,15 +227,52 @@ def build_webgpu_visible_record_dryrun_command(args: argparse.Namespace) -> str:
     if args.source_mode != "screenCoarse":
         return ""
 
-    return f"""await window.gpuViewerDebug.downloadJsonDebug(
-  await window.gpuViewerDebug.captureWebGpuVisibleRecordDryRunDebug({{
+    return f"""try {{
+  var webgpuVisibleRecordDryRunResult =
+    await window.gpuViewerDebug.captureWebGpuVisibleRecordDryRunDebug({{
     ensureCurrentFrame: false,
     maxRecords: {args.webgpu_visible_record_max_count},
     epsilon: {args.webgpu_visible_record_epsilon},
     maxMismatches: {args.max_mismatches}
-  }}),
-  {quote(args.step + '_webgpu_visible_record_dryrun_compare.json')}
-);"""
+  }});
+
+  await window.gpuViewerDebug.downloadJsonDebug(
+    webgpuVisibleRecordDryRunResult,
+    {quote(args.step + '_webgpu_visible_record_dryrun_compare.json')}
+  );
+
+  await window.gpuViewerDebug.downloadJsonDebug(
+    {{
+      schemaVersion: 'phase3-capture-status-v1',
+      captureTarget: 'webgpu-visible-record-dry-run',
+      status: 'ok',
+      reason: 'ok',
+      captureFatalError: false,
+      captureExceptionRecorded: false,
+      captureErrorName: null,
+      captureErrorMessage: null,
+      captureErrorStack: null
+    }},
+    {quote(args.step + '_webgpu_visible_record_dryrun_capture_status.json')}
+  );
+}} catch (error) {{
+  await window.gpuViewerDebug.downloadJsonDebug(
+    {{
+      schemaVersion: 'phase3-capture-status-v1',
+      captureTarget: 'webgpu-visible-record-dry-run',
+      status: 'error',
+      reason: 'capture-exception',
+      captureFatalError: true,
+      captureExceptionRecorded: true,
+      captureErrorName: error?.name ?? 'Error',
+      captureErrorMessage: error?.message ?? String(error),
+      captureErrorStack: error?.stack ?? null,
+      captureErrorString: String(error)
+    }},
+    {quote(args.step + '_webgpu_visible_record_dryrun_capture_status.json')}
+  );
+  console.error('WebGPU visible record dry-run capture failed', error);
+}}"""
 
 
 def build_runtime_summary_command(args: argparse.Namespace) -> str:
