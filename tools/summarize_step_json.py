@@ -746,6 +746,284 @@ def build_step77_webgpu_owned_visible_summary(
     }
 
 
+def build_step78_true_visible_record_summary(
+    summary: Dict[str, Any],
+    webgpu_visible_record_camera_aware_visible_output: Dict[str, Any],
+    webgpu_owned_camera_aware_visible_output: Dict[str, Any],
+    validation_assisted_camera_aware_visible_output: Dict[str, Any],
+    webgpu_normal_backend_frame_implementation: Dict[str, Any],
+    webgpu_normal_backend_frame_implementation_validation: Dict[str, Any],
+) -> Dict[str, Any]:
+    runtime_contract = get_path(
+        webgpu_visible_record_camera_aware_visible_output,
+        ["contract"],
+        {},
+    )
+    normal_contract = get_path(
+        webgpu_normal_backend_frame_implementation,
+        ["cameraAwareVisibleOutputContract"],
+        {},
+    )
+    sample_contract = get_path(
+        webgpu_normal_backend_frame_implementation,
+        ["sampleResourceLifecycleContract"],
+        {},
+    )
+    color_surface_contract = get_path(
+        webgpu_normal_backend_frame_implementation,
+        ["colorOutputSurfaceLifecycleContract"],
+        {},
+    )
+    presentation_bridge_contract = get_path(
+        webgpu_normal_backend_frame_implementation,
+        ["presentationBridgeContract"],
+        {},
+    )
+    guarded_presentation_adapter_contract = get_path(
+        webgpu_normal_backend_frame_implementation,
+        ["guardedPresentationAdapterContract"],
+        {},
+    )
+    gate_summary = get_path(summary, ["webgpuVisibleRecordGateSummary"], {})
+    bridge_contract = get_path(
+        validation_assisted_camera_aware_visible_output,
+        ["contract"],
+        {},
+    )
+    owned_generation_summary = get_path(
+        webgpu_owned_camera_aware_visible_output,
+        ["generationSummary"],
+        {},
+    )
+    sample_sources = compact_list(
+        get_path(
+            sample_contract,
+            ["sampleSources"],
+            get_path(webgpu_normal_backend_frame_implementation, ["sampleSources"], []),
+        )
+    )
+    visible_record_sources_consumed = any(
+        "webgpuVisibleRecordDryRun.cameraAwareVisibleRecords" in str(source)
+        for source in sample_sources
+    )
+    phase_step = get_path(summary, ["phaseStep"])
+    visible_record_valid_count = get_path(
+        summary,
+        ["validRecordCount"],
+        get_path(gate_summary, ["validRecordCount"], 0),
+    )
+    raw_position_repair_record_count = get_path(
+        gate_summary, ["rawPositionRepairRecordCount"], 0
+    )
+    raw_position_repair_used = bool(raw_position_repair_record_count)
+    visible_record_path_classification = get_path(
+        normal_contract,
+        ["visibleRecordPathClassification"],
+        get_path(gate_summary, ["trueVisibleRecordPathClassification"]),
+    )
+    normal_source_classification = get_path(normal_contract, ["sourceClassification"])
+    source_classification = (
+        visible_record_path_classification
+        if raw_position_repair_used and visible_record_path_classification
+        else normal_source_classification
+    )
+    consumed_source_kind = get_path(normal_contract, ["consumedSourceKind"])
+    normal_consumed_source_classification = get_path(
+        normal_contract,
+        ["consumedSourceClassification"],
+    )
+    consumed_source_classification = (
+        visible_record_path_classification
+        if raw_position_repair_used and visible_record_path_classification
+        else normal_consumed_source_classification
+    )
+    camera_sample_count = get_path(
+        normal_contract,
+        ["sampleCount"],
+        get_path(webgpu_normal_backend_frame_implementation, ["visibleOutputSampleCount"], 0),
+    )
+    current_texture_ready = get_path(
+        webgpu_normal_backend_frame_implementation_validation,
+        ["currentTextureConnectionReady"],
+    )
+    current_texture_readback_matches = get_path(
+        presentation_bridge_contract,
+        ["currentTextureReadbackMatchesAdapterOutput"],
+    )
+    webgl2_hybrid_prevented = get_path(
+        webgpu_normal_backend_frame_implementation_validation,
+        ["webgl2HybridRenderingPrevented"],
+    )
+    fallback_samples_mixed = get_path(
+        normal_contract,
+        ["fallbackSamplesMixed"],
+        get_path(presentation_bridge_contract, ["fallbackSamplesMixed"]),
+    )
+    no_fallback_mixing = get_path(
+        webgpu_normal_backend_frame_implementation_validation,
+        ["noFallbackMixing"],
+    )
+    true_visible_record_consumed = (
+        consumed_source_kind == "visible-record"
+        and consumed_source_classification
+        in ("true-native", "true-native-minimal-visible-record")
+        and visible_record_sources_consumed
+        and bool(visible_record_valid_count)
+        and bool(camera_sample_count)
+    )
+    state_position_record_count = get_path(gate_summary, ["statePositionRecordCount"])
+    full_4d_state_driven_true_native = (
+        consumed_source_kind == "visible-record"
+        and consumed_source_classification == "true-native"
+        and bool(state_position_record_count)
+        and not raw_position_repair_used
+    )
+    success = (
+        phase_step == "phase3-step78"
+        and get_path(normal_contract, ["cameraAwareVisibleOutputReady"]) is True
+        and true_visible_record_consumed
+        and current_texture_ready is True
+        and current_texture_readback_matches is True
+        and webgl2_hybrid_prevented is True
+        and fallback_samples_mixed is False
+        and no_fallback_mixing is True
+    )
+    blocked_reason = None
+    if not success:
+        if phase_step != "phase3-step78":
+            blocked_reason = "summary-phase-step-is-not-phase3-step78"
+        elif not visible_record_valid_count:
+            blocked_reason = "validRecordCount-is-0"
+        elif not true_visible_record_consumed:
+            blocked_reason = "normal-backend-did-not-consume-true-visible-record-source"
+        elif get_path(normal_contract, ["cameraAwareVisibleOutputReady"]) is not True:
+            blocked_reason = "camera-aware-visible-output-contract-not-ready"
+        elif current_texture_ready is not True:
+            blocked_reason = "currentTexture-connection-not-ready"
+        elif current_texture_readback_matches is not True:
+            blocked_reason = "currentTexture-readback-did-not-match-adapter-output"
+        elif webgl2_hybrid_prevented is not True:
+            blocked_reason = "webgl2-hybrid-rendering-not-prevented"
+        elif fallback_samples_mixed is not False or no_fallback_mixing is not True:
+            blocked_reason = "fallback-samples-mixed-or-not-proven-suppressed"
+    return {
+        "step78Decision": "success" if success else "blocked",
+        "step78BlockedReason": blocked_reason,
+        "selectedApproach": "A/B-visible-record-gate-repair",
+        "phaseStep": phase_step,
+        "step78SummaryApplies": phase_step == "phase3-step78",
+        "cameraAwareVisibleOutputReady": get_path(
+            normal_contract, ["cameraAwareVisibleOutputReady"]
+        ),
+        "inputSourceKind": get_path(normal_contract, ["inputSourceKind"]),
+        "inputSourceLineage": get_path(normal_contract, ["inputSourceLineage"]),
+        "sourceClassification": source_classification,
+        "consumedSourceKind": consumed_source_kind,
+        "consumedSourceLineage": get_path(normal_contract, ["consumedSourceLineage"]),
+        "consumedSourceClassification": consumed_source_classification,
+        "consumedSampleCount": get_path(normal_contract, ["consumedSampleCount"]),
+        "trueVisibleRecordConsumedByNormalBackend": true_visible_record_consumed,
+        "validRecordCount": visible_record_valid_count,
+        "runtimeVisibleRecordSampleCount": get_path(runtime_contract, ["sampleCount"], 0),
+        "statePositionAvailableCount": get_path(
+            gate_summary, ["statePositionAvailableCount"]
+        ),
+        "statePositionUnavailableCount": get_path(
+            gate_summary, ["statePositionUnavailableCount"]
+        ),
+        "statePositionRecordCount": get_path(
+            gate_summary, ["statePositionRecordCount"]
+        ),
+        "rawPositionRepairRecordCount": raw_position_repair_record_count,
+        "rawPositionRepairUsed": raw_position_repair_used,
+        "projectionGatePassedCount": get_path(
+            gate_summary, ["projectionGatePassedCount"]
+        ),
+        "visibilityGateMode": get_path(gate_summary, ["visibilityGateMode"]),
+        "trueVisibleRecordPathReady": get_path(
+            gate_summary, ["trueVisibleRecordPathReady"]
+        ),
+        "trueVisibleRecordPathClassification": get_path(
+            gate_summary, ["trueVisibleRecordPathClassification"]
+        ),
+        "full4DStateDrivenTrueNative": full_4d_state_driven_true_native,
+        "full4DStateDrivenTrueNativeClaimed": full_4d_state_driven_true_native,
+        "nextFull4DStateGate": get_path(gate_summary, ["nextFull4DStateGate"]),
+        "webgpuOwnedNativeCompatibleSampleCount": get_path(
+            owned_generation_summary, ["webgpuOwnedSampleCount"], 0
+        ),
+        "validationAssistedBridgeSampleCount": get_path(
+            bridge_contract, ["sampleCount"], 0
+        ),
+        "visibleInputSampleCount": get_path(normal_contract, ["visibleInputSampleCount"]),
+        "renderedSamplePatchCount": get_path(
+            normal_contract, ["renderedSamplePatchCount"]
+        ),
+        "cameraAwareVisibleSampleCount": camera_sample_count,
+        "selectedSamplePatchCount": get_path(sample_contract, ["sampleCount"]),
+        "enlargedPatchPixelCount": get_path(
+            color_surface_contract, ["writtenPixelCount"]
+        ),
+        "outputPointRadiusPx": get_path(normal_contract, ["outputPointRadiusPx"]),
+        "debugFillUsed": get_path(normal_contract, ["debugFillUsed"], False),
+        "usesViewerCameraProjection": get_path(
+            normal_contract, ["visibleOutputUsesCameraProjection"]
+        ),
+        "cameraProjectionDerivedPositions": get_path(
+            normal_contract, ["cameraProjectionDerivedPositions"]
+        ),
+        "schedulerOwnedPath": (
+            get_path(normal_contract, ["visibleOutputUsesSchedulerOwnedFramePath"])
+            is True
+            and get_path(normal_contract, ["schedulerFramePresentationBoundaryReady"])
+            is True
+            and get_path(normal_contract, ["schedulerOwnsFrameRequest"]) is True
+        ),
+        "guardedPresentationAdapterReady": get_path(
+            guarded_presentation_adapter_contract,
+            ["guardedPresentationAdapterReady"],
+        ),
+        "presentationTargetReadable": get_path(
+            guarded_presentation_adapter_contract, ["presentationTargetReadable"]
+        ),
+        "presentationTargetMatchesExpected": get_path(
+            guarded_presentation_adapter_contract,
+            ["presentationTargetMatchesExpected"],
+        ),
+        "presentationTargetMaxAbsDiff": get_path(
+            guarded_presentation_adapter_contract,
+            ["presentationTargetMaxAbsDiff"],
+        ),
+        "viewerPresentationBridgeReady": get_path(
+            presentation_bridge_contract, ["viewerPresentationBridgeReady"]
+        ),
+        "currentTextureConnectionReady": current_texture_ready,
+        "currentTextureReadbackMatchesAdapterOutput": current_texture_readback_matches,
+        "currentTextureMaxAbsDiff": get_path(
+            presentation_bridge_contract, ["currentTextureMaxAbsDiff"]
+        ),
+        "webgpuExclusiveGuard": get_path(
+            webgpu_normal_backend_frame_implementation_validation,
+            ["guardAllowed"],
+        ),
+        "webgl2HybridRenderingPrevented": webgl2_hybrid_prevented,
+        "fallbackSamplesMixed": fallback_samples_mixed,
+        "noFallbackMixing": no_fallback_mixing,
+        "sampleSources": sample_sources,
+        "nativeCompatibleFallbackUsed": consumed_source_kind
+        == "webgpu-owned-native-compatible-samples",
+        "bridgeFallbackUsed": consumed_source_kind == "validation-assisted-bridge",
+        "trueNativeSuccessClaimed": full_4d_state_driven_true_native,
+        "firstValidationFailures": compact_list(
+            get_path(
+                webgpu_normal_backend_frame_implementation_validation,
+                ["firstValidationFailures"],
+                [],
+            )
+        ),
+    }
+
+
 def build_step75_camera_aware_visible_summary(
     summary: Dict[str, Any],
     webgpu_camera_aware_visible_output: Dict[str, Any],
@@ -1850,6 +2128,16 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             webgpu_normal_backend_frame_implementation_validation,
         )
     )
+    step78_true_visible_record_output = (
+        build_step78_true_visible_record_summary(
+            summary,
+            webgpu_visible_record_camera_aware_visible_output,
+            webgpu_owned_camera_aware_visible_output,
+            validation_assisted_camera_aware_visible_output,
+            webgpu_normal_backend_frame_implementation,
+            webgpu_normal_backend_frame_implementation_validation,
+        )
+    )
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -1873,6 +2161,7 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
         "step75CameraAwareVisibleOutput": step75_camera_aware_visible_output,
         "step76ManyCameraAwareVisibleOutput": step76_many_camera_aware_visible_output,
         "step77WebGpuOwnedVisibleOutput": step77_webgpu_owned_visible_output,
+        "step78TrueVisibleRecordOutput": step78_true_visible_record_output,
         "comparisonContract": get_path(summary, ["comparisonContract"], {}),
         "comparisonTolerance": get_path(summary, ["comparisonTolerance"], {}),
         "radiusContract": get_path(summary, ["radiusContract"], {}),
@@ -6859,6 +7148,12 @@ def print_human_summary(summary: Dict[str, Any]) -> None:
         "Step77 WebGPU-owned visible samples",
         summary.get("webgpuVisibleRecordDryRun", {}).get(
             "step77WebGpuOwnedVisibleOutput"
+        ),
+    )
+    print_section(
+        "Step78 true WebGPU visible records",
+        summary.get("webgpuVisibleRecordDryRun", {}).get(
+            "step78TrueVisibleRecordOutput"
         ),
     )
     print_section("WebGPU visible record dry-run", summary.get("webgpuVisibleRecordDryRun"))

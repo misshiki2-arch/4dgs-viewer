@@ -1066,3 +1066,40 @@ visible-record success.
 The next true-native step is to replace the candidate-derived native-compatible
 placement with a WebGPU visible-record projection/visibility gate that produces
 `validRecordCount > 0` without relying on the validation bridge.
+
+## Step78 True WebGPU Visible Record Boundary
+
+Step78 moves the primary path from Step77's native-compatible sample generator
+to a nonzero WebGPU visible-record path. The existing WGSL visible-record
+compute now reports explicit projection/visibility gate diagnostics and can
+use raw xyz as a minimal WebGPU-owned position source when the CPU-materialized
+4D conditional state is unavailable for the current screenCoarse candidate
+batch. The visible-record output itself owns `srcIndex`, `valid`, `px`, `py`,
+and `depth`, and the normal backend consumes those records before the guarded
+adapter/currentTexture presentation path.
+
+- selected approach: A/B. The existing visible-record projection path is kept,
+  with minimal gate repair and diagnostics rather than replacing the backend
+  with another bridge.
+- success contract: Step78 is only successful when `validRecordCount > 0`,
+  `consumedSourceKind=visible-record`, and the currentTexture readback path
+  remains ready. If the path relies on raw xyz repair because 4D conditional
+  `statePositions` are unavailable, the visible-record classification is
+  `true-native-minimal-visible-record` rather than full 4D state driven
+  `true-native`.
+- gate diagnostics: `webgpuVisibleRecordGateSummary` records state-position
+  availability, raw-position repair count, projection gate pass count, and the
+  next full 4D state gate if the minimal raw xyz repair was needed.
+- classification: Step78 is not Step77 native-compatible fallback and not the
+  Step76 validation-assisted bridge, but raw xyz repair also means it must not
+  be reported as full 4D state driven true native. Summary should expose
+  `rawPositionRepairUsed=true`, `full4DStateDrivenTrueNative=false`, and
+  `trueVisibleRecordPathClassification=true-native-minimal-visible-record` when
+  this minimal visible-record path is active.
+- baselines: Step76 validation-assisted bridge samples and Step77
+  native-compatible samples may remain available as diagnostics/baselines, but
+  they are not counted as Step78 success.
+
+This is still not full 4DGS parity: SH/color evaluation, full 4D conditional
+state in WGSL, depth sort, compaction, tile-list generation, streaming, chunking,
+LOD, and partial upload remain deferred.
