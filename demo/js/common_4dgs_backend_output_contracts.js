@@ -17,7 +17,7 @@ export const WEBGPU_SCHEDULER_FRAME_PRESENTATION_BOUNDARY_CONTRACT_VERSION =
   'phase3-step74-scheduler-owned-guarded-webgpu-frame-presentation-boundary-v1';
 
 export const WEBGPU_CAMERA_AWARE_VISIBLE_OUTPUT_CONTRACT_VERSION =
-  'phase3-step76-camera-control-scheduler-aware-visible-output-v2';
+  'phase3-step77-camera-control-scheduler-aware-visible-output-v3';
 
 const DEFAULT_FUTURE_PRESENTATION_TARGETS = [
   'viewer-canvas-current-texture',
@@ -85,6 +85,11 @@ export function buildCameraAwareVisibleOutputContract({
   bridgeInvalidStateFallbackCount = null,
   bridgeProjectionRejectedCount = null,
   bridgeGenerationReason = null,
+  webgpuOwnedSampleCount = null,
+  webgpuOwnedGenerationMode = null,
+  webgpuOwnedGenerationReason = null,
+  webgpuOwnedProjectionGate = null,
+  validationAssistedBridgeSampleCount = null,
   consumedSourceKind = null,
   consumedSourceLineage = null,
   consumedSourceClassification = null,
@@ -152,6 +157,11 @@ export function buildCameraAwareVisibleOutputContract({
     bridgeInvalidStateFallbackCount,
     bridgeProjectionRejectedCount,
     bridgeGenerationReason,
+    webgpuOwnedSampleCount,
+    webgpuOwnedGenerationMode,
+    webgpuOwnedGenerationReason,
+    webgpuOwnedProjectionGate,
+    validationAssistedBridgeSampleCount,
     enlargedPatchPixelCount,
     outputPointRadiusPx,
     debugFillUsed,

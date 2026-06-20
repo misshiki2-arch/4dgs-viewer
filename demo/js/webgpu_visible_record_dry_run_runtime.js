@@ -71,6 +71,9 @@ import {
   buildUnavailableCameraAwareVisibleOutputContract,
   buildUnavailableSchedulerFramePresentationBoundaryContract
 } from './common_4dgs_backend_output_contracts.js';
+import {
+  buildWebGpuOwnedCameraAwareVisibleSamples
+} from './webgpu_owned_visible_sample_generation.js';
 
 const DEFAULT_MAX_RECORDS = 65536;
 const DEFAULT_EPSILON = DEFAULT_COMPARISON_EPSILON;
@@ -2032,7 +2035,7 @@ function buildCameraAwareVisibleOutputSamples({
       contract: buildUnavailableCameraAwareVisibleOutputContract(
         'webgpu-visible-record-output-unavailable',
         {
-          step: 'phase3-step76',
+          step: 'phase3-step77',
           selectedApproach: 'A-webgpu-visible-record',
           inputSourceKind: 'visible-record',
           inputSourceLineage:
@@ -2100,7 +2103,7 @@ function buildCameraAwareVisibleOutputSamples({
   }
   const contract = buildCameraAwareVisibleOutputContract({
     status: visibleSamples.length > 0 ? 'ok' : 'blocked',
-    step: 'phase3-step76',
+    step: 'phase3-step77',
     selectedApproach: 'A-webgpu-visible-record',
     sourceMode: 'webgpu-visible-record-compute-camera-aware-samples',
     inputSourceKind: 'visible-record',
@@ -4265,10 +4268,22 @@ export async function runWebGpuVisibleRecordDryRun({
       canvasWidth,
       canvasHeight
     });
+  const webgpuOwnedCameraAwareVisibleOutput =
+    await buildWebGpuOwnedCameraAwareVisibleSamples({
+      device,
+      candidateIndices: cpuReference.candidateIndices,
+      projectionParams: projectionContract.data,
+      canvasWidth,
+      canvasHeight,
+      validationAssistedBridgeSampleCount:
+        validationAssistedCameraAwareVisibleOutput.visibleSamples.length
+    });
   const webgpuCameraAwareVisibleOutputForNormalBackend =
     webgpuCameraAwareVisibleOutput.visibleSamples.length > 0
       ? webgpuCameraAwareVisibleOutput
-      : validationAssistedCameraAwareVisibleOutput;
+      : webgpuOwnedCameraAwareVisibleOutput.visibleSamples.length > 0
+        ? webgpuOwnedCameraAwareVisibleOutput
+        : validationAssistedCameraAwareVisibleOutput;
   const depthSortComparison = buildDepthSortComparison({
     tileRanges: cpuReference.tileRanges,
     tileCountsToOffsetsDryRun,
@@ -4638,7 +4653,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step76 renders many camera-aware visible WebGPU samples through the scheduler-owned guarded currentTexture path while preserving Step67/68/69/70/71/72/73/74/75 validation.',
+    scaffoldNote: 'Phase 3 Step77 adds a WebGPU-owned native-compatible visible sample generation boundary while preserving the Step76 bridge/currentTexture baseline.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
@@ -4721,6 +4736,7 @@ export async function runWebGpuVisibleRecordDryRun({
     webgpuCameraAwareVisibleOutput:
       webgpuCameraAwareVisibleOutputForNormalBackend,
     webgpuVisibleRecordCameraAwareVisibleOutput: webgpuCameraAwareVisibleOutput,
+    webgpuOwnedCameraAwareVisibleOutput,
     validationAssistedCameraAwareVisibleOutput,
     webgpuBackendRuntimeRunner,
     webgpuNormalBackendFrameImplementation,

@@ -435,7 +435,7 @@ function buildCameraAwareVisibleOutputInputContract({
     'renderCurrentFrame-viewer-backend-executor';
   const contract = buildCameraAwareVisibleOutputContract({
     status: samples.length > 0 ? 'ok' : 'blocked',
-    step: visibleOutput.contract?.step ?? 'phase3-step76',
+    step: visibleOutput.contract?.step ?? 'phase3-step77',
     selectedApproach:
       usingVisibleRecords
         ? visibleOutput.contract?.selectedApproach ?? 'A-webgpu-visible-record'
@@ -495,6 +495,26 @@ function buildCameraAwareVisibleOutputInputContract({
       usingVisibleRecords
         ? visibleOutput.contract?.bridgeGenerationReason ?? null
         : 'step40-selected-samples-used-because-bridge-samples-empty',
+    webgpuOwnedSampleCount:
+      usingVisibleRecords
+        ? visibleOutput.contract?.webgpuOwnedSampleCount ?? null
+        : 0,
+    webgpuOwnedGenerationMode:
+      usingVisibleRecords
+        ? visibleOutput.contract?.webgpuOwnedGenerationMode ?? null
+        : null,
+    webgpuOwnedGenerationReason:
+      usingVisibleRecords
+        ? visibleOutput.contract?.webgpuOwnedGenerationReason ?? null
+        : null,
+    webgpuOwnedProjectionGate:
+      usingVisibleRecords
+        ? visibleOutput.contract?.webgpuOwnedProjectionGate ?? null
+        : null,
+    validationAssistedBridgeSampleCount:
+      usingVisibleRecords
+        ? visibleOutput.contract?.validationAssistedBridgeSampleCount ?? null
+        : null,
     outputPointRadiusPx,
     visibleSamples: samples,
     debugFillUsed: visibleOutput.contract?.debugFillUsed === true,

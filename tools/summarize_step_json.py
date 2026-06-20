@@ -502,6 +502,250 @@ def build_step76_many_camera_aware_visible_summary(
     }
 
 
+def build_step77_webgpu_owned_visible_summary(
+    summary: Dict[str, Any],
+    webgpu_owned_camera_aware_visible_output: Dict[str, Any],
+    validation_assisted_camera_aware_visible_output: Dict[str, Any],
+    webgpu_normal_backend_frame_implementation: Dict[str, Any],
+    webgpu_normal_backend_frame_implementation_validation: Dict[str, Any],
+) -> Dict[str, Any]:
+    selected_contract = get_path(
+        webgpu_owned_camera_aware_visible_output,
+        ["contract"],
+        {},
+    )
+    generation_summary = get_path(
+        webgpu_owned_camera_aware_visible_output,
+        ["generationSummary"],
+        {},
+    )
+    bridge_contract = get_path(
+        validation_assisted_camera_aware_visible_output,
+        ["contract"],
+        {},
+    )
+    normal_contract = get_path(
+        webgpu_normal_backend_frame_implementation,
+        ["cameraAwareVisibleOutputContract"],
+        {},
+    )
+    sample_contract = get_path(
+        webgpu_normal_backend_frame_implementation,
+        ["sampleResourceLifecycleContract"],
+        {},
+    )
+    color_surface_contract = get_path(
+        webgpu_normal_backend_frame_implementation,
+        ["colorOutputSurfaceLifecycleContract"],
+        {},
+    )
+    presentation_bridge_contract = get_path(
+        webgpu_normal_backend_frame_implementation,
+        ["presentationBridgeContract"],
+        {},
+    )
+    guarded_presentation_adapter_contract = get_path(
+        webgpu_normal_backend_frame_implementation,
+        ["guardedPresentationAdapterContract"],
+        {},
+    )
+    sample_sources = compact_list(
+        get_path(
+            sample_contract,
+            ["sampleSources"],
+            get_path(webgpu_normal_backend_frame_implementation, ["sampleSources"], []),
+        )
+    )
+    webgpu_owned_sources_consumed = any(
+        "webgpuOwnedScreenCoarseSamples" in str(source)
+        for source in sample_sources
+    )
+    phase_step = get_path(summary, ["phaseStep"])
+    webgpu_owned_sample_count = get_path(
+        normal_contract,
+        ["webgpuOwnedSampleCount"],
+        get_path(generation_summary, ["webgpuOwnedSampleCount"], 0),
+    )
+    consumed_source_kind = get_path(normal_contract, ["consumedSourceKind"])
+    consumed_source_classification = get_path(
+        normal_contract, ["consumedSourceClassification"]
+    )
+    camera_sample_count = get_path(
+        normal_contract,
+        ["sampleCount"],
+        get_path(webgpu_normal_backend_frame_implementation, ["visibleOutputSampleCount"], 0),
+    )
+    current_texture_ready = get_path(
+        webgpu_normal_backend_frame_implementation_validation,
+        ["currentTextureConnectionReady"],
+    )
+    current_texture_readback_matches = get_path(
+        presentation_bridge_contract,
+        ["currentTextureReadbackMatchesAdapterOutput"],
+    )
+    webgl2_hybrid_prevented = get_path(
+        webgpu_normal_backend_frame_implementation_validation,
+        ["webgl2HybridRenderingPrevented"],
+    )
+    fallback_samples_mixed = get_path(
+        normal_contract,
+        ["fallbackSamplesMixed"],
+        get_path(presentation_bridge_contract, ["fallbackSamplesMixed"]),
+    )
+    no_fallback_mixing = get_path(
+        webgpu_normal_backend_frame_implementation_validation,
+        ["noFallbackMixing"],
+    )
+    webgpu_owned_path_consumed = (
+        consumed_source_kind == "webgpu-owned-native-compatible-samples"
+        and consumed_source_classification == "native-compatible"
+        and bool(webgpu_owned_sample_count)
+        and bool(camera_sample_count)
+        and webgpu_owned_sources_consumed
+    )
+    success = (
+        phase_step == "phase3-step77"
+        and get_path(normal_contract, ["cameraAwareVisibleOutputReady"]) is True
+        and webgpu_owned_path_consumed
+        and current_texture_ready is True
+        and current_texture_readback_matches is True
+        and webgl2_hybrid_prevented is True
+        and fallback_samples_mixed is False
+        and no_fallback_mixing is True
+    )
+    blocked_reason = None
+    if not success:
+        if phase_step != "phase3-step77":
+            blocked_reason = "summary-phase-step-is-not-phase3-step77"
+        elif not webgpu_owned_sample_count:
+            blocked_reason = "webgpu-owned-sample-count-is-0"
+        elif not webgpu_owned_path_consumed:
+            blocked_reason = (
+                "normal backend did not consume the WebGPU-owned "
+                "native-compatible sample batch"
+            )
+        elif get_path(normal_contract, ["cameraAwareVisibleOutputReady"]) is not True:
+            blocked_reason = "camera-aware-visible-output-contract-not-ready"
+        elif current_texture_ready is not True:
+            blocked_reason = "currentTexture-connection-not-ready"
+        elif current_texture_readback_matches is not True:
+            blocked_reason = "currentTexture-readback-did-not-match-adapter-output"
+        elif webgl2_hybrid_prevented is not True:
+            blocked_reason = "webgl2-hybrid-rendering-not-prevented"
+        elif fallback_samples_mixed is not False or no_fallback_mixing is not True:
+            blocked_reason = "fallback-samples-mixed-or-not-proven-suppressed"
+    return {
+        "step77Decision": "success" if success else "blocked",
+        "step77BlockedReason": blocked_reason,
+        "selectedApproach": get_path(normal_contract, ["selectedApproach"]),
+        "phaseStep": phase_step,
+        "step77SummaryApplies": phase_step == "phase3-step77",
+        "cameraAwareVisibleOutputReady": get_path(
+            normal_contract, ["cameraAwareVisibleOutputReady"]
+        ),
+        "inputSourceKind": get_path(normal_contract, ["inputSourceKind"]),
+        "inputSourceLineage": get_path(normal_contract, ["inputSourceLineage"]),
+        "sourceClassification": get_path(normal_contract, ["sourceClassification"]),
+        "consumedSourceKind": consumed_source_kind,
+        "consumedSourceLineage": get_path(normal_contract, ["consumedSourceLineage"]),
+        "consumedSourceClassification": consumed_source_classification,
+        "consumedSampleCount": get_path(normal_contract, ["consumedSampleCount"]),
+        "webgpuOwnedSampleGenerationReady": get_path(
+            generation_summary, ["webgpuOwnedSampleGenerationReady"]
+        ),
+        "webgpuOwnedSampleCount": webgpu_owned_sample_count,
+        "webgpuOwnedGenerationMode": get_path(
+            normal_contract,
+            ["webgpuOwnedGenerationMode"],
+            get_path(generation_summary, ["sourceMode"]),
+        ),
+        "webgpuOwnedGenerationReason": get_path(
+            normal_contract, ["webgpuOwnedGenerationReason"]
+        ),
+        "webgpuOwnedProjectionGate": get_path(
+            normal_contract,
+            ["webgpuOwnedProjectionGate"],
+            get_path(generation_summary, ["projectionGate"]),
+        ),
+        "webgpuOwnedPathConsumedByNormalBackend": webgpu_owned_path_consumed,
+        "validationAssistedBridgeSampleCount": get_path(
+            normal_contract,
+            ["validationAssistedBridgeSampleCount"],
+            get_path(bridge_contract, ["sampleCount"], 0),
+        ),
+        "visibleRecordValidCount": get_path(summary, ["validRecordCount"], 0),
+        "visibleInputSampleCount": get_path(normal_contract, ["visibleInputSampleCount"]),
+        "renderedSamplePatchCount": get_path(
+            normal_contract, ["renderedSamplePatchCount"]
+        ),
+        "cameraAwareVisibleSampleCount": camera_sample_count,
+        "selectedSamplePatchCount": get_path(sample_contract, ["sampleCount"]),
+        "enlargedPatchPixelCount": get_path(
+            color_surface_contract, ["writtenPixelCount"]
+        ),
+        "outputPointRadiusPx": get_path(normal_contract, ["outputPointRadiusPx"]),
+        "debugFillUsed": get_path(normal_contract, ["debugFillUsed"], False),
+        "usesViewerCameraProjection": get_path(
+            normal_contract, ["visibleOutputUsesCameraProjection"]
+        ),
+        "cameraProjectionDerivedPositions": get_path(
+            normal_contract, ["cameraProjectionDerivedPositions"]
+        ),
+        "schedulerOwnedPath": (
+            get_path(normal_contract, ["visibleOutputUsesSchedulerOwnedFramePath"])
+            is True
+            and get_path(normal_contract, ["schedulerFramePresentationBoundaryReady"])
+            is True
+            and get_path(normal_contract, ["schedulerOwnsFrameRequest"]) is True
+        ),
+        "guardedPresentationAdapterReady": get_path(
+            guarded_presentation_adapter_contract,
+            ["guardedPresentationAdapterReady"],
+        ),
+        "presentationTargetReadable": get_path(
+            guarded_presentation_adapter_contract, ["presentationTargetReadable"]
+        ),
+        "presentationTargetMatchesExpected": get_path(
+            guarded_presentation_adapter_contract,
+            ["presentationTargetMatchesExpected"],
+        ),
+        "presentationTargetMaxAbsDiff": get_path(
+            guarded_presentation_adapter_contract,
+            ["presentationTargetMaxAbsDiff"],
+        ),
+        "viewerPresentationBridgeReady": get_path(
+            presentation_bridge_contract, ["viewerPresentationBridgeReady"]
+        ),
+        "currentTextureConnectionReady": current_texture_ready,
+        "currentTextureReadbackMatchesAdapterOutput": current_texture_readback_matches,
+        "currentTextureMaxAbsDiff": get_path(
+            presentation_bridge_contract, ["currentTextureMaxAbsDiff"]
+        ),
+        "webgpuExclusiveGuard": get_path(
+            webgpu_normal_backend_frame_implementation_validation,
+            ["guardAllowed"],
+        ),
+        "webgl2HybridRenderingPrevented": webgl2_hybrid_prevented,
+        "fallbackSamplesMixed": fallback_samples_mixed,
+        "noFallbackMixing": no_fallback_mixing,
+        "sampleSources": sample_sources,
+        "bridgeStillAvailableAsBaseline": get_path(bridge_contract, ["sampleCount"], 0) > 0,
+        "trueNativeSuccessClaimed": get_path(normal_contract, ["sourceClassification"]) == "true-native",
+        "nextTrueNativeVisibleRecordBlocker": (
+            "visible-record valid samples remain 0; Step77 owns a WebGPU "
+            "native-compatible sample generation boundary, but full true-native "
+            "visible-record projection/visibility gate remains the next target"
+        ),
+        "firstValidationFailures": compact_list(
+            get_path(
+                webgpu_normal_backend_frame_implementation_validation,
+                ["firstValidationFailures"],
+                [],
+            )
+        ),
+    }
+
+
 def build_step75_camera_aware_visible_summary(
     summary: Dict[str, Any],
     webgpu_camera_aware_visible_output: Dict[str, Any],
@@ -1576,6 +1820,9 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
     validation_assisted_camera_aware_visible_output = get_path(
         summary, ["validationAssistedCameraAwareVisibleOutput"], {}
     )
+    webgpu_owned_camera_aware_visible_output = get_path(
+        summary, ["webgpuOwnedCameraAwareVisibleOutput"], {}
+    )
     step75_camera_aware_visible_output = (
         build_step75_camera_aware_visible_summary(
             summary,
@@ -1589,6 +1836,15 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             summary,
             webgpu_camera_aware_visible_output,
             webgpu_visible_record_camera_aware_visible_output,
+            validation_assisted_camera_aware_visible_output,
+            webgpu_normal_backend_frame_implementation,
+            webgpu_normal_backend_frame_implementation_validation,
+        )
+    )
+    step77_webgpu_owned_visible_output = (
+        build_step77_webgpu_owned_visible_summary(
+            summary,
+            webgpu_owned_camera_aware_visible_output,
             validation_assisted_camera_aware_visible_output,
             webgpu_normal_backend_frame_implementation,
             webgpu_normal_backend_frame_implementation_validation,
@@ -1616,6 +1872,7 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
         "deferredFields": get_path(summary, ["deferredFields"], []),
         "step75CameraAwareVisibleOutput": step75_camera_aware_visible_output,
         "step76ManyCameraAwareVisibleOutput": step76_many_camera_aware_visible_output,
+        "step77WebGpuOwnedVisibleOutput": step77_webgpu_owned_visible_output,
         "comparisonContract": get_path(summary, ["comparisonContract"], {}),
         "comparisonTolerance": get_path(summary, ["comparisonTolerance"], {}),
         "radiusContract": get_path(summary, ["radiusContract"], {}),
@@ -6596,6 +6853,12 @@ def print_human_summary(summary: Dict[str, Any]) -> None:
         "Step76 many camera-aware visible output",
         summary.get("webgpuVisibleRecordDryRun", {}).get(
             "step76ManyCameraAwareVisibleOutput"
+        ),
+    )
+    print_section(
+        "Step77 WebGPU-owned visible samples",
+        summary.get("webgpuVisibleRecordDryRun", {}).get(
+            "step77WebGpuOwnedVisibleOutput"
         ),
     )
     print_section("WebGPU visible record dry-run", summary.get("webgpuVisibleRecordDryRun"))

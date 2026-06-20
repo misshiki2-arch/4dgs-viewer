@@ -1035,3 +1035,34 @@ Step75 currentTexture path remains healthy. The bridge projection helper may
 use a camera/view-derived validation fallback placement for screenCoarse
 candidates that fail the strict visible-record depth gate, but that path remains
 classified as `bridge`, never as true-native visible-record output.
+
+## Step77 WebGPU-Owned Visible Sample Generation Boundary
+
+Step77 reduces the Step76 validation-assisted bridge dependency by adding a
+WebGPU-owned native-compatible sample generation boundary. The true
+visible-record path is still preferred, but when `validRecordCount` remains 0,
+the backend can now run a small WebGPU compute pass over screenCoarse candidate
+indices and viewer projection params to create a normal-backend-consumable
+sample batch. This is classified as `native-compatible`, not true-native
+visible-record success.
+
+- selected approach: B, WebGPU-owned native-compatible sample generation. The
+  compute pass owns sample position/color generation for this boundary; the
+  Step76 validation-assisted bridge remains available as a baseline/fallback
+  lineage and is reported separately.
+- input contract: `cameraAwareVisibleOutputContract` records
+  `webgpuOwnedSampleCount`, `webgpuOwnedGenerationMode`,
+  `webgpuOwnedProjectionGate`, `validationAssistedBridgeSampleCount`,
+  consumed source kind/lineage/classification, and currentTexture readiness.
+- output path: the generated sample batch flows through the existing normal
+  backend sample storage buffer, color output surface, guarded adapter,
+  presentation bridge, viewer-owned presentation pass, and scheduler-owned
+  currentTexture path.
+- guardrails: WebGPU-owned generation is not WebGL2 fallback, does not claim
+  true-native success, does not mix fallback samples, and keeps production
+  scheduler connection, full Gaussian shading, SH parity, streaming, chunking,
+  LOD, and partial upload deferred.
+
+The next true-native step is to replace the candidate-derived native-compatible
+placement with a WebGPU visible-record projection/visibility gate that produces
+`validRecordCount > 0` without relying on the validation bridge.
