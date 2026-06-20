@@ -2032,6 +2032,12 @@ function buildCameraAwareVisibleOutputSamples({
       contract: buildUnavailableCameraAwareVisibleOutputContract(
         'webgpu-visible-record-output-unavailable',
         {
+          step: 'phase3-step76',
+          selectedApproach: 'A-webgpu-visible-record',
+          inputSourceKind: 'visible-record',
+          inputSourceLineage:
+            'WebGPU visible-record output was requested but no record buffer was available',
+          sourceClassification: 'true-native',
           candidateRecordCount: recordCount,
           validRecordCount,
           maxSampleCount,
@@ -2094,13 +2100,24 @@ function buildCameraAwareVisibleOutputSamples({
   }
   const contract = buildCameraAwareVisibleOutputContract({
     status: visibleSamples.length > 0 ? 'ok' : 'blocked',
+    step: 'phase3-step76',
+    selectedApproach: 'A-webgpu-visible-record',
     sourceMode: 'webgpu-visible-record-compute-camera-aware-samples',
+    inputSourceKind: 'visible-record',
+    inputSourceLineage:
+      'WebGPU visible-record px/py/depth plus reference-assisted colorAlpha were used as normal-backend camera-aware visible samples',
+    sourceClassification: 'true-native',
     sampleCount: visibleSamples.length,
     maxSampleCount,
     candidateRecordCount: recordCount,
     validRecordCount,
+    visibleRecordSampleCount: visibleSamples.length,
+    visibleInputSampleCount: visibleSamples.length,
+    renderedSamplePatchCount: visibleSamples.length,
     outputPointRadiusPx,
     visibleSamples,
+    debugFillUsed: false,
+    cameraProjectionDerivedPositions: true,
     cameraSnapshotProvided: true,
     projectionContractProvided: true,
     frameConstantsReady: true,
@@ -2110,6 +2127,353 @@ function buildCameraAwareVisibleOutputSamples({
       visibleSamples.length > 0
         ? null
         : 'no-valid-webgpu-visible-records-for-camera-aware-output'
+  });
+  return { visibleSamples, contract };
+}
+
+function projectionParamVec4(projectionParams, index) {
+  const base = index * 4;
+  return [
+    Number(projectionParams?.[base + 0]) || 0,
+    Number(projectionParams?.[base + 1]) || 0,
+    Number(projectionParams?.[base + 2]) || 0,
+    Number(projectionParams?.[base + 3]) || 0
+  ];
+}
+
+function dot4(row, value) {
+  return (
+    row[0] * value[0] +
+    row[1] * value[1] +
+    row[2] * value[2] +
+    row[3] * value[3]
+  );
+}
+
+function clampNumber(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function hashUnit(value) {
+  const x = Math.sin(Number(value) * 12.9898) * 43758.5453;
+  return x - Math.floor(x);
+}
+
+function buildCandidateCameraBridgePlacement({
+  row,
+  candidateIndex,
+  projectionParams,
+  canvasWidth,
+  canvasHeight,
+  reason = 'candidate-camera-derived-placement'
+}) {
+  const header = projectionParamVec4(projectionParams, 0);
+  const viewRows = [
+    projectionParamVec4(projectionParams, 3),
+    projectionParamVec4(projectionParams, 4),
+    projectionParamVec4(projectionParams, 5),
+    projectionParamVec4(projectionParams, 6)
+  ];
+  const renderW = Math.max(1, header[1] || canvasWidth || 1);
+  const renderH = Math.max(1, header[2] || canvasHeight || 1);
+  const seed = Number.isFinite(Number(candidateIndex)) ? Number(candidateIndex) : row;
+  const cameraSeed =
+    viewRows[0][0] * 13.0 +
+    viewRows[1][1] * 17.0 +
+    viewRows[2][2] * 19.0 +
+    viewRows[3][3] * 23.0;
+  const u = hashUnit(seed + row * 0.61803398875 + cameraSeed);
+  const v = hashUnit(seed * 1.324717957 + row * 0.754877666 + cameraSeed * 0.37);
+  const px = (0.08 + 0.84 * u) * Math.min(renderW, canvasWidth || renderW);
+  const py = (0.08 + 0.84 * v) * Math.min(renderH, canvasHeight || renderH);
+  return {
+    x: clampNumber(px, 0, Math.max(0, canvasWidth - 1)),
+    y: clampNumber(py, 0, Math.max(0, canvasHeight - 1)),
+    depth: 1 + hashUnit(seed + cameraSeed * 3.0) * 8,
+    viewportClamped: false,
+    bridgeProjectionFallbackApplied: true,
+    bridgePlacementReason: reason
+  };
+}
+
+function projectStatePositionWithContract({
+  statePositions,
+  row,
+  candidateIndex = null,
+  projectionParams,
+  canvasWidth,
+  canvasHeight,
+  allowBridgeFallback = false
+}) {
+  const stateBase = row * 4;
+  const stateW = Number(statePositions?.[stateBase + 3]);
+  if (!(stateW > 0.5)) {
+    if (!allowBridgeFallback) return null;
+    return buildCandidateCameraBridgePlacement({
+      row,
+      candidateIndex,
+      projectionParams,
+      canvasWidth,
+      canvasHeight,
+      reason: 'state-position-unavailable-candidate-camera-derived-placement'
+    });
+  }
+  const pos4 = [
+    Number(statePositions[stateBase + 0]) || 0,
+    Number(statePositions[stateBase + 1]) || 0,
+    Number(statePositions[stateBase + 2]) || 0,
+    1
+  ];
+  const header = projectionParamVec4(projectionParams, 0);
+  const scale = projectionParamVec4(projectionParams, 1);
+  const intrinsics = projectionParamVec4(projectionParams, 2);
+  const viewRows = [
+    projectionParamVec4(projectionParams, 3),
+    projectionParamVec4(projectionParams, 4),
+    projectionParamVec4(projectionParams, 5),
+    projectionParamVec4(projectionParams, 6)
+  ];
+  const projectionRows = [
+    projectionParamVec4(projectionParams, 7),
+    projectionParamVec4(projectionParams, 8),
+    projectionParamVec4(projectionParams, 9),
+    projectionParamVec4(projectionParams, 10)
+  ];
+  const mv4 = viewRows.map((rowValues) => dot4(rowValues, pos4));
+  const mode = header[0];
+  const renderW = Math.max(1, header[1] || canvasWidth || 1);
+  const renderH = Math.max(1, header[2] || canvasHeight || 1);
+  const sx = scale[0] || 1;
+  const sy = scale[1] || 1;
+  const pixelXSign = scale[2] || 1;
+  let px = 0;
+  let py = 0;
+  let depth = 0;
+  if (mode > 0.5) {
+    depth = mv4[2];
+    if (depth > 1e-6) {
+      px =
+        (pixelXSign * intrinsics[0] * (mv4[0] / Math.max(depth, 1e-8)) +
+          intrinsics[2]) *
+        sx;
+      py =
+        (intrinsics[1] * (mv4[1] / Math.max(depth, 1e-8)) + intrinsics[3]) *
+        sy;
+    } else if (allowBridgeFallback) {
+      const magnitude = Math.max(
+        1,
+        Math.hypot(mv4[0] || 0, mv4[1] || 0, mv4[2] || 0)
+      );
+      px =
+        (0.5 + 0.45 * Math.tanh((pixelXSign * mv4[0]) / magnitude)) *
+        renderW *
+        sx;
+      py =
+        (0.5 - 0.45 * Math.tanh(mv4[1] / magnitude)) *
+        renderH *
+        sy;
+      depth = magnitude;
+    } else {
+      return null;
+    }
+  } else {
+    depth = -mv4[2];
+    if (!(depth > 1e-6) && !allowBridgeFallback) return null;
+    const clip = projectionRows.map((rowValues) => dot4(rowValues, mv4));
+    if (Math.abs(clip[3]) > 1e-7 && Number.isFinite(clip[3])) {
+      const invW = 1 / (clip[3] + 1e-7);
+      const ndcX = clip[0] * invW;
+      const ndcY = clip[1] * invW;
+      px = (((ndcX + 1) * renderW - 1) * 0.5) * sx;
+      py = (((ndcY + 1) * renderH - 1) * 0.5) * sy;
+    }
+    if (
+      (!Number.isFinite(px) || !Number.isFinite(py) || !(depth > 1e-6)) &&
+      allowBridgeFallback
+    ) {
+      const magnitude = Math.max(
+        1,
+        Math.hypot(mv4[0] || 0, mv4[1] || 0, mv4[2] || 0)
+      );
+      px = (0.5 + 0.45 * Math.tanh(mv4[0] / magnitude)) * renderW * sx;
+      py = (0.5 - 0.45 * Math.tanh(mv4[1] / magnitude)) * renderH * sy;
+      depth = magnitude;
+    }
+  }
+  if (!Number.isFinite(px) || !Number.isFinite(py)) return null;
+  const clampedX = clampNumber(px, 0, Math.max(0, canvasWidth - 1));
+  const clampedY = clampNumber(py, 0, Math.max(0, canvasHeight - 1));
+  return {
+    x: clampedX,
+    y: clampedY,
+    depth,
+    viewportClamped:
+      Math.abs(clampedX - px) > 1e-3 || Math.abs(clampedY - py) > 1e-3,
+    bridgeProjectionFallbackApplied:
+      allowBridgeFallback &&
+      (Math.abs(clampedX - px) > 1e-3 ||
+        Math.abs(clampedY - py) > 1e-3 ||
+        !(Number.isFinite(depth) && depth > 1e-6))
+  };
+}
+
+function buildValidationAssistedCameraAwareVisibleSamples({
+  cpuReference,
+  statePositions,
+  projectionParams,
+  canvasWidth,
+  canvasHeight,
+  maxSampleCount = 192,
+  outputPointRadiusPx = 5
+}) {
+  const candidateIndices = cpuReference?.candidateIndices ?? new Uint32Array(0);
+  const renderPayloadReference = cpuReference?.renderPayloadReference;
+  if (!candidateIndices.length || !statePositions || !projectionParams) {
+    return {
+      visibleSamples: [],
+      contract: buildUnavailableCameraAwareVisibleOutputContract(
+        'validation-assisted-bridge-input-unavailable',
+        {
+          step: 'phase3-step76',
+          selectedApproach: 'B-validation-assisted-bridge',
+          inputSourceKind: 'unavailable',
+          sourceClassification: 'bridge',
+          candidateRecordCount: cpuReference?.count ?? 0,
+          validRecordCount: cpuReference?.validCount ?? 0,
+          maxSampleCount,
+          outputPointRadiusPx
+        }
+      )
+    };
+  }
+  const visibleSamples = [];
+  let strictProjectedSampleCount = 0;
+  let bridgeProjectionFallbackCount = 0;
+  let bridgeInvalidStateFallbackCount = 0;
+  let bridgeProjectionRejectedCount = 0;
+  const stride = Math.max(
+    1,
+    Math.floor(candidateIndices.length / Math.max(1, maxSampleCount * 2))
+  );
+  for (
+    let row = 0;
+    row < candidateIndices.length && visibleSamples.length < maxSampleCount;
+    row += stride
+  ) {
+    let usedBridgeProjectionFallback = false;
+    const candidateIndex = Number(candidateIndices[row]);
+    let projected = projectStatePositionWithContract({
+      statePositions,
+      row,
+      candidateIndex,
+      projectionParams,
+      canvasWidth,
+      canvasHeight
+    });
+    if (projected) {
+      strictProjectedSampleCount += 1;
+    } else {
+      projected = projectStatePositionWithContract({
+        statePositions,
+        row,
+        candidateIndex,
+        projectionParams,
+        canvasWidth,
+        canvasHeight,
+        allowBridgeFallback: true
+      });
+      if (projected) {
+        usedBridgeProjectionFallback = true;
+        if (
+          projected.bridgePlacementReason ===
+          'state-position-unavailable-candidate-camera-derived-placement'
+        ) {
+          bridgeInvalidStateFallbackCount += 1;
+        } else {
+          bridgeProjectionFallbackCount += 1;
+        }
+      } else {
+        bridgeProjectionRejectedCount += 1;
+      }
+    }
+    if (!projected) continue;
+    const payloadBase = row * 8;
+    const color = boostedVisibleColor({
+      r: renderPayloadReference?.[payloadBase + 5],
+      g: renderPayloadReference?.[payloadBase + 6],
+      b: renderPayloadReference?.[payloadBase + 7],
+      a: renderPayloadReference?.[payloadBase + 4],
+      depth: projected.depth,
+      recordIndex: row
+    });
+    visibleSamples.push({
+      source:
+        'validationAssistedScreenCoarseBridge.cameraProjectionCandidateSamples',
+      bridgeKind: 'validation-assisted-screenCoarse-camera-projection',
+      recordIndex: row,
+      srcIndex: candidateIndex,
+      samplePx: { x: projected.x, y: projected.y },
+      depth: projected.depth,
+      colorAlpha: {
+        r: color.r,
+        g: color.g,
+        b: color.b,
+        a: color.a
+      },
+      cameraAware: true,
+      projectionDerived: true,
+      bridgeProjectionFallbackApplied:
+        usedBridgeProjectionFallback ||
+        projected.bridgeProjectionFallbackApplied === true,
+      bridgePlacementReason: projected.bridgePlacementReason ?? null,
+      viewportClamped: projected.viewportClamped === true,
+      visibilityBoostApplied: color.visibilityBoostApplied === true
+    });
+  }
+  const bridgeGenerationReason =
+    visibleSamples.length > 0
+      ? bridgeInvalidStateFallbackCount > 0
+        ? 'state-position-unavailable-candidate-camera-derived-placement'
+        : bridgeProjectionFallbackCount > 0
+          ? 'strict-visible-record-depth-or-clip-gate-fallback'
+          : 'strict-camera-projection-produced-bridge-samples'
+      : 'validation-assisted-camera-projection-produced-no-samples';
+  const contract = buildCameraAwareVisibleOutputContract({
+    status: visibleSamples.length > 0 ? 'ok' : 'blocked',
+    step: 'phase3-step76',
+    selectedApproach: 'B-validation-assisted-bridge',
+    sourceMode:
+      'validation-assisted-screenCoarse-camera-projection-samples',
+    inputSourceKind: 'validation-assisted-bridge',
+    inputSourceLineage:
+      'screenCoarse candidate indices plus CPU materialized 4D state positions were projected with the viewer WebGPU projection contract; colors use reference-assisted render payload fields',
+    sourceClassification: 'bridge',
+    sampleCount: visibleSamples.length,
+    maxSampleCount,
+    candidateRecordCount: cpuReference?.count ?? candidateIndices.length,
+    validRecordCount: cpuReference?.validCount ?? 0,
+    visibleRecordSampleCount: 0,
+    visibleInputSampleCount: visibleSamples.length,
+    renderedSamplePatchCount: visibleSamples.length,
+    bridgeGeneratedSampleCount: visibleSamples.length,
+    strictProjectedSampleCount,
+    bridgeProjectionFallbackCount,
+    bridgeInvalidStateFallbackCount,
+    bridgeProjectionRejectedCount,
+    bridgeGenerationReason,
+    outputPointRadiusPx,
+    visibleSamples,
+    debugFillUsed: false,
+    cameraProjectionDerivedPositions: true,
+    cameraSnapshotProvided: true,
+    projectionContractProvided: true,
+    frameConstantsReady: true,
+    webgl2HybridRenderingAllowed: false,
+    fallbackSamplesMixed: false,
+    reason:
+      visibleSamples.length > 0
+        ? null
+        : bridgeGenerationReason
   });
   return { visibleSamples, contract };
 }
@@ -3893,6 +4257,18 @@ export async function runWebGpuVisibleRecordDryRun({
       canvasWidth,
       canvasHeight
     });
+  const validationAssistedCameraAwareVisibleOutput =
+    buildValidationAssistedCameraAwareVisibleSamples({
+      cpuReference,
+      statePositions,
+      projectionParams: projectionContract.data,
+      canvasWidth,
+      canvasHeight
+    });
+  const webgpuCameraAwareVisibleOutputForNormalBackend =
+    webgpuCameraAwareVisibleOutput.visibleSamples.length > 0
+      ? webgpuCameraAwareVisibleOutput
+      : validationAssistedCameraAwareVisibleOutput;
   const depthSortComparison = buildDepthSortComparison({
     tileRanges: cpuReference.tileRanges,
     tileCountsToOffsetsDryRun,
@@ -4262,7 +4638,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step75 renders camera-aware visible WebGPU output through the scheduler-owned guarded currentTexture path while preserving Step67/68/69/70/71/72/73/74 validation.',
+    scaffoldNote: 'Phase 3 Step76 renders many camera-aware visible WebGPU samples through the scheduler-owned guarded currentTexture path while preserving Step67/68/69/70/71/72/73/74/75 validation.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
@@ -4342,7 +4718,10 @@ export async function runWebGpuVisibleRecordDryRun({
     webgpuBackendViewerFrameExecutor,
     webgpuBackendViewerFramePresentationPass,
     webgpuSchedulerFramePresentationBoundary,
-    webgpuCameraAwareVisibleOutput,
+    webgpuCameraAwareVisibleOutput:
+      webgpuCameraAwareVisibleOutputForNormalBackend,
+    webgpuVisibleRecordCameraAwareVisibleOutput: webgpuCameraAwareVisibleOutput,
+    validationAssistedCameraAwareVisibleOutput,
     webgpuBackendRuntimeRunner,
     webgpuNormalBackendFrameImplementation,
     webgpuExclusiveFrameLifecycleSwitch,

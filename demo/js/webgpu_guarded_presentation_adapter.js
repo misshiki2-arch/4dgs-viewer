@@ -346,6 +346,8 @@ fn fsMain(in: VertexOut) -> @location(0) vec4f {
         });
         currentTexturePass.setPipeline(currentTexturePipeline);
         currentTexturePass.setBindGroup(0, currentTextureBindGroup);
+        currentTexturePass.setViewport(0, 0, width, height, 0, 1);
+        currentTexturePass.setScissorRect(0, 0, width, height);
         currentTexturePass.draw(3);
         currentTexturePass.end();
         currentTextureRenderPassSubmitted = true;

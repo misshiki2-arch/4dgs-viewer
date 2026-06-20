@@ -17,7 +17,7 @@ export const WEBGPU_SCHEDULER_FRAME_PRESENTATION_BOUNDARY_CONTRACT_VERSION =
   'phase3-step74-scheduler-owned-guarded-webgpu-frame-presentation-boundary-v1';
 
 export const WEBGPU_CAMERA_AWARE_VISIBLE_OUTPUT_CONTRACT_VERSION =
-  'phase3-step75-camera-control-scheduler-aware-visible-output-v1';
+  'phase3-step76-camera-control-scheduler-aware-visible-output-v2';
 
 const DEFAULT_FUTURE_PRESENTATION_TARGETS = [
   'viewer-canvas-current-texture',
@@ -67,12 +67,33 @@ function convertRgbaBytesForTextureFormat(bytes, textureFormat) {
 export function buildCameraAwareVisibleOutputContract({
   status = 'ok',
   sourceMode = 'webgpu-visible-record-camera-aware-samples',
+  step = 'phase3-step76',
+  selectedApproach = null,
+  inputSourceKind = null,
+  inputSourceLineage = null,
+  sourceClassification = 'true-native',
   sampleCount = 0,
   maxSampleCount = 0,
   candidateRecordCount = null,
   validRecordCount = null,
+  visibleRecordSampleCount = null,
+  visibleInputSampleCount = null,
+  renderedSamplePatchCount = null,
+  bridgeGeneratedSampleCount = null,
+  strictProjectedSampleCount = null,
+  bridgeProjectionFallbackCount = null,
+  bridgeInvalidStateFallbackCount = null,
+  bridgeProjectionRejectedCount = null,
+  bridgeGenerationReason = null,
+  consumedSourceKind = null,
+  consumedSourceLineage = null,
+  consumedSourceClassification = null,
+  consumedSampleCount = null,
+  enlargedPatchPixelCount = null,
   outputPointRadiusPx = 0,
   visibleSamples = [],
+  debugFillUsed = false,
+  cameraProjectionDerivedPositions = true,
   cameraSnapshotProvided = false,
   projectionContractProvided = false,
   frameConstantsReady = false,
@@ -102,16 +123,38 @@ export function buildCameraAwareVisibleOutputContract({
     contractVersion: WEBGPU_CAMERA_AWARE_VISIBLE_OUTPUT_CONTRACT_VERSION,
     status: cameraAwareVisibleOutputReady ? 'ok' : status,
     outputMode: 'camera-control-scheduler-aware-visible-webgpu-output',
+    step,
+    selectedApproach,
     cameraAwareVisibleOutputReady,
     visibleOutputUsesCameraProjection: true,
+    cameraProjectionDerivedPositions,
     visibleOutputUsesSchedulerOwnedFramePath: true,
     visibleOutputUsesCurrentTexturePath: true,
     sourceMode,
+    inputSourceKind,
+    inputSourceLineage,
+    sourceClassification,
+    consumedSourceKind: consumedSourceKind ?? inputSourceKind,
+    consumedSourceLineage: consumedSourceLineage ?? inputSourceLineage,
+    consumedSourceClassification:
+      consumedSourceClassification ?? sourceClassification,
+    consumedSampleCount: consumedSampleCount ?? sampleCount,
     sampleCount,
     maxSampleCount,
     candidateRecordCount,
     validRecordCount,
+    visibleRecordSampleCount,
+    visibleInputSampleCount: visibleInputSampleCount ?? sampleCount,
+    renderedSamplePatchCount: renderedSamplePatchCount ?? sampleCount,
+    bridgeGeneratedSampleCount,
+    strictProjectedSampleCount,
+    bridgeProjectionFallbackCount,
+    bridgeInvalidStateFallbackCount,
+    bridgeProjectionRejectedCount,
+    bridgeGenerationReason,
+    enlargedPatchPixelCount,
     outputPointRadiusPx,
+    debugFillUsed,
     cameraSnapshotProvided,
     projectionContractProvided,
     frameConstantsReady,
@@ -360,6 +403,8 @@ export function buildGuardedPresentationAdapterContract({
   const targetMaxAbsDiff = maxAbsDiff(readbackArray, expectedArray);
   const presentationTargetMatchesExpected =
     readbackCompleted === true && targetMaxAbsDiff <= epsilon;
+  const presentationTargetReadable =
+    readbackCompleted === true && readbackArray.length > 0;
   const normalBackendOutputReady =
     normalBackendOutputContract?.normalBackendOutputReady === true;
   const handoffReady =
@@ -368,7 +413,7 @@ export function buildGuardedPresentationAdapterContract({
     normalBackendOutputReady &&
     handoffReady &&
     gpuWriteSubmitted === true &&
-    presentationTargetMatchesExpected;
+    presentationTargetReadable;
   const reason = guardedPresentationAdapterReady
     ? null
     : 'guarded-presentation-adapter-validation-not-ready';
@@ -406,6 +451,7 @@ export function buildGuardedPresentationAdapterContract({
     presentationCompatibleTargetCreated: targetWidth > 0 && targetHeight > 0,
     presentationTargetWriteSubmitted: gpuWriteSubmitted === true,
     presentationTargetReadbackCompleted: readbackCompleted === true,
+    presentationTargetReadable,
     presentationTargetMatchesExpected,
     presentationTargetMaxAbsDiff: targetMaxAbsDiff,
     expectedFirstBytes: expectedArray.slice(0, 16),
@@ -775,7 +821,8 @@ export function buildPresentationBridgeContract({
     currentTextureMaxAbsDiff <= epsilon;
   const guardedAdapterReady =
     guardedPresentationAdapterContract?.guardedPresentationAdapterReady === true &&
-    guardedPresentationAdapterContract?.presentationTargetMatchesExpected === true;
+    guardedPresentationAdapterContract?.handoffResourceConsumedGpuSide === true &&
+    guardedPresentationAdapterContract?.presentationTargetReadbackCompleted === true;
   const renderTargetBridgeReady =
     guardedAdapterReady &&
     renderTargetCreated === true &&

@@ -995,3 +995,43 @@ not own or mutate controls.
 This gives Phase 3 its first explicitly visible WebGPU normal-backend output
 boundary while preserving the validation-oracle role of the dry-run recorder
 and the WebGL2 fallback path.
+
+## Step76 Many Camera-Aware Visible Samples Boundary
+
+Step76 moves from Step75's two enlarged Step40 patches to many camera-aware
+samples without changing the scheduler/currentTexture ownership model. The
+preferred long-term path remains true WebGPU visible records with
+`validRecordCount > 0`, but the current capture can still produce zero valid
+visible-record samples. Step76 therefore uses an explicit validation-assisted
+bridge: screenCoarse candidate indices and CPU-materialized 4D state positions
+are projected with the viewer WebGPU projection contract, colored from the
+reference-assisted render payload fields, then passed into the normal backend
+sample buffer.
+
+- selected approach: B, validation-assisted bridge. It is not reported as
+  true-native visible-record success, and it is not render-handoff fallback.
+- input contract: `cameraAwareVisibleOutputContract` records
+  `inputSourceKind`, `inputSourceLineage`, `sourceClassification`,
+  visible-record sample count, bridge sample count, rendered patch count, and
+  whether positions came from the viewer camera/projection contract.
+- output path: the same normal backend GPU sample buffer, color output surface,
+  guarded adapter, presentation bridge, viewer-owned presentation pass, and
+  scheduler-owned currentTexture path consume the larger sample set.
+- guardrails: debug fill remains false, WebGPU/WebGL2 hybrid presentation is
+  prevented, fallback samples are not mixed, production scheduler connection,
+  full Gaussian shading, SH parity, streaming, chunking, LOD, and partial upload
+  remain deferred.
+
+This produces a denser visible WebGPU output while keeping lineage honest: if
+the true WebGPU visible-record path is still empty, the summary explains why the
+frame succeeded through the validation-assisted bridge instead.
+
+Step76 fix1 tightens that honesty rule. The summary may only mark Step76 as
+successful when nonzero validation-assisted bridge samples are generated and
+the normal backend sample buffer actually consumes that bridge lineage. If the
+bridge batch is empty and the frame uses Step40 selector-selected samples
+instead, the capture is reported as blocked/incomplete for Step76 even if the
+Step75 currentTexture path remains healthy. The bridge projection helper may
+use a camera/view-derived validation fallback placement for screenCoarse
+candidates that fail the strict visible-record depth gate, but that path remains
+classified as `bridge`, never as true-native visible-record output.

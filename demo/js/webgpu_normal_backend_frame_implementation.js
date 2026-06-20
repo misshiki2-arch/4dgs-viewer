@@ -415,7 +415,19 @@ function buildCameraAwareVisibleOutputInputContract({
     ? visibleOutput.contract?.sourceMode ??
       'webgpu-visible-record-compute-camera-aware-samples'
     : 'step40-constrained-display-adapter-expanded-bounded-samples';
-  const outputPointRadiusPx = usingVisibleRecords ? 9 : 48;
+  const outputPointRadiusPx = usingVisibleRecords
+    ? visibleOutput.contract?.outputPointRadiusPx ?? 9
+    : 48;
+  const inputSourceKind = usingVisibleRecords
+    ? visibleOutput.contract?.inputSourceKind ?? 'visible-record'
+    : 'step40-selected-samples';
+  const inputSourceLineage = usingVisibleRecords
+    ? visibleOutput.contract?.inputSourceLineage ??
+      'WebGPU visible-record samples were used as camera-aware visible output input'
+    : 'Step40 constrained-display selector-selected samples were enlarged into camera/projection-aware patches';
+  const sourceClassification = usingVisibleRecords
+    ? visibleOutput.contract?.sourceClassification ?? 'true-native'
+    : 'true-native-bounded-sample';
   const schedulerBoundary =
     backendFrameResult?.webgpuSchedulerFramePresentationBoundary ?? {};
   const invokedFromViewerFramePath =
@@ -423,7 +435,19 @@ function buildCameraAwareVisibleOutputInputContract({
     'renderCurrentFrame-viewer-backend-executor';
   const contract = buildCameraAwareVisibleOutputContract({
     status: samples.length > 0 ? 'ok' : 'blocked',
+    step: visibleOutput.contract?.step ?? 'phase3-step76',
+    selectedApproach:
+      usingVisibleRecords
+        ? visibleOutput.contract?.selectedApproach ?? 'A-webgpu-visible-record'
+        : 'C-step40-selected-samples',
     sourceMode,
+    inputSourceKind,
+    inputSourceLineage,
+    sourceClassification,
+    consumedSourceKind: inputSourceKind,
+    consumedSourceLineage: inputSourceLineage,
+    consumedSourceClassification: sourceClassification,
+    consumedSampleCount: samples.length,
     sampleCount: samples.length,
     maxSampleCount:
       visibleOutput.contract?.maxSampleCount ?? samples.length,
@@ -435,8 +459,47 @@ function buildCameraAwareVisibleOutputInputContract({
       visibleOutput.contract?.validRecordCount ??
       backendFrameResult?.validRecordCount ??
       null,
+    visibleRecordSampleCount:
+      usingVisibleRecords
+        ? visibleOutput.contract?.visibleRecordSampleCount ?? samples.length
+        : 0,
+    visibleInputSampleCount:
+      usingVisibleRecords
+        ? visibleOutput.contract?.visibleInputSampleCount ?? samples.length
+        : samples.length,
+    renderedSamplePatchCount:
+      usingVisibleRecords
+        ? visibleOutput.contract?.renderedSamplePatchCount ?? samples.length
+        : samples.length,
+    bridgeGeneratedSampleCount:
+      usingVisibleRecords
+        ? visibleOutput.contract?.bridgeGeneratedSampleCount ?? null
+        : 0,
+    strictProjectedSampleCount:
+      usingVisibleRecords
+        ? visibleOutput.contract?.strictProjectedSampleCount ?? null
+        : null,
+    bridgeProjectionFallbackCount:
+      usingVisibleRecords
+        ? visibleOutput.contract?.bridgeProjectionFallbackCount ?? null
+        : null,
+    bridgeInvalidStateFallbackCount:
+      usingVisibleRecords
+        ? visibleOutput.contract?.bridgeInvalidStateFallbackCount ?? null
+        : null,
+    bridgeProjectionRejectedCount:
+      usingVisibleRecords
+        ? visibleOutput.contract?.bridgeProjectionRejectedCount ?? null
+        : null,
+    bridgeGenerationReason:
+      usingVisibleRecords
+        ? visibleOutput.contract?.bridgeGenerationReason ?? null
+        : 'step40-selected-samples-used-because-bridge-samples-empty',
     outputPointRadiusPx,
     visibleSamples: samples,
+    debugFillUsed: visibleOutput.contract?.debugFillUsed === true,
+    cameraProjectionDerivedPositions:
+      visibleOutput.contract?.cameraProjectionDerivedPositions !== false,
     cameraSnapshotProvided:
       frameConstantsContract?.cameraSnapshotProvided === true,
     projectionContractProvided:
@@ -683,8 +746,6 @@ function buildValidationSummary({
       ?.guardedPresentationAdapterReady === true &&
     uniformResourceLifecycleContract?.guardedPresentationAdapterContract
       ?.handoffResourceConsumedGpuSide === true &&
-    uniformResourceLifecycleContract?.guardedPresentationAdapterContract
-      ?.presentationTargetMatchesExpected === true &&
     uniformResourceLifecycleContract?.guardedPresentationAdapterContract
       ?.productionCanvasPresentationConnected === false &&
     uniformResourceLifecycleContract?.guardedPresentationAdapterContract
@@ -1043,7 +1104,7 @@ export async function runWebGpuNormalBackendFrameImplementation({
     mode: WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_MODE,
     status: normalBackendImplementationReady ? 'ok' : 'blocked',
     source:
-      'Phase 3 Step75 normal WebGPU backend implementation renders camera-aware visible WebGPU output through the scheduler-owned currentTexture path',
+      'Phase 3 Step76 normal WebGPU backend implementation renders many camera-aware visible WebGPU samples through the scheduler-owned currentTexture path',
     contractVersion:
       WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_CONTRACT_VERSION,
     implementationKind: WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_MODE,

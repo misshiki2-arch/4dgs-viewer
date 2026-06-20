@@ -154,6 +154,12 @@ function sourceKindToCode(source) {
   if (source === 'webgpuVisibleRecordDryRun.cameraAwareVisibleRecords') {
     return 75;
   }
+  if (
+    source ===
+    'validationAssistedScreenCoarseBridge.cameraProjectionCandidateSamples'
+  ) {
+    return 76;
+  }
   return 0;
 }
 
