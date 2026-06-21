@@ -4,7 +4,7 @@ export const WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION =
 export const WEBGPU_VISIBLE_RECORD_COMPUTE_MODE =
   'webgpu-storage-buffer-compute-fixed-record';
 
-export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step78';
+export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step79';
 
 export const WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE =
   'wgsl-valid-screen-projection-with-true-native-bounded-color-sources';
@@ -296,6 +296,53 @@ export const WEBGPU_VISIBLE_RECORD_FIELD_COMPUTE_MODES = Object.freeze({
   webgpuNormalBackendFrameImplementation:
     WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_COMPUTE_MODE
 });
+
+export const WEBGPU_4D_STATE_SOURCE_CONTRACT_VERSION =
+  'phase3-step79-webgpu-4d-state-source-contract-v1';
+
+export function buildWebGpu4DStateSourceContract({
+  status = 'ok',
+  stateSourceMode = 'cpu-materialized-4d-state-source',
+  candidateCount = 0,
+  statePositionCount = 0,
+  computed4DStatePositionCount = 0,
+  baselineStatePositionCount = 0,
+  unavailableStatePositionCount = 0,
+  usedCuda4DStateHelper = false,
+  helperVersion = null,
+  timestamp = null,
+  stateParameterMode = 'viewer-build-config',
+  full4DStateEvaluationInWgsl = false,
+  rawXyzRepairInVisibleRecordComputeRequired = false,
+  reason = null
+} = {}) {
+  const fourDStateSourceReady =
+    status === 'ok' &&
+    statePositionCount > 0 &&
+    computed4DStatePositionCount + baselineStatePositionCount > 0;
+  return {
+    contractVersion: WEBGPU_4D_STATE_SOURCE_CONTRACT_VERSION,
+    status: fourDStateSourceReady ? 'ok' : status,
+    stateSourceMode,
+    fourDStateSourceReady,
+    candidateCount,
+    statePositionCount,
+    computed4DStatePositionCount,
+    baselineStatePositionCount,
+    unavailableStatePositionCount,
+    usedCuda4DStateHelper,
+    helperVersion,
+    timestamp,
+    stateParameterMode,
+    full4DStateEvaluationInWgsl,
+    rawXyzRepairInVisibleRecordComputeRequired,
+    sourceClassification:
+      computed4DStatePositionCount > 0 && baselineStatePositionCount === 0
+        ? 'full-4d-state-driven'
+        : 'minimal-4d-state-source',
+    reason
+  };
+}
 
 export const WEBGPU_VISIBLE_RECORD_DEFERRED_FIELDS = Object.freeze([
   'radius',

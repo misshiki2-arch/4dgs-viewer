@@ -1103,3 +1103,34 @@ adapter/currentTexture presentation path.
 This is still not full 4DGS parity: SH/color evaluation, full 4D conditional
 state in WGSL, depth sort, compaction, tile-list generation, streaming, chunking,
 LOD, and partial upload remain deferred.
+
+## Step79 WebGPU 4D State-to-Visible Pipeline Boundary
+
+Step79 moves the visible-record input from Step78's raw xyz repair branch to an
+explicit 4D state source boundary. The state source is still CPU-materialized
+for this prototype, but it is now passed through the WebGPU `statePositions`
+buffer and consumed by the WGSL visible-record projection path before the
+normal backend renders the resulting visible records through the guarded
+currentTexture path.
+
+- selected approach: A. The existing `statePositions` and visible-record compute
+  path are kept, with a small state-source contract that records whether each
+  visible row came from a computed 4D state position, a minimal baseline state
+  source, or the old raw xyz repair path.
+- success contract: Step79 is successful when `validRecordCount > 0`,
+  `consumedSourceKind=visible-record`, the normal backend consumes records whose
+  projection came from the `statePositions` source, raw xyz repair is not needed
+  for visible-record validity, and the currentTexture readback path remains
+  ready under the WebGPU-exclusive guard.
+- classification: `full-4d-state-driven-visible-record` is reserved for rows
+  whose visible records all came from computed 4D state positions. If the source
+  uses baseline state positions because conditional 4D evaluation culled the
+  current batch, Summary reports `minimal-4d-state-source-visible-record` and
+  keeps the next full 4D state gate explicit.
+- baselines: Step76 validation-assisted bridge, Step77 native-compatible
+  samples, and Step78 raw xyz repair remain diagnostics only. They must not be
+  counted as Step79 success.
+
+Full WGSL 4D state evaluation, SH/color parity, depth sort, compaction,
+tile-list generation, streaming, chunking, LOD, and partial upload remain
+deferred.

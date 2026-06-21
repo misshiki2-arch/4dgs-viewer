@@ -40,6 +40,7 @@ import {
   WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
   WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION,
   WEBGPU_VISIBLE_RECORD_WGSL_COMPUTED_FIELDS,
+  buildWebGpu4DStateSourceContract,
   cloneWebGpuVisibleRecordFieldComputeModes
 } from './common_4dgs_record_contracts.js';
 import {
@@ -2039,9 +2040,14 @@ function buildCameraAwareVisibleOutputSamples({
     (rawPositionRepairUsed
       ? 'true-native-minimal-visible-record'
       : 'true-native');
-  const sourceClassification = rawPositionRepairUsed
-    ? 'true-native-minimal-visible-record'
-    : 'true-native';
+  const sourceClassification =
+    visibleRecordPathClassification === 'full-4d-state-driven-visible-record'
+      ? 'full-4d-state-driven'
+      : visibleRecordPathClassification === 'minimal-4d-state-source-visible-record'
+        ? 'minimal-4d-state-source'
+        : rawPositionRepairUsed
+          ? 'true-native-minimal-visible-record'
+          : 'true-native';
   if (!webgpuRecords || recordCount <= 0) {
     return {
       visibleSamples: [],
@@ -2128,7 +2134,8 @@ function buildCameraAwareVisibleOutputSamples({
     sourceClassification,
     visibleRecordPathClassification,
     rawPositionRepairUsed,
-    full4DStateDrivenTrueNative: rawPositionRepairUsed !== true,
+    full4DStateDrivenTrueNative:
+      visibleRecordPathClassification === 'full-4d-state-driven-visible-record',
     sampleCount: visibleSamples.length,
     maxSampleCount,
     candidateRecordCount: recordCount,
@@ -2507,6 +2514,11 @@ function buildStatePositionsForCandidates(raw, candidateIndices, buildConfig) {
     nativeRot4d: !!buildConfig.useNativeRot4d,
     nativeMarginal: !!buildConfig.useNativeMarginal
   };
+  let computed4DStatePositionCount = 0;
+  let baselineStatePositionCount = 0;
+  let unavailableStatePositionCount = 0;
+  let usedCuda4DStateHelper = false;
+  let helperVersion = null;
   for (let i = 0; i < count; i += 1) {
     const srcIndex = candidateIndices[i];
     const state = computeGaussianState(
@@ -2525,14 +2537,54 @@ function buildStatePositionsForCandidates(raw, candidateIndices, buildConfig) {
       out[o + 1] = state.pos[1] ?? 0;
       out[o + 2] = state.pos[2] ?? 0;
       out[o + 3] = 1;
+      computed4DStatePositionCount += 1;
+      usedCuda4DStateHelper =
+        usedCuda4DStateHelper || state.usedCuda4DStateHelper === true;
+      helperVersion = helperVersion ?? state.helperVersion ?? null;
     } else {
-      out[o + 0] = 0;
-      out[o + 1] = 0;
-      out[o + 2] = 0;
-      out[o + 3] = 0;
+      const xyzBase = srcIndex * raw.xyzDim;
+      const x = Number(raw.xyz?.[xyzBase + 0]);
+      const y = Number(raw.xyz?.[xyzBase + 1]);
+      const z = Number(raw.xyz?.[xyzBase + 2]);
+      if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)) {
+        out[o + 0] = x;
+        out[o + 1] = y;
+        out[o + 2] = z;
+        out[o + 3] = 0.75;
+        baselineStatePositionCount += 1;
+      } else {
+        out[o + 0] = 0;
+        out[o + 1] = 0;
+        out[o + 2] = 0;
+        out[o + 3] = 0;
+        unavailableStatePositionCount += 1;
+      }
     }
   }
-  return out;
+  return {
+    statePositions: out,
+    contract: buildWebGpu4DStateSourceContract({
+      stateSourceMode:
+        baselineStatePositionCount > 0
+          ? 'cpu-materialized-4d-state-source-with-raw-baseline-position'
+          : 'cpu-materialized-4d-state-source',
+      candidateCount: count,
+      statePositionCount: count,
+      computed4DStatePositionCount,
+      baselineStatePositionCount,
+      unavailableStatePositionCount,
+      usedCuda4DStateHelper,
+      helperVersion,
+      timestamp: buildConfig.timestamp,
+      stateParameterMode: 'viewer-build-config',
+      full4DStateEvaluationInWgsl: false,
+      rawXyzRepairInVisibleRecordComputeRequired: unavailableStatePositionCount > 0,
+      reason:
+        computed4DStatePositionCount > 0
+          ? null
+          : '4D conditional state evaluation culled this candidate batch; Step79 supplies a minimal baseline state source so visible-record compute consumes statePositions instead of raw repair'
+    })
+  };
 }
 
 function summarizeStatePositionAvailability(statePositions) {
@@ -2554,27 +2606,46 @@ function summarizeWebGpuVisibleRecordGate(records, recordCount) {
   let validRecordCount = 0;
   let rawPositionRepairRecordCount = 0;
   let statePositionRecordCount = 0;
+  let full4DStatePositionRecordCount = 0;
+  let stateSourceBaselineRecordCount = 0;
   for (let row = 0; row < recordCount; row += 1) {
     const base = row * RECORD_FLOATS;
     if (Number(records?.[base + 1]) > 0.5) {
       validRecordCount += 1;
       const stateSourceCode = Number(records?.[base + 10]);
       if (stateSourceCode === 78) rawPositionRepairRecordCount += 1;
-      if (stateSourceCode === 1) statePositionRecordCount += 1;
+      if (stateSourceCode === 79) stateSourceBaselineRecordCount += 1;
+      if (stateSourceCode === 1) full4DStatePositionRecordCount += 1;
+      if (stateSourceCode === 1 || stateSourceCode === 79) {
+        statePositionRecordCount += 1;
+      }
     }
   }
+  const classification =
+    validRecordCount <= 0
+      ? 'unavailable'
+      : full4DStatePositionRecordCount === validRecordCount
+        ? 'full-4d-state-driven-visible-record'
+        : statePositionRecordCount > 0 && rawPositionRepairRecordCount === 0
+          ? 'minimal-4d-state-source-visible-record'
+          : 'true-native-minimal-visible-record';
   return {
     validRecordCount,
     statePositionRecordCount,
+    full4DStatePositionRecordCount,
+    stateSourceBaselineRecordCount,
     rawPositionRepairRecordCount,
     projectionGatePassedCount: validRecordCount,
     visibilityGateMode:
-      rawPositionRepairRecordCount > 0
+      full4DStatePositionRecordCount === validRecordCount && validRecordCount > 0
+        ? 'webgpu-full-4d-state-position-visible-record'
+        : statePositionRecordCount > 0 && rawPositionRepairRecordCount === 0
+          ? 'webgpu-4d-state-source-visible-record'
+          : rawPositionRepairRecordCount > 0
         ? 'webgpu-raw-position-visible-record-repair'
         : 'webgpu-state-position-visible-record',
     trueVisibleRecordPathReady: validRecordCount > 0,
-    trueVisibleRecordPathClassification:
-      validRecordCount > 0 ? 'true-native-minimal-visible-record' : 'unavailable'
+    trueVisibleRecordPathClassification: classification
   };
 }
 
@@ -2682,9 +2753,9 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   var r1 = referenceRecords[base + 1u];
   var r2 = referenceRecords[base + 2u];
 
-  // Phase 3 Step78: srcIndex, valid, and minimal screen projection fields are
-  // produced in WGSL. If the 4D conditional state is culled, this boundary
-  // falls back to raw xyz so the visible-record path itself can become nonzero.
+  // Phase 3 Step79: srcIndex, valid, and minimal screen projection fields are
+  // produced in WGSL from the statePositions source. If that source is missing
+  // for a row, raw xyz remains only as an explicit repair diagnostic.
   r0.x = f32(srcIndex);
 
   let header = projectionParams[0u];
@@ -2697,6 +2768,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let sy = scale.y;
   let pixelXSign = scale.z;
   let statePositionAvailable = statePos.w > 0.5;
+  let full4DStatePositionAvailable = statePos.w > 0.99;
   var sourcePos = raw0.xyz;
   if (statePositionAvailable) {
     sourcePos = statePos.xyz;
@@ -2749,7 +2821,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   // Reserved lanes carry a tiny raw-buffer fetch probe for future diagnostics.
   // They are outside the compared fixed-record fields.
   r2.y = raw0.x;
-  r2.z = select(78.0, 1.0, statePositionAvailable);
+  r2.z = select(78.0, select(79.0, 1.0, full4DStatePositionAvailable), statePositionAvailable);
   r2.w = raw0.z;
 
   outputRecords[base + 0u] = r0;
@@ -4230,7 +4302,12 @@ export async function runWebGpuVisibleRecordDryRun({
   }
   const uploadStartMs = nowMs();
   const rawXyzOpacity = buildRawXyzOpacityForCandidates(raw, cpuReference.candidateIndices);
-  const statePositions = buildStatePositionsForCandidates(raw, cpuReference.candidateIndices, buildConfig);
+  const webgpu4DStateSource = buildStatePositionsForCandidates(
+    raw,
+    cpuReference.candidateIndices,
+    buildConfig
+  );
+  const { statePositions } = webgpu4DStateSource;
   const statePositionAvailabilitySummary =
     summarizeStatePositionAvailability(statePositions);
   const renderScale = Number.isFinite(buildConfig.renderScale) ? buildConfig.renderScale : 1;
@@ -4341,6 +4418,11 @@ export async function runWebGpuVisibleRecordDryRun({
       canvasHeight,
       visibleRecordGateSummary: {
         rawPositionRepairRecordCount: computeResult.rawPositionRepairRecordCount,
+        statePositionRecordCount: computeResult.statePositionRecordCount,
+        full4DStatePositionRecordCount:
+          computeResult.full4DStatePositionRecordCount,
+        stateSourceBaselineRecordCount:
+          computeResult.stateSourceBaselineRecordCount,
         trueVisibleRecordPathClassification:
           computeResult.trueVisibleRecordPathClassification
       }
@@ -4738,7 +4820,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step78 establishes a nonzero true WebGPU visible-record path with explicit projection/visibility gate diagnostics while preserving Step76/77 currentTexture baselines.',
+    scaffoldNote: 'Phase 3 Step79 connects a 4D state source boundary into the WebGPU visible-record pipeline, while keeping raw xyz repair as a diagnostic baseline instead of the primary visible-record source.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
@@ -4749,20 +4831,41 @@ export async function runWebGpuVisibleRecordDryRun({
     recordCount: cpuReference.count,
     validRecordCount: computeResult.validRecordCount,
     cpuReferenceValidRecordCount: cpuReference.validCount,
+    webgpu4DStateSourceContract: webgpu4DStateSource.contract,
     webgpuVisibleRecordGateSummary: {
       ...statePositionAvailabilitySummary,
+      fourDStateSourceReady:
+        webgpu4DStateSource.contract?.fourDStateSourceReady === true,
+      stateSourceMode: webgpu4DStateSource.contract?.stateSourceMode ?? null,
+      computed4DStatePositionCount:
+        webgpu4DStateSource.contract?.computed4DStatePositionCount ?? 0,
+      baselineStatePositionCount:
+        webgpu4DStateSource.contract?.baselineStatePositionCount ?? 0,
+      unavailableStatePositionCount:
+        webgpu4DStateSource.contract?.unavailableStatePositionCount ?? 0,
       validRecordCount: computeResult.validRecordCount,
       statePositionRecordCount: computeResult.statePositionRecordCount,
+      full4DStatePositionRecordCount:
+        computeResult.full4DStatePositionRecordCount,
+      stateSourceBaselineRecordCount:
+        computeResult.stateSourceBaselineRecordCount,
       rawPositionRepairRecordCount: computeResult.rawPositionRepairRecordCount,
       projectionGatePassedCount: computeResult.projectionGatePassedCount,
       visibilityGateMode: computeResult.visibilityGateMode,
       trueVisibleRecordPathReady: computeResult.trueVisibleRecordPathReady,
       trueVisibleRecordPathClassification:
         computeResult.trueVisibleRecordPathClassification,
+      full4DStateDrivenVisibleRecordPath:
+        computeResult.trueVisibleRecordPathClassification ===
+        'full-4d-state-driven-visible-record',
+      rawXyzRepairDependencyReduced:
+        computeResult.statePositionRecordCount > 0 &&
+        computeResult.rawPositionRepairRecordCount === 0,
       nextFull4DStateGate:
-        statePositionAvailabilitySummary.statePositionAvailableCount > 0
+        computeResult.trueVisibleRecordPathClassification ===
+        'full-4d-state-driven-visible-record'
           ? null
-          : '4D conditional statePositions remain unavailable for this candidate batch; Step78 uses WebGPU raw xyz projection repair to make the true visible-record path nonzero'
+          : 'Full 4D state evaluation in WGSL remains deferred; Step79 consumes a CPU-materialized 4D state source and records whether that source needed baseline positions'
     },
     recordFloats: RECORD_FLOATS,
     recordLayout: WEBGPU_VISIBLE_RECORD_FIELDS,
