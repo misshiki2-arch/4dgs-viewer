@@ -75,6 +75,9 @@ import {
 import {
   buildWebGpuOwnedCameraAwareVisibleSamples
 } from './webgpu_owned_visible_sample_generation.js';
+import {
+  buildWebGpu4DStatePositionsForCandidates
+} from './webgpu_4d_state_evaluator.js';
 
 const DEFAULT_MAX_RECORDS = 65536;
 const DEFAULT_EPSILON = DEFAULT_COMPARISON_EPSILON;
@@ -2040,22 +2043,36 @@ function buildCameraAwareVisibleOutputSamples({
     (rawPositionRepairUsed
       ? 'true-native-minimal-visible-record'
       : 'true-native');
-  const sourceClassification =
+  let sourceClassification = 'true-native';
+  if (
+    visibleRecordPathClassification ===
+    'full-webgpu-4d-state-evaluated-visible-record'
+  ) {
+    sourceClassification = 'full-webgpu-4d-state-evaluated';
+  } else if (
+    visibleRecordPathClassification ===
+    'partial-webgpu-4d-state-evaluated-visible-record'
+  ) {
+    sourceClassification = 'partial-webgpu-4d-state-evaluated';
+  } else if (
     visibleRecordPathClassification === 'full-4d-state-driven-visible-record'
-      ? 'full-4d-state-driven'
-      : visibleRecordPathClassification === 'minimal-4d-state-source-visible-record'
-        ? 'minimal-4d-state-source'
-        : rawPositionRepairUsed
-          ? 'true-native-minimal-visible-record'
-          : 'true-native';
+  ) {
+    sourceClassification = 'full-4d-state-driven';
+  } else if (
+    visibleRecordPathClassification === 'minimal-4d-state-source-visible-record'
+  ) {
+    sourceClassification = 'minimal-4d-state-source';
+  } else if (rawPositionRepairUsed) {
+    sourceClassification = 'true-native-minimal-visible-record';
+  }
   if (!webgpuRecords || recordCount <= 0) {
     return {
       visibleSamples: [],
       contract: buildUnavailableCameraAwareVisibleOutputContract(
         'webgpu-visible-record-output-unavailable',
         {
-          step: 'phase3-step78',
-          selectedApproach: 'A-webgpu-visible-record',
+          step: 'phase3-step80',
+          selectedApproach: 'B-webgpu-partial-4d-state-evaluator-visible-record',
           inputSourceKind: 'visible-record',
           inputSourceLineage:
             'WebGPU visible-record output was requested but no record buffer was available',
@@ -2125,8 +2142,8 @@ function buildCameraAwareVisibleOutputSamples({
   }
   const contract = buildCameraAwareVisibleOutputContract({
     status: visibleSamples.length > 0 ? 'ok' : 'blocked',
-    step: 'phase3-step78',
-    selectedApproach: 'A-webgpu-visible-record',
+    step: 'phase3-step80',
+    selectedApproach: 'B-webgpu-partial-4d-state-evaluator-visible-record',
     sourceMode: 'webgpu-visible-record-compute-camera-aware-samples',
     inputSourceKind: 'visible-record',
     inputSourceLineage:
@@ -2135,7 +2152,11 @@ function buildCameraAwareVisibleOutputSamples({
     visibleRecordPathClassification,
     rawPositionRepairUsed,
     full4DStateDrivenTrueNative:
-      visibleRecordPathClassification === 'full-4d-state-driven-visible-record',
+      visibleRecordPathClassification ===
+      'full-webgpu-4d-state-evaluated-visible-record',
+    partialWebGpu4DStateEvaluated:
+      visibleRecordPathClassification ===
+      'partial-webgpu-4d-state-evaluated-visible-record',
     sampleCount: visibleSamples.length,
     maxSampleCount,
     candidateRecordCount: recordCount,
@@ -2607,6 +2628,7 @@ function summarizeWebGpuVisibleRecordGate(records, recordCount) {
   let rawPositionRepairRecordCount = 0;
   let statePositionRecordCount = 0;
   let full4DStatePositionRecordCount = 0;
+  let partialWebGpu4DStateRecordCount = 0;
   let stateSourceBaselineRecordCount = 0;
   for (let row = 0; row < recordCount; row += 1) {
     const base = row * RECORD_FLOATS;
@@ -2616,34 +2638,56 @@ function summarizeWebGpuVisibleRecordGate(records, recordCount) {
       if (stateSourceCode === 78) rawPositionRepairRecordCount += 1;
       if (stateSourceCode === 79) stateSourceBaselineRecordCount += 1;
       if (stateSourceCode === 1) full4DStatePositionRecordCount += 1;
-      if (stateSourceCode === 1 || stateSourceCode === 79) {
+      if (stateSourceCode === 80) partialWebGpu4DStateRecordCount += 1;
+      if (
+        stateSourceCode === 1 ||
+        stateSourceCode === 79 ||
+        stateSourceCode === 80
+      ) {
         statePositionRecordCount += 1;
       }
     }
   }
-  const classification =
-    validRecordCount <= 0
-      ? 'unavailable'
-      : full4DStatePositionRecordCount === validRecordCount
-        ? 'full-4d-state-driven-visible-record'
-        : statePositionRecordCount > 0 && rawPositionRepairRecordCount === 0
-          ? 'minimal-4d-state-source-visible-record'
-          : 'true-native-minimal-visible-record';
+  let classification = 'unavailable';
+  if (validRecordCount > 0) {
+    if (full4DStatePositionRecordCount === validRecordCount) {
+      classification = 'full-webgpu-4d-state-evaluated-visible-record';
+    } else if (
+      partialWebGpu4DStateRecordCount > 0 &&
+      rawPositionRepairRecordCount === 0
+    ) {
+      classification = 'partial-webgpu-4d-state-evaluated-visible-record';
+    } else if (
+      statePositionRecordCount > 0 &&
+      rawPositionRepairRecordCount === 0
+    ) {
+      classification = 'minimal-4d-state-source-visible-record';
+    } else {
+      classification = 'true-native-minimal-visible-record';
+    }
+  }
+  let visibilityGateMode = 'webgpu-state-position-visible-record';
+  if (full4DStatePositionRecordCount === validRecordCount && validRecordCount > 0) {
+    visibilityGateMode = 'webgpu-full-4d-state-evaluated-visible-record';
+  } else if (
+    partialWebGpu4DStateRecordCount > 0 &&
+    rawPositionRepairRecordCount === 0
+  ) {
+    visibilityGateMode = 'webgpu-partial-4d-state-evaluated-visible-record';
+  } else if (statePositionRecordCount > 0 && rawPositionRepairRecordCount === 0) {
+    visibilityGateMode = 'webgpu-4d-state-source-visible-record';
+  } else if (rawPositionRepairRecordCount > 0) {
+    visibilityGateMode = 'webgpu-raw-position-visible-record-repair';
+  }
   return {
     validRecordCount,
     statePositionRecordCount,
     full4DStatePositionRecordCount,
+    partialWebGpu4DStateRecordCount,
     stateSourceBaselineRecordCount,
     rawPositionRepairRecordCount,
     projectionGatePassedCount: validRecordCount,
-    visibilityGateMode:
-      full4DStatePositionRecordCount === validRecordCount && validRecordCount > 0
-        ? 'webgpu-full-4d-state-position-visible-record'
-        : statePositionRecordCount > 0 && rawPositionRepairRecordCount === 0
-          ? 'webgpu-4d-state-source-visible-record'
-          : rawPositionRepairRecordCount > 0
-        ? 'webgpu-raw-position-visible-record-repair'
-        : 'webgpu-state-position-visible-record',
+    visibilityGateMode,
     trueVisibleRecordPathReady: validRecordCount > 0,
     trueVisibleRecordPathClassification: classification
   };
@@ -2753,9 +2797,10 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   var r1 = referenceRecords[base + 1u];
   var r2 = referenceRecords[base + 2u];
 
-  // Phase 3 Step79: srcIndex, valid, and minimal screen projection fields are
-  // produced in WGSL from the statePositions source. If that source is missing
-  // for a row, raw xyz remains only as an explicit repair diagnostic.
+  // Phase 3 Step80: srcIndex, valid, and minimal screen projection fields are
+  // produced in WGSL from a WebGPU-computed statePositions source. If that
+  // source is missing for a row, raw xyz remains only as an explicit repair
+  // diagnostic.
   r0.x = f32(srcIndex);
 
   let header = projectionParams[0u];
@@ -2769,6 +2814,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let pixelXSign = scale.z;
   let statePositionAvailable = statePos.w > 0.5;
   let full4DStatePositionAvailable = statePos.w > 0.99;
+  let partialWebGpu4DStatePositionAvailable = statePos.w > 0.89 && statePos.w < 0.99;
   var sourcePos = raw0.xyz;
   if (statePositionAvailable) {
     sourcePos = statePos.xyz;
@@ -2821,7 +2867,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   // Reserved lanes carry a tiny raw-buffer fetch probe for future diagnostics.
   // They are outside the compared fixed-record fields.
   r2.y = raw0.x;
-  r2.z = select(78.0, select(79.0, 1.0, full4DStatePositionAvailable), statePositionAvailable);
+  let stateSourceCode = select(79.0, 80.0, partialWebGpu4DStatePositionAvailable);
+  r2.z = select(78.0, select(stateSourceCode, 1.0, full4DStatePositionAvailable), statePositionAvailable);
   r2.w = raw0.z;
 
   outputRecords[base + 0u] = r0;
@@ -4302,11 +4349,13 @@ export async function runWebGpuVisibleRecordDryRun({
   }
   const uploadStartMs = nowMs();
   const rawXyzOpacity = buildRawXyzOpacityForCandidates(raw, cpuReference.candidateIndices);
-  const webgpu4DStateSource = buildStatePositionsForCandidates(
+  const webgpu4DStateSource = await buildWebGpu4DStatePositionsForCandidates({
+    device,
     raw,
-    cpuReference.candidateIndices,
+    candidateIndices: cpuReference.candidateIndices,
+    rawXyzOpacity,
     buildConfig
-  );
+  });
   const { statePositions } = webgpu4DStateSource;
   const statePositionAvailabilitySummary =
     summarizeStatePositionAvailability(statePositions);
@@ -4421,6 +4470,8 @@ export async function runWebGpuVisibleRecordDryRun({
         statePositionRecordCount: computeResult.statePositionRecordCount,
         full4DStatePositionRecordCount:
           computeResult.full4DStatePositionRecordCount,
+        partialWebGpu4DStateRecordCount:
+          computeResult.partialWebGpu4DStateRecordCount,
         stateSourceBaselineRecordCount:
           computeResult.stateSourceBaselineRecordCount,
         trueVisibleRecordPathClassification:
@@ -4803,7 +4854,10 @@ export async function runWebGpuVisibleRecordDryRun({
     rawCount,
     recordFloats: RECORD_FLOATS,
     outputBufferBytes: cpuReference.records.byteLength,
-    projectionParamMode: projectionContract.summary.mode
+    projectionParamMode: projectionContract.summary.mode,
+    statePositionUploadMode:
+      webgpu4DStateSource.contract?.stateSourceMode ??
+      WEBGPU_INPUT_BUFFER_MODES.STATE_POSITIONS
   });
   const compareStartMs = nowMs();
   const comparisonTolerance = createComparisonToleranceMetadata({ epsilon, maxMismatches });
@@ -4820,7 +4874,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step79 connects a 4D state source boundary into the WebGPU visible-record pipeline, while keeping raw xyz repair as a diagnostic baseline instead of the primary visible-record source.',
+    scaffoldNote: 'Phase 3 Step80 evaluates a partial 4D state position source in WebGPU, feeds computed state positions into visible-record projection, and keeps full covariance/rotation parity deferred.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
@@ -4837,6 +4891,10 @@ export async function runWebGpuVisibleRecordDryRun({
       fourDStateSourceReady:
         webgpu4DStateSource.contract?.fourDStateSourceReady === true,
       stateSourceMode: webgpu4DStateSource.contract?.stateSourceMode ?? null,
+      webgpuComputedStatePositions:
+        webgpu4DStateSource.contract?.webgpuComputedStatePositions === true,
+      webgpu4DStateEvaluationMode:
+        webgpu4DStateSource.contract?.webgpu4DStateEvaluationMode ?? null,
       computed4DStatePositionCount:
         webgpu4DStateSource.contract?.computed4DStatePositionCount ?? 0,
       baselineStatePositionCount:
@@ -4847,6 +4905,8 @@ export async function runWebGpuVisibleRecordDryRun({
       statePositionRecordCount: computeResult.statePositionRecordCount,
       full4DStatePositionRecordCount:
         computeResult.full4DStatePositionRecordCount,
+      partialWebGpu4DStateRecordCount:
+        computeResult.partialWebGpu4DStateRecordCount,
       stateSourceBaselineRecordCount:
         computeResult.stateSourceBaselineRecordCount,
       rawPositionRepairRecordCount: computeResult.rawPositionRepairRecordCount,
@@ -4857,15 +4917,18 @@ export async function runWebGpuVisibleRecordDryRun({
         computeResult.trueVisibleRecordPathClassification,
       full4DStateDrivenVisibleRecordPath:
         computeResult.trueVisibleRecordPathClassification ===
-        'full-4d-state-driven-visible-record',
+        'full-webgpu-4d-state-evaluated-visible-record',
+      partialWebGpu4DStateEvaluatedVisibleRecordPath:
+        computeResult.trueVisibleRecordPathClassification ===
+        'partial-webgpu-4d-state-evaluated-visible-record',
       rawXyzRepairDependencyReduced:
         computeResult.statePositionRecordCount > 0 &&
         computeResult.rawPositionRepairRecordCount === 0,
       nextFull4DStateGate:
         computeResult.trueVisibleRecordPathClassification ===
-        'full-4d-state-driven-visible-record'
+        'full-webgpu-4d-state-evaluated-visible-record'
           ? null
-          : 'Full 4D state evaluation in WGSL remains deferred; Step79 consumes a CPU-materialized 4D state source and records whether that source needed baseline positions'
+          : 'Full WGSL 4D covariance/rotation parity remains deferred; Step80 computes partial time-parameter state positions in WebGPU and feeds them into visible-record projection'
     },
     recordFloats: RECORD_FLOATS,
     recordLayout: WEBGPU_VISIBLE_RECORD_FIELDS,

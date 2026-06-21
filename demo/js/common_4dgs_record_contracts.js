@@ -4,7 +4,7 @@ export const WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION =
 export const WEBGPU_VISIBLE_RECORD_COMPUTE_MODE =
   'webgpu-storage-buffer-compute-fixed-record';
 
-export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step79';
+export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step80';
 
 export const WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE =
   'wgsl-valid-screen-projection-with-true-native-bounded-color-sources';
@@ -298,7 +298,7 @@ export const WEBGPU_VISIBLE_RECORD_FIELD_COMPUTE_MODES = Object.freeze({
 });
 
 export const WEBGPU_4D_STATE_SOURCE_CONTRACT_VERSION =
-  'phase3-step79-webgpu-4d-state-source-contract-v1';
+  'phase3-step80-webgpu-4d-state-source-contract-v1';
 
 export function buildWebGpu4DStateSourceContract({
   status = 'ok',
@@ -312,6 +312,8 @@ export function buildWebGpu4DStateSourceContract({
   helperVersion = null,
   timestamp = null,
   stateParameterMode = 'viewer-build-config',
+  webgpuComputedStatePositions = false,
+  webgpu4DStateEvaluationMode = null,
   full4DStateEvaluationInWgsl = false,
   rawXyzRepairInVisibleRecordComputeRequired = false,
   reason = null
@@ -320,6 +322,24 @@ export function buildWebGpu4DStateSourceContract({
     status === 'ok' &&
     statePositionCount > 0 &&
     computed4DStatePositionCount + baselineStatePositionCount > 0;
+  let sourceClassification = 'minimal-4d-state-source';
+  if (
+    full4DStateEvaluationInWgsl === true &&
+    computed4DStatePositionCount > 0 &&
+    baselineStatePositionCount === 0
+  ) {
+    sourceClassification = 'full-webgpu-4d-state-evaluated';
+  } else if (
+    webgpuComputedStatePositions === true &&
+    computed4DStatePositionCount > 0
+  ) {
+    sourceClassification = 'partial-webgpu-4d-state-evaluated';
+  } else if (
+    computed4DStatePositionCount > 0 &&
+    baselineStatePositionCount === 0
+  ) {
+    sourceClassification = 'full-4d-state-driven';
+  }
   return {
     contractVersion: WEBGPU_4D_STATE_SOURCE_CONTRACT_VERSION,
     status: fourDStateSourceReady ? 'ok' : status,
@@ -334,12 +354,11 @@ export function buildWebGpu4DStateSourceContract({
     helperVersion,
     timestamp,
     stateParameterMode,
+    webgpuComputedStatePositions,
+    webgpu4DStateEvaluationMode,
     full4DStateEvaluationInWgsl,
     rawXyzRepairInVisibleRecordComputeRequired,
-    sourceClassification:
-      computed4DStatePositionCount > 0 && baselineStatePositionCount === 0
-        ? 'full-4d-state-driven'
-        : 'minimal-4d-state-source',
+    sourceClassification,
     reason
   };
 }

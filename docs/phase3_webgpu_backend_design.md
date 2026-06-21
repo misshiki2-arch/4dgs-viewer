@@ -1134,3 +1134,37 @@ currentTexture path.
 Full WGSL 4D state evaluation, SH/color parity, depth sort, compaction,
 tile-list generation, streaming, chunking, LOD, and partial upload remain
 deferred.
+
+## Step80 WebGPU 4D State Evaluation Pipeline
+
+Step80 replaces the Step79 CPU-materialized baseline `statePositions` source
+with a small WebGPU 4D state evaluator boundary. The evaluator consumes
+screenCoarse candidate raw positions plus per-record time/scale-time values,
+uses the viewer build timestamp and state parameters, writes computed
+`statePositions` on the GPU, and feeds those positions into the existing
+visible-record projection compute before the normal backend renders through
+the guarded currentTexture path.
+
+- selected approach: B. A focused `webgpu_4d_state_evaluator.js` module owns
+  the partial WebGPU state evaluation pass so the visible-record compute stays
+  responsible for projection/visibility rather than for all 4D state math.
+- success contract: Step80 is successful when
+  `computed4DStatePositionCount > 0`, `webgpuComputedStatePositions=true`,
+  visible records generated from those computed positions are consumed by the
+  normal backend, raw xyz repair is not needed, and currentTexture readback
+  remains ready under the WebGPU-exclusive guard.
+- classification: this step is `partial-webgpu-4d-state-evaluated`, not full
+  4D state driven parity. Full WGSL covariance/rotation/SH parity remains
+  deferred and must not be claimed by this boundary.
+- diagnostics: `webgpuVisibleRecordGateSummary` records
+  `partialWebGpu4DStateRecordCount`, `webgpu4DStateEvaluationMode`,
+  baseline-state record count, raw repair count, projection gate pass count,
+  and the next full 4D state gate.
+- baselines: Step76 validation-assisted bridge, Step77 native-compatible
+  samples, Step78 raw xyz repair, and Step79 CPU-materialized state positions
+  remain diagnostic baselines only. They must not be counted as Step80
+  WebGPU-computed state evaluation success.
+
+Full realtime 4DGS rendering still requires WGSL parity for the 4D conditional
+state/covariance path, SH/color evaluation, depth sort, compaction, tile-list
+generation, streaming, chunking, LOD, and partial upload.
