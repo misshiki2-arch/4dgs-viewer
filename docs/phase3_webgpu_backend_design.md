@@ -1168,3 +1168,40 @@ the guarded currentTexture path.
 Full realtime 4DGS rendering still requires WGSL parity for the 4D conditional
 state/covariance path, SH/color evaluation, depth sort, compaction, tile-list
 generation, streaming, chunking, LOD, and partial upload.
+
+## Step81 WebGPU 4D Gaussian Attribute Evaluation Pipeline
+
+Step81 extends the Step80 partial WebGPU state evaluator so the same WebGPU
+pipeline also emits a partial Gaussian render-attribute payload. The evaluator
+computes state positions, `radiusPx`, `colorAlpha.rgb`, `colorAlpha.a`, and a
+temporal weight from candidate raw position/opacity, `f_dc`, scale, and
+time/scale-time inputs. The normal backend then consumes visible-record
+`px/py/depth` together with the WebGPU-computed `colorAlpha` and point radius
+through the existing sample buffer, color output surface, guarded adapter, and
+currentTexture path.
+
+- selected approach: B/C. The evaluator module owns partial 4D state and
+  partial Gaussian attribute evaluation; the visible-record compute remains
+  responsible for projection and visibility.
+- success contract: Step81 is successful when nonzero WebGPU-computed render
+  attributes are produced, every normal-backend visible sample consumes that
+  computed attribute payload, computed state visible records remain consumed,
+  and currentTexture readback stays ready under the WebGPU-exclusive guard.
+- attribute classification: `radiusPx`, `colorAlpha.rgb`, `colorAlpha.a`, and
+  `temporalWeight` are `partial-webgpu-computed`. Full conic/covariance,
+  full SH color, tile range, and depth sort remain deferred and must not be
+  reported as full WebGPU attribute parity.
+- lineage: Summary reports
+  `webgpuGaussianAttributeEvaluationContract`, `computedRenderAttributeCount`,
+  `computedRenderPayloadConsumed`, `renderAttributeSources`, and
+  `normalBackendConsumedComputedRenderAttributes` so Step81 cannot pass by
+  silently falling back to reference-assisted color or selected sample payloads.
+- Step81 fix1 tightens the normal-backend consumption proof: the sample
+  resource lifecycle must show computed `radiusPx` and `colorAlpha` were used
+  for the packed visible samples, and `temporalWeight` must be either reflected
+  into alpha or explicitly reported as unavailable/unused. This keeps partial
+  attribute success separate from full conic/covariance/SH parity.
+
+Full realtime 4DGS rendering still requires WGSL parity for conditional
+covariance/conic, complete SH/color evaluation, depth sort, compaction,
+tile-list generation, streaming, chunking, LOD, and partial upload.

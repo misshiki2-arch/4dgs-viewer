@@ -515,6 +515,20 @@ function buildCameraAwareVisibleOutputInputContract({
       usingVisibleRecords
         ? visibleOutput.contract?.validationAssistedBridgeSampleCount ?? null
         : null,
+    webgpuGaussianAttributeEvaluationContract:
+      visibleOutput.contract?.webgpuGaussianAttributeEvaluationContract ?? null,
+    webgpuComputedRenderAttributes:
+      visibleOutput.contract?.webgpuComputedRenderAttributes === true,
+    webgpuComputedAttributeFields:
+      visibleOutput.contract?.webgpuComputedAttributeFields ?? [],
+    renderAttributeClassification:
+      visibleOutput.contract?.renderAttributeClassification ?? null,
+    renderPayloadClassification:
+      visibleOutput.contract?.renderPayloadClassification ?? null,
+    computedRenderPayloadConsumed:
+      visibleOutput.contract?.computedRenderPayloadConsumed === true,
+    computedRenderAttributeSampleCount:
+      visibleOutput.contract?.computedRenderAttributeSampleCount ?? 0,
     outputPointRadiusPx,
     visibleSamples: samples,
     debugFillUsed: visibleOutput.contract?.debugFillUsed === true,

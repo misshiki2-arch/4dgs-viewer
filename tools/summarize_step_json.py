@@ -1638,6 +1638,238 @@ def build_step80_webgpu_4d_state_evaluation_summary(
     }
 
 
+def build_step81_webgpu_gaussian_attribute_evaluation_summary(
+    summary: Dict[str, Any],
+    webgpu_visible_record_camera_aware_visible_output: Dict[str, Any],
+    webgpu_owned_camera_aware_visible_output: Dict[str, Any],
+    validation_assisted_camera_aware_visible_output: Dict[str, Any],
+    webgpu_normal_backend_frame_implementation: Dict[str, Any],
+    webgpu_normal_backend_frame_implementation_validation: Dict[str, Any],
+) -> Dict[str, Any]:
+    step80 = build_step80_webgpu_4d_state_evaluation_summary(
+        summary,
+        webgpu_visible_record_camera_aware_visible_output,
+        webgpu_owned_camera_aware_visible_output,
+        validation_assisted_camera_aware_visible_output,
+        webgpu_normal_backend_frame_implementation,
+        webgpu_normal_backend_frame_implementation_validation,
+    )
+    normal_contract = get_path(
+        webgpu_normal_backend_frame_implementation,
+        ["cameraAwareVisibleOutputContract"],
+        {},
+    )
+    sample_contract = get_path(
+        webgpu_normal_backend_frame_implementation,
+        ["sampleResourceLifecycleContract"],
+        {},
+    )
+    gate_summary = get_path(summary, ["webgpuVisibleRecordGateSummary"], {})
+    attr_contract = get_path(
+        summary,
+        ["webgpuGaussianAttributeEvaluationContract"],
+        get_path(normal_contract, ["webgpuGaussianAttributeEvaluationContract"], {}),
+    )
+    phase_step = get_path(summary, ["phaseStep"])
+    computed_attr_count = get_path(
+        attr_contract,
+        ["computedRenderAttributeCount"],
+        get_path(gate_summary, ["computedRenderAttributeCount"], 0),
+    )
+    computed_attr_sample_count = get_path(
+        normal_contract,
+        ["computedRenderAttributeSampleCount"],
+        get_path(
+            sample_contract,
+            ["computedRenderAttributeSampleCount"],
+            get_path(sample_contract, ["webgpuComputedRenderAttributeSampleCount"], 0),
+        ),
+    )
+    camera_sample_count = get_path(
+        normal_contract,
+        ["sampleCount"],
+        get_path(webgpu_normal_backend_frame_implementation, ["visibleOutputSampleCount"], 0),
+    )
+    computed_payload_consumed = (
+        get_path(normal_contract, ["computedRenderPayloadConsumed"]) is True
+        or get_path(sample_contract, ["computedRenderPayloadConsumed"]) is True
+    )
+    attr_ready = (
+        get_path(attr_contract, ["gaussianAttributeEvaluationReady"]) is True
+        and get_path(attr_contract, ["webgpuComputedRenderAttributes"]) is True
+        and computed_attr_count > 0
+    )
+    normal_backend_consumed_attributes = (
+        get_path(
+            sample_contract,
+            ["normalBackendConsumedComputedRenderAttributes"],
+        )
+        is True
+        or (
+            computed_payload_consumed
+            and computed_attr_sample_count > 0
+            and computed_attr_sample_count == camera_sample_count
+            and get_path(sample_contract, ["computedRadiusConsumed"]) is True
+            and get_path(sample_contract, ["computedColorAlphaConsumed"]) is True
+        )
+    )
+    success = (
+        phase_step == "phase3-step81"
+        and step80.get("webgpuComputedStatePositions") is True
+        and step80.get("computed4DStatePositionCount", 0) > 0
+        and step80.get("computedStateVisibleRecordConsumedByNormalBackend") is True
+        and attr_ready
+        and normal_backend_consumed_attributes
+        and step80.get("currentTextureConnectionReady") is True
+        and step80.get("currentTextureReadbackMatchesAdapterOutput") is True
+        and step80.get("webgl2HybridRenderingPrevented") is True
+        and step80.get("fallbackSamplesMixed") is False
+        and step80.get("noFallbackMixing") is True
+    )
+    blocked_reason = None
+    if not success:
+        if phase_step != "phase3-step81":
+            blocked_reason = "summary-phase-step-is-not-phase3-step81"
+        elif step80.get("webgpuComputedStatePositions") is not True:
+            blocked_reason = "webgpu-computed-state-positions-not-ready"
+        elif step80.get("computedStateVisibleRecordConsumedByNormalBackend") is not True:
+            blocked_reason = "computed-state-visible-records-not-consumed"
+        elif not attr_ready:
+            blocked_reason = "webgpu-gaussian-attribute-evaluation-not-ready"
+        elif not normal_backend_consumed_attributes:
+            blocked_reason = "normal-backend-did-not-consume-computed-render-attributes"
+        elif step80.get("currentTextureConnectionReady") is not True:
+            blocked_reason = "currentTexture-connection-not-ready"
+        elif step80.get("currentTextureReadbackMatchesAdapterOutput") is not True:
+            blocked_reason = "currentTexture-readback-did-not-match-adapter-output"
+        elif step80.get("webgl2HybridRenderingPrevented") is not True:
+            blocked_reason = "webgl2-hybrid-rendering-not-prevented"
+        elif (
+            step80.get("fallbackSamplesMixed") is not False
+            or step80.get("noFallbackMixing") is not True
+        ):
+            blocked_reason = "fallback-samples-mixed-or-not-proven-suppressed"
+    return {
+        "step81Decision": "success" if success else "blocked",
+        "step81BlockedReason": blocked_reason,
+        "selectedApproach": "B/C-webgpu-partial-gaussian-attribute-evaluator",
+        "phaseStep": phase_step,
+        "step81SummaryApplies": phase_step == "phase3-step81",
+        "webgpu4DStateSourceReady": step80.get("webgpu4DStateSourceReady"),
+        "webgpuComputedStatePositions": step80.get("webgpuComputedStatePositions"),
+        "computed4DStatePositionCount": step80.get(
+            "computed4DStatePositionCount"
+        ),
+        "computedStateVisibleRecordConsumedByNormalBackend": step80.get(
+            "computedStateVisibleRecordConsumedByNormalBackend"
+        ),
+        "gaussianAttributeEvaluationReady": get_path(
+            attr_contract, ["gaussianAttributeEvaluationReady"]
+        ),
+        "webgpuComputedRenderAttributes": get_path(
+            attr_contract, ["webgpuComputedRenderAttributes"]
+        ),
+        "computedRenderAttributeCount": computed_attr_count,
+        "computedAttributeFields": get_path(
+            attr_contract, ["computedAttributeFields"], []
+        ),
+        "partialAttributeFields": get_path(
+            attr_contract, ["partialAttributeFields"], []
+        ),
+        "baselineAttributeFields": get_path(
+            attr_contract, ["baselineAttributeFields"], []
+        ),
+        "fallbackAttributeFields": get_path(
+            attr_contract, ["fallbackAttributeFields"], []
+        ),
+        "referenceAssistedAttributeFields": get_path(
+            attr_contract, ["referenceAssistedAttributeFields"], []
+        ),
+        "deferredAttributeFields": get_path(
+            attr_contract, ["deferredAttributeFields"], []
+        ),
+        "normalBackendPointRadiusPx": get_path(
+            attr_contract, ["normalBackendPointRadiusPx"]
+        ),
+        "averageComputedRadiusPx": get_path(
+            attr_contract, ["averageComputedRadiusPx"]
+        ),
+        "averageComputedAlpha": get_path(attr_contract, ["averageComputedAlpha"]),
+        "renderAttributeClassification": get_path(
+            attr_contract, ["renderAttributeClassification"]
+        ),
+        "renderPayloadClassification": get_path(
+            attr_contract, ["renderPayloadClassification"]
+        ),
+        "fullGaussianAttributeEvaluationInWgsl": get_path(
+            attr_contract, ["fullGaussianAttributeEvaluationInWgsl"]
+        ),
+        "computedRenderPayloadConsumed": computed_payload_consumed,
+        "computedRenderAttributeSampleCount": computed_attr_sample_count,
+        "normalBackendConsumedComputedRenderAttributes":
+            normal_backend_consumed_attributes,
+        "computedRadiusConsumed": get_path(
+            sample_contract, ["computedRadiusConsumed"]
+        ),
+        "computedColorAlphaConsumed": get_path(
+            sample_contract, ["computedColorAlphaConsumed"]
+        ),
+        "computedTemporalWeightAvailable": get_path(
+            sample_contract, ["computedTemporalWeightAvailable"]
+        ),
+        "computedTemporalWeightUsage": get_path(
+            sample_contract, ["computedTemporalWeightUsage"]
+        ),
+        "sourceClassification": get_path(normal_contract, ["sourceClassification"]),
+        "consumedSourceKind": get_path(normal_contract, ["consumedSourceKind"]),
+        "consumedSourceClassification": get_path(
+            normal_contract, ["consumedSourceClassification"]
+        ),
+        "validRecordCount": step80.get("validRecordCount"),
+        "partialWebGpu4DStateRecordCount": step80.get(
+            "partialWebGpu4DStateRecordCount"
+        ),
+        "renderedSamplePatchCount": step80.get("renderedSamplePatchCount"),
+        "cameraAwareVisibleSampleCount": step80.get(
+            "cameraAwareVisibleSampleCount"
+        ),
+        "enlargedPatchPixelCount": step80.get("enlargedPatchPixelCount"),
+        "outputPointRadiusPx": get_path(normal_contract, ["outputPointRadiusPx"]),
+        "debugFillUsed": step80.get("debugFillUsed"),
+        "usesViewerCameraProjection": step80.get("usesViewerCameraProjection"),
+        "schedulerOwnedPath": step80.get("schedulerOwnedPath"),
+        "currentTextureConnectionReady": step80.get(
+            "currentTextureConnectionReady"
+        ),
+        "currentTextureReadbackMatchesAdapterOutput": step80.get(
+            "currentTextureReadbackMatchesAdapterOutput"
+        ),
+        "webgpuExclusiveGuard": step80.get("webgpuExclusiveGuard"),
+        "webgl2HybridRenderingPrevented": step80.get(
+            "webgl2HybridRenderingPrevented"
+        ),
+        "fallbackSamplesMixed": step80.get("fallbackSamplesMixed"),
+        "noFallbackMixing": step80.get("noFallbackMixing"),
+        "sampleSources": step80.get("sampleSources"),
+        "renderAttributeSources": get_path(
+            sample_contract, ["renderAttributeSources"], []
+        ),
+        "fullWebGpu4DStateEvaluationReady": step80.get(
+            "fullWebGpu4DStateEvaluationReady"
+        ),
+        "partialWebGpu4DStateEvaluationReady": step80.get(
+            "partialWebGpu4DStateEvaluationReady"
+        ),
+        "minimal4DStateSourceFallbackUsed": step80.get(
+            "minimal4DStateSourceFallbackUsed"
+        ),
+        "nativeCompatibleFallbackUsed": step80.get("nativeCompatibleFallbackUsed"),
+        "bridgeFallbackUsed": step80.get("bridgeFallbackUsed"),
+        "rawRepairFallbackUsed": step80.get("rawRepairFallbackUsed"),
+        "firstValidationFailures": step80.get("firstValidationFailures", []),
+    }
+
+
 def build_step75_camera_aware_visible_summary(
     summary: Dict[str, Any],
     webgpu_camera_aware_visible_output: Dict[str, Any],
@@ -2772,6 +3004,16 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             webgpu_normal_backend_frame_implementation_validation,
         )
     )
+    step81_webgpu_gaussian_attribute_evaluation_pipeline = (
+        build_step81_webgpu_gaussian_attribute_evaluation_summary(
+            summary,
+            webgpu_visible_record_camera_aware_visible_output,
+            webgpu_owned_camera_aware_visible_output,
+            validation_assisted_camera_aware_visible_output,
+            webgpu_normal_backend_frame_implementation,
+            webgpu_normal_backend_frame_implementation_validation,
+        )
+    )
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -2799,6 +3041,8 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
         "step79WebGpu4DStateVisiblePipeline": step79_4d_state_visible_pipeline,
         "step80WebGpu4DStateEvaluationPipeline":
             step80_webgpu_4d_state_evaluation_pipeline,
+        "step81WebGpuGaussianAttributeEvaluationPipeline":
+            step81_webgpu_gaussian_attribute_evaluation_pipeline,
         "comparisonContract": get_path(summary, ["comparisonContract"], {}),
         "comparisonTolerance": get_path(summary, ["comparisonTolerance"], {}),
         "radiusContract": get_path(summary, ["radiusContract"], {}),
@@ -7803,6 +8047,12 @@ def print_human_summary(summary: Dict[str, Any]) -> None:
         "Step80 WebGPU 4D state evaluation pipeline",
         summary.get("webgpuVisibleRecordDryRun", {}).get(
             "step80WebGpu4DStateEvaluationPipeline"
+        ),
+    )
+    print_section(
+        "Step81 WebGPU Gaussian attribute evaluation pipeline",
+        summary.get("webgpuVisibleRecordDryRun", {}).get(
+            "step81WebGpuGaussianAttributeEvaluationPipeline"
         ),
     )
     print_section("WebGPU visible record dry-run", summary.get("webgpuVisibleRecordDryRun"))

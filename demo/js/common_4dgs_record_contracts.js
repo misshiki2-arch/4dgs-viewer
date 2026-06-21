@@ -4,7 +4,7 @@ export const WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION =
 export const WEBGPU_VISIBLE_RECORD_COMPUTE_MODE =
   'webgpu-storage-buffer-compute-fixed-record';
 
-export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step80';
+export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step81';
 
 export const WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE =
   'wgsl-valid-screen-projection-with-true-native-bounded-color-sources';
@@ -300,6 +300,9 @@ export const WEBGPU_VISIBLE_RECORD_FIELD_COMPUTE_MODES = Object.freeze({
 export const WEBGPU_4D_STATE_SOURCE_CONTRACT_VERSION =
   'phase3-step80-webgpu-4d-state-source-contract-v1';
 
+export const WEBGPU_GAUSSIAN_ATTRIBUTE_EVALUATION_CONTRACT_VERSION =
+  'phase3-step81-webgpu-gaussian-attribute-evaluation-contract-v1';
+
 export function buildWebGpu4DStateSourceContract({
   status = 'ok',
   stateSourceMode = 'cpu-materialized-4d-state-source',
@@ -359,6 +362,57 @@ export function buildWebGpu4DStateSourceContract({
     full4DStateEvaluationInWgsl,
     rawXyzRepairInVisibleRecordComputeRequired,
     sourceClassification,
+    reason
+  };
+}
+
+export function buildWebGpuGaussianAttributeEvaluationContract({
+  status = 'ok',
+  evaluationMode = 'webgpu-partial-gaussian-render-attribute-eval',
+  candidateCount = 0,
+  computedRenderAttributeCount = 0,
+  webgpuComputedRenderAttributes = false,
+  computedAttributeFields = [],
+  partialAttributeFields = [],
+  baselineAttributeFields = [],
+  fallbackAttributeFields = [],
+  referenceAssistedAttributeFields = [],
+  deferredAttributeFields = [],
+  normalBackendPointRadiusPx = null,
+  averageComputedRadiusPx = null,
+  averageComputedAlpha = null,
+  renderAttributeFloatStride = 8,
+  renderAttributeClassification = 'partial-webgpu-computed',
+  renderPayloadClassification = 'partial-webgpu-gaussian-attributes',
+  fullGaussianAttributeEvaluationInWgsl = false,
+  reason = null
+} = {}) {
+  const gaussianAttributeEvaluationReady =
+    status === 'ok' &&
+    webgpuComputedRenderAttributes === true &&
+    computedRenderAttributeCount > 0 &&
+    computedAttributeFields.length > 0;
+  return {
+    contractVersion: WEBGPU_GAUSSIAN_ATTRIBUTE_EVALUATION_CONTRACT_VERSION,
+    status: gaussianAttributeEvaluationReady ? 'ok' : status,
+    evaluationMode,
+    gaussianAttributeEvaluationReady,
+    candidateCount,
+    computedRenderAttributeCount,
+    webgpuComputedRenderAttributes,
+    computedAttributeFields,
+    partialAttributeFields,
+    baselineAttributeFields,
+    fallbackAttributeFields,
+    referenceAssistedAttributeFields,
+    deferredAttributeFields,
+    normalBackendPointRadiusPx,
+    averageComputedRadiusPx,
+    averageComputedAlpha,
+    renderAttributeFloatStride,
+    renderAttributeClassification,
+    renderPayloadClassification,
+    fullGaussianAttributeEvaluationInWgsl,
     reason
   };
 }

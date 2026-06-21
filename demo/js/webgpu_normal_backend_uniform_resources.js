@@ -184,6 +184,30 @@ export function packNormalBackendSelectedSampleData(samples) {
   const containsRenderHandoffFallback = samples.some(
     (sample) => sample?.source === 'webgpuRenderHandoffStub.sampleRecords'
   );
+  const webgpuComputedRenderAttributeSampleCount = samples.filter(
+    (sample) => sample?.renderAttributeSource === 'webgpu-gaussian-attribute-evaluator'
+  ).length;
+  const computedRenderPayloadConsumed =
+    samples.length > 0 &&
+    webgpuComputedRenderAttributeSampleCount === samples.length;
+  const computedRadiusConsumed = samples.every(
+    (sample) =>
+      sample?.renderAttributeSource === 'webgpu-gaussian-attribute-evaluator' &&
+      Number.isFinite(sample?.renderAttribute?.radiusPx)
+  );
+  const computedColorAlphaConsumed = samples.every(
+    (sample) =>
+      sample?.renderAttributeSource === 'webgpu-gaussian-attribute-evaluator' &&
+      sample?.renderAttribute?.colorAlpha &&
+      ['r', 'g', 'b', 'a'].every((field) =>
+        Number.isFinite(sample.renderAttribute.colorAlpha[field])
+      )
+  );
+  const computedTemporalWeightAvailable = samples.every(
+    (sample) =>
+      sample?.renderAttributeSource === 'webgpu-gaussian-attribute-evaluator' &&
+      Number.isFinite(sample?.renderAttribute?.temporalWeight)
+  );
   if (containsRenderHandoffFallback) {
     return {
       data: null,
@@ -231,7 +255,25 @@ export function packNormalBackendSelectedSampleData(samples) {
         'sourceKindCode',
         'recordIndex'
       ],
-      sampleSources: [...new Set(samples.map((sample) => sample?.source ?? null))]
+      sampleSources: [...new Set(samples.map((sample) => sample?.source ?? null))],
+      renderAttributeSources: [
+        ...new Set(samples.map((sample) => sample?.renderAttributeSource ?? null))
+      ].filter((source) => source != null),
+      webgpuComputedRenderAttributeSampleCount,
+      computedRenderAttributeSampleCount:
+        webgpuComputedRenderAttributeSampleCount,
+      computedRenderPayloadConsumed,
+      computedRadiusConsumed,
+      computedColorAlphaConsumed,
+      computedTemporalWeightAvailable,
+      computedTemporalWeightUsage:
+        computedTemporalWeightAvailable
+          ? 'applied by WebGPU evaluator to colorAlpha.a before normal backend packing'
+          : 'not-available-on-all-samples',
+      normalBackendConsumedComputedRenderAttributes:
+        computedRenderPayloadConsumed &&
+        computedRadiusConsumed &&
+        computedColorAlphaConsumed
     }
   };
 }
