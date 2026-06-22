@@ -517,6 +517,8 @@ function buildCameraAwareVisibleOutputInputContract({
         : null,
     webgpuGaussianAttributeEvaluationContract:
       visibleOutput.contract?.webgpuGaussianAttributeEvaluationContract ?? null,
+    webgpuGaussianFootprintEvaluationContract:
+      visibleOutput.contract?.webgpuGaussianFootprintEvaluationContract ?? null,
     webgpuComputedRenderAttributes:
       visibleOutput.contract?.webgpuComputedRenderAttributes === true,
     webgpuComputedAttributeFields:
@@ -529,6 +531,16 @@ function buildCameraAwareVisibleOutputInputContract({
       visibleOutput.contract?.computedRenderPayloadConsumed === true,
     computedRenderAttributeSampleCount:
       visibleOutput.contract?.computedRenderAttributeSampleCount ?? 0,
+    webgpuComputedFootprintPayload:
+      visibleOutput.contract?.webgpuComputedFootprintPayload === true,
+    computedFootprintFields:
+      visibleOutput.contract?.computedFootprintFields ?? [],
+    footprintPayloadClassification:
+      visibleOutput.contract?.footprintPayloadClassification ?? null,
+    computedFootprintPayloadConsumed:
+      visibleOutput.contract?.computedFootprintPayloadConsumed === true,
+    computedFootprintPayloadSampleCount:
+      visibleOutput.contract?.computedFootprintPayloadSampleCount ?? 0,
     outputPointRadiusPx,
     visibleSamples: samples,
     debugFillUsed: visibleOutput.contract?.debugFillUsed === true,
@@ -748,7 +760,10 @@ function buildValidationSummary({
     uniformResourceLifecycleContract?.sampleBufferCreated === true &&
     uniformResourceLifecycleContract?.sampleBufferWriteSubmitted === true &&
     uniformResourceLifecycleContract?.sampleStorageBufferReadbackCompleted === true &&
-    uniformResourceLifecycleContract?.sampleReadMatchesPackedSelectedSamples === true &&
+    (
+      uniformResourceLifecycleContract?.sampleReadMatchesPackedNormalBackendSamples === true ||
+      uniformResourceLifecycleContract?.sampleReadMatchesPackedSelectedSamples === true
+    ) &&
     uniformResourceLifecycleContract?.sampleResourceLifecycleContract
       ?.containsRenderHandoffFallback === false;
   const colorOutputSurfaceReady =
@@ -911,7 +926,7 @@ function buildValidationSummary({
     firstValidationFailures.push({
       stage: 'normal-backend-sample-storage-buffer-consumption',
       reason:
-        'normal WebGPU backend implementation requires Step40 selected samples packed into a GPU storage buffer and read back through WGSL without fallback mixing'
+        'normal WebGPU backend implementation requires the selected normal-backend sample batch to be packed into a GPU storage buffer and read back through WGSL without fallback mixing'
     });
   }
   if (!colorOutputSurfaceReady) {

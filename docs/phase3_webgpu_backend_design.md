@@ -1205,3 +1205,44 @@ currentTexture path.
 Full realtime 4DGS rendering still requires WGSL parity for conditional
 covariance/conic, complete SH/color evaluation, depth sort, compaction,
 tile-list generation, streaming, chunking, LOD, and partial upload.
+
+## Step82 WebGPU Gaussian Footprint and Tile Payload Pipeline
+
+Step82 extends the Step81 partial evaluator with a screen-space Gaussian
+footprint payload. The WebGPU evaluator emits an isotropic `conic`,
+`covariance2D`, `radiusPx`, depth-derived `sortKey`, and footprint area from
+the computed radius/state output. The visible-record bridge combines that
+payload with WebGPU `px/py/depth` to derive bounded `aabb` and `tileRange` for
+the normal backend sample buffer.
+
+- selected approach: B/C. The existing WebGPU evaluator owns partial state,
+  attribute, and footprint generation; visible-record projection still owns
+  screen position, while the normal backend consumes the resulting sample
+  payload through its GPU sample buffer and currentTexture path.
+- computed footprint fields: `conic`, `covariance2D`, `radiusPx`, `depth`, and
+  `sortKey` are `partial-webgpu-gaussian-footprint`; `aabb` and `tileRange` are
+  derived from WebGPU projected positions plus computed radius before normal
+  backend packing.
+- deferred fields: full 4D covariance projection, anisotropic conic parity,
+  GPU-native aabb/tileRange generation, depth-sort dispatch, compaction, and
+  tile-list scatter remain future work and must not be reported as full
+  footprint parity.
+- success contract: Step82 requires Step81 computed `radiusPx/colorAlpha` to
+  remain consumed, nonzero WebGPU footprint payloads to be generated, every
+  normal-backend visible sample to consume computed conic/aabb/tileRange
+  evidence, and currentTexture readback to remain ready under the
+  WebGPU-exclusive guard.
+
+Step82 fix1 clarifies the boundary between consumed partial payload and full
+parity work. Normal backend `aabb` and `tileRange` consumption means
+`partial-derived-from-webgpu-projected-px-py-and-computed-radius`: the values
+are packed into the normal backend sample buffer and read back through WGSL,
+but full GPU-native aabb/tileRange parity remains deferred until the dedicated
+footprint/tile pipeline owns those calculations. The normal backend sample
+readback validation now covers the full packed sample stride instead of the
+older selected-sample prefix, so resolved Step40-era storage-buffer failure
+wording should no longer appear as a Step82 failure.
+
+Full realtime 4DGS rendering still requires full covariance/conic parity,
+tile-list generation/scatter, depth sorting, complete SH/color evaluation,
+streaming, chunking, LOD, and partial upload.

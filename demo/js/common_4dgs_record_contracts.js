@@ -4,7 +4,7 @@ export const WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION =
 export const WEBGPU_VISIBLE_RECORD_COMPUTE_MODE =
   'webgpu-storage-buffer-compute-fixed-record';
 
-export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step81';
+export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step82';
 
 export const WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE =
   'wgsl-valid-screen-projection-with-true-native-bounded-color-sources';
@@ -303,6 +303,9 @@ export const WEBGPU_4D_STATE_SOURCE_CONTRACT_VERSION =
 export const WEBGPU_GAUSSIAN_ATTRIBUTE_EVALUATION_CONTRACT_VERSION =
   'phase3-step81-webgpu-gaussian-attribute-evaluation-contract-v1';
 
+export const WEBGPU_GAUSSIAN_FOOTPRINT_EVALUATION_CONTRACT_VERSION =
+  'phase3-step82-webgpu-gaussian-footprint-evaluation-contract-v1';
+
 export function buildWebGpu4DStateSourceContract({
   status = 'ok',
   stateSourceMode = 'cpu-materialized-4d-state-source',
@@ -413,6 +416,51 @@ export function buildWebGpuGaussianAttributeEvaluationContract({
     renderAttributeClassification,
     renderPayloadClassification,
     fullGaussianAttributeEvaluationInWgsl,
+    reason
+  };
+}
+
+export function buildWebGpuGaussianFootprintEvaluationContract({
+  status = 'ok',
+  evaluationMode = 'webgpu-partial-gaussian-footprint-payload-eval',
+  candidateCount = 0,
+  computedFootprintPayloadCount = 0,
+  webgpuComputedFootprintPayload = false,
+  computedFootprintFields = [],
+  partialFootprintFields = [],
+  baselineFootprintFields = [],
+  fallbackFootprintFields = [],
+  deferredFootprintFields = [],
+  footprintFloatStride = 12,
+  footprintPayloadClassification = 'partial-webgpu-gaussian-footprint',
+  fullGaussianFootprintEvaluationInWgsl = false,
+  averageComputedConicX = null,
+  averageComputedFootprintAreaPx = null,
+  reason = null
+} = {}) {
+  const gaussianFootprintEvaluationReady =
+    status === 'ok' &&
+    webgpuComputedFootprintPayload === true &&
+    computedFootprintPayloadCount > 0 &&
+    computedFootprintFields.length > 0;
+  return {
+    contractVersion: WEBGPU_GAUSSIAN_FOOTPRINT_EVALUATION_CONTRACT_VERSION,
+    status: gaussianFootprintEvaluationReady ? 'ok' : status,
+    evaluationMode,
+    gaussianFootprintEvaluationReady,
+    candidateCount,
+    computedFootprintPayloadCount,
+    webgpuComputedFootprintPayload,
+    computedFootprintFields,
+    partialFootprintFields,
+    baselineFootprintFields,
+    fallbackFootprintFields,
+    deferredFootprintFields,
+    footprintFloatStride,
+    footprintPayloadClassification,
+    fullGaussianFootprintEvaluationInWgsl,
+    averageComputedConicX,
+    averageComputedFootprintAreaPx,
     reason
   };
 }

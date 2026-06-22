@@ -20,7 +20,7 @@ export const WEBGPU_NORMAL_BACKEND_SAMPLE_RESOURCE_CONTRACT_VERSION =
 export const WEBGPU_NORMAL_BACKEND_COLOR_OUTPUT_SURFACE_CONTRACT_VERSION =
   'phase3-step69-normal-backend-color-output-surface-resource-v1';
 
-const SAMPLE_FLOAT_STRIDE = 8;
+const SAMPLE_FLOAT_STRIDE = 20;
 
 function isFiniteNumber(value) {
   return typeof value === 'number' && Number.isFinite(value);
@@ -49,6 +49,9 @@ function createUnavailableSummary(reason, extra = {}) {
     sampleBufferCreated: false,
     sampleBufferWriteSubmitted: false,
     sampleBufferDestroyed: false,
+    sampleStorageBufferReadbackCompleted: false,
+    sampleReadMatchesPackedSelectedSamples: false,
+    sampleReadMatchesPackedNormalBackendSamples: false,
     colorOutputSurfaceCreated: false,
     colorOutputSurfaceWriteSubmitted: false,
     colorOutputSurfaceReadbackCompleted: false,
@@ -91,6 +94,7 @@ function createUnavailableConsumptionSummary(reason, extra = {}) {
     uniformReadMatchesPackedFrameConstants: false,
     sampleStorageBufferReadbackCompleted: false,
     sampleReadMatchesPackedSelectedSamples: false,
+    sampleReadMatchesPackedNormalBackendSamples: false,
     colorOutputSurfaceWritten: false,
     colorOutputSurfaceReadbackCompleted: false,
     colorOutputSurfaceMatchesExpected: false,
@@ -208,6 +212,35 @@ export function packNormalBackendSelectedSampleData(samples) {
       sample?.renderAttributeSource === 'webgpu-gaussian-attribute-evaluator' &&
       Number.isFinite(sample?.renderAttribute?.temporalWeight)
   );
+  const webgpuComputedFootprintPayloadSampleCount = samples.filter(
+    (sample) => sample?.footprintPayloadSource === 'webgpu-gaussian-footprint-evaluator'
+  ).length;
+  const computedFootprintPayloadConsumed =
+    samples.length > 0 &&
+    webgpuComputedFootprintPayloadSampleCount === samples.length;
+  const computedConicConsumed = samples.every(
+    (sample) =>
+      sample?.footprintPayloadSource === 'webgpu-gaussian-footprint-evaluator' &&
+      Array.isArray(sample?.conic) &&
+      sample.conic.length >= 3 &&
+      sample.conic.every((value) => Number.isFinite(value))
+  );
+  const computedAabbConsumed = samples.every(
+    (sample) =>
+      sample?.footprintPayloadSource === 'webgpu-gaussian-footprint-evaluator' &&
+      Array.isArray(sample?.aabb) &&
+      sample.aabb.length >= 4 &&
+      sample.aabb.every((value) => Number.isFinite(value))
+  );
+  const computedTileRangeConsumed = samples.every(
+    (sample) =>
+      sample?.footprintPayloadSource === 'webgpu-gaussian-footprint-evaluator' &&
+      Array.isArray(sample?.tileRange) &&
+      sample.tileRange.length >= 4 &&
+      sample.tileRange.every((value) => Number.isFinite(value))
+  );
+  const partialAabbDerivedConsumed = computedAabbConsumed;
+  const partialTileRangeDerivedConsumed = computedTileRangeConsumed;
   if (containsRenderHandoffFallback) {
     return {
       data: null,
@@ -233,6 +266,21 @@ export function packNormalBackendSelectedSampleData(samples) {
     data[offset + 5] = finiteNumberOr(color.a, 0);
     data[offset + 6] = sourceKindToCode(sample?.source);
     data[offset + 7] = finiteNumberOr(sample?.recordIndex, -1);
+    const conic = Array.isArray(sample?.conic) ? sample.conic : [];
+    const aabb = Array.isArray(sample?.aabb) ? sample.aabb : [];
+    const tileRange = Array.isArray(sample?.tileRange) ? sample.tileRange : [];
+    data[offset + 8] = finiteNumberOr(conic[0], 0);
+    data[offset + 9] = finiteNumberOr(conic[1], 0);
+    data[offset + 10] = finiteNumberOr(conic[2], 0);
+    data[offset + 11] = finiteNumberOr(aabb[0], -1);
+    data[offset + 12] = finiteNumberOr(aabb[1], -1);
+    data[offset + 13] = finiteNumberOr(aabb[2], -1);
+    data[offset + 14] = finiteNumberOr(aabb[3], -1);
+    data[offset + 15] = finiteNumberOr(tileRange[0], -1);
+    data[offset + 16] = finiteNumberOr(tileRange[1], -1);
+    data[offset + 17] = finiteNumberOr(tileRange[2], -1);
+    data[offset + 18] = finiteNumberOr(tileRange[3], -1);
+    data[offset + 19] = finiteNumberOr(sample?.sortKey, 0);
   });
   return {
     data,
@@ -253,7 +301,19 @@ export function packNormalBackendSelectedSampleData(samples) {
         'colorAlpha.b',
         'colorAlpha.a',
         'sourceKindCode',
-        'recordIndex'
+        'recordIndex',
+        'conic.x',
+        'conic.y',
+        'conic.z',
+        'aabb.minX',
+        'aabb.minY',
+        'aabb.maxX',
+        'aabb.maxY',
+        'tileRange.minX',
+        'tileRange.minY',
+        'tileRange.maxX',
+        'tileRange.maxY',
+        'sortKey'
       ],
       sampleSources: [...new Set(samples.map((sample) => sample?.source ?? null))],
       renderAttributeSources: [
@@ -273,7 +333,34 @@ export function packNormalBackendSelectedSampleData(samples) {
       normalBackendConsumedComputedRenderAttributes:
         computedRenderPayloadConsumed &&
         computedRadiusConsumed &&
-        computedColorAlphaConsumed
+        computedColorAlphaConsumed,
+      footprintPayloadSources: [
+        ...new Set(samples.map((sample) => sample?.footprintPayloadSource ?? null))
+      ].filter((source) => source != null),
+      webgpuComputedFootprintPayloadSampleCount,
+      computedFootprintPayloadSampleCount:
+        webgpuComputedFootprintPayloadSampleCount,
+      computedFootprintPayloadConsumed,
+      computedConicConsumed,
+      computedAabbConsumed,
+      computedTileRangeConsumed,
+      partialAabbDerivedConsumed,
+      partialTileRangeDerivedConsumed,
+      aabbConsumptionMode:
+        partialAabbDerivedConsumed
+          ? 'partial-derived-from-webgpu-projected-px-py-and-computed-radius'
+          : 'not-consumed',
+      tileRangeConsumptionMode:
+        partialTileRangeDerivedConsumed
+          ? 'partial-derived-from-webgpu-projected-px-py-and-computed-radius'
+          : 'not-consumed',
+      fullGpuNativeAabbParityDeferred: true,
+      fullGpuNativeTileRangeParityDeferred: true,
+      normalBackendConsumedComputedFootprintPayload:
+        computedFootprintPayloadConsumed &&
+        computedConicConsumed &&
+        computedAabbConsumed &&
+        computedTileRangeConsumed
     }
   };
 }
@@ -484,7 +571,7 @@ struct FrameUniforms {
 @group(0) @binding(2) var<storage, read> selectedSamples: array<f32>;
 @group(0) @binding(3) var<storage, read_write> colorOutputSurface: array<f32>;
 
-const sampleFloatStride: u32 = 8u;
+const sampleFloatStride: u32 = ${SAMPLE_FLOAT_STRIDE}u;
 const sampleCount: u32 = ${sampleCount}u;
 const surfaceWidth: u32 = ${expectedColorOutputSurface.summary.surfaceWidth}u;
 const surfaceHeight: u32 = ${expectedColorOutputSurface.summary.surfaceHeight}u;
@@ -498,7 +585,7 @@ fn main() {
   output[1] = frameUniforms.frame.y;
   output[2] = frameUniforms.frame.z;
   output[3] = frameUniforms.frame.w;
-  for (var i: u32 = 0u; i < 8u; i = i + 1u) {
+  for (var i: u32 = 0u; i < sampleFloatStride; i = i + 1u) {
     output[4u + i] = selectedSamples[i];
   }
   for (var sampleIndex: u32 = 0u; sampleIndex < sampleCount; sampleIndex = sampleIndex + 1u) {
@@ -613,6 +700,8 @@ fn main() {
   );
   const uniformReadMatchesPackedFrameConstants = maxAbsDiff <= epsilon;
   const sampleReadMatchesPackedSelectedSamples = sampleMaxAbsDiff <= epsilon;
+  const sampleReadMatchesPackedNormalBackendSamples =
+    sampleReadMatchesPackedSelectedSamples;
   const colorOutputSurfaceMatchesExpected =
     colorOutputSurfaceMaxAbsDiff <= epsilon;
   const {
@@ -732,6 +821,7 @@ fn main() {
     submittedWorkDone,
     uniformReadMatchesPackedFrameConstants,
     sampleReadMatchesPackedSelectedSamples,
+    sampleReadMatchesPackedNormalBackendSamples,
     colorOutputSurfaceMatchesExpected,
     normalBackendOutputMatchesExpected,
     handoffReadbackMatchesColorOutputSurface,
@@ -982,6 +1072,9 @@ export async function prepareNormalBackendUniformResources({
         uniformShaderConsumptionContract?.sampleStorageBufferReadbackCompleted === true,
       sampleReadMatchesPackedSelectedSamples:
         uniformShaderConsumptionContract?.sampleReadMatchesPackedSelectedSamples === true,
+      sampleReadMatchesPackedNormalBackendSamples:
+        uniformShaderConsumptionContract
+          ?.sampleReadMatchesPackedNormalBackendSamples === true,
       colorOutputSurfaceCreated:
         uniformShaderConsumptionContract?.colorOutputSurfaceWritten === true,
       colorOutputSurfaceWriteSubmitted:
@@ -1031,7 +1124,10 @@ export async function prepareNormalBackendUniformResources({
         sampleStorageBufferConsumed:
           uniformShaderConsumptionContract?.sampleStorageBufferConsumed === true,
         sampleReadMatchesPackedSelectedSamples:
-          uniformShaderConsumptionContract?.sampleReadMatchesPackedSelectedSamples === true
+          uniformShaderConsumptionContract?.sampleReadMatchesPackedSelectedSamples === true,
+        sampleReadMatchesPackedNormalBackendSamples:
+          uniformShaderConsumptionContract
+            ?.sampleReadMatchesPackedNormalBackendSamples === true
       },
       colorOutputSurfaceLifecycleContract:
         uniformShaderConsumptionContract?.colorOutputSurfaceContract ?? null,

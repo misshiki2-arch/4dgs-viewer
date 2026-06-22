@@ -2047,11 +2047,64 @@ function readWebGpuRenderAttribute(renderAttributes, recordIndex) {
   };
 }
 
+function readWebGpuFootprintPayload(footprintPayload, recordIndex) {
+  const base = recordIndex * 12;
+  if (!footprintPayload || base + 11 >= footprintPayload.length) return null;
+  const sourceCode = Number(footprintPayload[base + 8]);
+  if (sourceCode !== 82) return null;
+  const conic = [
+    Number(footprintPayload[base + 0]),
+    Number(footprintPayload[base + 1]),
+    Number(footprintPayload[base + 2])
+  ];
+  const covariance2D = [
+    Number(footprintPayload[base + 3]),
+    Number(footprintPayload[base + 4]),
+    Number(footprintPayload[base + 5])
+  ];
+  const radiusPx = Number(footprintPayload[base + 6]);
+  const depth = Number(footprintPayload[base + 7]);
+  const sortKey = Number(footprintPayload[base + 9]);
+  const footprintAreaPx = Number(footprintPayload[base + 10]);
+  if (![...conic, ...covariance2D, radiusPx, depth, sortKey].every(Number.isFinite)) {
+    return null;
+  }
+  return {
+    conic,
+    covariance2D,
+    radiusPx,
+    depth,
+    sortKey,
+    footprintAreaPx: Number.isFinite(footprintAreaPx) ? footprintAreaPx : null
+  };
+}
+
+function buildFootprintScreenBounds({ px, py, radiusPx, canvasWidth, canvasHeight }) {
+  const radius = Math.max(0, Math.min(64, Math.ceil(Number(radiusPx) || 0)));
+  const minX = Math.max(0, Math.floor(px - radius));
+  const minY = Math.max(0, Math.floor(py - radius));
+  const maxX = Math.min(Math.max(0, canvasWidth - 1), Math.ceil(px + radius));
+  const maxY = Math.min(Math.max(0, canvasHeight - 1), Math.ceil(py + radius));
+  const tileSize = 16;
+  return {
+    aabb: [minX, minY, maxX, maxY],
+    tileRange: [
+      Math.floor(minX / tileSize),
+      Math.floor(minY / tileSize),
+      Math.floor(maxX / tileSize),
+      Math.floor(maxY / tileSize)
+    ],
+    tileSize
+  };
+}
+
 function buildCameraAwareVisibleOutputSamples({
   webgpuRecords,
   renderPayloadReference,
   webgpuRenderAttributes = null,
+  webgpuFootprintPayload = null,
   webgpuGaussianAttributeEvaluation = null,
+  webgpuGaussianFootprintEvaluation = null,
   recordCount,
   validRecordCount,
   canvasWidth,
@@ -2116,6 +2169,7 @@ function buildCameraAwareVisibleOutputSamples({
   }
   const visibleSamples = [];
   let computedRenderAttributeSampleCount = 0;
+  let computedFootprintPayloadSampleCount = 0;
   const stride = Math.max(
     1,
     Math.floor(recordCount / Math.max(1, maxSampleCount * 3))
@@ -2144,6 +2198,7 @@ function buildCameraAwareVisibleOutputSamples({
     const depth = Number(webgpuRecords[base + 4]);
     const payloadBase = i * 8;
     const computedAttribute = readWebGpuRenderAttribute(webgpuRenderAttributes, i);
+    const computedFootprint = readWebGpuFootprintPayload(webgpuFootprintPayload, i);
     const color = computedAttribute?.colorAlpha ?? boostedVisibleColor({
       r: renderPayloadReference?.[payloadBase + 5],
       g: renderPayloadReference?.[payloadBase + 6],
@@ -2155,11 +2210,28 @@ function buildCameraAwareVisibleOutputSamples({
     if (computedAttribute) {
       computedRenderAttributeSampleCount += 1;
     }
+    if (computedFootprint) {
+      computedFootprintPayloadSampleCount += 1;
+    }
+    const footprintRadius = computedFootprint?.radiusPx ?? computedAttribute?.radiusPx ?? 0;
+    const footprintBounds =
+      computedFootprint
+        ? buildFootprintScreenBounds({
+            px,
+            py,
+            radiusPx: footprintRadius,
+            canvasWidth,
+            canvasHeight
+          })
+        : null;
     visibleSamples.push({
       source: 'webgpuVisibleRecordDryRun.cameraAwareVisibleRecords',
       renderAttributeSource: computedAttribute
         ? 'webgpu-gaussian-attribute-evaluator'
         : 'reference-assisted-render-payload',
+      footprintPayloadSource: computedFootprint
+        ? 'webgpu-gaussian-footprint-evaluator'
+        : null,
       recordIndex: i,
       srcIndex: Number(webgpuRecords[base + 0]),
       samplePx: { x: px, y: py },
@@ -2171,6 +2243,12 @@ function buildCameraAwareVisibleOutputSamples({
         a: color.a
       },
       renderAttribute: computedAttribute,
+      footprintPayload: computedFootprint,
+      conic: computedFootprint?.conic ?? null,
+      covariance2D: computedFootprint?.covariance2D ?? null,
+      aabb: footprintBounds?.aabb ?? null,
+      tileRange: footprintBounds?.tileRange ?? null,
+      sortKey: computedFootprint?.sortKey ?? null,
       cameraAware: true,
       visibilityBoostApplied:
         computedAttribute == null && color.visibilityBoostApplied === true
@@ -2185,19 +2263,24 @@ function buildCameraAwareVisibleOutputSamples({
   const computedAttributesConsumed =
     visibleSamples.length > 0 &&
     computedRenderAttributeSampleCount === visibleSamples.length;
+  const computedFootprintPayloadConsumed =
+    visibleSamples.length > 0 &&
+    computedFootprintPayloadSampleCount === visibleSamples.length;
   const outputSourceClassification =
-    computedAttributesConsumed
-      ? 'partial-webgpu-4d-state-and-attribute-evaluated'
+    computedAttributesConsumed && computedFootprintPayloadConsumed
+      ? 'partial-webgpu-4d-state-attribute-and-footprint-evaluated'
+      : computedAttributesConsumed
+        ? 'partial-webgpu-4d-state-and-attribute-evaluated'
       : sourceClassification;
   const contract = buildCameraAwareVisibleOutputContract({
     status: visibleSamples.length > 0 ? 'ok' : 'blocked',
     step: 'phase3-step80',
     selectedApproach:
-      'B-webgpu-partial-4d-state-and-attribute-evaluator-visible-record',
+      'B/C-webgpu-partial-gaussian-footprint-evaluator-visible-record',
     sourceMode: 'webgpu-visible-record-compute-camera-aware-samples',
     inputSourceKind: 'visible-record',
     inputSourceLineage:
-      'WebGPU visible-record px/py/depth plus Step81 WebGPU-computed Gaussian render attributes were used as normal-backend camera-aware visible samples',
+      'WebGPU visible-record px/py/depth plus Step82 WebGPU-computed Gaussian render attributes and footprint payload were used as normal-backend camera-aware visible samples',
     sourceClassification: outputSourceClassification,
     visibleRecordPathClassification,
     rawPositionRepairUsed,
@@ -2216,6 +2299,7 @@ function buildCameraAwareVisibleOutputSamples({
     renderedSamplePatchCount: visibleSamples.length,
     outputPointRadiusPx: resolvedOutputPointRadiusPx,
     webgpuGaussianAttributeEvaluationContract: webgpuGaussianAttributeEvaluation,
+    webgpuGaussianFootprintEvaluationContract: webgpuGaussianFootprintEvaluation,
     webgpuComputedRenderAttributes:
       webgpuGaussianAttributeEvaluation?.webgpuComputedRenderAttributes === true,
     webgpuComputedAttributeFields:
@@ -2226,6 +2310,14 @@ function buildCameraAwareVisibleOutputSamples({
       webgpuGaussianAttributeEvaluation?.renderPayloadClassification ?? null,
     computedRenderPayloadConsumed: computedAttributesConsumed,
     computedRenderAttributeSampleCount,
+    webgpuComputedFootprintPayload:
+      webgpuGaussianFootprintEvaluation?.webgpuComputedFootprintPayload === true,
+    computedFootprintFields:
+      webgpuGaussianFootprintEvaluation?.computedFootprintFields ?? [],
+    footprintPayloadClassification:
+      webgpuGaussianFootprintEvaluation?.footprintPayloadClassification ?? null,
+    computedFootprintPayloadConsumed,
+    computedFootprintPayloadSampleCount,
     visibleSamples,
     debugFillUsed: false,
     cameraProjectionDerivedPositions: true,
@@ -4523,8 +4615,11 @@ export async function runWebGpuVisibleRecordDryRun({
       webgpuRecords: computeResult.records,
       renderPayloadReference: cpuReference.renderPayloadReference,
       webgpuRenderAttributes: webgpu4DStateSource.renderAttributes,
+      webgpuFootprintPayload: webgpu4DStateSource.footprintPayload,
       webgpuGaussianAttributeEvaluation:
         webgpu4DStateSource.gaussianAttributeEvaluationContract,
+      webgpuGaussianFootprintEvaluation:
+        webgpu4DStateSource.gaussianFootprintEvaluationContract,
       recordCount: cpuReference.count,
       validRecordCount: computeResult.validRecordCount,
       canvasWidth,
@@ -4938,7 +5033,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step81 evaluates partial 4D state positions and Gaussian render attributes in WebGPU, feeds computed attributes into visible-record samples, and keeps full covariance/rotation/SH parity deferred.',
+    scaffoldNote: 'Phase 3 Step82 evaluates partial 4D state positions, Gaussian render attributes, and Gaussian footprint payload in WebGPU, feeds computed payloads into visible-record samples, and keeps full covariance/rotation/SH parity deferred.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
@@ -4952,6 +5047,8 @@ export async function runWebGpuVisibleRecordDryRun({
     webgpu4DStateSourceContract: webgpu4DStateSource.contract,
     webgpuGaussianAttributeEvaluationContract:
       webgpu4DStateSource.gaussianAttributeEvaluationContract,
+    webgpuGaussianFootprintEvaluationContract:
+      webgpu4DStateSource.gaussianFootprintEvaluationContract,
     webgpuVisibleRecordGateSummary: {
       ...statePositionAvailabilitySummary,
       fourDStateSourceReady:
@@ -4979,6 +5076,21 @@ export async function runWebGpuVisibleRecordDryRun({
       renderPayloadClassification:
         webgpu4DStateSource.gaussianAttributeEvaluationContract
           ?.renderPayloadClassification ?? null,
+      gaussianFootprintEvaluationReady:
+        webgpu4DStateSource.gaussianFootprintEvaluationContract
+          ?.gaussianFootprintEvaluationReady === true,
+      webgpuComputedFootprintPayload:
+        webgpu4DStateSource.gaussianFootprintEvaluationContract
+          ?.webgpuComputedFootprintPayload === true,
+      computedFootprintPayloadCount:
+        webgpu4DStateSource.gaussianFootprintEvaluationContract
+          ?.computedFootprintPayloadCount ?? 0,
+      computedFootprintFields:
+        webgpu4DStateSource.gaussianFootprintEvaluationContract
+          ?.computedFootprintFields ?? [],
+      footprintPayloadClassification:
+        webgpu4DStateSource.gaussianFootprintEvaluationContract
+          ?.footprintPayloadClassification ?? null,
       computed4DStatePositionCount:
         webgpu4DStateSource.contract?.computed4DStatePositionCount ?? 0,
       baselineStatePositionCount:

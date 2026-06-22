@@ -1870,6 +1870,241 @@ def build_step81_webgpu_gaussian_attribute_evaluation_summary(
     }
 
 
+def build_step82_webgpu_gaussian_footprint_pipeline_summary(
+    summary: Dict[str, Any],
+    webgpu_visible_record_camera_aware_visible_output: Dict[str, Any],
+    webgpu_owned_camera_aware_visible_output: Dict[str, Any],
+    validation_assisted_camera_aware_visible_output: Dict[str, Any],
+    webgpu_normal_backend_frame_implementation: Dict[str, Any],
+    webgpu_normal_backend_frame_implementation_validation: Dict[str, Any],
+) -> Dict[str, Any]:
+    step81 = build_step81_webgpu_gaussian_attribute_evaluation_summary(
+        summary,
+        webgpu_visible_record_camera_aware_visible_output,
+        webgpu_owned_camera_aware_visible_output,
+        validation_assisted_camera_aware_visible_output,
+        webgpu_normal_backend_frame_implementation,
+        webgpu_normal_backend_frame_implementation_validation,
+    )
+    normal_contract = get_path(
+        webgpu_normal_backend_frame_implementation,
+        ["cameraAwareVisibleOutputContract"],
+        {},
+    )
+    sample_contract = get_path(
+        webgpu_normal_backend_frame_implementation,
+        ["sampleResourceLifecycleContract"],
+        {},
+    )
+    footprint_contract = get_path(
+        summary,
+        ["webgpuGaussianFootprintEvaluationContract"],
+        get_path(normal_contract, ["webgpuGaussianFootprintEvaluationContract"], {}),
+    )
+    phase_step = get_path(summary, ["phaseStep"])
+    computed_footprint_count = get_path(
+        footprint_contract, ["computedFootprintPayloadCount"], 0
+    )
+    computed_footprint_sample_count = get_path(
+        normal_contract,
+        ["computedFootprintPayloadSampleCount"],
+        get_path(
+            sample_contract,
+            ["computedFootprintPayloadSampleCount"],
+            get_path(sample_contract, ["webgpuComputedFootprintPayloadSampleCount"], 0),
+        ),
+    )
+    camera_sample_count = get_path(
+        normal_contract,
+        ["sampleCount"],
+        get_path(webgpu_normal_backend_frame_implementation, ["visibleOutputSampleCount"], 0),
+    )
+    footprint_payload_consumed = (
+        get_path(normal_contract, ["computedFootprintPayloadConsumed"]) is True
+        or get_path(sample_contract, ["computedFootprintPayloadConsumed"]) is True
+    )
+    normal_backend_consumed_footprint = (
+        get_path(
+            sample_contract,
+            ["normalBackendConsumedComputedFootprintPayload"],
+        )
+        is True
+        or (
+            footprint_payload_consumed
+            and computed_footprint_sample_count > 0
+            and computed_footprint_sample_count == camera_sample_count
+            and get_path(sample_contract, ["computedConicConsumed"]) is True
+            and get_path(sample_contract, ["computedAabbConsumed"]) is True
+            and get_path(sample_contract, ["computedTileRangeConsumed"]) is True
+        )
+    )
+    partial_aabb_derived_consumed = (
+        get_path(sample_contract, ["partialAabbDerivedConsumed"]) is True
+        or get_path(sample_contract, ["computedAabbConsumed"]) is True
+    )
+    partial_tile_range_derived_consumed = (
+        get_path(sample_contract, ["partialTileRangeDerivedConsumed"]) is True
+        or get_path(sample_contract, ["computedTileRangeConsumed"]) is True
+    )
+    footprint_ready = (
+        get_path(footprint_contract, ["gaussianFootprintEvaluationReady"]) is True
+        and get_path(footprint_contract, ["webgpuComputedFootprintPayload"]) is True
+        and computed_footprint_count > 0
+    )
+    step81_attributes_consumed = (
+        step81.get("normalBackendConsumedComputedRenderAttributes") is True
+        and step81.get("computedRadiusConsumed") is True
+        and step81.get("computedColorAlphaConsumed") is True
+    )
+    success = (
+        phase_step == "phase3-step82"
+        and step81.get("webgpuComputedStatePositions") is True
+        and step81.get("computedStateVisibleRecordConsumedByNormalBackend") is True
+        and step81_attributes_consumed
+        and footprint_ready
+        and normal_backend_consumed_footprint
+        and step81.get("currentTextureConnectionReady") is True
+        and step81.get("currentTextureReadbackMatchesAdapterOutput") is True
+        and step81.get("webgl2HybridRenderingPrevented") is True
+        and step81.get("fallbackSamplesMixed") is False
+        and step81.get("noFallbackMixing") is True
+    )
+    blocked_reason = None
+    if not success:
+        if phase_step != "phase3-step82":
+            blocked_reason = "summary-phase-step-is-not-phase3-step82"
+        elif not step81_attributes_consumed:
+            blocked_reason = "step81-computed-render-attributes-not-preserved"
+        elif not footprint_ready:
+            blocked_reason = "webgpu-gaussian-footprint-evaluation-not-ready"
+        elif not normal_backend_consumed_footprint:
+            blocked_reason = "normal-backend-did-not-consume-computed-footprint-payload"
+        elif step81.get("currentTextureConnectionReady") is not True:
+            blocked_reason = "currentTexture-connection-not-ready"
+        elif step81.get("currentTextureReadbackMatchesAdapterOutput") is not True:
+            blocked_reason = "currentTexture-readback-did-not-match-adapter-output"
+        elif step81.get("webgl2HybridRenderingPrevented") is not True:
+            blocked_reason = "webgl2-hybrid-rendering-not-prevented"
+        elif (
+            step81.get("fallbackSamplesMixed") is not False
+            or step81.get("noFallbackMixing") is not True
+        ):
+            blocked_reason = "fallback-samples-mixed-or-not-proven-suppressed"
+    return {
+        "step82Decision": "success" if success else "blocked",
+        "step82BlockedReason": blocked_reason,
+        "selectedApproach": "B/C-webgpu-partial-gaussian-footprint-evaluator",
+        "phaseStep": phase_step,
+        "step82SummaryApplies": phase_step == "phase3-step82",
+        "webgpuComputedStatePositions": step81.get("webgpuComputedStatePositions"),
+        "computed4DStatePositionCount": step81.get("computed4DStatePositionCount"),
+        "computedStateVisibleRecordConsumedByNormalBackend": step81.get(
+            "computedStateVisibleRecordConsumedByNormalBackend"
+        ),
+        "step81ComputedRenderAttributesPreserved": step81_attributes_consumed,
+        "computedRadiusConsumed": step81.get("computedRadiusConsumed"),
+        "computedColorAlphaConsumed": step81.get("computedColorAlphaConsumed"),
+        "computedTemporalWeightAvailable": step81.get(
+            "computedTemporalWeightAvailable"
+        ),
+        "gaussianFootprintEvaluationReady": get_path(
+            footprint_contract, ["gaussianFootprintEvaluationReady"]
+        ),
+        "webgpuComputedFootprintPayload": get_path(
+            footprint_contract, ["webgpuComputedFootprintPayload"]
+        ),
+        "computedFootprintPayloadCount": computed_footprint_count,
+        "computedFootprintFields": get_path(
+            footprint_contract, ["computedFootprintFields"], []
+        ),
+        "partialFootprintFields": get_path(
+            footprint_contract, ["partialFootprintFields"], []
+        ),
+        "baselineFootprintFields": get_path(
+            footprint_contract, ["baselineFootprintFields"], []
+        ),
+        "fallbackFootprintFields": get_path(
+            footprint_contract, ["fallbackFootprintFields"], []
+        ),
+        "deferredFootprintFields": get_path(
+            footprint_contract, ["deferredFootprintFields"], []
+        ),
+        "footprintPayloadClassification": get_path(
+            footprint_contract, ["footprintPayloadClassification"]
+        ),
+        "fullGaussianFootprintEvaluationInWgsl": get_path(
+            footprint_contract, ["fullGaussianFootprintEvaluationInWgsl"]
+        ),
+        "computedFootprintPayloadConsumed": footprint_payload_consumed,
+        "computedFootprintPayloadSampleCount": computed_footprint_sample_count,
+        "normalBackendConsumedComputedFootprintPayload":
+            normal_backend_consumed_footprint,
+        "computedConicConsumed": get_path(
+            sample_contract, ["computedConicConsumed"]
+        ),
+        "computedAabbConsumed": get_path(
+            sample_contract, ["computedAabbConsumed"]
+        ),
+        "computedTileRangeConsumed": get_path(
+            sample_contract, ["computedTileRangeConsumed"]
+        ),
+        "partialAabbDerivedConsumed": partial_aabb_derived_consumed,
+        "partialTileRangeDerivedConsumed": partial_tile_range_derived_consumed,
+        "aabbConsumptionMode": get_path(
+            sample_contract,
+            ["aabbConsumptionMode"],
+            "partial-derived-from-webgpu-projected-px-py-and-computed-radius"
+            if partial_aabb_derived_consumed
+            else None,
+        ),
+        "tileRangeConsumptionMode": get_path(
+            sample_contract,
+            ["tileRangeConsumptionMode"],
+            "partial-derived-from-webgpu-projected-px-py-and-computed-radius"
+            if partial_tile_range_derived_consumed
+            else None,
+        ),
+        "fullGpuNativeAabbParityDeferred": get_path(
+            sample_contract,
+            ["fullGpuNativeAabbParityDeferred"],
+            "gpu-aabb-from-projected-center"
+            in get_path(footprint_contract, ["deferredFootprintFields"], []),
+        ),
+        "fullGpuNativeTileRangeParityDeferred": get_path(
+            sample_contract,
+            ["fullGpuNativeTileRangeParityDeferred"],
+            "gpu-tileRange-from-aabb"
+            in get_path(footprint_contract, ["deferredFootprintFields"], []),
+        ),
+        "footprintPayloadSources": get_path(
+            sample_contract, ["footprintPayloadSources"], []
+        ),
+        "renderedSamplePatchCount": step81.get("renderedSamplePatchCount"),
+        "cameraAwareVisibleSampleCount": step81.get(
+            "cameraAwareVisibleSampleCount"
+        ),
+        "currentTextureConnectionReady": step81.get(
+            "currentTextureConnectionReady"
+        ),
+        "currentTextureReadbackMatchesAdapterOutput": step81.get(
+            "currentTextureReadbackMatchesAdapterOutput"
+        ),
+        "webgpuExclusiveGuard": step81.get("webgpuExclusiveGuard"),
+        "webgl2HybridRenderingPrevented": step81.get(
+            "webgl2HybridRenderingPrevented"
+        ),
+        "fallbackSamplesMixed": step81.get("fallbackSamplesMixed"),
+        "noFallbackMixing": step81.get("noFallbackMixing"),
+        "fullAttributeSuccessClaimed": step81.get(
+            "fullGaussianAttributeEvaluationInWgsl"
+        ) is True,
+        "fullFootprintSuccessClaimed": get_path(
+            footprint_contract, ["fullGaussianFootprintEvaluationInWgsl"]
+        ) is True,
+        "firstValidationFailures": step81.get("firstValidationFailures", []),
+    }
+
+
 def build_step75_camera_aware_visible_summary(
     summary: Dict[str, Any],
     webgpu_camera_aware_visible_output: Dict[str, Any],
@@ -3014,6 +3249,16 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             webgpu_normal_backend_frame_implementation_validation,
         )
     )
+    step82_webgpu_gaussian_footprint_pipeline = (
+        build_step82_webgpu_gaussian_footprint_pipeline_summary(
+            summary,
+            webgpu_visible_record_camera_aware_visible_output,
+            webgpu_owned_camera_aware_visible_output,
+            validation_assisted_camera_aware_visible_output,
+            webgpu_normal_backend_frame_implementation,
+            webgpu_normal_backend_frame_implementation_validation,
+        )
+    )
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -3043,6 +3288,8 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             step80_webgpu_4d_state_evaluation_pipeline,
         "step81WebGpuGaussianAttributeEvaluationPipeline":
             step81_webgpu_gaussian_attribute_evaluation_pipeline,
+        "step82WebGpuGaussianFootprintPipeline":
+            step82_webgpu_gaussian_footprint_pipeline,
         "comparisonContract": get_path(summary, ["comparisonContract"], {}),
         "comparisonTolerance": get_path(summary, ["comparisonTolerance"], {}),
         "radiusContract": get_path(summary, ["radiusContract"], {}),
@@ -8053,6 +8300,12 @@ def print_human_summary(summary: Dict[str, Any]) -> None:
         "Step81 WebGPU Gaussian attribute evaluation pipeline",
         summary.get("webgpuVisibleRecordDryRun", {}).get(
             "step81WebGpuGaussianAttributeEvaluationPipeline"
+        ),
+    )
+    print_section(
+        "Step82 WebGPU Gaussian footprint pipeline",
+        summary.get("webgpuVisibleRecordDryRun", {}).get(
+            "step82WebGpuGaussianFootprintPipeline"
         ),
     )
     print_section("WebGPU visible record dry-run", summary.get("webgpuVisibleRecordDryRun"))

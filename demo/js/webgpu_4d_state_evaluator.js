@@ -1,6 +1,7 @@
 import {
   buildWebGpu4DStateSourceContract,
-  buildWebGpuGaussianAttributeEvaluationContract
+  buildWebGpuGaussianAttributeEvaluationContract,
+  buildWebGpuGaussianFootprintEvaluationContract
 } from './common_4dgs_record_contracts.js';
 
 function toFiniteNumber(value, fallback = 0) {
@@ -110,6 +111,36 @@ function summarizeComputedRenderAttributes(renderAttributes) {
   };
 }
 
+function summarizeComputedFootprintPayload(footprintPayload) {
+  const count = Math.floor((footprintPayload?.length ?? 0) / 12);
+  let computedFootprintPayloadCount = 0;
+  let conicXSum = 0;
+  let areaSum = 0;
+  for (let row = 0; row < count; row += 1) {
+    const o = row * 12;
+    const conicX = Number(footprintPayload[o + 0]);
+    const radius = Number(footprintPayload[o + 6]);
+    const sourceCode = Number(footprintPayload[o + 8]);
+    const area = Number(footprintPayload[o + 10]);
+    if (conicX > 0 && radius > 0 && sourceCode === 82) {
+      computedFootprintPayloadCount += 1;
+      conicXSum += conicX;
+      areaSum += Number.isFinite(area) ? area : 0;
+    }
+  }
+  return {
+    computedFootprintPayloadCount,
+    averageComputedConicX:
+      computedFootprintPayloadCount > 0
+        ? conicXSum / computedFootprintPayloadCount
+        : null,
+    averageComputedFootprintAreaPx:
+      computedFootprintPayloadCount > 0
+        ? areaSum / computedFootprintPayloadCount
+        : null
+  };
+}
+
 export async function buildWebGpu4DStatePositionsForCandidates({
   device,
   raw,
@@ -122,6 +153,7 @@ export async function buildWebGpu4DStatePositionsForCandidates({
     return {
       statePositions: new Float32Array(0),
       renderAttributes: new Float32Array(0),
+      footprintPayload: new Float32Array(0),
       contract: buildWebGpu4DStateSourceContract({
         status: 'unavailable',
         stateSourceMode: 'webgpu-partial-4d-state-evaluator',
@@ -131,7 +163,12 @@ export async function buildWebGpu4DStatePositionsForCandidates({
         buildWebGpuGaussianAttributeEvaluationContract({
           status: 'unavailable',
           reason: 'webgpu-gaussian-attribute-evaluator-input-unavailable'
-      })
+      }),
+      gaussianFootprintEvaluationContract:
+        buildWebGpuGaussianFootprintEvaluationContract({
+          status: 'unavailable',
+          reason: 'webgpu-gaussian-footprint-evaluator-input-unavailable'
+        })
     };
   }
 
@@ -153,6 +190,7 @@ struct Params {
 @group(0) @binding(3) var<uniform> params: Params;
 @group(0) @binding(4) var<storage, read> attributeInput: array<vec4f>;
 @group(0) @binding(5) var<storage, read_write> renderAttributes: array<vec4f>;
+@group(0) @binding(6) var<storage, read_write> footprintPayload: array<vec4f>;
 
 fn sigmoid(x: f32) -> f32 {
   return 1.0 / (1.0 + exp(-x));
@@ -186,6 +224,15 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let attrBase = row * 2u;
   renderAttributes[attrBase + 0u] = vec4f(radiusPx, alpha, rgb.r, rgb.g);
   renderAttributes[attrBase + 1u] = vec4f(rgb.b, temporalWeight, 81.0, 0.0);
+
+  let sigmaPx = max(radiusPx / 3.0, 0.5);
+  let variance = sigmaPx * sigmaPx;
+  let invVariance = 1.0 / variance;
+  let footprintAreaPx = 3.14159265 * radiusPx * radiusPx;
+  let footprintBase = row * 3u;
+  footprintPayload[footprintBase + 0u] = vec4f(invVariance, 0.0, invVariance, variance);
+  footprintPayload[footprintBase + 1u] = vec4f(0.0, variance, radiusPx, raw0.z);
+  footprintPayload[footprintBase + 2u] = vec4f(82.0, abs(raw0.z), footprintAreaPx, 0.0);
 }`
   });
   const pipeline = device.createComputePipeline({
@@ -204,12 +251,20 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     4,
     count * 8 * Float32Array.BYTES_PER_ELEMENT
   );
+  const footprintOutputByteLength = Math.max(
+    4,
+    count * 12 * Float32Array.BYTES_PER_ELEMENT
+  );
   const outputBuffer = device.createBuffer({
     size: outputByteLength,
     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
   });
   const attributeOutputBuffer = device.createBuffer({
     size: attributeOutputByteLength,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
+  });
+  const footprintOutputBuffer = device.createBuffer({
+    size: footprintOutputByteLength,
     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
   });
   const paramsBuffer = createBuffer(
@@ -228,6 +283,10 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     size: attributeOutputByteLength,
     usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
   });
+  const footprintReadbackBuffer = device.createBuffer({
+    size: footprintOutputByteLength,
+    usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+  });
   const bindGroup = device.createBindGroup({
     layout: pipeline.getBindGroupLayout(0),
     entries: [
@@ -236,7 +295,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       { binding: 2, resource: { buffer: outputBuffer } },
       { binding: 3, resource: { buffer: paramsBuffer } },
       { binding: 4, resource: { buffer: attributeInputBuffer } },
-      { binding: 5, resource: { buffer: attributeOutputBuffer } }
+      { binding: 5, resource: { buffer: attributeOutputBuffer } },
+      { binding: 6, resource: { buffer: footprintOutputBuffer } }
     ]
   });
 
@@ -254,6 +314,13 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     0,
     attributeOutputByteLength
   );
+  encoder.copyBufferToBuffer(
+    footprintOutputBuffer,
+    0,
+    footprintReadbackBuffer,
+    0,
+    footprintOutputByteLength
+  );
   device.queue.submit([encoder.finish()]);
   await device.queue.onSubmittedWorkDone();
 
@@ -265,11 +332,18 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     attributeReadbackBuffer.getMappedRange().slice(0)
   );
   attributeReadbackBuffer.unmap();
+  await footprintReadbackBuffer.mapAsync(GPUMapMode.READ);
+  const footprintPayload = new Float32Array(
+    footprintReadbackBuffer.getMappedRange().slice(0)
+  );
+  footprintReadbackBuffer.unmap();
   const stateSummary = summarizeComputedStatePositions(statePositions);
   const attributeSummary = summarizeComputedRenderAttributes(renderAttributes);
+  const footprintSummary = summarizeComputedFootprintPayload(footprintPayload);
   return {
     statePositions,
     renderAttributes,
+    footprintPayload,
     contract: buildWebGpu4DStateSourceContract({
       stateSourceMode: 'webgpu-partial-4d-state-evaluator',
       candidateCount: count,
@@ -325,6 +399,44 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
           attributeSummary.computedRenderAttributeCount > 0
             ? null
             : 'webgpu-gaussian-attribute-evaluator-produced-no-valid-attributes'
-    })
+    }),
+    gaussianFootprintEvaluationContract:
+      buildWebGpuGaussianFootprintEvaluationContract({
+        candidateCount: count,
+        computedFootprintPayloadCount:
+          footprintSummary.computedFootprintPayloadCount,
+        webgpuComputedFootprintPayload: true,
+        computedFootprintFields: [
+          'conic',
+          'covariance2D',
+          'radiusPx',
+          'depth',
+          'sortKey'
+        ],
+        partialFootprintFields: [
+          'conic-isotropic-from-computed-radius',
+          'covariance2D-isotropic-from-computed-radius',
+          'sortKey-from-state-depth'
+        ],
+        baselineFootprintFields: [],
+        fallbackFootprintFields: [],
+        deferredFootprintFields: [
+          'full-4d-covariance-projection',
+          'anisotropic-conic-parity',
+          'gpu-aabb-from-projected-center',
+          'gpu-tileRange-from-aabb',
+          'depth-sort-dispatch'
+        ],
+        averageComputedConicX: footprintSummary.averageComputedConicX,
+        averageComputedFootprintAreaPx:
+          footprintSummary.averageComputedFootprintAreaPx,
+        footprintPayloadClassification:
+          'partial-webgpu-gaussian-footprint',
+        fullGaussianFootprintEvaluationInWgsl: false,
+        reason:
+          footprintSummary.computedFootprintPayloadCount > 0
+            ? null
+            : 'webgpu-gaussian-footprint-evaluator-produced-no-valid-payload'
+      })
   };
 }
