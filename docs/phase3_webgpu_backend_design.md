@@ -1276,3 +1276,30 @@ attaching metadata to the normal backend sample path.
 Full realtime 4DGS rendering still requires GPU tile-list scatter/prefix
 ownership, depth sorting, final tile compositing, complete SH/color evaluation,
 streaming, chunking, LOD, and partial upload.
+
+## Step84 WebGPU GPU-Owned Tile List Layout Pipeline
+
+Step84 turns the Step83 tile-aware records into a GPU-owned tile list layout
+that later depth-sort and tile-compositor stages can consume without rebuilding
+the list on the CPU. A WebGPU scatter pass writes splat references into a
+fixed-capacity per-tile reference list, a table pass emits one `offset/count`
+entry per tile, and a tile-list consumer pass follows those offsets to read the
+reference list and produce the validation summary.
+
+- selected approach: A/C. The tile list is generated and consumed on the GPU,
+  while full parallel prefix-sum compaction, resize/second-pass overflow
+  handling, depth-sort dispatch, and final tile compositing remain deferred.
+- GPU-owned layout fields: `gpu-owned-offset-count-table`,
+  `gpu-owned-splat-reference-list`, `reference-depth-key`,
+  `reference-sort-key`, and a `fixed-capacity-tile-offset-layout`.
+- success contract: Step84 requires a nonzero reference count, nonempty tiles,
+  a GPU offset/count table, a GPU splat reference list, consumer readback, and
+  proof that the consumer followed the table into the reference list.
+- classification: Step84 is `partial-webgpu-gpu-owned-tile-list-layout`, not a
+  full GPU tile-list pipeline. The reference list keeps depth/sort keys so the
+  next stage can connect depth sort without changing the visible-record or
+  normal-backend display path.
+
+Full realtime 4DGS rendering still requires compacted prefix-owned tile lists,
+overflow-resize policy, per-tile depth sorting, final tile compositing,
+complete SH/color evaluation, streaming, chunking, LOD, and partial upload.

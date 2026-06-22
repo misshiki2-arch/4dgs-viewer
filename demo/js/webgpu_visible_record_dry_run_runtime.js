@@ -81,6 +81,9 @@ import {
 import {
   buildWebGpuTileAwareRenderInput
 } from './webgpu_tile_aware_render_input.js';
+import {
+  buildWebGpuGpuOwnedTileListLayout
+} from './webgpu_gpu_owned_tile_list_layout.js';
 
 const DEFAULT_MAX_RECORDS = 65536;
 const DEFAULT_EPSILON = DEFAULT_COMPARISON_EPSILON;
@@ -4671,6 +4674,16 @@ export async function runWebGpuVisibleRecordDryRun({
     canvasHeight,
     tileSize: 16
   });
+  const webgpuGpuOwnedTileListLayout =
+    await buildWebGpuGpuOwnedTileListLayout({
+      device,
+      visibleSamples: webgpuCameraAwareVisibleOutputForNormalBackend.visibleSamples,
+      canvasWidth,
+      canvasHeight,
+      tileSize: 16,
+      maxRefsPerTile: 64,
+      sourceTileAwareRenderInputContract: webgpuTileAwareRenderInput.contract
+    });
   const depthSortComparison = buildDepthSortComparison({
     tileRanges: cpuReference.tileRanges,
     tileCountsToOffsetsDryRun,
@@ -5043,7 +5056,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step83 generates a partial WebGPU tile-aware render input from computed visible-record footprint payloads, proves a tile-aware consumer reads GPU tile records, and keeps full tile-list scatter/depth sort/final compositor deferred.',
+    scaffoldNote: 'Phase 3 Step84 builds a partial GPU-owned tile list layout with offset/count table and splat reference list buffers, proves a tile-list consumer follows the GPU layout, and keeps full prefix compaction/depth sort/final compositor deferred.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
@@ -5063,6 +5076,11 @@ export async function runWebGpuVisibleRecordDryRun({
     webgpuTileAwareRenderInputSummary: {
       tileRecordsPreview: webgpuTileAwareRenderInput.tileRecordsPreview,
       consumerSummary: webgpuTileAwareRenderInput.consumerSummary
+    },
+    webgpuGpuOwnedTileListLayoutContract:
+      webgpuGpuOwnedTileListLayout.contract,
+    webgpuGpuOwnedTileListLayoutSummary: {
+      consumerSummary: webgpuGpuOwnedTileListLayout.consumerSummary
     },
     webgpuVisibleRecordGateSummary: {
       ...statePositionAvailabilitySummary,
@@ -5114,6 +5132,16 @@ export async function runWebGpuVisibleRecordDryRun({
         webgpuTileAwareRenderInput.contract?.generatedTileRecordCount ?? 0,
       tilePayloadClassification:
         webgpuTileAwareRenderInput.contract?.tilePayloadClassification ?? null,
+      gpuOwnedTileListLayoutReady:
+        webgpuGpuOwnedTileListLayout.contract
+          ?.gpuOwnedTileListLayoutReady === true,
+      tileListConsumerReady:
+        webgpuGpuOwnedTileListLayout.contract?.tileListConsumerReady === true,
+      gpuOwnedTileListTotalReferenceCount:
+        webgpuGpuOwnedTileListLayout.contract?.totalTileReferenceCount ?? 0,
+      gpuOwnedTileListClassification:
+        webgpuGpuOwnedTileListLayout.contract
+          ?.tileListLayoutClassification ?? null,
       computed4DStatePositionCount:
         webgpu4DStateSource.contract?.computed4DStatePositionCount ?? 0,
       baselineStatePositionCount:

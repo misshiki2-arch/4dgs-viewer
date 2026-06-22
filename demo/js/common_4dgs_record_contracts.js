@@ -4,13 +4,16 @@ export const WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION =
 export const WEBGPU_VISIBLE_RECORD_COMPUTE_MODE =
   'webgpu-storage-buffer-compute-fixed-record';
 
-export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step83';
+export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step84';
 
 export const WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE =
   'wgsl-valid-screen-projection-with-true-native-bounded-color-sources';
 
 export const WEBGPU_TILE_AWARE_RENDER_INPUT_CONTRACT_VERSION =
   'phase3-step83-webgpu-tile-aware-render-input-v1';
+
+export const WEBGPU_GPU_OWNED_TILE_LIST_LAYOUT_CONTRACT_VERSION =
+  'phase3-step84-webgpu-gpu-owned-tile-list-layout-v1';
 
 export const WEBGPU_RADIUS_FIELD_COMPUTE_MODE =
   'deferred-covariance-conic-dependent';
@@ -523,6 +526,84 @@ export function buildWebGpuTileAwareRenderInputContract({
     fullDepthSortInWgsl,
     finalTileCompositorImplemented,
     normalBackendFallbackMaintained,
+    reason
+  };
+}
+
+export function buildWebGpuGpuOwnedTileListLayoutContract({
+  status = 'ok',
+  layoutMode = 'fixed-capacity-gpu-owned-offset-count-reference-list',
+  candidateTileRecordCount = 0,
+  tileCount = 0,
+  tileSize = 16,
+  maxRefsPerTile = 64,
+  offsetCountTableCreated = false,
+  splatReferenceListCreated = false,
+  referenceListStoresDepthKey = false,
+  referenceListStoresSortKey = false,
+  gpuOwnedTileListLayoutReady = false,
+  tileListConsumerReady = false,
+  tileListConsumerConsumed = false,
+  tileListConsumerReadbackCompleted = false,
+  consumerFollowedOffsetCountTable = false,
+  totalTileReferenceCount = 0,
+  consumedTileReferenceCount = 0,
+  nonEmptyTileCount = 0,
+  maxRefsPerTileObserved = 0,
+  overflowCount = 0,
+  generatedLayoutFields = [],
+  deferredLayoutFields = [],
+  tileListLayoutClassification = 'partial-webgpu-gpu-owned-tile-list-layout',
+  fullParallelPrefixSumInWgsl = false,
+  fullTileListCompactionInWgsl = false,
+  fullDepthSortInWgsl = false,
+  finalTileCompositorImplemented = false,
+  nextDepthSortInputReady = false,
+  nextTileCompositorInputReady = false,
+  sourceTileAwareRenderInputContractVersion = null,
+  reason = null
+} = {}) {
+  const ready =
+    status === 'ok' &&
+    gpuOwnedTileListLayoutReady === true &&
+    tileListConsumerReady === true &&
+    tileListConsumerConsumed === true &&
+    consumerFollowedOffsetCountTable === true &&
+    offsetCountTableCreated === true &&
+    splatReferenceListCreated === true &&
+    totalTileReferenceCount > 0;
+  return {
+    contractVersion: WEBGPU_GPU_OWNED_TILE_LIST_LAYOUT_CONTRACT_VERSION,
+    status: ready ? 'ok' : status,
+    layoutMode,
+    candidateTileRecordCount,
+    tileCount,
+    tileSize,
+    maxRefsPerTile,
+    offsetCountTableCreated,
+    splatReferenceListCreated,
+    referenceListStoresDepthKey,
+    referenceListStoresSortKey,
+    gpuOwnedTileListLayoutReady: ready,
+    tileListConsumerReady,
+    tileListConsumerConsumed,
+    tileListConsumerReadbackCompleted,
+    consumerFollowedOffsetCountTable,
+    totalTileReferenceCount,
+    consumedTileReferenceCount,
+    nonEmptyTileCount,
+    maxRefsPerTileObserved,
+    overflowCount,
+    generatedLayoutFields,
+    deferredLayoutFields,
+    tileListLayoutClassification,
+    fullParallelPrefixSumInWgsl,
+    fullTileListCompactionInWgsl,
+    fullDepthSortInWgsl,
+    finalTileCompositorImplemented,
+    nextDepthSortInputReady,
+    nextTileCompositorInputReady,
+    sourceTileAwareRenderInputContractVersion,
     reason
   };
 }
