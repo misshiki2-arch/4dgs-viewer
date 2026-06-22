@@ -78,6 +78,9 @@ import {
 import {
   buildWebGpu4DStatePositionsForCandidates
 } from './webgpu_4d_state_evaluator.js';
+import {
+  buildWebGpuTileAwareRenderInput
+} from './webgpu_tile_aware_render_input.js';
 
 const DEFAULT_MAX_RECORDS = 65536;
 const DEFAULT_EPSILON = DEFAULT_COMPARISON_EPSILON;
@@ -4661,6 +4664,13 @@ export async function runWebGpuVisibleRecordDryRun({
       : webgpuOwnedCameraAwareVisibleOutput.visibleSamples.length > 0
         ? webgpuOwnedCameraAwareVisibleOutput
         : validationAssistedCameraAwareVisibleOutput;
+  const webgpuTileAwareRenderInput = await buildWebGpuTileAwareRenderInput({
+    device,
+    visibleSamples: webgpuCameraAwareVisibleOutputForNormalBackend.visibleSamples,
+    canvasWidth,
+    canvasHeight,
+    tileSize: 16
+  });
   const depthSortComparison = buildDepthSortComparison({
     tileRanges: cpuReference.tileRanges,
     tileCountsToOffsetsDryRun,
@@ -5033,7 +5043,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step82 evaluates partial 4D state positions, Gaussian render attributes, and Gaussian footprint payload in WebGPU, feeds computed payloads into visible-record samples, and keeps full covariance/rotation/SH parity deferred.',
+    scaffoldNote: 'Phase 3 Step83 generates a partial WebGPU tile-aware render input from computed visible-record footprint payloads, proves a tile-aware consumer reads GPU tile records, and keeps full tile-list scatter/depth sort/final compositor deferred.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
@@ -5049,6 +5059,11 @@ export async function runWebGpuVisibleRecordDryRun({
       webgpu4DStateSource.gaussianAttributeEvaluationContract,
     webgpuGaussianFootprintEvaluationContract:
       webgpu4DStateSource.gaussianFootprintEvaluationContract,
+    webgpuTileAwareRenderInputContract: webgpuTileAwareRenderInput.contract,
+    webgpuTileAwareRenderInputSummary: {
+      tileRecordsPreview: webgpuTileAwareRenderInput.tileRecordsPreview,
+      consumerSummary: webgpuTileAwareRenderInput.consumerSummary
+    },
     webgpuVisibleRecordGateSummary: {
       ...statePositionAvailabilitySummary,
       fourDStateSourceReady:
@@ -5091,6 +5106,14 @@ export async function runWebGpuVisibleRecordDryRun({
       footprintPayloadClassification:
         webgpu4DStateSource.gaussianFootprintEvaluationContract
           ?.footprintPayloadClassification ?? null,
+      tileAwareRenderInputReady:
+        webgpuTileAwareRenderInput.contract?.tileAwareRenderInputReady === true,
+      tileAwareConsumerReady:
+        webgpuTileAwareRenderInput.contract?.tileAwareConsumerReady === true,
+      generatedTileRecordCount:
+        webgpuTileAwareRenderInput.contract?.generatedTileRecordCount ?? 0,
+      tilePayloadClassification:
+        webgpuTileAwareRenderInput.contract?.tilePayloadClassification ?? null,
       computed4DStatePositionCount:
         webgpu4DStateSource.contract?.computed4DStatePositionCount ?? 0,
       baselineStatePositionCount:

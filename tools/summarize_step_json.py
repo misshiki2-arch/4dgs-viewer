@@ -2105,6 +2105,181 @@ def build_step82_webgpu_gaussian_footprint_pipeline_summary(
     }
 
 
+def build_step83_webgpu_tile_aware_render_input_summary(
+    summary: Dict[str, Any],
+    webgpu_visible_record_camera_aware_visible_output: Dict[str, Any],
+    webgpu_owned_camera_aware_visible_output: Dict[str, Any],
+    validation_assisted_camera_aware_visible_output: Dict[str, Any],
+    webgpu_normal_backend_frame_implementation: Dict[str, Any],
+    webgpu_normal_backend_frame_implementation_validation: Dict[str, Any],
+) -> Dict[str, Any]:
+    step82 = build_step82_webgpu_gaussian_footprint_pipeline_summary(
+        summary,
+        webgpu_visible_record_camera_aware_visible_output,
+        webgpu_owned_camera_aware_visible_output,
+        validation_assisted_camera_aware_visible_output,
+        webgpu_normal_backend_frame_implementation,
+        webgpu_normal_backend_frame_implementation_validation,
+    )
+    phase_step = get_path(summary, ["phaseStep"])
+    tile_contract = get_path(
+        summary,
+        ["webgpuTileAwareRenderInputContract"],
+        get_path(
+            webgpu_normal_backend_frame_implementation,
+            ["webgpuTileAwareRenderInputContract"],
+            {},
+        ),
+    )
+    generated_fields = get_path(tile_contract, ["generatedPayloadFields"], [])
+    deferred_fields = get_path(tile_contract, ["deferredTilePayloadFields"], [])
+    generated_tile_record_count = get_path(
+        tile_contract, ["generatedTileRecordCount"], 0
+    )
+    tile_aware_ready = (
+        get_path(tile_contract, ["tileAwareRenderInputReady"]) is True
+        and get_path(tile_contract, ["tileAwareConsumerReady"]) is True
+        and get_path(tile_contract, ["tileAwareConsumerConsumed"]) is True
+        and generated_tile_record_count > 0
+    )
+    footprint_baseline_preserved = (
+        step82.get("webgpuComputedFootprintPayload") is True
+        and step82.get("normalBackendConsumedComputedFootprintPayload") is True
+        and step82.get("computedConicConsumed") is True
+        and step82.get("partialAabbDerivedConsumed") is True
+        and step82.get("partialTileRangeDerivedConsumed") is True
+    )
+    current_texture_ready = (
+        step82.get("currentTextureConnectionReady") is True
+        and step82.get("currentTextureReadbackMatchesAdapterOutput") is True
+    )
+    success = (
+        phase_step == "phase3-step83"
+        and tile_aware_ready
+        and footprint_baseline_preserved
+        and current_texture_ready
+        and step82.get("webgl2HybridRenderingPrevented") is True
+        and step82.get("fallbackSamplesMixed") is False
+        and step82.get("noFallbackMixing") is True
+    )
+    blocked_reason = None
+    if not success:
+        if phase_step != "phase3-step83":
+            blocked_reason = "summary-phase-step-is-not-phase3-step83"
+        elif not tile_aware_ready:
+            blocked_reason = "webgpu-tile-aware-render-input-or-consumer-not-ready"
+        elif not footprint_baseline_preserved:
+            blocked_reason = "step82-computed-footprint-baseline-not-preserved"
+        elif not current_texture_ready:
+            blocked_reason = "currentTexture-path-not-ready"
+        elif step82.get("webgl2HybridRenderingPrevented") is not True:
+            blocked_reason = "webgl2-hybrid-rendering-not-prevented"
+        elif (
+            step82.get("fallbackSamplesMixed") is not False
+            or step82.get("noFallbackMixing") is not True
+        ):
+            blocked_reason = "fallback-samples-mixed-or-not-proven-suppressed"
+    return {
+        "step83Decision": "success" if success else "blocked",
+        "step83BlockedReason": blocked_reason,
+        "selectedApproach": "A/C-webgpu-tile-aware-render-input-from-footprint",
+        "phaseStep": phase_step,
+        "step83SummaryApplies": phase_step == "phase3-step83",
+        "webgpuComputedTileAwareRenderInput": get_path(
+            tile_contract, ["tileAwareRenderInputReady"]
+        ) is True,
+        "tileAwareRenderInputReady": get_path(
+            tile_contract, ["tileAwareRenderInputReady"]
+        ),
+        "tileAwareConsumerReady": get_path(
+            tile_contract, ["tileAwareConsumerReady"]
+        ),
+        "tileAwareConsumerConsumed": get_path(
+            tile_contract, ["tileAwareConsumerConsumed"]
+        ),
+        "tileAwareConsumerReadbackCompleted": get_path(
+            tile_contract, ["tileAwareConsumerReadbackCompleted"]
+        ),
+        "candidateSampleCount": get_path(tile_contract, ["candidateSampleCount"], 0),
+        "generatedTileRecordCount": generated_tile_record_count,
+        "tileRecordFloatStride": get_path(
+            tile_contract, ["tileRecordFloatStride"]
+        ),
+        "tileSize": get_path(tile_contract, ["tileSize"]),
+        "tileGrid": get_path(tile_contract, ["tileGrid"]),
+        "totalTileReferenceCount": get_path(
+            tile_contract, ["totalTileReferenceCount"], 0
+        ),
+        "maxTileReferenceCount": get_path(
+            tile_contract, ["maxTileReferenceCount"], 0
+        ),
+        "averageTileReferenceCount": get_path(
+            tile_contract, ["averageTileReferenceCount"]
+        ),
+        "generatedPayloadFields": generated_fields,
+        "partialTilePayloadFields": get_path(
+            tile_contract, ["partialTilePayloadFields"], []
+        ),
+        "deferredTilePayloadFields": deferred_fields,
+        "tilePayloadClassification": get_path(
+            tile_contract, ["tilePayloadClassification"]
+        ),
+        "gpuNativeAabbGenerated": "gpu-native-aabb" in generated_fields,
+        "gpuNativeTileRangeGenerated": "gpu-native-tileRange" in generated_fields,
+        "tileRecordsGenerated": "tile-record" in generated_fields,
+        "depthKeyGenerated": "depth-key" in generated_fields,
+        "sortKeyGenerated": "sort-key" in generated_fields,
+        "tileAwareConsumerIsExplicit": get_path(
+            tile_contract, ["tileAwareConsumerConsumed"]
+        ) is True,
+        "normalBackendOnlyMetadataPath": get_path(
+            tile_contract, ["tileAwareConsumerConsumed"]
+        ) is not True,
+        "normalBackendFallbackMaintained": get_path(
+            tile_contract, ["normalBackendFallbackMaintained"]
+        ),
+        "fullTileListScatterInWgsl": get_path(
+            tile_contract, ["fullTileListScatterInWgsl"]
+        ),
+        "fullDepthSortInWgsl": get_path(
+            tile_contract, ["fullDepthSortInWgsl"]
+        ),
+        "finalTileCompositorImplemented": get_path(
+            tile_contract, ["finalTileCompositorImplemented"]
+        ),
+        "fullTileListScatterDeferred": "full-tile-list-scatter" in deferred_fields,
+        "fullDepthSortDispatchDeferred": "full-depth-sort-dispatch" in deferred_fields,
+        "finalTileCompositorDeferred": "final-tile-compositor" in deferred_fields,
+        "step82ComputedFootprintPayloadPreserved":
+            footprint_baseline_preserved,
+        "step81ComputedAttributesPreserved":
+            step82.get("step81ComputedRenderAttributesPreserved"),
+        "computedConicConsumed": step82.get("computedConicConsumed"),
+        "partialAabbDerivedConsumed": step82.get("partialAabbDerivedConsumed"),
+        "partialTileRangeDerivedConsumed": step82.get(
+            "partialTileRangeDerivedConsumed"
+        ),
+        "currentTextureConnectionReady": step82.get(
+            "currentTextureConnectionReady"
+        ),
+        "currentTextureReadbackMatchesAdapterOutput": step82.get(
+            "currentTextureReadbackMatchesAdapterOutput"
+        ),
+        "webgpuExclusiveGuard": step82.get("webgpuExclusiveGuard"),
+        "webgl2HybridRenderingPrevented": step82.get(
+            "webgl2HybridRenderingPrevented"
+        ),
+        "fallbackSamplesMixed": step82.get("fallbackSamplesMixed"),
+        "noFallbackMixing": step82.get("noFallbackMixing"),
+        "fullTilePipelineSuccessClaimed": (
+            get_path(tile_contract, ["fullTileListScatterInWgsl"]) is True
+            and get_path(tile_contract, ["fullDepthSortInWgsl"]) is True
+            and get_path(tile_contract, ["finalTileCompositorImplemented"]) is True
+        ),
+        "firstValidationFailures": step82.get("firstValidationFailures", []),
+    }
+
+
 def build_step75_camera_aware_visible_summary(
     summary: Dict[str, Any],
     webgpu_camera_aware_visible_output: Dict[str, Any],
@@ -3259,6 +3434,16 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             webgpu_normal_backend_frame_implementation_validation,
         )
     )
+    step83_webgpu_tile_aware_render_input_pipeline = (
+        build_step83_webgpu_tile_aware_render_input_summary(
+            summary,
+            webgpu_visible_record_camera_aware_visible_output,
+            webgpu_owned_camera_aware_visible_output,
+            validation_assisted_camera_aware_visible_output,
+            webgpu_normal_backend_frame_implementation,
+            webgpu_normal_backend_frame_implementation_validation,
+        )
+    )
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -3290,6 +3475,8 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             step81_webgpu_gaussian_attribute_evaluation_pipeline,
         "step82WebGpuGaussianFootprintPipeline":
             step82_webgpu_gaussian_footprint_pipeline,
+        "step83WebGpuTileAwareRenderInputPipeline":
+            step83_webgpu_tile_aware_render_input_pipeline,
         "comparisonContract": get_path(summary, ["comparisonContract"], {}),
         "comparisonTolerance": get_path(summary, ["comparisonTolerance"], {}),
         "radiusContract": get_path(summary, ["radiusContract"], {}),
@@ -8306,6 +8493,12 @@ def print_human_summary(summary: Dict[str, Any]) -> None:
         "Step82 WebGPU Gaussian footprint pipeline",
         summary.get("webgpuVisibleRecordDryRun", {}).get(
             "step82WebGpuGaussianFootprintPipeline"
+        ),
+    )
+    print_section(
+        "Step83 WebGPU tile-aware render input pipeline",
+        summary.get("webgpuVisibleRecordDryRun", {}).get(
+            "step83WebGpuTileAwareRenderInputPipeline"
         ),
     )
     print_section("WebGPU visible record dry-run", summary.get("webgpuVisibleRecordDryRun"))

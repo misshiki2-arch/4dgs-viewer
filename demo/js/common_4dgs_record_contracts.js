@@ -4,10 +4,13 @@ export const WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION =
 export const WEBGPU_VISIBLE_RECORD_COMPUTE_MODE =
   'webgpu-storage-buffer-compute-fixed-record';
 
-export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step82';
+export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step83';
 
 export const WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE =
   'wgsl-valid-screen-projection-with-true-native-bounded-color-sources';
+
+export const WEBGPU_TILE_AWARE_RENDER_INPUT_CONTRACT_VERSION =
+  'phase3-step83-webgpu-tile-aware-render-input-v1';
 
 export const WEBGPU_RADIUS_FIELD_COMPUTE_MODE =
   'deferred-covariance-conic-dependent';
@@ -461,6 +464,65 @@ export function buildWebGpuGaussianFootprintEvaluationContract({
     fullGaussianFootprintEvaluationInWgsl,
     averageComputedConicX,
     averageComputedFootprintAreaPx,
+    reason
+  };
+}
+
+export function buildWebGpuTileAwareRenderInputContract({
+  status = 'ok',
+  generationMode = 'webgpu-tile-aware-render-input-from-visible-footprint',
+  candidateSampleCount = 0,
+  generatedTileRecordCount = 0,
+  tileAwareConsumerReadbackCompleted = false,
+  tileAwareConsumerConsumed = false,
+  tileAwareRenderInputReady = false,
+  tileAwareConsumerReady = false,
+  generatedPayloadFields = [],
+  partialTilePayloadFields = [],
+  deferredTilePayloadFields = [],
+  tileRecordFloatStride = 16,
+  tileSize = 16,
+  tileGrid = null,
+  totalTileReferenceCount = 0,
+  maxTileReferenceCount = 0,
+  averageTileReferenceCount = null,
+  tilePayloadClassification = 'partial-webgpu-tile-aware-render-input',
+  fullTileListScatterInWgsl = false,
+  fullDepthSortInWgsl = false,
+  finalTileCompositorImplemented = false,
+  normalBackendFallbackMaintained = true,
+  reason = null
+} = {}) {
+  const ready =
+    status === 'ok' &&
+    tileAwareRenderInputReady === true &&
+    tileAwareConsumerReady === true &&
+    generatedTileRecordCount > 0 &&
+    tileAwareConsumerConsumed === true;
+  return {
+    contractVersion: WEBGPU_TILE_AWARE_RENDER_INPUT_CONTRACT_VERSION,
+    status: ready ? 'ok' : status,
+    generationMode,
+    tileAwareRenderInputReady: ready,
+    candidateSampleCount,
+    generatedTileRecordCount,
+    tileAwareConsumerReadbackCompleted,
+    tileAwareConsumerConsumed,
+    tileAwareConsumerReady,
+    generatedPayloadFields,
+    partialTilePayloadFields,
+    deferredTilePayloadFields,
+    tileRecordFloatStride,
+    tileSize,
+    tileGrid,
+    totalTileReferenceCount,
+    maxTileReferenceCount,
+    averageTileReferenceCount,
+    tilePayloadClassification,
+    fullTileListScatterInWgsl,
+    fullDepthSortInWgsl,
+    finalTileCompositorImplemented,
+    normalBackendFallbackMaintained,
     reason
   };
 }
