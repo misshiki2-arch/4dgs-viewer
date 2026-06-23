@@ -159,6 +159,7 @@ const { camera, controls, ensureGpu, getGpu, setCanvasSize } = scene;
 let raw = null;
 let lastDebugText = '';
 let uiUnbindPersistence = null;
+let defaultSceneLoadPromise = null;
 const tokenRef = { value: 0 };
 const interactionState = createGpuInteractionState();
 let playback = null;
@@ -1281,6 +1282,73 @@ function delayMs(ms) {
   return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms | 0)));
 }
 
+function buildViewerDebugDataReadinessSummary() {
+  const rawCount = Number.isFinite(raw?.count)
+    ? Number(raw.count)
+    : Number.isFinite(raw?.N)
+      ? Number(raw.N)
+      : Array.isArray(raw?.xyz) || ArrayBuffer.isView(raw?.xyz)
+        ? Math.floor(raw.xyz.length / Math.max(1, raw.xyzDim || 3))
+        : 0;
+  return {
+    rawLoaded: !!raw,
+    rawCount,
+    latestRenderResultPresent: !!latestRenderResult,
+    defaultSceneLoadInFlight: !!defaultSceneLoadPromise
+  };
+}
+
+async function waitForViewerDebugDataReady({
+  timeoutMs = 8000,
+  retryDefaultScene = true,
+  requireRaw = true,
+  requireLatestRenderResult = false
+} = {}) {
+  const start = performance.now();
+  const attempts = [];
+  if (!raw && retryDefaultScene && fileIO?.loadDefaultScene) {
+    if (!defaultSceneLoadPromise) {
+      defaultSceneLoadPromise = fileIO.loadDefaultScene();
+      attempts.push({ stage: 'start-default-scene-load-retry' });
+    } else {
+      attempts.push({ stage: 'await-existing-default-scene-load' });
+    }
+  }
+  while (performance.now() - start < timeoutMs) {
+    const ready =
+      (!requireRaw || !!raw) &&
+      (!requireLatestRenderResult || !!latestRenderResult);
+    if (ready) {
+      return {
+        ready: true,
+        waitedMs: performance.now() - start,
+        attempts,
+        ...buildViewerDebugDataReadinessSummary()
+      };
+    }
+    if (defaultSceneLoadPromise) {
+      await Promise.race([
+        defaultSceneLoadPromise.catch((error) => {
+          attempts.push({
+            stage: 'default-scene-load-error',
+            message: error?.message ?? String(error)
+          });
+          return null;
+        }),
+        delayMs(50)
+      ]);
+    } else {
+      await delayMs(50);
+    }
+  }
+  return {
+    ready: false,
+    waitedMs: performance.now() - start,
+    attempts,
+    ...buildViewerDebugDataReadinessSummary()
+  };
+}
+
 async function waitForRenderSchedulerIdle(timeoutMs = 2000) {
   const start = performance.now();
   while (
@@ -2086,6 +2154,7 @@ async function runWebGpuVisibleRecordDryRunFromViewerState({
       lastRenderResultSummary: buildRenderResultInspectionSummary(debugRender.renderResult),
       captureSource: metadataOverrides.captureSource ?? 'forced-rebuild',
       phase: metadataOverrides.phase ?? 'phase3-step4',
+      viewerDataReadiness: metadataOverrides.viewerDataReadiness ?? null,
       candidateInputSource: candidateInput.source,
       candidateInputReason: candidateInput.reason ?? null,
       candidateInputSummary: candidateInput.sourceComparisonSummary ?? null,
@@ -2119,6 +2188,13 @@ async function runWebGpuVisibleRecordDryRunFromViewerState({
 }
 
 async function captureWebGpuVisibleRecordDryRunDebug(options = {}) {
+  const viewerDataReadiness = await waitForViewerDebugDataReady({
+    timeoutMs: Number.isFinite(options.viewerDataReadyTimeoutMs)
+      ? options.viewerDataReadyTimeoutMs
+      : 10000,
+    retryDefaultScene: options.retryDefaultScene !== false,
+    requireRaw: true
+  });
   const requestedWebGpuBackendMode =
     options.webgpuBackendMode ??
     deterministicQueryState.webgpuBackendMode ??
@@ -2158,7 +2234,13 @@ async function captureWebGpuVisibleRecordDryRunDebug(options = {}) {
     allowViewerCanvasPresentation,
     enableViewerLoopHook,
     useExclusiveWebGpuFrameLifecycle,
-    debugRender
+    debugRender,
+    metadataOverrides: {
+      viewerDataReadiness,
+      captureSource: viewerDataReadiness.ready
+        ? 'forced-rebuild-viewer-data-ready'
+        : 'forced-rebuild-viewer-data-unavailable'
+    }
   });
 }
 
@@ -4919,6 +5001,7 @@ function installViewerDebugApi() {
     getCameraDebugState,
     sampleCurrentFramebufferStats,
     captureCurrentDebugBundle,
+    waitForViewerDebugDataReady,
     captureRepresentativeActualPayloadDebug,
     inspectPackedPayloadForIndices: captureRepresentativeActualPayloadDebug,
     downloadJsonDebug,
@@ -5177,4 +5260,4 @@ applyCanvasSize();
 playback.startLoop();
 fileIO.bindFileInput();
 fileIO.bindDragAndDrop(document);
-fileIO.loadDefaultScene();
+defaultSceneLoadPromise = fileIO.loadDefaultScene();

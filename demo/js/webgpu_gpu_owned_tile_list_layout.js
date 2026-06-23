@@ -30,6 +30,14 @@ function packTileInputSamples(samples) {
   samples.forEach((sample, index) => {
     const offset = index * TILE_INPUT_FLOAT_STRIDE;
     const footprint = sample?.footprintPayload ?? {};
+    const colorAlpha = Array.isArray(sample?.colorAlpha)
+      ? sample.colorAlpha
+      : [
+          sample?.colorAlpha?.r,
+          sample?.colorAlpha?.g,
+          sample?.colorAlpha?.b,
+          sample?.colorAlpha?.a
+        ];
     data[offset + 0] = finiteNumberOr(sample?.samplePx?.x, 0);
     data[offset + 1] = finiteNumberOr(sample?.samplePx?.y, 0);
     data[offset + 2] = finiteNumberOr(
@@ -44,10 +52,10 @@ function packTileInputSamples(samples) {
       sample?.footprintPayloadSource === 'webgpu-gaussian-footprint-evaluator'
         ? 1
         : 0;
-    data[offset + 8] = 0;
-    data[offset + 9] = 0;
-    data[offset + 10] = 0;
-    data[offset + 11] = 0;
+    data[offset + 8] = finiteNumberOr(colorAlpha[0], 1);
+    data[offset + 9] = finiteNumberOr(colorAlpha[1], 0);
+    data[offset + 10] = finiteNumberOr(colorAlpha[2], 0);
+    data[offset + 11] = finiteNumberOr(colorAlpha[3], 1);
   });
   return data;
 }
@@ -76,7 +84,8 @@ export async function buildWebGpuGpuOwnedTileListLayout({
   canvasHeight,
   tileSize = 16,
   maxRefsPerTile = 64,
-  sourceTileAwareRenderInputContract = null
+  sourceTileAwareRenderInputContract = null,
+  keepGpuResources = false
 } = {}) {
   const samples = Array.isArray(visibleSamples) ? visibleSamples : [];
   if (
@@ -199,7 +208,7 @@ fn scatterReferences(@builtin(global_invocation_id) id: vec3u) {
       let slot = atomicAdd(&tileCounts[tile], 1u);
       if (slot < maxRefs) {
         let refOffset = tile * maxRefs + slot;
-        referenceList[refOffset] = vec4f(a.w, b.x, a.w + 0.0001 * a.w, b.z);
+        referenceList[refOffset] = vec4f(f32(row), b.x, a.w + 0.0001 * a.w, b.z);
       }
     }
   }
@@ -343,27 +352,27 @@ fn consumeGpuOwnedTileList() {
   const consumerSummary = new Float32Array(consumerReadbackBuffer.getMappedRange().slice(0));
   consumerReadbackBuffer.unmap();
 
-  for (const buffer of [
-    inputBuffer,
-    tileCountsBuffer,
-    tileTableBuffer,
-    referenceListBuffer,
-    consumerSummaryBuffer,
-    paramsBuffer,
-    consumerReadbackBuffer
-  ]) {
-    if (typeof buffer.destroy === 'function') {
-      buffer.destroy();
-    }
-  }
-
   const summary = readConsumerSummary(consumerSummary);
   const consumed =
     summary.consumerFollowedOffsetCountTable &&
     summary.totalTileReferenceCount > 0 &&
     summary.consumedTileReferenceCount === summary.totalTileReferenceCount;
-  return {
+  const result = {
     consumerSummary,
+    gpuResources: keepGpuResources
+      ? {
+          inputBuffer,
+          tileTableBuffer,
+          referenceListBuffer,
+          tileCount,
+          tileCols,
+          tileRows,
+          tileSize,
+          maxRefsPerTile,
+          recordCount,
+          referenceCapacity
+        }
+      : null,
     contract: buildWebGpuGpuOwnedTileListLayoutContract({
       candidateTileRecordCount: recordCount,
       tileCount,
@@ -411,4 +420,28 @@ fn consumeGpuOwnedTileList() {
         : 'webgpu-gpu-owned-tile-list-consumer-did-not-follow-offset-count-reference-list'
     })
   };
+  if (!keepGpuResources) {
+    for (const buffer of [
+      inputBuffer,
+      tileCountsBuffer,
+      tileTableBuffer,
+      referenceListBuffer,
+      consumerSummaryBuffer,
+      paramsBuffer
+    ]) {
+      if (typeof buffer.destroy === 'function') {
+        buffer.destroy();
+      }
+    }
+  } else {
+    for (const buffer of [tileCountsBuffer, consumerSummaryBuffer, paramsBuffer]) {
+      if (typeof buffer.destroy === 'function') {
+        buffer.destroy();
+      }
+    }
+  }
+  if (typeof consumerReadbackBuffer.destroy === 'function') {
+    consumerReadbackBuffer.destroy();
+  }
+  return result;
 }

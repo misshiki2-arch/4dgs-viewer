@@ -2486,6 +2486,209 @@ def build_step84_webgpu_gpu_owned_tile_list_layout_summary(
     }
 
 
+def build_step85_webgpu_tile_list_compositor_summary(
+    summary: Dict[str, Any],
+    webgpu_visible_record_camera_aware_visible_output: Dict[str, Any],
+    webgpu_owned_camera_aware_visible_output: Dict[str, Any],
+    validation_assisted_camera_aware_visible_output: Dict[str, Any],
+    webgpu_normal_backend_frame_implementation: Dict[str, Any],
+    webgpu_normal_backend_frame_implementation_validation: Dict[str, Any],
+) -> Dict[str, Any]:
+    step84 = build_step84_webgpu_gpu_owned_tile_list_layout_summary(
+        summary,
+        webgpu_visible_record_camera_aware_visible_output,
+        webgpu_owned_camera_aware_visible_output,
+        validation_assisted_camera_aware_visible_output,
+        webgpu_normal_backend_frame_implementation,
+        webgpu_normal_backend_frame_implementation_validation,
+    )
+    compositor_contract = get_path(
+        summary,
+        ["webgpuTileListCompositorContract"],
+        get_path(
+            webgpu_normal_backend_frame_implementation,
+            ["webgpuTileListCompositorContract"],
+            {},
+        ),
+    )
+    phase_step = get_path(summary, ["phaseStep"])
+    generated_fields = get_path(
+        compositor_contract, ["generatedCompositorFields"], []
+    )
+    deferred_fields = get_path(
+        compositor_contract, ["deferredCompositorFields"], []
+    )
+    compositor_ready = (
+        get_path(compositor_contract, ["tileCompositorReady"]) is True
+        and get_path(compositor_contract, ["compositorPassSubmitted"]) is True
+        and get_path(compositor_contract, ["compositorReadOffsetCountTable"]) is True
+        and get_path(compositor_contract, ["compositorTraversedReferenceList"]) is True
+        and get_path(compositor_contract, ["outputTextureCreated"]) is True
+        and get_path(compositor_contract, ["outputTextureWritten"]) is True
+        and get_path(compositor_contract, ["compositedReferenceCount"], 0) > 0
+    )
+    reference_count_matches = (
+        get_path(compositor_contract, ["compositedReferenceCount"], 0)
+        == get_path(compositor_contract, ["sourceTotalTileReferenceCount"], -1)
+        == step84.get("totalTileReferenceCount")
+    )
+    processed_tile_count = get_path(
+        compositor_contract, ["processedTileCount"], None
+    )
+    if processed_tile_count is None:
+        output_width = get_path(compositor_contract, ["outputWidth"], 0) or 0
+        output_height = get_path(compositor_contract, ["outputHeight"], 0) or 0
+        processed_tile_count = output_width * output_height
+    composited_tile_count = get_path(
+        compositor_contract, ["compositedTileCount"], 0
+    )
+    non_empty_composited_tile_count = get_path(
+        compositor_contract, ["nonEmptyCompositedTileCount"], 0
+    )
+    tile_count_aggregation_consistent = (
+        processed_tile_count >= non_empty_composited_tile_count > 0
+        and composited_tile_count == non_empty_composited_tile_count
+    )
+    success = (
+        phase_step == "phase3-step85"
+        and compositor_ready
+        and reference_count_matches
+        and tile_count_aggregation_consistent
+        and step84.get("gpuOwnedTileListLayoutReady") is True
+        and step84.get("step83TileAwareInputPreserved") is True
+        and step84.get("step82ComputedFootprintPayloadPreserved") is True
+        and step84.get("step81ComputedAttributesPreserved") is True
+        and step84.get("currentTextureConnectionReady") is True
+        and step84.get("currentTextureReadbackMatchesAdapterOutput") is True
+        and step84.get("webgl2HybridRenderingPrevented") is True
+        and step84.get("fallbackSamplesMixed") is False
+        and step84.get("noFallbackMixing") is True
+    )
+    blocked_reason = None
+    if not success:
+        if phase_step != "phase3-step85":
+            blocked_reason = "summary-phase-step-is-not-phase3-step85"
+        elif not compositor_ready:
+            blocked_reason = "webgpu-tile-list-compositor-not-ready"
+        elif not reference_count_matches:
+            blocked_reason = "compositor-reference-count-does-not-match-source-tile-list"
+        elif not tile_count_aggregation_consistent:
+            blocked_reason = "compositor-tile-count-aggregation-inconsistent"
+        elif step84.get("gpuOwnedTileListLayoutReady") is not True:
+            blocked_reason = "step84-gpu-owned-tile-list-layout-not-preserved"
+        elif step84.get("currentTextureConnectionReady") is not True:
+            blocked_reason = "currentTexture-path-not-ready"
+        elif step84.get("webgl2HybridRenderingPrevented") is not True:
+            blocked_reason = "webgl2-hybrid-rendering-not-prevented"
+        elif (
+            step84.get("fallbackSamplesMixed") is not False
+            or step84.get("noFallbackMixing") is not True
+        ):
+            blocked_reason = "fallback-samples-mixed-or-not-proven-suppressed"
+    return {
+        "step85Decision": "success" if success else "blocked",
+        "step85BlockedReason": blocked_reason,
+        "selectedApproach": "A/B/C-partial-webgpu-tile-list-compositor",
+        "phaseStep": phase_step,
+        "step85SummaryApplies": phase_step == "phase3-step85",
+        "tileCompositorReady": get_path(
+            compositor_contract, ["tileCompositorReady"]
+        ),
+        "compositorPassSubmitted": get_path(
+            compositor_contract, ["compositorPassSubmitted"]
+        ),
+        "compositorReadOffsetCountTable": get_path(
+            compositor_contract, ["compositorReadOffsetCountTable"]
+        ),
+        "compositorTraversedReferenceList": get_path(
+            compositor_contract, ["compositorTraversedReferenceList"]
+        ),
+        "outputTextureCreated": get_path(
+            compositor_contract, ["outputTextureCreated"]
+        ),
+        "outputTextureWritten": get_path(
+            compositor_contract, ["outputTextureWritten"]
+        ),
+        "outputTextureReadbackMatchesSummary": get_path(
+            compositor_contract, ["outputTextureReadbackMatchesSummary"]
+        ),
+        "outputResourceKind": get_path(
+            compositor_contract, ["outputResourceKind"]
+        ),
+        "outputFormat": get_path(compositor_contract, ["outputFormat"]),
+        "outputWidth": get_path(compositor_contract, ["outputWidth"]),
+        "outputHeight": get_path(compositor_contract, ["outputHeight"]),
+        "processedTileCount": processed_tile_count,
+        "compositedTileCount": composited_tile_count,
+        "nonEmptyCompositedTileCount": non_empty_composited_tile_count,
+        "tileCountAggregationConsistent": tile_count_aggregation_consistent,
+        "compositedTileCountMeaning":
+            "tiles-with-at-least-one-composited-reference",
+        "processedTileCountMeaning": "all-tile-grid-entries-dispatched",
+        "compositedReferenceCount": get_path(
+            compositor_contract, ["compositedReferenceCount"], 0
+        ),
+        "sourceTotalTileReferenceCount": get_path(
+            compositor_contract, ["sourceTotalTileReferenceCount"], 0
+        ),
+        "compositorReferenceCountMatchesStep84": reference_count_matches,
+        "overflowCount": get_path(compositor_contract, ["overflowCount"], 0),
+        "orderHandling": get_path(compositor_contract, ["orderHandling"]),
+        "generatedCompositorFields": generated_fields,
+        "deferredCompositorFields": deferred_fields,
+        "compositorClassification": get_path(
+            compositor_contract, ["compositorClassification"]
+        ),
+        "normalBackendOnlyMetadataPath": not compositor_ready,
+        "fullDepthSortInWgsl": get_path(
+            compositor_contract, ["fullDepthSortInWgsl"]
+        ),
+        "fullCudaParity": get_path(compositor_contract, ["fullCudaParity"]),
+        "finalProductionTileCompositor": get_path(
+            compositor_contract, ["finalProductionTileCompositor"]
+        ),
+        "fullDepthSortDeferred": "full-depth-sort-dispatch" in deferred_fields,
+        "fullCudaParityDeferred": "cuda-compositor-parity" in deferred_fields,
+        "finalProductionCompositorDeferred":
+            "final-production-tile-compositor" in deferred_fields,
+        "fullWebGpuTileRendererSuccessClaimed": (
+            get_path(compositor_contract, ["fullDepthSortInWgsl"]) is True
+            and get_path(compositor_contract, ["fullCudaParity"]) is True
+            and get_path(compositor_contract, ["finalProductionTileCompositor"]) is True
+        ),
+        "step84GpuOwnedTileListLayoutPreserved":
+            step84.get("gpuOwnedTileListLayoutReady"),
+        "step84TotalTileReferenceCount":
+            step84.get("totalTileReferenceCount"),
+        "step84NonEmptyTileCount": step84.get("nonEmptyTileCount"),
+        "step84MaxRefsPerTileObserved":
+            step84.get("maxRefsPerTileObserved"),
+        "step84OverflowCount": step84.get("overflowCount"),
+        "step83TileAwareInputPreserved":
+            step84.get("step83TileAwareInputPreserved"),
+        "step82ComputedFootprintPayloadPreserved":
+            step84.get("step82ComputedFootprintPayloadPreserved"),
+        "step81ComputedAttributesPreserved":
+            step84.get("step81ComputedAttributesPreserved"),
+        "currentTexturePathMaintained": get_path(
+            compositor_contract, ["currentTexturePathMaintained"]
+        ),
+        "currentTextureConnectionReady": step84.get(
+            "currentTextureConnectionReady"
+        ),
+        "currentTextureReadbackMatchesAdapterOutput": step84.get(
+            "currentTextureReadbackMatchesAdapterOutput"
+        ),
+        "webgpuExclusiveGuard": step84.get("webgpuExclusiveGuard"),
+        "webgl2HybridRenderingPrevented": step84.get(
+            "webgl2HybridRenderingPrevented"
+        ),
+        "fallbackSamplesMixed": step84.get("fallbackSamplesMixed"),
+        "noFallbackMixing": step84.get("noFallbackMixing"),
+        "firstValidationFailures": step84.get("firstValidationFailures", []),
+    }
+
+
 def build_step75_camera_aware_visible_summary(
     summary: Dict[str, Any],
     webgpu_camera_aware_visible_output: Dict[str, Any],
@@ -3660,6 +3863,16 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             webgpu_normal_backend_frame_implementation_validation,
         )
     )
+    step85_webgpu_tile_list_compositor_pipeline = (
+        build_step85_webgpu_tile_list_compositor_summary(
+            summary,
+            webgpu_visible_record_camera_aware_visible_output,
+            webgpu_owned_camera_aware_visible_output,
+            validation_assisted_camera_aware_visible_output,
+            webgpu_normal_backend_frame_implementation,
+            webgpu_normal_backend_frame_implementation_validation,
+        )
+    )
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -3672,6 +3885,10 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
         "captureExceptionRecorded": False,
         "captureErrorName": None,
         "captureErrorMessage": None,
+        "captureSource": get_path(summary, ["metadata", "captureSource"]),
+        "viewerDataReadiness": get_path(summary, ["metadata", "viewerDataReadiness"], {}),
+        "candidateInputSource": get_path(summary, ["metadata", "candidateInputSource"]),
+        "candidateInputReason": get_path(summary, ["metadata", "candidateInputReason"]),
         "implementedFields": get_path(summary, ["implementedFields"], []),
         "wgslComputedFields": get_path(summary, ["wgslComputedFields"], []),
         "wgslReferenceAssistedFields": get_path(
@@ -3695,6 +3912,8 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             step83_webgpu_tile_aware_render_input_pipeline,
         "step84WebGpuGpuOwnedTileListLayoutPipeline":
             step84_webgpu_gpu_owned_tile_list_layout_pipeline,
+        "step85WebGpuTileListCompositorPipeline":
+            step85_webgpu_tile_list_compositor_pipeline,
         "comparisonContract": get_path(summary, ["comparisonContract"], {}),
         "comparisonTolerance": get_path(summary, ["comparisonTolerance"], {}),
         "radiusContract": get_path(summary, ["radiusContract"], {}),
@@ -8723,6 +8942,12 @@ def print_human_summary(summary: Dict[str, Any]) -> None:
         "Step84 WebGPU GPU-owned tile list layout pipeline",
         summary.get("webgpuVisibleRecordDryRun", {}).get(
             "step84WebGpuGpuOwnedTileListLayoutPipeline"
+        ),
+    )
+    print_section(
+        "Step85 WebGPU tile-list compositor pipeline",
+        summary.get("webgpuVisibleRecordDryRun", {}).get(
+            "step85WebGpuTileListCompositorPipeline"
         ),
     )
     print_section("WebGPU visible record dry-run", summary.get("webgpuVisibleRecordDryRun"))

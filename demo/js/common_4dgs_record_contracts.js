@@ -4,7 +4,7 @@ export const WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION =
 export const WEBGPU_VISIBLE_RECORD_COMPUTE_MODE =
   'webgpu-storage-buffer-compute-fixed-record';
 
-export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step84';
+export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step85';
 
 export const WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE =
   'wgsl-valid-screen-projection-with-true-native-bounded-color-sources';
@@ -14,6 +14,9 @@ export const WEBGPU_TILE_AWARE_RENDER_INPUT_CONTRACT_VERSION =
 
 export const WEBGPU_GPU_OWNED_TILE_LIST_LAYOUT_CONTRACT_VERSION =
   'phase3-step84-webgpu-gpu-owned-tile-list-layout-v1';
+
+export const WEBGPU_TILE_LIST_COMPOSITOR_CONTRACT_VERSION =
+  'phase3-step85-webgpu-tile-list-compositor-v1';
 
 export const WEBGPU_RADIUS_FIELD_COMPUTE_MODE =
   'deferred-covariance-conic-dependent';
@@ -604,6 +607,88 @@ export function buildWebGpuGpuOwnedTileListLayoutContract({
     nextDepthSortInputReady,
     nextTileCompositorInputReady,
     sourceTileAwareRenderInputContractVersion,
+    reason
+  };
+}
+
+export function buildWebGpuTileListCompositorContract({
+  status = 'ok',
+  compositorMode = 'partial-webgpu-tile-list-compositor',
+  tileCompositorReady = false,
+  compositorPassSubmitted = false,
+  compositorReadbackCompleted = false,
+  compositorReadOffsetCountTable = false,
+  compositorTraversedReferenceList = false,
+  outputTextureCreated = false,
+  outputTextureWritten = false,
+  outputTextureReadbackMatchesSummary = false,
+  outputResourceKind = 'rgba8unorm-tile-compositor-output-texture',
+  outputFormat = 'rgba8unorm',
+  outputWidth = 0,
+  outputHeight = 0,
+  processedTileCount = 0,
+  compositedTileCount = 0,
+  nonEmptyCompositedTileCount = 0,
+  compositedReferenceCount = 0,
+  sourceTotalTileReferenceCount = 0,
+  overflowCount = 0,
+  orderHandling = 'unsorted-fixed-reference-order',
+  generatedCompositorFields = [],
+  deferredCompositorFields = [],
+  compositorClassification = 'partial-webgpu-tile-list-compositor',
+  fullDepthSortInWgsl = false,
+  fullCudaParity = false,
+  finalProductionTileCompositor = false,
+  normalBackendFallbackMaintained = true,
+  sourceGpuOwnedTileListLayoutContractVersion = null,
+  currentTexturePathMaintained = false,
+  reason = null
+} = {}) {
+  const ready =
+    status === 'ok' &&
+    tileCompositorReady === true &&
+    compositorPassSubmitted === true &&
+    compositorReadOffsetCountTable === true &&
+    compositorTraversedReferenceList === true &&
+    outputTextureCreated === true &&
+    outputTextureWritten === true &&
+    compositorReadbackCompleted === true &&
+    processedTileCount >= nonEmptyCompositedTileCount &&
+    compositedTileCount === nonEmptyCompositedTileCount &&
+    nonEmptyCompositedTileCount > 0 &&
+    compositedReferenceCount > 0;
+  return {
+    contractVersion: WEBGPU_TILE_LIST_COMPOSITOR_CONTRACT_VERSION,
+    status: ready ? 'ok' : status,
+    compositorMode,
+    tileCompositorReady: ready,
+    compositorPassSubmitted,
+    compositorReadbackCompleted,
+    compositorReadOffsetCountTable,
+    compositorTraversedReferenceList,
+    outputTextureCreated,
+    outputTextureWritten,
+    outputTextureReadbackMatchesSummary,
+    outputResourceKind,
+    outputFormat,
+    outputWidth,
+    outputHeight,
+    processedTileCount,
+    compositedTileCount,
+    nonEmptyCompositedTileCount,
+    compositedReferenceCount,
+    sourceTotalTileReferenceCount,
+    overflowCount,
+    orderHandling,
+    generatedCompositorFields,
+    deferredCompositorFields,
+    compositorClassification,
+    fullDepthSortInWgsl,
+    fullCudaParity,
+    finalProductionTileCompositor,
+    normalBackendFallbackMaintained,
+    sourceGpuOwnedTileListLayoutContractVersion,
+    currentTexturePathMaintained,
     reason
   };
 }

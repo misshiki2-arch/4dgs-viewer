@@ -1303,3 +1303,37 @@ reference list and produce the validation summary.
 Full realtime 4DGS rendering still requires compacted prefix-owned tile lists,
 overflow-resize policy, per-tile depth sorting, final tile compositing,
 complete SH/color evaluation, streaming, chunking, LOD, and partial upload.
+
+## Step85 WebGPU Tile-List Compositor Path
+
+Step85 connects the Step84 GPU-owned tile list layout to a partial WebGPU tile
+compositor. The compositor reads each tile's `offset/count` table entry,
+traverses the GPU splat reference list, fetches the visible sample payload, and
+writes a tile-space `rgba8unorm` output texture with a minimal alpha
+accumulation. The existing currentTexture path remains active through the
+guarded normal-backend presentation path while the compositor output texture is
+validated as the next renderer-owned output boundary.
+
+- selected approach: A/B/C. A dedicated compositor module consumes the
+  GPU-owned tile list, performs partial accumulation, and writes an output
+  texture. Full depth sorting, CUDA compositor parity, and the final production
+  tile compositor remain deferred.
+- compositor inputs: Step84 `offset/count` table, splat reference list,
+  reference depth/sort keys, and the Step82/Step81 visible sample payload.
+- success contract: Step85 requires nonzero composited references, proof that
+  the compositor read the offset/count table and traversed the reference list,
+  output texture write/readback evidence, and preservation of the Step84 tile
+  list, Step83 tile input, Step82 footprint, Step81 attributes, and
+  currentTexture path.
+- tile count contract: `processedTileCount` is the full tile grid dispatched by
+  the compositor. `compositedTileCount` and `nonEmptyCompositedTileCount` both
+  describe tiles with at least one traversed reference, so they must agree and
+  remain less than or equal to the processed tile count.
+- classification: Step85 is `partial-webgpu-tile-list-compositor`, not a full
+  WebGPU tile renderer. Ordering is `unsorted-fixed-reference-order` until the
+  depth-sort stage owns per-tile ordering.
+
+Full realtime 4DGS rendering still requires per-tile depth sorting, final tile
+compositing against the viewer target, CUDA/compositor parity, compacted prefix
+ownership for large tile lists, complete SH/color evaluation, streaming,
+chunking, LOD, and partial upload.

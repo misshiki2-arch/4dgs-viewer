@@ -84,6 +84,9 @@ import {
 import {
   buildWebGpuGpuOwnedTileListLayout
 } from './webgpu_gpu_owned_tile_list_layout.js';
+import {
+  buildWebGpuTileListCompositor
+} from './webgpu_tile_list_compositor.js';
 
 const DEFAULT_MAX_RECORDS = 65536;
 const DEFAULT_EPSILON = DEFAULT_COMPARISON_EPSILON;
@@ -4682,8 +4685,24 @@ export async function runWebGpuVisibleRecordDryRun({
       canvasHeight,
       tileSize: 16,
       maxRefsPerTile: 64,
-      sourceTileAwareRenderInputContract: webgpuTileAwareRenderInput.contract
+      sourceTileAwareRenderInputContract: webgpuTileAwareRenderInput.contract,
+      keepGpuResources: true
     });
+  const webgpuTileListCompositor = await buildWebGpuTileListCompositor({
+    device,
+    gpuOwnedTileListLayout: webgpuGpuOwnedTileListLayout,
+    canvasWidth,
+    canvasHeight
+  });
+  for (const buffer of [
+    webgpuGpuOwnedTileListLayout.gpuResources?.inputBuffer,
+    webgpuGpuOwnedTileListLayout.gpuResources?.tileTableBuffer,
+    webgpuGpuOwnedTileListLayout.gpuResources?.referenceListBuffer
+  ]) {
+    if (buffer && typeof buffer.destroy === 'function') {
+      buffer.destroy();
+    }
+  }
   const depthSortComparison = buildDepthSortComparison({
     tileRanges: cpuReference.tileRanges,
     tileCountsToOffsetsDryRun,
@@ -5056,7 +5075,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step84 builds a partial GPU-owned tile list layout with offset/count table and splat reference list buffers, proves a tile-list consumer follows the GPU layout, and keeps full prefix compaction/depth sort/final compositor deferred.',
+    scaffoldNote: 'Phase 3 Step85 connects the GPU-owned tile list layout to a partial WebGPU tile compositor pass, writes a compositor output texture, and keeps full depth sort/CUDA parity/final production compositor deferred.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
@@ -5081,6 +5100,10 @@ export async function runWebGpuVisibleRecordDryRun({
       webgpuGpuOwnedTileListLayout.contract,
     webgpuGpuOwnedTileListLayoutSummary: {
       consumerSummary: webgpuGpuOwnedTileListLayout.consumerSummary
+    },
+    webgpuTileListCompositorContract: webgpuTileListCompositor.contract,
+    webgpuTileListCompositorSummary: {
+      compositorSummary: webgpuTileListCompositor.compositorSummary
     },
     webgpuVisibleRecordGateSummary: {
       ...statePositionAvailabilitySummary,
@@ -5142,6 +5165,12 @@ export async function runWebGpuVisibleRecordDryRun({
       gpuOwnedTileListClassification:
         webgpuGpuOwnedTileListLayout.contract
           ?.tileListLayoutClassification ?? null,
+      tileCompositorReady:
+        webgpuTileListCompositor.contract?.tileCompositorReady === true,
+      compositedReferenceCount:
+        webgpuTileListCompositor.contract?.compositedReferenceCount ?? 0,
+      tileCompositorClassification:
+        webgpuTileListCompositor.contract?.compositorClassification ?? null,
       computed4DStatePositionCount:
         webgpu4DStateSource.contract?.computed4DStatePositionCount ?? 0,
       baselineStatePositionCount:

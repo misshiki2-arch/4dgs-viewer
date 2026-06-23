@@ -345,6 +345,15 @@ def build_preamble(args: argparse.Namespace) -> str:
 
     return f"""window.gpuViewerDebug.scheduleRender();
 await new Promise(r => setTimeout(r, {args.render_wait_ms}));
+if (typeof window.gpuViewerDebug.waitForViewerDebugDataReady === 'function') {{
+  var viewerDebugDataReadiness =
+    await window.gpuViewerDebug.waitForViewerDebugDataReady({{
+      timeoutMs: {args.viewer_data_ready_timeout_ms},
+      retryDefaultScene: true,
+      requireRaw: true
+    }});
+  console.log('viewerDebugDataReadiness', viewerDebugDataReadiness);
+}}
 """
 
 
@@ -563,6 +572,12 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=500,
         help="Wait time after scheduleRender. Default: 500.",
+    )
+    parser.add_argument(
+        "--viewer-data-ready-timeout-ms",
+        type=int,
+        default=10000,
+        help="Wait time for viewer debug raw data readiness. Default: 10000.",
     )
 
     parser.add_argument(
