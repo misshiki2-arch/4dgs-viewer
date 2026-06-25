@@ -4,7 +4,7 @@ export const WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION =
 export const WEBGPU_VISIBLE_RECORD_COMPUTE_MODE =
   'webgpu-storage-buffer-compute-fixed-record';
 
-export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step85';
+export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step86';
 
 export const WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE =
   'wgsl-valid-screen-projection-with-true-native-bounded-color-sources';
@@ -17,6 +17,9 @@ export const WEBGPU_GPU_OWNED_TILE_LIST_LAYOUT_CONTRACT_VERSION =
 
 export const WEBGPU_TILE_LIST_COMPOSITOR_CONTRACT_VERSION =
   'phase3-step85-webgpu-tile-list-compositor-v1';
+
+export const WEBGPU_PHASE3_BACKEND_BOUNDARY_CONTRACT_VERSION =
+  'phase3-step86-webgpu-backend-boundary-and-dirty-contract-v1';
 
 export const WEBGPU_RADIUS_FIELD_COMPUTE_MODE =
   'deferred-covariance-conic-dependent';
@@ -689,6 +692,120 @@ export function buildWebGpuTileListCompositorContract({
     normalBackendFallbackMaintained,
     sourceGpuOwnedTileListLayoutContractVersion,
     currentTexturePathMaintained,
+    reason
+  };
+}
+
+export function buildWebGpuPhase3BackendBoundaryContract({
+  status = 'ok',
+  boundaryMode = 'phase3-backend-boundary-and-dirty-contract',
+  dirtyCameraConstants = true,
+  dirtyTimeState = true,
+  dirtyVisibleRecords = true,
+  dirtyTileList = true,
+  dirtyCompositorInput = true,
+  dirtyContractReady = false,
+  viewerShellOwnsUrlQueryAndCapture = true,
+  viewerShellOwnsCameraCanvasAdapterConnection = true,
+  threeAdapterOwnsCameraInput = true,
+  threeAdapterOwnsOrbitControls = true,
+  threeAdapterIsRenderingCore = false,
+  webgpuOwnsBackendPasses = true,
+  webgpuOwnsStateAttributeFootprintTileAndCompositorPasses = true,
+  webgl2Role = 'fallback-validation-regression-oracle',
+  cudaReferenceRole = 'fixed-reference-not-interactive-backend',
+  toolsOwnCaptureCommandGeneration = true,
+  toolsOwnStepSummary = true,
+  toolsOwnContractValidation = true,
+  toolsDoNotOwnRuntimeBackend = true,
+  commonContractBoundaryReady = true,
+  backendRecordFormatShared = true,
+  independentBackendRecordFormatsAdded = false,
+  fullDatasetGpuResidencyRequired = false,
+  webgpuWebgl2SameFramePresentationMixed = false,
+  viewerAppGpuNewWebGpuPassResponsibilitiesAdded = false,
+  step85RuntimePathPreserved = false,
+  step85TileCompositorPathPreserved = false,
+  step85CurrentTexturePathMaintained = false,
+  step85CurrentTextureConnectionReady = false,
+  step85CurrentTextureReadbackMatchesAdapterOutput = false,
+  step85CurrentTexturePreservationSource =
+    'step85-tile-compositor-contract-currentTexturePathMaintained',
+  nextDepthSortBoundaryReady = false,
+  nextFinalCompositorBoundaryReady = false,
+  nextChunkLodStreamingBoundaryReady = false,
+  reason = null
+} = {}) {
+  const readiness =
+    status === 'ok' &&
+    dirtyContractReady === true &&
+    dirtyCameraConstants === true &&
+    dirtyTimeState === true &&
+    dirtyVisibleRecords === true &&
+    dirtyTileList === true &&
+    dirtyCompositorInput === true &&
+    viewerShellOwnsUrlQueryAndCapture === true &&
+    viewerShellOwnsCameraCanvasAdapterConnection === true &&
+    threeAdapterOwnsCameraInput === true &&
+    threeAdapterOwnsOrbitControls === true &&
+    threeAdapterIsRenderingCore === false &&
+    webgpuOwnsBackendPasses === true &&
+    webgl2Role === 'fallback-validation-regression-oracle' &&
+    cudaReferenceRole === 'fixed-reference-not-interactive-backend' &&
+    toolsOwnCaptureCommandGeneration === true &&
+    toolsOwnStepSummary === true &&
+    toolsOwnContractValidation === true &&
+    toolsDoNotOwnRuntimeBackend === true &&
+    commonContractBoundaryReady === true &&
+    backendRecordFormatShared === true &&
+    independentBackendRecordFormatsAdded === false &&
+    fullDatasetGpuResidencyRequired === false &&
+    webgpuWebgl2SameFramePresentationMixed === false &&
+    step85RuntimePathPreserved === true &&
+    step85TileCompositorPathPreserved === true &&
+    step85CurrentTexturePathMaintained === true &&
+    step85CurrentTextureConnectionReady === true &&
+    step85CurrentTextureReadbackMatchesAdapterOutput === true;
+  return {
+    contractVersion: WEBGPU_PHASE3_BACKEND_BOUNDARY_CONTRACT_VERSION,
+    status: readiness ? 'ok' : status,
+    boundaryMode,
+    phase3BackendBoundaryReady: readiness,
+    dirtyUpdateContractReady: readiness,
+    dirtyCameraConstants,
+    dirtyTimeState,
+    dirtyVisibleRecords,
+    dirtyTileList,
+    dirtyCompositorInput,
+    dirtyContractReady,
+    viewerShellOwnsUrlQueryAndCapture,
+    viewerShellOwnsCameraCanvasAdapterConnection,
+    threeAdapterOwnsCameraInput,
+    threeAdapterOwnsOrbitControls,
+    threeAdapterIsRenderingCore,
+    webgpuOwnsBackendPasses,
+    webgpuOwnsStateAttributeFootprintTileAndCompositorPasses,
+    webgl2Role,
+    cudaReferenceRole,
+    toolsOwnCaptureCommandGeneration,
+    toolsOwnStepSummary,
+    toolsOwnContractValidation,
+    toolsDoNotOwnRuntimeBackend,
+    commonContractBoundaryReady,
+    backendRecordFormatShared,
+    independentBackendRecordFormatsAdded,
+    fullDatasetGpuResidencyRequired,
+    webgpuWebgl2SameFramePresentationMixed,
+    viewerAppGpuNewWebGpuPassResponsibilitiesAdded,
+    step85RuntimePathPreserved,
+    step85TileCompositorPathPreserved,
+    step85CurrentTexturePathMaintained,
+    step85CurrentTextureConnectionReady,
+    step85CurrentTextureReadbackMatchesAdapterOutput,
+    step85CurrentTexturePreservationSource,
+    nextDepthSortBoundaryReady,
+    nextFinalCompositorBoundaryReady,
+    nextChunkLodStreamingBoundaryReady,
     reason
   };
 }

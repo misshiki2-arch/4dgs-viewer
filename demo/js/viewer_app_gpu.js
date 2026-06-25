@@ -2126,6 +2126,8 @@ async function runWebGpuVisibleRecordDryRunFromViewerState({
     : useExclusiveWebGpuFrameLifecycle
       ? 'webgpu-exclusive-lifecycle-requested'
       : 'unknown';
+  // Viewer shell owns capture/query/camera/canvas adaptation only; WebGPU pass
+  // construction stays in the backend modules and common contracts.
   return runWebGpuVisibleRecordDryRun({
     candidateInfo: candidateInput.candidateInfo,
     raw,

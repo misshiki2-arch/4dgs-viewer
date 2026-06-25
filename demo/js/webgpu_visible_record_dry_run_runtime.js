@@ -41,6 +41,7 @@ import {
   WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION,
   WEBGPU_VISIBLE_RECORD_WGSL_COMPUTED_FIELDS,
   buildWebGpu4DStateSourceContract,
+  buildWebGpuPhase3BackendBoundaryContract,
   cloneWebGpuVisibleRecordFieldComputeModes
 } from './common_4dgs_record_contracts.js';
 import {
@@ -5060,6 +5061,34 @@ export async function runWebGpuVisibleRecordDryRun({
       webgpu4DStateSource.contract?.stateSourceMode ??
       WEBGPU_INPUT_BUFFER_MODES.STATE_POSITIONS
   });
+  const webgpuPhase3BackendBoundaryContract =
+    buildWebGpuPhase3BackendBoundaryContract({
+      dirtyContractReady: true,
+      step85RuntimePathPreserved:
+        webgpuTileListCompositor.contract?.tileCompositorReady === true &&
+        webgpuGpuOwnedTileListLayout.contract?.gpuOwnedTileListLayoutReady === true &&
+        webgpuTileAwareRenderInput.contract?.tileAwareRenderInputReady === true &&
+        webgpu4DStateSource.gaussianFootprintEvaluationContract
+          ?.gaussianFootprintEvaluationReady === true &&
+        webgpu4DStateSource.gaussianAttributeEvaluationContract
+          ?.gaussianAttributeEvaluationReady === true,
+      step85TileCompositorPathPreserved:
+        webgpuTileListCompositor.contract?.tileCompositorReady === true,
+      step85CurrentTexturePathMaintained:
+        webgpuTileListCompositor.contract?.currentTexturePathMaintained === true,
+      step85CurrentTextureConnectionReady:
+        webgpuTileListCompositor.contract?.currentTexturePathMaintained === true,
+      step85CurrentTextureReadbackMatchesAdapterOutput:
+        webgpuTileListCompositor.contract?.outputTextureReadbackMatchesSummary === true,
+      step85CurrentTexturePreservationSource:
+        'step85-tile-compositor-contract-currentTexturePathMaintained-and-outputTextureReadbackMatchesSummary',
+      nextDepthSortBoundaryReady:
+        webgpuGpuOwnedTileListLayout.contract?.nextDepthSortInputReady === true,
+      nextFinalCompositorBoundaryReady:
+        webgpuTileListCompositor.contract?.tileCompositorReady === true,
+      reason:
+        'Step86 records Phase 3 backend ownership and dirty update entrypoints before depth sort/final compositor work'
+    });
   const compareStartMs = nowMs();
   const comparisonTolerance = createComparisonToleranceMetadata({ epsilon, maxMismatches });
   const recordComparison = compareRecords(cpuReference.records, computeResult.records, cpuReference.count, {
@@ -5075,7 +5104,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step85 connects the GPU-owned tile list layout to a partial WebGPU tile compositor pass, writes a compositor output texture, and keeps full depth sort/CUDA parity/final production compositor deferred.',
+    scaffoldNote: 'Phase 3 Step86 hardens the WebGPU backend boundary and dirty update contract while preserving the Step85 partial tile-list compositor path.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
@@ -5105,6 +5134,7 @@ export async function runWebGpuVisibleRecordDryRun({
     webgpuTileListCompositorSummary: {
       compositorSummary: webgpuTileListCompositor.compositorSummary
     },
+    webgpuPhase3BackendBoundaryContract,
     webgpuVisibleRecordGateSummary: {
       ...statePositionAvailabilitySummary,
       fourDStateSourceReady:
@@ -5171,6 +5201,20 @@ export async function runWebGpuVisibleRecordDryRun({
         webgpuTileListCompositor.contract?.compositedReferenceCount ?? 0,
       tileCompositorClassification:
         webgpuTileListCompositor.contract?.compositorClassification ?? null,
+      phase3BackendBoundaryReady:
+        webgpuPhase3BackendBoundaryContract.phase3BackendBoundaryReady === true,
+      dirtyUpdateContractReady:
+        webgpuPhase3BackendBoundaryContract.dirtyUpdateContractReady === true,
+      dirtyCameraConstants:
+        webgpuPhase3BackendBoundaryContract.dirtyCameraConstants === true,
+      dirtyTimeState:
+        webgpuPhase3BackendBoundaryContract.dirtyTimeState === true,
+      dirtyVisibleRecords:
+        webgpuPhase3BackendBoundaryContract.dirtyVisibleRecords === true,
+      dirtyTileList:
+        webgpuPhase3BackendBoundaryContract.dirtyTileList === true,
+      dirtyCompositorInput:
+        webgpuPhase3BackendBoundaryContract.dirtyCompositorInput === true,
       computed4DStatePositionCount:
         webgpu4DStateSource.contract?.computed4DStatePositionCount ?? 0,
       baselineStatePositionCount:

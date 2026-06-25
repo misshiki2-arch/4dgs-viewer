@@ -1337,3 +1337,63 @@ Full realtime 4DGS rendering still requires per-tile depth sorting, final tile
 compositing against the viewer target, CUDA/compositor parity, compacted prefix
 ownership for large tile lists, complete SH/color evaluation, streaming,
 chunking, LOD, and partial upload.
+
+## Step86 Phase 3 WebGPU Backend Boundary and Dirty Contract Hardening
+
+Step86 freezes the ownership boundaries added during Steps80-85 before the
+backend moves into depth sorting, final compositing, chunking, LOD, or
+streaming. It is not a new rendering feature step. Its success condition is that
+the runtime capture can report the Phase 3 backend boundary and dirty update
+entrypoints through common contract fields while preserving the Step85
+tile-list compositor path.
+
+- viewer shell: owns URL/query parsing, capture entrypoints, and camera/canvas
+  adapter wiring. `viewer_app_gpu.js` should not accumulate new WebGPU pass
+  construction logic; backend modules own state, attribute, footprint, tile
+  input, tile list, and compositor passes.
+- three adapter: Three.js and OrbitControls remain camera input, canvas
+  integration, and debug-view adapters. They are not the rendering core and do
+  not own WebGPU backend pass state.
+- common contracts: shared record, projection, tile, compositor, dirty update,
+  and capture summary contracts are the comparison boundary for WebGPU, WebGL2,
+  and CUDA Reference. Backend-specific record formats should not be introduced
+  outside these contracts.
+- tools: `make_step_url.py`, `make_capture_commands.py`,
+  `check_step_files.py`, and `summarize_step_json.py` own capture command
+  generation, saved-result checking, step summary extraction, and contract
+  validation reporting. They do not own runtime backend execution.
+- WebGPU backend: owns state evaluation, Gaussian attribute evaluation,
+  footprint evaluation, tile-aware input, GPU-owned tile lists, and the partial
+  tile compositor. The Step86 boundary keeps `webgpu-exclusive` presentation
+  separate from WebGL2 fallback/oracle rendering.
+- WebGL2: remains fallback, validation, and regression oracle. It must not be
+  mixed with WebGPU presentation in the same displayed frame.
+- CUDA Reference: remains a fixed comparison reference and is not an
+  interactive viewer backend.
+
+The Step86 dirty update contract is an entrypoint contract rather than a full
+incremental scheduler. It exposes:
+
+- `dirtyCameraConstants`
+- `dirtyTimeState`
+- `dirtyVisibleRecords`
+- `dirtyTileList`
+- `dirtyCompositorInput`
+
+Current runtime captures still rebuild the bounded pipeline for validation, but
+these flags establish the dependency graph needed for future incremental frame
+updates. `dirtyCameraConstants` and `dirtyTimeState` invalidate visible records;
+visible-record changes invalidate tile input and tile lists; tile-list or
+footprint changes invalidate compositor input. The contract also records that
+`fullDatasetGpuResidencyRequired=false`, so future chunk/LOD/streaming work can
+attach without turning the viewer into an all-Gaussian, all-frame residency
+requirement.
+
+Step86 keeps the Step85 runtime path intact and reports that preservation
+directly in the Step86 summary. The preserved signals include the Step85 tile
+compositor path, the `currentTexture` path-maintained flag, and the compositor
+output readback match used as the Step85 currentTexture preservation evidence.
+Partial WebGPU tile-list compositor output remains the current renderer-owned
+output boundary, while full depth sort, CUDA compositor parity, final production
+compositor, compacted prefix/list ownership, streaming, chunking, LOD, and
+partial upload remain deferred.

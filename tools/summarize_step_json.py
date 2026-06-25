@@ -2689,6 +2689,268 @@ def build_step85_webgpu_tile_list_compositor_summary(
     }
 
 
+def build_step86_backend_boundary_and_dirty_contract_summary(
+    summary: Dict[str, Any],
+) -> Dict[str, Any]:
+    boundary_contract = get_path(
+        summary,
+        ["webgpuPhase3BackendBoundaryContract"],
+        {},
+    )
+    compositor_contract = get_path(
+        summary,
+        ["webgpuTileListCompositorContract"],
+        {},
+    )
+    tile_list_contract = get_path(
+        summary,
+        ["webgpuGpuOwnedTileListLayoutContract"],
+        {},
+    )
+    tile_input_contract = get_path(
+        summary,
+        ["webgpuTileAwareRenderInputContract"],
+        {},
+    )
+    phase_step = get_path(summary, ["phaseStep"])
+    dirty_flags = {
+        "dirtyCameraConstants": get_path(
+            boundary_contract, ["dirtyCameraConstants"]
+        ),
+        "dirtyTimeState": get_path(boundary_contract, ["dirtyTimeState"]),
+        "dirtyVisibleRecords": get_path(
+            boundary_contract, ["dirtyVisibleRecords"]
+        ),
+        "dirtyTileList": get_path(boundary_contract, ["dirtyTileList"]),
+        "dirtyCompositorInput": get_path(
+            boundary_contract, ["dirtyCompositorInput"]
+        ),
+    }
+    dirty_contract_ready = (
+        get_path(boundary_contract, ["dirtyUpdateContractReady"]) is True
+        and all(value is True for value in dirty_flags.values())
+    )
+    responsibility_boundary_ready = (
+        get_path(boundary_contract, ["viewerShellOwnsUrlQueryAndCapture"]) is True
+        and get_path(
+            boundary_contract,
+            ["viewerShellOwnsCameraCanvasAdapterConnection"],
+        )
+        is True
+        and get_path(boundary_contract, ["threeAdapterOwnsCameraInput"]) is True
+        and get_path(boundary_contract, ["threeAdapterOwnsOrbitControls"]) is True
+        and get_path(boundary_contract, ["threeAdapterIsRenderingCore"]) is False
+        and get_path(boundary_contract, ["webgpuOwnsBackendPasses"]) is True
+        and get_path(boundary_contract, ["webgl2Role"])
+        == "fallback-validation-regression-oracle"
+        and get_path(boundary_contract, ["cudaReferenceRole"])
+        == "fixed-reference-not-interactive-backend"
+    )
+    common_boundary_ready = (
+        get_path(boundary_contract, ["commonContractBoundaryReady"]) is True
+        and get_path(boundary_contract, ["backendRecordFormatShared"]) is True
+        and get_path(
+            boundary_contract, ["independentBackendRecordFormatsAdded"]
+        )
+        is False
+    )
+    tools_boundary_ready = (
+        get_path(
+            boundary_contract,
+            ["toolsOwnCaptureCommandGeneration"],
+            phase_step == "phase3-step86",
+        )
+        is True
+        and get_path(
+            boundary_contract,
+            ["toolsOwnStepSummary"],
+            phase_step == "phase3-step86",
+        )
+        is True
+        and get_path(
+            boundary_contract,
+            ["toolsOwnContractValidation"],
+            phase_step == "phase3-step86",
+        )
+        is True
+        and get_path(
+            boundary_contract,
+            ["toolsDoNotOwnRuntimeBackend"],
+            phase_step == "phase3-step86",
+        )
+        is True
+    )
+    step85_tile_compositor_path_preserved = (
+        get_path(
+            boundary_contract,
+            ["step85TileCompositorPathPreserved"],
+            get_path(compositor_contract, ["tileCompositorReady"]) is True,
+        )
+        is True
+    )
+    step85_current_texture_path_maintained = (
+        get_path(
+            boundary_contract,
+            ["step85CurrentTexturePathMaintained"],
+            get_path(compositor_contract, ["currentTexturePathMaintained"]) is True,
+        )
+        is True
+    )
+    step85_current_texture_connection_ready = (
+        get_path(
+            boundary_contract,
+            ["step85CurrentTextureConnectionReady"],
+            get_path(compositor_contract, ["currentTexturePathMaintained"]) is True,
+        )
+        is True
+    )
+    step85_current_texture_readback_matches = (
+        get_path(
+            boundary_contract,
+            ["step85CurrentTextureReadbackMatchesAdapterOutput"],
+            get_path(compositor_contract, ["outputTextureReadbackMatchesSummary"])
+            is True,
+        )
+        is True
+    )
+    step85_preserved = (
+        get_path(boundary_contract, ["step85RuntimePathPreserved"]) is True
+        and get_path(compositor_contract, ["tileCompositorReady"]) is True
+        and get_path(tile_list_contract, ["gpuOwnedTileListLayoutReady"]) is True
+        and get_path(tile_input_contract, ["tileAwareRenderInputReady"]) is True
+        and step85_tile_compositor_path_preserved
+        and step85_current_texture_path_maintained
+        and step85_current_texture_connection_ready
+        and step85_current_texture_readback_matches
+    )
+    no_hybrid_or_full_residency = (
+        get_path(boundary_contract, ["webgpuWebgl2SameFramePresentationMixed"])
+        is False
+        and get_path(boundary_contract, ["fullDatasetGpuResidencyRequired"])
+        is False
+    )
+    success = (
+        phase_step == "phase3-step86"
+        and get_path(boundary_contract, ["phase3BackendBoundaryReady"]) is True
+        and dirty_contract_ready
+        and responsibility_boundary_ready
+        and tools_boundary_ready
+        and common_boundary_ready
+        and step85_preserved
+        and no_hybrid_or_full_residency
+    )
+    blocked_reason = None
+    if not success:
+        if phase_step != "phase3-step86":
+            blocked_reason = "summary-phase-step-is-not-phase3-step86"
+        elif not dirty_contract_ready:
+            blocked_reason = "dirty-update-contract-not-ready"
+        elif not responsibility_boundary_ready:
+            blocked_reason = "phase3-responsibility-boundary-not-ready"
+        elif not tools_boundary_ready:
+            blocked_reason = "tools-responsibility-boundary-not-ready"
+        elif not common_boundary_ready:
+            blocked_reason = "common-contract-boundary-not-ready"
+        elif not step85_preserved:
+            blocked_reason = "step85-runtime-path-not-preserved"
+        elif not no_hybrid_or_full_residency:
+            blocked_reason = "hybrid-presentation-or-full-residency-constraint-violated"
+    return {
+        "step86Decision": "success" if success else "blocked",
+        "step86BlockedReason": blocked_reason,
+        "selectedApproach": "A+B-with-small-boundary-comment",
+        "phaseStep": phase_step,
+        "step86SummaryApplies": phase_step == "phase3-step86",
+        "phase3BackendBoundaryReady": get_path(
+            boundary_contract, ["phase3BackendBoundaryReady"]
+        ),
+        "dirtyUpdateContractReady": dirty_contract_ready,
+        **dirty_flags,
+        "viewerShellOwnsUrlQueryAndCapture": get_path(
+            boundary_contract, ["viewerShellOwnsUrlQueryAndCapture"]
+        ),
+        "viewerShellOwnsCameraCanvasAdapterConnection": get_path(
+            boundary_contract, ["viewerShellOwnsCameraCanvasAdapterConnection"]
+        ),
+        "threeAdapterOwnsCameraInput": get_path(
+            boundary_contract, ["threeAdapterOwnsCameraInput"]
+        ),
+        "threeAdapterOwnsOrbitControls": get_path(
+            boundary_contract, ["threeAdapterOwnsOrbitControls"]
+        ),
+        "threeAdapterIsRenderingCore": get_path(
+            boundary_contract, ["threeAdapterIsRenderingCore"]
+        ),
+        "webgpuOwnsBackendPasses": get_path(
+            boundary_contract, ["webgpuOwnsBackendPasses"]
+        ),
+        "webgl2Role": get_path(boundary_contract, ["webgl2Role"]),
+        "cudaReferenceRole": get_path(boundary_contract, ["cudaReferenceRole"]),
+        "toolsOwnCaptureCommandGeneration": get_path(
+            boundary_contract,
+            ["toolsOwnCaptureCommandGeneration"],
+            phase_step == "phase3-step86",
+        ),
+        "toolsOwnStepSummary": get_path(
+            boundary_contract,
+            ["toolsOwnStepSummary"],
+            phase_step == "phase3-step86",
+        ),
+        "toolsOwnContractValidation": get_path(
+            boundary_contract,
+            ["toolsOwnContractValidation"],
+            phase_step == "phase3-step86",
+        ),
+        "toolsDoNotOwnRuntimeBackend": get_path(
+            boundary_contract,
+            ["toolsDoNotOwnRuntimeBackend"],
+            phase_step == "phase3-step86",
+        ),
+        "toolsBoundaryReady": tools_boundary_ready,
+        "commonContractBoundaryReady": common_boundary_ready,
+        "backendRecordFormatShared": get_path(
+            boundary_contract, ["backendRecordFormatShared"]
+        ),
+        "independentBackendRecordFormatsAdded": get_path(
+            boundary_contract, ["independentBackendRecordFormatsAdded"]
+        ),
+        "fullDatasetGpuResidencyRequired": get_path(
+            boundary_contract, ["fullDatasetGpuResidencyRequired"]
+        ),
+        "webgpuWebgl2SameFramePresentationMixed": get_path(
+            boundary_contract, ["webgpuWebgl2SameFramePresentationMixed"]
+        ),
+        "viewerAppGpuNewWebGpuPassResponsibilitiesAdded": get_path(
+            boundary_contract,
+            ["viewerAppGpuNewWebGpuPassResponsibilitiesAdded"],
+        ),
+        "step85RuntimePathPreserved": step85_preserved,
+        "step85TileCompositorPathPreserved":
+            step85_tile_compositor_path_preserved,
+        "step85CurrentTexturePathMaintained":
+            step85_current_texture_path_maintained,
+        "step85CurrentTextureConnectionReady":
+            step85_current_texture_connection_ready,
+        "step85CurrentTextureReadbackMatchesAdapterOutput":
+            step85_current_texture_readback_matches,
+        "step85CurrentTexturePreservationSource": get_path(
+            boundary_contract,
+            ["step85CurrentTexturePreservationSource"],
+            "step85-tile-compositor-contract-currentTexturePathMaintained-and-outputTextureReadbackMatchesSummary",
+        ),
+        "nextDepthSortBoundaryReady": get_path(
+            boundary_contract, ["nextDepthSortBoundaryReady"]
+        ),
+        "nextFinalCompositorBoundaryReady": get_path(
+            boundary_contract, ["nextFinalCompositorBoundaryReady"]
+        ),
+        "nextChunkLodStreamingBoundaryReady": get_path(
+            boundary_contract, ["nextChunkLodStreamingBoundaryReady"]
+        ),
+        "reason": get_path(boundary_contract, ["reason"]),
+    }
+
+
 def build_step75_camera_aware_visible_summary(
     summary: Dict[str, Any],
     webgpu_camera_aware_visible_output: Dict[str, Any],
@@ -3873,6 +4135,9 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             webgpu_normal_backend_frame_implementation_validation,
         )
     )
+    step86_backend_boundary_and_dirty_contract = (
+        build_step86_backend_boundary_and_dirty_contract_summary(summary)
+    )
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -3914,6 +4179,8 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             step84_webgpu_gpu_owned_tile_list_layout_pipeline,
         "step85WebGpuTileListCompositorPipeline":
             step85_webgpu_tile_list_compositor_pipeline,
+        "step86BackendBoundaryAndDirtyContract":
+            step86_backend_boundary_and_dirty_contract,
         "comparisonContract": get_path(summary, ["comparisonContract"], {}),
         "comparisonTolerance": get_path(summary, ["comparisonTolerance"], {}),
         "radiusContract": get_path(summary, ["radiusContract"], {}),
@@ -8948,6 +9215,12 @@ def print_human_summary(summary: Dict[str, Any]) -> None:
         "Step85 WebGPU tile-list compositor pipeline",
         summary.get("webgpuVisibleRecordDryRun", {}).get(
             "step85WebGpuTileListCompositorPipeline"
+        ),
+    )
+    print_section(
+        "Step86 WebGPU backend boundary and dirty contract",
+        summary.get("webgpuVisibleRecordDryRun", {}).get(
+            "step86BackendBoundaryAndDirtyContract"
         ),
     )
     print_section("WebGPU visible record dry-run", summary.get("webgpuVisibleRecordDryRun"))
