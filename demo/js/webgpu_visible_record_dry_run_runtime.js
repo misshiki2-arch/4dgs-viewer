@@ -5104,7 +5104,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step86 hardens the WebGPU backend boundary and dirty update contract while preserving the Step85 partial tile-list compositor path.',
+    scaffoldNote: 'Phase 3 Step87 adds depth-aware ordering consumption to the partial WebGPU tile-list compositor while preserving the Step85/Step86 backend boundaries.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,

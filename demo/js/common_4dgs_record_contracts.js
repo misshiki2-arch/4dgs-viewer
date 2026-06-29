@@ -4,7 +4,7 @@ export const WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION =
 export const WEBGPU_VISIBLE_RECORD_COMPUTE_MODE =
   'webgpu-storage-buffer-compute-fixed-record';
 
-export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step86';
+export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step87';
 
 export const WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE =
   'wgsl-valid-screen-projection-with-true-native-bounded-color-sources';
@@ -20,6 +20,9 @@ export const WEBGPU_TILE_LIST_COMPOSITOR_CONTRACT_VERSION =
 
 export const WEBGPU_PHASE3_BACKEND_BOUNDARY_CONTRACT_VERSION =
   'phase3-step86-webgpu-backend-boundary-and-dirty-contract-v1';
+
+export const WEBGPU_TILE_DEPTH_ORDERING_CONTRACT_VERSION =
+  'phase3-step87-webgpu-tile-depth-ordering-v1';
 
 export const WEBGPU_RADIUS_FIELD_COMPUTE_MODE =
   'deferred-covariance-conic-dependent';
@@ -636,6 +639,16 @@ export function buildWebGpuTileListCompositorContract({
   sourceTotalTileReferenceCount = 0,
   overflowCount = 0,
   orderHandling = 'unsorted-fixed-reference-order',
+  tileDepthOrderingReady = false,
+  depthOrderPassSubmitted = false,
+  orderAwareCompositorUsed = false,
+  depthKeyConsumed = false,
+  sortKeyConsumed = false,
+  compositorConsumedDepthOrderedReferences = false,
+  orderedReferenceCount = 0,
+  orderedSourceReferenceCount = 0,
+  orderedReferenceCountMatchesSource = false,
+  tileDepthOrderingContract = null,
   generatedCompositorFields = [],
   deferredCompositorFields = [],
   compositorClassification = 'partial-webgpu-tile-list-compositor',
@@ -683,6 +696,16 @@ export function buildWebGpuTileListCompositorContract({
     sourceTotalTileReferenceCount,
     overflowCount,
     orderHandling,
+    tileDepthOrderingReady,
+    depthOrderPassSubmitted,
+    orderAwareCompositorUsed,
+    depthKeyConsumed,
+    sortKeyConsumed,
+    compositorConsumedDepthOrderedReferences,
+    orderedReferenceCount,
+    orderedSourceReferenceCount,
+    orderedReferenceCountMatchesSource,
+    tileDepthOrderingContract,
     generatedCompositorFields,
     deferredCompositorFields,
     compositorClassification,
@@ -692,6 +715,66 @@ export function buildWebGpuTileListCompositorContract({
     normalBackendFallbackMaintained,
     sourceGpuOwnedTileListLayoutContractVersion,
     currentTexturePathMaintained,
+    reason
+  };
+}
+
+export function buildWebGpuTileDepthOrderingContract({
+  status = 'ok',
+  orderingMode = 'order-aware-compositor-depth-key-selection',
+  tileDepthOrderingReady = false,
+  depthOrderPassSubmitted = false,
+  orderAwareCompositorUsed = false,
+  depthKeyConsumed = false,
+  sortKeyConsumed = false,
+  compositorConsumedDepthOrderedReferences = false,
+  orderedReferenceCount = 0,
+  sourceReferenceCount = 0,
+  orderedReferenceCountMatchesSource = false,
+  orderHandling = 'depth-aware-compositor-sort-key-descending',
+  fixedCapacityPerTile = true,
+  fullParallelPerTileSortInWgsl = false,
+  fullCudaDepthParity = false,
+  finalProductionCompositor = false,
+  step85TileCompositorPathPreserved = false,
+  step86BoundaryContractPreserved = false,
+  reason = null
+} = {}) {
+  const ready =
+    status === 'ok' &&
+    tileDepthOrderingReady === true &&
+    depthOrderPassSubmitted === true &&
+    orderAwareCompositorUsed === true &&
+    depthKeyConsumed === true &&
+    sortKeyConsumed === true &&
+    compositorConsumedDepthOrderedReferences === true &&
+    orderedReferenceCount > 0 &&
+    sourceReferenceCount > 0 &&
+    orderedReferenceCountMatchesSource === true &&
+    step85TileCompositorPathPreserved === true &&
+    step86BoundaryContractPreserved === true;
+  return {
+    contractVersion: WEBGPU_TILE_DEPTH_ORDERING_CONTRACT_VERSION,
+    status: ready ? 'ok' : status,
+    orderingMode,
+    tileDepthOrderingReady: ready,
+    depthOrderPassSubmitted,
+    orderAwareCompositorUsed,
+    depthKeyConsumed,
+    sortKeyConsumed,
+    compositorConsumedDepthOrderedReferences,
+    orderedReferenceCount,
+    sourceReferenceCount,
+    orderedReferenceCountMatchesSource,
+    orderHandling,
+    fixedCapacityPerTile,
+    fullParallelPerTileSortInWgsl,
+    fullCudaDepthParity,
+    finalProductionCompositor,
+    fullCudaDepthParityDeferred: fullCudaDepthParity !== true,
+    finalProductionCompositorDeferred: finalProductionCompositor !== true,
+    step85TileCompositorPathPreserved,
+    step86BoundaryContractPreserved,
     reason
   };
 }

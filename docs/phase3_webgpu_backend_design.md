@@ -1338,6 +1338,36 @@ compositing against the viewer target, CUDA/compositor parity, compacted prefix
 ownership for large tile lists, complete SH/color evaluation, streaming,
 chunking, LOD, and partial upload.
 
+## Step87 WebGPU Tile Depth Ordering for Compositor
+
+Step87 advances the Step85 compositor from fixed reference traversal to
+depth-aware traversal while preserving the Step84 GPU-owned tile list and the
+Step86 backend boundary contract. The selected approach is B: the compositor
+WGSL pass uses the depth/sort keys already stored in the Step84 reference list
+and selects references in descending sort-key order inside each fixed-capacity
+tile. This keeps the compositor connected to the GPU-owned `offset/count` table
+and reference list without introducing a CPU-side sorted list.
+
+- selected approach: B, with C-style validation fields. A separate full
+  per-tile sort pass remains deferred until prefix/list compaction and the final
+  compositor are ready.
+- compositor ownership: WebGPU owns the order-aware compositor pass. The viewer
+  shell still owns capture/query/canvas wiring, and Three.js/OrbitControls stay
+  as camera/input adapters.
+- success contract: Step87 requires `tileDepthOrderingReady`,
+  `orderAwareCompositorUsed`, `depthKeyConsumed`, `sortKeyConsumed`,
+  `compositorConsumedDepthOrderedReferences`, and matching
+  `orderedReferenceCount` / `sourceReferenceCount`.
+- preservation contract: Step87 keeps the Step84 GPU-owned tile list, Step85
+  tile compositor/currentTexture path, and Step86 dirty/backend boundary
+  contract intact. `dirtyTileList` and `dirtyCompositorInput` remain the
+  invalidation entrypoints for this stage.
+- classification: Step87 is a partial WebGPU depth-ordering boundary, not full
+  CUDA depth parity and not a final production compositor. Full parallel
+  per-tile sorting, CUDA compositor parity, final tile compositing, compacted
+  prefix/list ownership, streaming, chunking, LOD, and partial upload remain
+  deferred.
+
 ## Step86 Phase 3 WebGPU Backend Boundary and Dirty Contract Hardening
 
 Step86 freezes the ownership boundaries added during Steps80-85 before the

@@ -2647,7 +2647,10 @@ def build_step85_webgpu_tile_list_compositor_summary(
         "finalProductionTileCompositor": get_path(
             compositor_contract, ["finalProductionTileCompositor"]
         ),
-        "fullDepthSortDeferred": "full-depth-sort-dispatch" in deferred_fields,
+        "fullDepthSortDeferred": (
+            "full-depth-sort-dispatch" in deferred_fields
+            or "full-parallel-per-tile-sort-dispatch" in deferred_fields
+        ),
         "fullCudaParityDeferred": "cuda-compositor-parity" in deferred_fields,
         "finalProductionCompositorDeferred":
             "final-production-tile-compositor" in deferred_fields,
@@ -2948,6 +2951,202 @@ def build_step86_backend_boundary_and_dirty_contract_summary(
             boundary_contract, ["nextChunkLodStreamingBoundaryReady"]
         ),
         "reason": get_path(boundary_contract, ["reason"]),
+    }
+
+
+def build_step87_tile_depth_ordering_summary(
+    summary: Dict[str, Any],
+) -> Dict[str, Any]:
+    compositor_contract = get_path(
+        summary,
+        ["webgpuTileListCompositorContract"],
+        {},
+    )
+    boundary_contract = get_path(
+        summary,
+        ["webgpuPhase3BackendBoundaryContract"],
+        {},
+    )
+    tile_list_contract = get_path(
+        summary,
+        ["webgpuGpuOwnedTileListLayoutContract"],
+        {},
+    )
+    depth_contract = get_path(
+        compositor_contract,
+        ["tileDepthOrderingContract"],
+        {},
+    )
+    phase_step = get_path(summary, ["phaseStep"])
+    deferred_fields = get_path(
+        compositor_contract, ["deferredCompositorFields"], []
+    )
+    source_reference_count = get_path(
+        depth_contract,
+        ["sourceReferenceCount"],
+        get_path(compositor_contract, ["sourceTotalTileReferenceCount"], 0),
+    )
+    ordered_reference_count = get_path(
+        depth_contract,
+        ["orderedReferenceCount"],
+        get_path(compositor_contract, ["orderedReferenceCount"], 0),
+    )
+    ordered_reference_count_matches_source = (
+        get_path(
+            depth_contract,
+            ["orderedReferenceCountMatchesSource"],
+            get_path(
+                compositor_contract,
+                ["orderedReferenceCountMatchesSource"],
+            ),
+        )
+        is True
+        and ordered_reference_count == source_reference_count
+        and source_reference_count > 0
+    )
+    step85_preserved = (
+        get_path(compositor_contract, ["tileCompositorReady"]) is True
+        and get_path(compositor_contract, ["compositorReadOffsetCountTable"]) is True
+        and get_path(compositor_contract, ["compositorTraversedReferenceList"]) is True
+        and get_path(compositor_contract, ["outputTextureWritten"]) is True
+        and get_path(compositor_contract, ["currentTexturePathMaintained"]) is True
+    )
+    step86_preserved = (
+        get_path(boundary_contract, ["phase3BackendBoundaryReady"]) is True
+        and get_path(boundary_contract, ["dirtyUpdateContractReady"]) is True
+        and get_path(boundary_contract, ["dirtyTileList"]) is True
+        and get_path(boundary_contract, ["dirtyCompositorInput"]) is True
+        and get_path(boundary_contract, ["toolsDoNotOwnRuntimeBackend"]) is True
+        and get_path(boundary_contract, ["backendRecordFormatShared"]) is True
+        and get_path(
+            boundary_contract, ["webgpuWebgl2SameFramePresentationMixed"]
+        )
+        is False
+    )
+    current_texture_preserved = (
+        get_path(boundary_contract, ["step85CurrentTextureConnectionReady"]) is True
+        and get_path(
+            boundary_contract,
+            ["step85CurrentTextureReadbackMatchesAdapterOutput"],
+        )
+        is True
+    )
+    tile_depth_ordering_ready = (
+        get_path(depth_contract, ["tileDepthOrderingReady"]) is True
+        or get_path(compositor_contract, ["tileDepthOrderingReady"]) is True
+    )
+    success = (
+        phase_step == "phase3-step87"
+        and tile_depth_ordering_ready
+        and get_path(depth_contract, ["depthOrderPassSubmitted"]) is True
+        and get_path(depth_contract, ["orderAwareCompositorUsed"]) is True
+        and get_path(depth_contract, ["depthKeyConsumed"]) is True
+        and get_path(depth_contract, ["sortKeyConsumed"]) is True
+        and get_path(
+            depth_contract,
+            ["compositorConsumedDepthOrderedReferences"],
+        )
+        is True
+        and ordered_reference_count_matches_source
+        and get_path(tile_list_contract, ["gpuOwnedTileListLayoutReady"]) is True
+        and step85_preserved
+        and step86_preserved
+        and current_texture_preserved
+    )
+    blocked_reason = None
+    if not success:
+        if phase_step != "phase3-step87":
+            blocked_reason = "summary-phase-step-is-not-phase3-step87"
+        elif not tile_depth_ordering_ready:
+            blocked_reason = "tile-depth-ordering-not-ready"
+        elif get_path(depth_contract, ["orderAwareCompositorUsed"]) is not True:
+            blocked_reason = "order-aware-compositor-not-used"
+        elif get_path(depth_contract, ["depthKeyConsumed"]) is not True:
+            blocked_reason = "depth-key-not-consumed"
+        elif get_path(depth_contract, ["sortKeyConsumed"]) is not True:
+            blocked_reason = "sort-key-not-consumed"
+        elif not ordered_reference_count_matches_source:
+            blocked_reason = "ordered-reference-count-does-not-match-source"
+        elif not step85_preserved:
+            blocked_reason = "step85-tile-compositor-path-not-preserved"
+        elif not step86_preserved:
+            blocked_reason = "step86-boundary-contract-not-preserved"
+        elif not current_texture_preserved:
+            blocked_reason = "currentTexture-path-not-preserved"
+    return {
+        "step87Decision": "success" if success else "blocked",
+        "step87BlockedReason": blocked_reason,
+        "selectedApproach": "B-order-aware-compositor-with-depth-key-consumption",
+        "phaseStep": phase_step,
+        "step87SummaryApplies": phase_step == "phase3-step87",
+        "tileDepthOrderingReady": tile_depth_ordering_ready,
+        "depthOrderPassSubmitted": get_path(
+            depth_contract, ["depthOrderPassSubmitted"]
+        ),
+        "orderAwareCompositorUsed": get_path(
+            depth_contract, ["orderAwareCompositorUsed"]
+        ),
+        "depthKeyConsumed": get_path(depth_contract, ["depthKeyConsumed"]),
+        "sortKeyConsumed": get_path(depth_contract, ["sortKeyConsumed"]),
+        "compositorConsumedDepthOrderedReferences": get_path(
+            depth_contract, ["compositorConsumedDepthOrderedReferences"]
+        ),
+        "orderedReferenceCount": ordered_reference_count,
+        "sourceReferenceCount": source_reference_count,
+        "orderedReferenceCountMatchesSource":
+            ordered_reference_count_matches_source,
+        "orderHandling": get_path(depth_contract, ["orderHandling"]),
+        "fixedCapacityPerTile": get_path(
+            depth_contract, ["fixedCapacityPerTile"]
+        ),
+        "fullParallelPerTileSortInWgsl": get_path(
+            depth_contract, ["fullParallelPerTileSortInWgsl"]
+        ),
+        "fullCudaDepthParity": get_path(
+            depth_contract, ["fullCudaDepthParity"]
+        ),
+        "fullCudaDepthParityDeferred": get_path(
+            depth_contract,
+            ["fullCudaDepthParityDeferred"],
+            "cuda-compositor-parity" in deferred_fields,
+        ),
+        "finalProductionCompositor": get_path(
+            depth_contract, ["finalProductionCompositor"]
+        ),
+        "finalProductionCompositorDeferred": get_path(
+            depth_contract,
+            ["finalProductionCompositorDeferred"],
+            "final-production-tile-compositor" in deferred_fields,
+        ),
+        "step85TileCompositorPathPreserved": step85_preserved,
+        "step86BoundaryContractPreserved": step86_preserved,
+        "step84GpuOwnedTileListLayoutPreserved": get_path(
+            tile_list_contract, ["gpuOwnedTileListLayoutReady"]
+        ),
+        "step85CurrentTexturePathMaintained": get_path(
+            compositor_contract, ["currentTexturePathMaintained"]
+        ),
+        "step85CurrentTextureConnectionReady": get_path(
+            boundary_contract, ["step85CurrentTextureConnectionReady"]
+        ),
+        "step85CurrentTextureReadbackMatchesAdapterOutput": get_path(
+            boundary_contract,
+            ["step85CurrentTextureReadbackMatchesAdapterOutput"],
+        ),
+        "webgpuWebgl2SameFramePresentationMixed": get_path(
+            boundary_contract, ["webgpuWebgl2SameFramePresentationMixed"]
+        ),
+        "fallbackMixingPrevented": (
+            get_path(boundary_contract, ["webgpuWebgl2SameFramePresentationMixed"])
+            is False
+            and get_path(boundary_contract, ["backendRecordFormatShared"]) is True
+        ),
+        "fullRendererSuccessClaimed": (
+            get_path(depth_contract, ["fullParallelPerTileSortInWgsl"]) is True
+            and get_path(depth_contract, ["fullCudaDepthParity"]) is True
+            and get_path(depth_contract, ["finalProductionCompositor"]) is True
+        ),
+        "reason": get_path(depth_contract, ["reason"]),
     }
 
 
@@ -4138,6 +4337,9 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
     step86_backend_boundary_and_dirty_contract = (
         build_step86_backend_boundary_and_dirty_contract_summary(summary)
     )
+    step87_tile_depth_ordering_for_compositor = (
+        build_step87_tile_depth_ordering_summary(summary)
+    )
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -4181,6 +4383,8 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             step85_webgpu_tile_list_compositor_pipeline,
         "step86BackendBoundaryAndDirtyContract":
             step86_backend_boundary_and_dirty_contract,
+        "step87TileDepthOrderingForCompositor":
+            step87_tile_depth_ordering_for_compositor,
         "comparisonContract": get_path(summary, ["comparisonContract"], {}),
         "comparisonTolerance": get_path(summary, ["comparisonTolerance"], {}),
         "radiusContract": get_path(summary, ["radiusContract"], {}),
@@ -9221,6 +9425,12 @@ def print_human_summary(summary: Dict[str, Any]) -> None:
         "Step86 WebGPU backend boundary and dirty contract",
         summary.get("webgpuVisibleRecordDryRun", {}).get(
             "step86BackendBoundaryAndDirtyContract"
+        ),
+    )
+    print_section(
+        "Step87 WebGPU tile depth ordering for compositor",
+        summary.get("webgpuVisibleRecordDryRun", {}).get(
+            "step87TileDepthOrderingForCompositor"
         ),
     )
     print_section("WebGPU visible record dry-run", summary.get("webgpuVisibleRecordDryRun"))

@@ -1,8 +1,9 @@
 import {
+  buildWebGpuTileDepthOrderingContract,
   buildWebGpuTileListCompositorContract
 } from './common_4dgs_record_contracts.js';
 
-const COMPOSITOR_SUMMARY_FLOAT_COUNT = 12;
+const COMPOSITOR_SUMMARY_FLOAT_COUNT = 16;
 
 function alignTo(value, alignment) {
   return Math.ceil(value / alignment) * alignment;
@@ -40,7 +41,14 @@ function readCompositorSummary(summary) {
     outputTextureWritten: Math.round(finiteNumberOr(summary[6], 0)) === 1,
     maxRefsPerTileObserved: Math.round(finiteNumberOr(summary[7], 0)),
     overflowCount: Math.round(finiteNumberOr(summary[8], 0)),
-    statusCode: Math.round(finiteNumberOr(summary[9], 0))
+    statusCode: Math.round(finiteNumberOr(summary[9], 0)),
+    orderedReferenceCount: Math.round(finiteNumberOr(summary[10], 0)),
+    orderedSourceReferenceCount: Math.round(finiteNumberOr(summary[11], 0)),
+    depthKeyConsumed: Math.round(finiteNumberOr(summary[12], 0)) === 1,
+    sortKeyConsumed: Math.round(finiteNumberOr(summary[13], 0)) === 1,
+    orderAwareCompositorUsed: Math.round(finiteNumberOr(summary[14], 0)) === 1,
+    orderedReferenceCountMatchesSource:
+      Math.round(finiteNumberOr(summary[15], 0)) === 1
   };
 }
 
@@ -154,8 +162,23 @@ fn compositeTiles(@builtin(global_invocation_id) id: vec3u) {
     readTable = 1.0;
     let offset = u32(table.x);
     let count = u32(table.y);
-    for (var slot: u32 = 0u; slot < count; slot = slot + 1u) {
-      let splatRef = referenceList[offset + slot];
+    var consumed: array<u32, 64>;
+    for (var initSlot: u32 = 0u; initSlot < 64u; initSlot = initSlot + 1u) {
+      consumed[initSlot] = 0u;
+    }
+    for (var orderSlot: u32 = 0u; orderSlot < count; orderSlot = orderSlot + 1u) {
+      var bestSlot = 0u;
+      var bestKey = -340282346638528859811704183484516925440.0;
+      for (var scanSlot: u32 = 0u; scanSlot < count; scanSlot = scanSlot + 1u) {
+        let candidateRef = referenceList[offset + scanSlot];
+        let candidateKey = candidateRef.w;
+        if (consumed[scanSlot] == 0u && candidateKey >= bestKey) {
+          bestKey = candidateKey;
+          bestSlot = scanSlot;
+        }
+      }
+      consumed[bestSlot] = 1u;
+      let splatRef = referenceList[offset + bestSlot];
       let sampleRow = u32(max(splatRef.x, 0.0));
       let sampleBase = sampleRow * 3u;
       let c = tileInputs[sampleBase + 2u];
@@ -179,6 +202,10 @@ fn finalizeSummary() {
   var overflow = 0.0;
   var readTable = 0.0;
   var traversedList = 0.0;
+  var orderedRefs = 0.0;
+  var depthKeyConsumed = 0.0;
+  var sortKeyConsumed = 0.0;
+  var orderAwareUsed = 0.0;
   for (var tile: u32 = 0u; tile < u32(params.tileCount); tile = tile + 1u) {
     let table = tileTable[tile];
     if (table.w == 84.0) {
@@ -193,15 +220,29 @@ fn finalizeSummary() {
       let count = u32(table.y);
       for (var slot: u32 = 0u; slot < count; slot = slot + 1u) {
         let splatRef = referenceList[offset + slot];
+        orderedRefs = orderedRefs + 1.0;
         if (splatRef.z != 0.0 || splatRef.w != 0.0) {
           traversedList = 1.0;
+        }
+        if (splatRef.z != 0.0) {
+          depthKeyConsumed = 1.0;
+        }
+        if (splatRef.w != 0.0) {
+          sortKeyConsumed = 1.0;
         }
       }
     }
   }
+  orderAwareUsed = select(0.0, 1.0, orderedRefs == totalRefs && totalRefs > 0.0 && sortKeyConsumed == 1.0);
   compositorSummary[0] = vec4f(params.tileCount, nonEmpty, totalRefs, totalRefs);
   compositorSummary[1] = vec4f(readTable, traversedList, select(0.0, 1.0, totalRefs > 0.0), maxRefs);
-  compositorSummary[2] = vec4f(overflow, 85.0, 0.0, 0.0);
+  compositorSummary[2] = vec4f(overflow, 87.0, orderedRefs, totalRefs);
+  compositorSummary[3] = vec4f(
+    depthKeyConsumed,
+    sortKeyConsumed,
+    orderAwareUsed,
+    select(0.0, 1.0, orderedRefs == totalRefs && totalRefs > 0.0)
+  );
 }
 `
   });
@@ -318,6 +359,35 @@ fn finalizeSummary() {
     summary.traversedReferenceList &&
     outputTextureWritten &&
     summary.compositedReferenceCount > 0;
+  const orderedReferenceCountMatchesSource =
+    summary.orderedReferenceCountMatchesSource &&
+    summary.orderedReferenceCount === summary.sourceTotalTileReferenceCount;
+  const depthOrderingReady =
+    ready &&
+    summary.orderAwareCompositorUsed &&
+    summary.depthKeyConsumed &&
+    summary.sortKeyConsumed &&
+    orderedReferenceCountMatchesSource;
+  const tileDepthOrderingContract = buildWebGpuTileDepthOrderingContract({
+    tileDepthOrderingReady: depthOrderingReady,
+    depthOrderPassSubmitted: true,
+    orderAwareCompositorUsed: summary.orderAwareCompositorUsed,
+    depthKeyConsumed: summary.depthKeyConsumed,
+    sortKeyConsumed: summary.sortKeyConsumed,
+    compositorConsumedDepthOrderedReferences: depthOrderingReady,
+    orderedReferenceCount: summary.orderedReferenceCount,
+    sourceReferenceCount: summary.sourceTotalTileReferenceCount,
+    orderedReferenceCountMatchesSource,
+    orderHandling: 'depth-aware-compositor-sort-key-descending',
+    fullParallelPerTileSortInWgsl: false,
+    fullCudaDepthParity: false,
+    finalProductionCompositor: false,
+    step85TileCompositorPathPreserved: ready,
+    step86BoundaryContractPreserved: true,
+    reason: depthOrderingReady
+      ? null
+      : 'webgpu-tile-depth-ordering-did-not-consume-depth-aware-reference-order'
+  });
 
   for (const buffer of [summaryBuffer, paramsBuffer, summaryReadbackBuffer, textureReadbackBuffer]) {
     if (typeof buffer.destroy === 'function') {
@@ -347,15 +417,27 @@ fn finalizeSummary() {
       compositedReferenceCount: summary.compositedReferenceCount,
       sourceTotalTileReferenceCount: summary.sourceTotalTileReferenceCount,
       overflowCount: summary.overflowCount,
-      orderHandling: 'unsorted-fixed-reference-order',
+      orderHandling: 'depth-aware-compositor-sort-key-descending',
+      tileDepthOrderingReady: depthOrderingReady,
+      depthOrderPassSubmitted: true,
+      orderAwareCompositorUsed: summary.orderAwareCompositorUsed,
+      depthKeyConsumed: summary.depthKeyConsumed,
+      sortKeyConsumed: summary.sortKeyConsumed,
+      compositorConsumedDepthOrderedReferences: depthOrderingReady,
+      orderedReferenceCount: summary.orderedReferenceCount,
+      orderedSourceReferenceCount: summary.sourceTotalTileReferenceCount,
+      orderedReferenceCountMatchesSource,
+      tileDepthOrderingContract,
       generatedCompositorFields: [
         'tile-list-offset-count-read',
         'splat-reference-list-traversal',
+        'depth-aware-reference-selection',
+        'sort-key-descending-compositor-order',
         'partial-alpha-accumulation',
         'rgba8unorm-output-texture'
       ],
       deferredCompositorFields: [
-        'full-depth-sort-dispatch',
+        'full-parallel-per-tile-sort-dispatch',
         'cuda-compositor-parity',
         'final-production-tile-compositor'
       ],
