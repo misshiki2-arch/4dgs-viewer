@@ -1368,6 +1368,129 @@ and reference list without introducing a CPU-side sorted list.
   prefix/list ownership, streaming, chunking, LOD, and partial upload remain
   deferred.
 
+## Step88 WebGPU Tile-Compositor Frame Implementation
+
+Step88 introduces `webgpu-tile-compositor-frame-implementation` as the first
+frame implementation boundary where the WebGPU tile compositor owns the primary
+one-frame pass chain. The selected approach is A: add a dedicated frame
+implementation contract instead of stretching the older
+`webgpu-normal-backend-frame-implementation` label over the tile-compositor
+path. This keeps the normal backend available for fallback/regression while
+making successful Step88 runs identify the tile compositor as the presentation
+owner.
+
+- frame implementation ownership: WebGPU owns the state, attribute, footprint,
+  tile input, tile list, depth ordering, tile compositor, and presentation pass
+  chain for the Step88 frame. The viewer shell still owns URL/query, capture,
+  and canvas adapter wiring; Three.js/OrbitControls remain camera/input
+  adapters, not rendering core.
+- presentation boundary: the Step85 compositor output texture is rendered into
+  the guarded viewer-canvas `currentTexture` path. Step88 records
+  `compositorOutputPresentedToCurrentTexture`,
+  `currentTextureConnectionReady`, and
+  `currentTextureReadbackMatchesCompositorOutput` as the frame implementation
+  presentation evidence. Step88 fix1 also records
+  `presentationFrameCount`, `compositorPresentationFrameCount`,
+  `currentTextureUsesWebGpuTileCompositorOutput`, `currentTextureSource`, and
+  `presentationStableUntilCapture` as capture-end evidence. Step88 fix2 adds
+  viewer-loop persistence evidence with
+  `viewerLoopFrameImplementationActive`,
+  `frameImplementationRegisteredWithViewerLoop`,
+  `compositorOutputPresentedByViewerLoop`,
+  `presentationPersistsAfterDelay`,
+  `presentationPersistsAcrossAnimationFrames`, and overwrite guards so a
+  capture-only transient presentation is not mistaken for a maintained viewer
+  presentation path. Step88 fix3 also records
+  `viewerLoopRuntimeFatalErrorDetected` and
+  `viewerLoopRuntimeFatalError`; any RAF/runtime exception in the viewer-loop
+  frame implementation blocks Step88 readiness instead of being hidden behind a
+  later capture-only presentation. Step88 fix4 registers the tile compositor
+  frame implementation as the scheduler's active continuous viewer-loop path
+  while the guarded `webgpu-exclusive` tile-compositor mode is selected, and
+  derives `viewerLoopFrameImplementationActive` from the scheduler RAF
+  invocation plus the compositor currentTexture evidence instead of from the
+  already-final `frameImplementationReady` flag. Step88 fix5 tightens that
+  persistence contract from "presented across a few RAFs" to sampled visual
+  stability. The tile compositor currentTexture presentation records
+  `presentationSampleFrameCount`, `presentationNonBlankFrameCount`,
+  `presentationBlankFrameCount`, `presentationAllSampledFramesNonBlank`,
+  `presentationAlternatingBlankDetected`, `presentationStableVisualOutput`,
+  nonzero pixel ratio bounds, frame hash changes,
+  `compositorOutputPresentedEverySampledFrame`,
+  `canvasClearBetweenCompositorFramesDetected`, and
+  `viewerLoopPresentationCadenceStable`. Step88 success now requires sampled
+  frames to remain nonblank with no alternating blank/clear frame between
+  compositor presentations. Step88 fix6 separates compositor update from
+  presentation heartbeat: dirty state may skip the expensive state/attribute/
+  footprint/tile-list/depth/compositor update, but an active
+  `webgpu-tile-compositor-frame-implementation` must still present the last
+  valid compositor output texture on every viewer RAF. The cached-output
+  heartbeat records `presentationHeartbeatReady`,
+  `presentationHeartbeatRunsEveryViewerRaf`,
+  `presentationDecoupledFromCompositorUpdate`,
+  `lastValidCompositorOutputCached`,
+  `lastValidCompositorOutputPresentedOnCleanFrames`,
+  `dirtySkippedCompositorUpdateButPresentedCachedOutput`,
+  `noBlankFrameBetweenHeartbeatPresentations`,
+  `canvasVisibleOutputStableAcrossRaf`, and `visualFlickerDetected` so a
+  present-only sample taken immediately after compositor update is not confused
+  with stable viewer-loop presentation. Step88 fix7 hardens the WebGPU
+  device/currentTexture lifecycle for that heartbeat: only the compositor output
+  texture is cached, `context.getCurrentTexture()` and its `TextureView` are
+  acquired fresh for each presentation, and the canvas context is refreshed for
+  the compositor device before presentation so another backend path cannot leave
+  the context associated with a stale device. The Summary records
+  `webgpuDeviceConsistencyReady`,
+  `presentationDeviceMatchesCompositorDevice`,
+  `currentTextureViewFreshPerPresentation`,
+  `crossDeviceTextureViewUseDetected`, and WebGPU validation / invalid command
+  buffer / queue submit failure flags; any such failure blocks Step88 rather
+  than being reported as stable presentation. Step88 fix8 adds final present
+  source tracing for every sampled viewer RAF. Stable presentation is no longer
+  inferred from nonblank pixels alone: the Summary records
+  `finalPresentSourceTracingReady`, `finalPresentSourceSequence`,
+  per-source final-present counts, `tileCompositorOwnsFinalPresentation`,
+  `finalPresentSourceStable`, `finalPresentSourceAlternates`, and
+  `summaryCanDetectObservedFlicker`. In tile-compositor mode, a clean frame may
+  skip compositor update, but the final canvas presentation owner must still be
+  the WebGPU tile compositor heartbeat using the last valid compositor output.
+  Step88 fix9 separates startup transient evidence from steady-state evidence:
+  a brief blank/clear/no-op before the first valid compositor output is tracked
+  as `startupTransientObserved`, while readiness depends on
+  `steadyStateSamplingReady`, `steadyStateSampledRafCount`,
+  `steadyStateFinalPresentSourceSequence`,
+  `steadyStateTileCompositorOwnsFinalPresentation`,
+  `steadyStateVisualFlickerDetected`,
+  `presentationPersistsAfterStartup`, and
+  `presentationPersistsAcrossSteadyStateRaf`. A run with only one sampled RAF
+  remains blocked because it cannot prove steady viewer-loop ownership. Step88
+  fix10 moves the final-present tracing source to a viewer-loop RAF ring buffer
+  instead of relying only on capture-command timing. The ring buffer keeps the
+  recent final presentation owner history (`rafTraceRingBufferReady`,
+  `rafTraceRecordedFromViewerLoopStart`, `rafTraceRingBufferFrameCount`) and
+  records whether capture saw pre-command history
+  (`rafTraceCapturedBeforeCommandStart`). Readiness requires
+  `requiredSteadyStateRafCount >= 8`,
+  `steadyStateSampledRafCount >= requiredSteadyStateRafCount`, and zero
+  steady-state blank / clear / no-op / unknown / normal backend / WebGL2
+  fallback final-present frames. Startup transients remain visible through
+  `startupTransientFinalPresentSourceSequence`; they do not mask a later
+  steady-state flicker.
+- normal backend dependency: successful Step88 runs require
+  `normalBackendPresentationUsed=false`,
+  `normalBackendPresentationBypassed=true`, and
+  `normalBackendDependencyReduced=true`. The older normal backend remains a
+  fallback/regression path, but it is not the successful Step88 presentation
+  source.
+- preservation contract: Step88 requires Step85 tile compositor preservation,
+  Step86 dirty/backend boundary preservation, and Step87 depth-ordering
+  preservation before the tile-compositor frame implementation can report ready.
+- classification: Step88 is a tile-compositor-owned WebGPU frame implementation
+  boundary, not full CUDA compositor parity and not a completed production
+  renderer. Full CUDA parity, final production compositor behavior, full
+  parallel sorting, compacted prefix/list ownership, streaming, chunking, LOD,
+  and partial upload remain deferred.
+
 ## Step86 Phase 3 WebGPU Backend Boundary and Dirty Contract Hardening
 
 Step86 freezes the ownership boundaries added during Steps80-85 before the

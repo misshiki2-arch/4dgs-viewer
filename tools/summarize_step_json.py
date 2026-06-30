@@ -103,6 +103,15 @@ def compact_list(value: Any, max_items: int = 8) -> Any:
     return value[:max_items] + [f"...({len(value) - max_items} more)"]
 
 
+def numeric_value(value: Any, default: float = 0) -> float:
+    try:
+        if value is None or isinstance(value, bool):
+            return default
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def classify_camera_aware_input_source_kind(
     source_mode: Any,
     runtime_visible_sample_count: Any,
@@ -3150,6 +3159,1174 @@ def build_step87_tile_depth_ordering_summary(
     }
 
 
+def build_step88_tile_compositor_frame_implementation_summary(
+    summary: Dict[str, Any],
+) -> Dict[str, Any]:
+    frame_contract = get_path(
+        summary,
+        ["webgpuTileCompositorFrameImplementation"],
+        {},
+    )
+    compositor_contract = get_path(
+        summary,
+        ["webgpuTileListCompositorContract"],
+        {},
+    )
+    boundary_contract = get_path(
+        summary,
+        ["webgpuPhase3BackendBoundaryContract"],
+        {},
+    )
+    depth_contract = get_path(
+        compositor_contract,
+        ["tileDepthOrderingContract"],
+        {},
+    )
+    phase_step = get_path(summary, ["phaseStep"])
+    step85_preserved = (
+        get_path(frame_contract, ["step85TileCompositorPathPreserved"]) is True
+        and get_path(compositor_contract, ["tileCompositorReady"]) is True
+        and get_path(compositor_contract, ["compositorReadOffsetCountTable"]) is True
+        and get_path(compositor_contract, ["compositorTraversedReferenceList"]) is True
+        and get_path(compositor_contract, ["outputTextureWritten"]) is True
+    )
+    step86_preserved = (
+        get_path(frame_contract, ["step86BoundaryContractPreserved"]) is True
+        and get_path(boundary_contract, ["dirtyUpdateContractReady"]) is True
+        and get_path(boundary_contract, ["toolsDoNotOwnRuntimeBackend"]) is True
+        and get_path(boundary_contract, ["backendRecordFormatShared"]) is True
+    )
+    step87_preserved = (
+        get_path(frame_contract, ["step87DepthOrderingPreserved"]) is True
+        and get_path(depth_contract, ["tileDepthOrderingReady"]) is True
+        and get_path(depth_contract, ["orderAwareCompositorUsed"]) is True
+        and get_path(
+            depth_contract,
+            ["compositorConsumedDepthOrderedReferences"],
+        )
+        is True
+    )
+    current_texture_connected = (
+        get_path(
+            frame_contract,
+            ["compositorOutputPresentedToCurrentTexture"],
+        )
+        is True
+        and get_path(frame_contract, ["currentTextureConnectionReady"]) is True
+        and get_path(
+            frame_contract,
+            ["currentTextureReadbackMatchesCompositorOutput"],
+        )
+        is True
+    )
+    pass_chain_ready = all(
+        get_path(frame_contract, [field]) is True
+        for field in [
+            "statePassReady",
+            "attributePassReady",
+            "footprintPassReady",
+            "tileInputPassReady",
+            "tileListPassReady",
+            "depthOrderingPassReady",
+            "tileCompositorPassReady",
+            "presentationPassReady",
+        ]
+    )
+    normal_backend_bypassed = (
+        get_path(frame_contract, ["normalBackendFrameImplementationUsed"]) is False
+        and get_path(frame_contract, ["normalBackendPresentationUsed"]) is False
+        and get_path(frame_contract, ["normalBackendPresentationBypassed"]) is True
+        and get_path(frame_contract, ["normalBackendDependencyReduced"]) is True
+    )
+    fallback_mix_prevented = (
+        get_path(frame_contract, ["webgpuWebgl2SameFramePresentationMixed"]) is False
+        and get_path(frame_contract, ["fallbackMixingPrevented"]) is True
+    )
+    device_consistency_ready = (
+        get_path(frame_contract, ["webgpuDeviceConsistencyReady"]) is True
+        and get_path(frame_contract, ["presentationDeviceMatchesCompositorDevice"])
+        is True
+        and get_path(frame_contract, ["currentTextureViewFreshPerPresentation"])
+        is True
+        and get_path(frame_contract, ["currentTextureViewReusedAcrossFrames"])
+        is False
+        and get_path(frame_contract, ["staleTextureViewReuseDetected"]) is False
+        and get_path(frame_contract, ["crossDeviceTextureViewUseDetected"]) is False
+        and get_path(frame_contract, ["webgpuValidationErrorDetected"]) is False
+        and get_path(frame_contract, ["invalidCommandBufferDetected"]) is False
+        and get_path(frame_contract, ["queueSubmitFailureDetected"]) is False
+    )
+    heartbeat_presentation_ready = (
+        get_path(frame_contract, ["presentationHeartbeatReady"]) is True
+        and get_path(
+            frame_contract,
+            ["presentationHeartbeatRunsEveryViewerRaf"],
+        )
+        is True
+        and get_path(
+            frame_contract,
+            ["presentationDecoupledFromCompositorUpdate"],
+        )
+        is True
+        and get_path(frame_contract, ["lastValidCompositorOutputCached"])
+        is True
+        and get_path(
+            frame_contract,
+            ["lastValidCompositorOutputPresentedOnCleanFrames"],
+        )
+        is True
+        and numeric_value(
+            get_path(frame_contract, ["presentationHeartbeatFrameCount"]),
+            0,
+        )
+        >= 1
+        and get_path(
+            frame_contract,
+            ["presentationHeartbeatFrameCountMatchesSampledRaf"],
+        )
+        is True
+        and get_path(
+            frame_contract,
+            ["dirtySkippedCompositorUpdateButPresentedCachedOutput"],
+        )
+        is True
+        and get_path(
+            frame_contract,
+            ["noBlankFrameBetweenHeartbeatPresentations"],
+        )
+        is True
+        and get_path(frame_contract, ["canvasVisibleOutputStableAcrossRaf"])
+        is True
+        and get_path(frame_contract, ["visualFlickerDetected"]) is False
+    )
+    final_present_source_ready = (
+        get_path(frame_contract, ["finalPresentSourceTracingReady"]) is True
+        and numeric_value(get_path(frame_contract, ["sampledRafCount"]), 0) >= 1
+        and get_path(frame_contract, ["rafTraceRingBufferReady"]) is True
+        and get_path(frame_contract, ["rafTraceRecordedFromViewerLoopStart"]) is True
+        and numeric_value(
+            get_path(frame_contract, ["rafTraceRingBufferFrameCount"]),
+            0,
+        )
+        >= numeric_value(get_path(frame_contract, ["sampledRafCount"]), 0)
+        and get_path(frame_contract, ["summaryCanDetectObservedFlicker"]) is True
+    )
+    required_steady_state_raf_count = numeric_value(
+        get_path(frame_contract, ["requiredSteadyStateRafCount"]),
+        0,
+    )
+    steady_state_presentation_ready = (
+        get_path(frame_contract, ["steadyStateSamplingReady"]) is True
+        and required_steady_state_raf_count >= 8
+        and numeric_value(
+            get_path(frame_contract, ["steadyStateSampledRafCount"]),
+            0,
+        )
+        >= required_steady_state_raf_count
+        and get_path(
+            frame_contract,
+            ["steadyStateTileCompositorOwnsFinalPresentation"],
+        )
+        is True
+        and get_path(frame_contract, ["steadyStateFinalPresentSourceStable"])
+        is True
+        and get_path(frame_contract, ["steadyStateFinalPresentSourceAlternates"])
+        is False
+        and numeric_value(
+            get_path(frame_contract, ["steadyStateBlankFrameCount"]),
+            0,
+        )
+        == 0
+        and numeric_value(
+            get_path(frame_contract, ["steadyStateNoOpFrameCount"]),
+            0,
+        )
+        == 0
+        and numeric_value(
+            get_path(frame_contract, ["steadyStateClearFrameCount"]),
+            0,
+        )
+        == 0
+        and numeric_value(
+            get_path(frame_contract, ["steadyStateUnknownFrameCount"]),
+            0,
+        )
+        == 0
+        and numeric_value(
+            get_path(frame_contract, ["steadyStateNormalBackendFrameCount"]),
+            0,
+        )
+        == 0
+        and numeric_value(
+            get_path(frame_contract, ["steadyStateWebgl2FallbackFrameCount"]),
+            0,
+        )
+        == 0
+        and get_path(frame_contract, ["steadyStateVisualFlickerDetected"])
+        is False
+        and get_path(frame_contract, ["summaryCanDetectStartupTransient"])
+        is True
+        and get_path(frame_contract, ["summaryCanDetectSteadyStateFlicker"])
+        is True
+        and get_path(frame_contract, ["presentationPersistsAfterStartup"])
+        is True
+        and get_path(
+            frame_contract,
+            ["presentationPersistsAcrossSteadyStateRaf"],
+        )
+        is True
+        and get_path(frame_contract, ["captureSteadyStateWaitTimedOut"]) is False
+    )
+    sampled_presentation_ready = (
+        numeric_value(
+            get_path(frame_contract, ["presentationSampleFrameCount"]),
+            0,
+        )
+        >= 1
+        and get_path(frame_contract, ["presentationAllSampledFramesNonBlank"])
+        is True
+        and get_path(frame_contract, ["presentationAlternatingBlankDetected"])
+        is False
+        and get_path(frame_contract, ["presentationStableVisualOutput"])
+        is True
+        and get_path(
+            frame_contract,
+            ["compositorOutputPresentedEverySampledFrame"],
+        )
+        is True
+        and get_path(
+            frame_contract,
+            ["canvasClearBetweenCompositorFramesDetected"],
+        )
+        is False
+        and get_path(frame_contract, ["viewerLoopPresentationCadenceStable"])
+        is True
+    )
+    viewer_loop_presentation_persistent = (
+        get_path(frame_contract, ["viewerLoopFrameImplementationActive"]) is True
+        and get_path(frame_contract, ["frameImplementationRegisteredWithViewerLoop"])
+        is True
+        and get_path(frame_contract, ["compositorOutputPresentedByViewerLoop"])
+        is True
+        and get_path(frame_contract, ["presentationPersistsAfterDelay"]) is True
+        and get_path(frame_contract, ["presentationPersistsAcrossAnimationFrames"])
+        is True
+        and numeric_value(
+            get_path(frame_contract, ["animationFramePresentationCount"]),
+            0,
+        )
+        >= 1
+        and sampled_presentation_ready
+        and heartbeat_presentation_ready
+        and final_present_source_ready
+        and steady_state_presentation_ready
+        and get_path(
+            frame_contract,
+            ["canvasOverwriteAfterCompositorPresentationDetected"],
+        )
+        is False
+        and get_path(
+            frame_contract,
+            ["normalBackendOverwriteAfterCompositorPresentationDetected"],
+        )
+        is False
+        and get_path(
+            frame_contract,
+            ["fallbackOverwriteAfterCompositorPresentationDetected"],
+        )
+        is False
+        and get_path(frame_contract, ["viewerLoopRuntimeFatalErrorDetected"])
+        is False
+    )
+    success = (
+        phase_step == "phase3-step88"
+        and get_path(frame_contract, ["frameImplementationReady"]) is True
+        and get_path(frame_contract, ["frameImplementationSelected"]) is True
+        and get_path(frame_contract, ["frameImplementationExecuted"]) is True
+        and get_path(frame_contract, ["webgpuOwnsFramePassChain"]) is True
+        and pass_chain_ready
+        and normal_backend_bypassed
+        and current_texture_connected
+        and get_path(
+            frame_contract,
+            ["currentTextureUsesWebGpuTileCompositorOutput"],
+        )
+        is True
+        and get_path(frame_contract, ["presentationStableUntilCapture"]) is True
+        and viewer_loop_presentation_persistent
+        and step85_preserved
+        and step86_preserved
+        and step87_preserved
+        and fallback_mix_prevented
+        and device_consistency_ready
+        and get_path(frame_contract, ["fullRendererSuccessClaimed"]) is False
+    )
+    blocked_reason = None
+    if not success:
+        if phase_step != "phase3-step88":
+            blocked_reason = "summary-phase-step-is-not-phase3-step88"
+        elif get_path(frame_contract, ["frameImplementationSelected"]) is not True:
+            blocked_reason = "tile-compositor-frame-implementation-not-selected"
+        elif get_path(frame_contract, ["frameImplementationExecuted"]) is not True:
+            blocked_reason = "tile-compositor-frame-implementation-not-executed"
+        elif not pass_chain_ready:
+            blocked_reason = "webgpu-frame-pass-chain-not-ready"
+        elif not normal_backend_bypassed:
+            blocked_reason = "normal-backend-presentation-not-bypassed"
+        elif get_path(frame_contract, ["webgpuValidationErrorDetected"]) is True:
+            blocked_reason = "webgpu-validation-error-detected"
+        elif get_path(frame_contract, ["invalidCommandBufferDetected"]) is True:
+            blocked_reason = "invalid-command-buffer-detected"
+        elif get_path(frame_contract, ["queueSubmitFailureDetected"]) is True:
+            blocked_reason = "queue-submit-failure-detected"
+        elif get_path(frame_contract, ["crossDeviceTextureViewUseDetected"]) is True:
+            blocked_reason = "cross-device-texture-view-use-detected"
+        elif get_path(frame_contract, ["staleTextureViewReuseDetected"]) is True:
+            blocked_reason = "stale-texture-view-reuse-detected"
+        elif not current_texture_connected:
+            blocked_reason = "tile-compositor-output-not-connected-to-currentTexture"
+        elif (
+            get_path(
+                frame_contract,
+                ["currentTextureUsesWebGpuTileCompositorOutput"],
+            )
+            is not True
+        ):
+            blocked_reason = "currentTexture-source-is-not-webgpu-tile-compositor-output"
+        elif get_path(frame_contract, ["presentationStableUntilCapture"]) is not True:
+            blocked_reason = "tile-compositor-presentation-not-stable-until-capture"
+        elif (
+            get_path(frame_contract, ["viewerLoopRuntimeFatalErrorDetected"])
+            is True
+        ):
+            blocked_reason = "viewer-loop-runtime-fatal-error-detected"
+        elif get_path(frame_contract, ["webgpuDeviceConsistencyReady"]) is not True:
+            blocked_reason = "webgpu-device-consistency-not-ready"
+        elif (
+            get_path(
+                frame_contract,
+                ["presentationDeviceMatchesCompositorDevice"],
+            )
+            is not True
+        ):
+            blocked_reason = "presentation-device-does-not-match-compositor-device"
+        elif (
+            get_path(frame_contract, ["currentTextureViewFreshPerPresentation"])
+            is not True
+        ):
+            blocked_reason = "currentTexture-view-not-fresh-per-presentation"
+        elif (
+            get_path(frame_contract, ["currentTextureViewReusedAcrossFrames"])
+            is True
+        ):
+            blocked_reason = "currentTexture-view-reused-across-frames"
+        elif get_path(frame_contract, ["presentationStableVisualOutput"]) is not True:
+            blocked_reason = "viewer-loop-tile-compositor-visual-output-not-stable"
+        elif (
+            get_path(frame_contract, ["presentationAllSampledFramesNonBlank"])
+            is not True
+        ):
+            blocked_reason = "viewer-loop-tile-compositor-blank-frame-detected"
+        elif (
+            get_path(frame_contract, ["presentationAlternatingBlankDetected"])
+            is True
+        ):
+            blocked_reason = "viewer-loop-tile-compositor-alternating-blank-detected"
+        elif (
+            get_path(
+                frame_contract,
+                ["compositorOutputPresentedEverySampledFrame"],
+            )
+            is not True
+        ):
+            blocked_reason = "viewer-loop-tile-compositor-not-presented-every-sampled-frame"
+        elif (
+            get_path(
+                frame_contract,
+                ["canvasClearBetweenCompositorFramesDetected"],
+            )
+            is True
+        ):
+            blocked_reason = "canvas-clear-between-compositor-frames-detected"
+        elif (
+            get_path(frame_contract, ["viewerLoopPresentationCadenceStable"])
+            is not True
+        ):
+            blocked_reason = "viewer-loop-presentation-cadence-not-stable"
+        elif get_path(frame_contract, ["presentationHeartbeatReady"]) is not True:
+            blocked_reason = "presentation-heartbeat-not-ready"
+        elif (
+            get_path(
+                frame_contract,
+                ["presentationHeartbeatRunsEveryViewerRaf"],
+            )
+            is not True
+        ):
+            blocked_reason = "presentation-heartbeat-not-running-every-viewer-raf"
+        elif (
+            get_path(
+                frame_contract,
+                ["presentationDecoupledFromCompositorUpdate"],
+            )
+            is not True
+        ):
+            blocked_reason = "presentation-not-decoupled-from-compositor-update"
+        elif get_path(frame_contract, ["lastValidCompositorOutputCached"]) is not True:
+            blocked_reason = "last-valid-compositor-output-not-cached"
+        elif (
+            get_path(
+                frame_contract,
+                ["lastValidCompositorOutputPresentedOnCleanFrames"],
+            )
+            is not True
+        ):
+            blocked_reason = "cached-compositor-output-not-presented-on-clean-frames"
+        elif (
+            get_path(
+                frame_contract,
+                ["presentationHeartbeatFrameCountMatchesSampledRaf"],
+            )
+            is not True
+        ):
+            blocked_reason = "presentation-heartbeat-frame-count-does-not-match-sampled-raf"
+        elif (
+            get_path(
+                frame_contract,
+                ["dirtySkippedCompositorUpdateButPresentedCachedOutput"],
+            )
+            is not True
+        ):
+            blocked_reason = "clean-frame-did-not-present-cached-compositor-output"
+        elif (
+            get_path(
+                frame_contract,
+                ["noBlankFrameBetweenHeartbeatPresentations"],
+            )
+            is not True
+        ):
+            blocked_reason = "blank-frame-between-heartbeat-presentations"
+        elif get_path(frame_contract, ["canvasVisibleOutputStableAcrossRaf"]) is not True:
+            blocked_reason = "canvas-visible-output-not-stable-across-raf"
+        elif get_path(frame_contract, ["visualFlickerDetected"]) is True:
+            blocked_reason = "visual-flicker-detected"
+        elif (
+            get_path(frame_contract, ["finalPresentSourceTracingReady"])
+            is not True
+        ):
+            blocked_reason = "final-present-source-tracing-not-ready"
+        elif get_path(frame_contract, ["rafTraceRingBufferReady"]) is not True:
+            blocked_reason = "raf-trace-ring-buffer-not-ready"
+        elif (
+            get_path(frame_contract, ["rafTraceRecordedFromViewerLoopStart"])
+            is not True
+        ):
+            blocked_reason = "raf-trace-not-recorded-from-viewer-loop-start"
+        elif required_steady_state_raf_count < 8:
+            blocked_reason = "required-steady-state-raf-count-too-low"
+        elif get_path(frame_contract, ["steadyStateSamplingReady"]) is not True:
+            blocked_reason = "steady-state-sampling-not-ready"
+        elif (
+            numeric_value(
+                get_path(frame_contract, ["steadyStateSampledRafCount"]),
+                0,
+            )
+            < required_steady_state_raf_count
+        ):
+            blocked_reason = "steady-state-sampled-raf-count-too-low"
+        elif (
+            get_path(
+                frame_contract,
+                ["steadyStateTileCompositorOwnsFinalPresentation"],
+            )
+            is not True
+        ):
+            blocked_reason = "steady-state-final-presentation-not-owned-by-tile-compositor"
+        elif (
+            get_path(frame_contract, ["steadyStateFinalPresentSourceStable"])
+            is not True
+        ):
+            blocked_reason = "steady-state-final-present-source-not-stable"
+        elif (
+            get_path(frame_contract, ["steadyStateFinalPresentSourceAlternates"])
+            is True
+        ):
+            blocked_reason = "steady-state-final-present-source-alternates"
+        elif numeric_value(
+            get_path(frame_contract, ["steadyStateBlankFrameCount"]),
+            0,
+        ) > 0:
+            blocked_reason = "steady-state-blank-frame-detected"
+        elif numeric_value(
+            get_path(frame_contract, ["steadyStateNoOpFrameCount"]),
+            0,
+        ) > 0:
+            blocked_reason = "steady-state-no-op-final-present-detected"
+        elif numeric_value(
+            get_path(frame_contract, ["steadyStateClearFrameCount"]),
+            0,
+        ) > 0:
+            blocked_reason = "steady-state-clear-final-present-detected"
+        elif numeric_value(
+            get_path(frame_contract, ["steadyStateUnknownFrameCount"]),
+            0,
+        ) > 0:
+            blocked_reason = "steady-state-unknown-final-present-detected"
+        elif numeric_value(
+            get_path(frame_contract, ["steadyStateNormalBackendFrameCount"]),
+            0,
+        ) > 0:
+            blocked_reason = "steady-state-normal-backend-final-present-detected"
+        elif numeric_value(
+            get_path(frame_contract, ["steadyStateWebgl2FallbackFrameCount"]),
+            0,
+        ) > 0:
+            blocked_reason = "steady-state-webgl2-fallback-final-present-detected"
+        elif (
+            get_path(frame_contract, ["steadyStateVisualFlickerDetected"])
+            is True
+        ):
+            blocked_reason = "steady-state-visual-flicker-detected"
+        elif (
+            get_path(frame_contract, ["summaryCanDetectStartupTransient"])
+            is not True
+        ):
+            blocked_reason = "summary-cannot-detect-startup-transient"
+        elif (
+            get_path(frame_contract, ["summaryCanDetectSteadyStateFlicker"])
+            is not True
+        ):
+            blocked_reason = "summary-cannot-detect-steady-state-flicker"
+        elif (
+            get_path(frame_contract, ["presentationPersistsAfterStartup"])
+            is not True
+        ):
+            blocked_reason = "presentation-does-not-persist-after-startup"
+        elif (
+            get_path(
+                frame_contract,
+                ["presentationPersistsAcrossSteadyStateRaf"],
+            )
+            is not True
+        ):
+            blocked_reason = "presentation-does-not-persist-across-steady-state-raf"
+        elif get_path(frame_contract, ["captureSteadyStateWaitTimedOut"]) is True:
+            blocked_reason = "steady-state-sampling-wait-timed-out"
+        elif (
+            not steady_state_presentation_ready
+            and get_path(frame_contract, ["tileCompositorOwnsFinalPresentation"])
+            is not True
+        ):
+            blocked_reason = "tile-compositor-does-not-own-final-presentation"
+        elif (
+            not steady_state_presentation_ready
+            and get_path(frame_contract, ["finalPresentSourceStable"])
+            is not True
+        ):
+            blocked_reason = "final-present-source-not-stable"
+        elif (
+            not steady_state_presentation_ready
+            and get_path(frame_contract, ["finalPresentSourceAlternates"])
+            is True
+        ):
+            blocked_reason = "final-present-source-alternates"
+        elif (
+            not steady_state_presentation_ready
+            and numeric_value(
+                get_path(frame_contract, ["normalBackendFinalPresentFrameCount"]),
+                0,
+            )
+            > 0
+        ):
+            blocked_reason = "normal-backend-final-present-detected"
+        elif (
+            not steady_state_presentation_ready
+            and numeric_value(
+                get_path(frame_contract, ["webgl2FallbackFinalPresentFrameCount"]),
+                0,
+            )
+            > 0
+        ):
+            blocked_reason = "webgl2-fallback-final-present-detected"
+        elif (
+            not steady_state_presentation_ready
+            and numeric_value(
+                get_path(frame_contract, ["debugClearFinalPresentFrameCount"]),
+                0,
+            )
+            > 0
+        ):
+            blocked_reason = "debug-clear-final-present-detected"
+        elif (
+            not steady_state_presentation_ready
+            and numeric_value(
+                get_path(frame_contract, ["canvasClearFinalPresentFrameCount"]),
+                0,
+            )
+            > 0
+        ):
+            blocked_reason = "canvas-clear-final-present-detected"
+        elif (
+            not steady_state_presentation_ready
+            and numeric_value(
+                get_path(frame_contract, ["noOpFinalPresentFrameCount"]),
+                0,
+            )
+            > 0
+        ):
+            blocked_reason = "no-op-final-present-detected"
+        elif (
+            not steady_state_presentation_ready
+            and numeric_value(
+                get_path(frame_contract, ["unknownFinalPresentFrameCount"]),
+                0,
+            )
+            > 0
+        ):
+            blocked_reason = "unknown-final-present-detected"
+        elif (
+            get_path(frame_contract, ["summaryCanDetectObservedFlicker"])
+            is not True
+        ):
+            blocked_reason = "summary-cannot-detect-observed-flicker"
+        elif (
+            not steady_state_presentation_ready
+            and
+            get_path(frame_contract, ["tileCompositorOwnsFinalPresentation"])
+            is not True
+        ):
+            blocked_reason = "tile-compositor-does-not-own-final-presentation"
+        elif not viewer_loop_presentation_persistent:
+            blocked_reason = "viewer-loop-tile-compositor-presentation-not-persistent"
+        elif not step85_preserved:
+            blocked_reason = "step85-tile-compositor-path-not-preserved"
+        elif not step86_preserved:
+            blocked_reason = "step86-boundary-contract-not-preserved"
+        elif not step87_preserved:
+            blocked_reason = "step87-depth-ordering-not-preserved"
+        elif not fallback_mix_prevented:
+            blocked_reason = "fallback-or-webgl2-hybrid-mixing-not-prevented"
+        elif get_path(frame_contract, ["frameImplementationReady"]) is not True:
+            blocked_reason = "tile-compositor-frame-implementation-not-ready"
+    return {
+        "step88Decision": "success" if success else "blocked",
+        "step88BlockedReason": blocked_reason,
+        "selectedApproach": "A-new-webgpu-tile-compositor-frame-implementation",
+        "phaseStep": phase_step,
+        "step88SummaryApplies": phase_step == "phase3-step88",
+        "frameImplementationKind": get_path(
+            frame_contract,
+            ["frameImplementationKind"],
+        ),
+        "selectedFrameImplementation": get_path(
+            frame_contract,
+            ["selectedFrameImplementation"],
+            get_path(frame_contract, ["frameImplementationKind"]),
+        ),
+        "webgpuTileCompositorFrameImplementationReady": get_path(
+            frame_contract,
+            ["frameImplementationReady"],
+        ),
+        "frameImplementationMode": get_path(
+            frame_contract,
+            ["frameImplementationMode"],
+        ),
+        "frameImplementationReady": get_path(
+            frame_contract,
+            ["frameImplementationReady"],
+        ),
+        "frameImplementationSelected": get_path(
+            frame_contract,
+            ["frameImplementationSelected"],
+        ),
+        "frameImplementationExecuted": get_path(
+            frame_contract,
+            ["frameImplementationExecuted"],
+        ),
+        "webgpuOwnsFramePassChain": get_path(
+            frame_contract,
+            ["webgpuOwnsFramePassChain"],
+        ),
+        "statePassReady": get_path(frame_contract, ["statePassReady"]),
+        "attributePassReady": get_path(frame_contract, ["attributePassReady"]),
+        "footprintPassReady": get_path(frame_contract, ["footprintPassReady"]),
+        "tileInputPassReady": get_path(frame_contract, ["tileInputPassReady"]),
+        "tileListPassReady": get_path(frame_contract, ["tileListPassReady"]),
+        "depthOrderingPassReady": get_path(
+            frame_contract,
+            ["depthOrderingPassReady"],
+        ),
+        "tileCompositorPassReady": get_path(
+            frame_contract,
+            ["tileCompositorPassReady"],
+        ),
+        "presentationPassReady": get_path(
+            frame_contract,
+            ["presentationPassReady"],
+        ),
+        "normalBackendPresentationUsed": get_path(
+            frame_contract,
+            ["normalBackendPresentationUsed"],
+        ),
+        "normalBackendFrameImplementationUsed": get_path(
+            frame_contract,
+            ["normalBackendFrameImplementationUsed"],
+        ),
+        "normalBackendPresentationBypassed": get_path(
+            frame_contract,
+            ["normalBackendPresentationBypassed"],
+        ),
+        "normalBackendDependencyReduced": get_path(
+            frame_contract,
+            ["normalBackendDependencyReduced"],
+        ),
+        "compositorOutputPresentedToCurrentTexture": get_path(
+            frame_contract,
+            ["compositorOutputPresentedToCurrentTexture"],
+        ),
+        "depthAwareCompositorPresented": get_path(
+            frame_contract,
+            ["depthAwareCompositorPresented"],
+        ),
+        "currentTextureConnectionReady": get_path(
+            frame_contract,
+            ["currentTextureConnectionReady"],
+        ),
+        "currentTextureSource": get_path(
+            frame_contract,
+            ["currentTextureSource"],
+        ),
+        "currentTextureUsesWebGpuTileCompositorOutput": get_path(
+            frame_contract,
+            ["currentTextureUsesWebGpuTileCompositorOutput"],
+        ),
+        "currentTextureReadbackMatchesCompositorOutput": get_path(
+            frame_contract,
+            ["currentTextureReadbackMatchesCompositorOutput"],
+        ),
+        "presentationFrameCount": get_path(
+            frame_contract,
+            ["presentationFrameCount"],
+        ),
+        "compositorPresentationFrameCount": get_path(
+            frame_contract,
+            ["compositorPresentationFrameCount"],
+        ),
+        "presentationStableUntilCapture": get_path(
+            frame_contract,
+            ["presentationStableUntilCapture"],
+        ),
+        "viewerLoopFrameImplementationActive": get_path(
+            frame_contract,
+            ["viewerLoopFrameImplementationActive"],
+        ),
+        "frameImplementationRegisteredWithViewerLoop": get_path(
+            frame_contract,
+            ["frameImplementationRegisteredWithViewerLoop"],
+        ),
+        "compositorOutputPresentedByViewerLoop": get_path(
+            frame_contract,
+            ["compositorOutputPresentedByViewerLoop"],
+        ),
+        "presentationPersistsAfterDelay": get_path(
+            frame_contract,
+            ["presentationPersistsAfterDelay"],
+        ),
+        "presentationPersistenceDelayMs": get_path(
+            frame_contract,
+            ["presentationPersistenceDelayMs"],
+        ),
+        "presentationPersistsAcrossAnimationFrames": get_path(
+            frame_contract,
+            ["presentationPersistsAcrossAnimationFrames"],
+        ),
+        "animationFramePresentationCount": get_path(
+            frame_contract,
+            ["animationFramePresentationCount"],
+        ),
+        "presentationSampleFrameCount": get_path(
+            frame_contract,
+            ["presentationSampleFrameCount"],
+        ),
+        "presentationNonBlankFrameCount": get_path(
+            frame_contract,
+            ["presentationNonBlankFrameCount"],
+        ),
+        "presentationBlankFrameCount": get_path(
+            frame_contract,
+            ["presentationBlankFrameCount"],
+        ),
+        "presentationAllSampledFramesNonBlank": get_path(
+            frame_contract,
+            ["presentationAllSampledFramesNonBlank"],
+        ),
+        "presentationAlternatingBlankDetected": get_path(
+            frame_contract,
+            ["presentationAlternatingBlankDetected"],
+        ),
+        "presentationStableVisualOutput": get_path(
+            frame_contract,
+            ["presentationStableVisualOutput"],
+        ),
+        "presentationNonzeroPixelRatioMin": get_path(
+            frame_contract,
+            ["presentationNonzeroPixelRatioMin"],
+        ),
+        "presentationNonzeroPixelRatioMax": get_path(
+            frame_contract,
+            ["presentationNonzeroPixelRatioMax"],
+        ),
+        "presentationFrameHashChanges": get_path(
+            frame_contract,
+            ["presentationFrameHashChanges"],
+        ),
+        "compositorOutputPresentedEverySampledFrame": get_path(
+            frame_contract,
+            ["compositorOutputPresentedEverySampledFrame"],
+        ),
+        "canvasClearBetweenCompositorFramesDetected": get_path(
+            frame_contract,
+            ["canvasClearBetweenCompositorFramesDetected"],
+        ),
+        "viewerLoopPresentationCadenceStable": get_path(
+            frame_contract,
+            ["viewerLoopPresentationCadenceStable"],
+        ),
+        "presentationHeartbeatReady": get_path(
+            frame_contract,
+            ["presentationHeartbeatReady"],
+        ),
+        "presentationHeartbeatRunsEveryViewerRaf": get_path(
+            frame_contract,
+            ["presentationHeartbeatRunsEveryViewerRaf"],
+        ),
+        "presentationDecoupledFromCompositorUpdate": get_path(
+            frame_contract,
+            ["presentationDecoupledFromCompositorUpdate"],
+        ),
+        "lastValidCompositorOutputCached": get_path(
+            frame_contract,
+            ["lastValidCompositorOutputCached"],
+        ),
+        "lastValidCompositorOutputPresentedOnCleanFrames": get_path(
+            frame_contract,
+            ["lastValidCompositorOutputPresentedOnCleanFrames"],
+        ),
+        "compositorUpdateFrameCount": get_path(
+            frame_contract,
+            ["compositorUpdateFrameCount"],
+        ),
+        "presentationHeartbeatFrameCount": get_path(
+            frame_contract,
+            ["presentationHeartbeatFrameCount"],
+        ),
+        "presentationHeartbeatFrameCountMatchesSampledRaf": get_path(
+            frame_contract,
+            ["presentationHeartbeatFrameCountMatchesSampledRaf"],
+        ),
+        "dirtySkippedCompositorUpdateButPresentedCachedOutput": get_path(
+            frame_contract,
+            ["dirtySkippedCompositorUpdateButPresentedCachedOutput"],
+        ),
+        "noBlankFrameBetweenHeartbeatPresentations": get_path(
+            frame_contract,
+            ["noBlankFrameBetweenHeartbeatPresentations"],
+        ),
+        "canvasVisibleOutputStableAcrossRaf": get_path(
+            frame_contract,
+            ["canvasVisibleOutputStableAcrossRaf"],
+        ),
+        "visualFlickerDetected": get_path(
+            frame_contract,
+            ["visualFlickerDetected"],
+        ),
+        "finalPresentSourceTracingReady": get_path(
+            frame_contract,
+            ["finalPresentSourceTracingReady"],
+        ),
+        "sampledRafCount": get_path(frame_contract, ["sampledRafCount"]),
+        "tileCompositorFinalPresentFrameCount": get_path(
+            frame_contract,
+            ["tileCompositorFinalPresentFrameCount"],
+        ),
+        "heartbeatFinalPresentFrameCount": get_path(
+            frame_contract,
+            ["heartbeatFinalPresentFrameCount"],
+        ),
+        "normalBackendFinalPresentFrameCount": get_path(
+            frame_contract,
+            ["normalBackendFinalPresentFrameCount"],
+        ),
+        "webgl2FallbackFinalPresentFrameCount": get_path(
+            frame_contract,
+            ["webgl2FallbackFinalPresentFrameCount"],
+        ),
+        "debugClearFinalPresentFrameCount": get_path(
+            frame_contract,
+            ["debugClearFinalPresentFrameCount"],
+        ),
+        "canvasClearFinalPresentFrameCount": get_path(
+            frame_contract,
+            ["canvasClearFinalPresentFrameCount"],
+        ),
+        "noOpFinalPresentFrameCount": get_path(
+            frame_contract,
+            ["noOpFinalPresentFrameCount"],
+        ),
+        "unknownFinalPresentFrameCount": get_path(
+            frame_contract,
+            ["unknownFinalPresentFrameCount"],
+        ),
+        "finalPresentSourceStable": get_path(
+            frame_contract,
+            ["finalPresentSourceStable"],
+        ),
+        "finalPresentSourceAlternates": get_path(
+            frame_contract,
+            ["finalPresentSourceAlternates"],
+        ),
+        "finalPresentSourceSequence": get_path(
+            frame_contract,
+            ["finalPresentSourceSequence"],
+        ),
+        "tileCompositorOwnsFinalPresentation": get_path(
+            frame_contract,
+            ["tileCompositorOwnsFinalPresentation"],
+        ),
+        "summaryCanDetectObservedFlicker": get_path(
+            frame_contract,
+            ["summaryCanDetectObservedFlicker"],
+        ),
+        "rafTraceRingBufferReady": get_path(
+            frame_contract,
+            ["rafTraceRingBufferReady"],
+        ),
+        "rafTraceRecordedFromViewerLoopStart": get_path(
+            frame_contract,
+            ["rafTraceRecordedFromViewerLoopStart"],
+        ),
+        "rafTraceCapturedBeforeCommandStart": get_path(
+            frame_contract,
+            ["rafTraceCapturedBeforeCommandStart"],
+        ),
+        "rafTraceRingBufferFrameCount": get_path(
+            frame_contract,
+            ["rafTraceRingBufferFrameCount"],
+        ),
+        "requiredSteadyStateRafCount": get_path(
+            frame_contract,
+            ["requiredSteadyStateRafCount"],
+        ),
+        "startupTransientObserved": get_path(
+            frame_contract,
+            ["startupTransientObserved"],
+        ),
+        "startupTransientFrameCount": get_path(
+            frame_contract,
+            ["startupTransientFrameCount"],
+        ),
+        "startupTransientFinalPresentSourceSequence": get_path(
+            frame_contract,
+            ["startupTransientFinalPresentSourceSequence"],
+        ),
+        "firstValidCompositorOutputFrame": get_path(
+            frame_contract,
+            ["firstValidCompositorOutputFrame"],
+        ),
+        "steadyStateSamplingReady": get_path(
+            frame_contract,
+            ["steadyStateSamplingReady"],
+        ),
+        "steadyStateSampledRafCount": get_path(
+            frame_contract,
+            ["steadyStateSampledRafCount"],
+        ),
+        "steadyStateSamplingWindowStartFrame": get_path(
+            frame_contract,
+            ["steadyStateSamplingWindowStartFrame"],
+        ),
+        "steadyStateSamplingWindowEndFrame": get_path(
+            frame_contract,
+            ["steadyStateSamplingWindowEndFrame"],
+        ),
+        "steadyStateFinalPresentSourceSequence": get_path(
+            frame_contract,
+            ["steadyStateFinalPresentSourceSequence"],
+        ),
+        "steadyStateTileCompositorOwnsFinalPresentation": get_path(
+            frame_contract,
+            ["steadyStateTileCompositorOwnsFinalPresentation"],
+        ),
+        "steadyStateFinalPresentSourceStable": get_path(
+            frame_contract,
+            ["steadyStateFinalPresentSourceStable"],
+        ),
+        "steadyStateFinalPresentSourceAlternates": get_path(
+            frame_contract,
+            ["steadyStateFinalPresentSourceAlternates"],
+        ),
+        "steadyStateBlankFrameCount": get_path(
+            frame_contract,
+            ["steadyStateBlankFrameCount"],
+        ),
+        "steadyStateNoOpFrameCount": get_path(
+            frame_contract,
+            ["steadyStateNoOpFrameCount"],
+        ),
+        "steadyStateClearFrameCount": get_path(
+            frame_contract,
+            ["steadyStateClearFrameCount"],
+        ),
+        "steadyStateUnknownFrameCount": get_path(
+            frame_contract,
+            ["steadyStateUnknownFrameCount"],
+        ),
+        "steadyStateNormalBackendFrameCount": get_path(
+            frame_contract,
+            ["steadyStateNormalBackendFrameCount"],
+        ),
+        "steadyStateWebgl2FallbackFrameCount": get_path(
+            frame_contract,
+            ["steadyStateWebgl2FallbackFrameCount"],
+        ),
+        "steadyStateVisualFlickerDetected": get_path(
+            frame_contract,
+            ["steadyStateVisualFlickerDetected"],
+        ),
+        "summaryCanDetectStartupTransient": get_path(
+            frame_contract,
+            ["summaryCanDetectStartupTransient"],
+        ),
+        "summaryCanDetectSteadyStateFlicker": get_path(
+            frame_contract,
+            ["summaryCanDetectSteadyStateFlicker"],
+        ),
+        "presentationPersistsAfterStartup": get_path(
+            frame_contract,
+            ["presentationPersistsAfterStartup"],
+        ),
+        "presentationPersistsAcrossSteadyStateRaf": get_path(
+            frame_contract,
+            ["presentationPersistsAcrossSteadyStateRaf"],
+        ),
+        "captureWaitedForSteadyStateRaf": get_path(
+            frame_contract,
+            ["captureWaitedForSteadyStateRaf"],
+        ),
+        "captureSteadyStateWaitTimedOut": get_path(
+            frame_contract,
+            ["captureSteadyStateWaitTimedOut"],
+        ),
+        "webgpuDeviceConsistencyReady": get_path(
+            frame_contract,
+            ["webgpuDeviceConsistencyReady"],
+        ),
+        "presentationDeviceMatchesCompositorDevice": get_path(
+            frame_contract,
+            ["presentationDeviceMatchesCompositorDevice"],
+        ),
+        "currentTextureViewFreshPerPresentation": get_path(
+            frame_contract,
+            ["currentTextureViewFreshPerPresentation"],
+        ),
+        "currentTextureViewReusedAcrossFrames": get_path(
+            frame_contract,
+            ["currentTextureViewReusedAcrossFrames"],
+        ),
+        "staleTextureViewReuseDetected": get_path(
+            frame_contract,
+            ["staleTextureViewReuseDetected"],
+        ),
+        "crossDeviceTextureViewUseDetected": get_path(
+            frame_contract,
+            ["crossDeviceTextureViewUseDetected"],
+        ),
+        "contextReconfiguredOnDeviceChange": get_path(
+            frame_contract,
+            ["contextReconfiguredOnDeviceChange"],
+        ),
+        "compositorOutputCacheInvalidatedOnDeviceChange": get_path(
+            frame_contract,
+            ["compositorOutputCacheInvalidatedOnDeviceChange"],
+        ),
+        "webgpuValidationErrorDetected": get_path(
+            frame_contract,
+            ["webgpuValidationErrorDetected"],
+        ),
+        "invalidCommandBufferDetected": get_path(
+            frame_contract,
+            ["invalidCommandBufferDetected"],
+        ),
+        "queueSubmitFailureDetected": get_path(
+            frame_contract,
+            ["queueSubmitFailureDetected"],
+        ),
+        "presentationErrorName": get_path(
+            frame_contract,
+            ["presentationErrorName"],
+        ),
+        "presentationErrorMessage": get_path(
+            frame_contract,
+            ["presentationErrorMessage"],
+        ),
+        "canvasOverwriteAfterCompositorPresentationDetected": get_path(
+            frame_contract,
+            ["canvasOverwriteAfterCompositorPresentationDetected"],
+        ),
+        "normalBackendOverwriteAfterCompositorPresentationDetected": get_path(
+            frame_contract,
+            ["normalBackendOverwriteAfterCompositorPresentationDetected"],
+        ),
+        "fallbackOverwriteAfterCompositorPresentationDetected": get_path(
+            frame_contract,
+            ["fallbackOverwriteAfterCompositorPresentationDetected"],
+        ),
+        "viewerLoopRuntimeFatalErrorDetected": get_path(
+            frame_contract,
+            ["viewerLoopRuntimeFatalErrorDetected"],
+        ),
+        "viewerLoopRuntimeFatalError": get_path(
+            frame_contract,
+            ["viewerLoopRuntimeFatalError"],
+        ),
+        "step85TileCompositorPathPreserved": step85_preserved,
+        "step86BoundaryContractPreserved": step86_preserved,
+        "step87DepthOrderingPreserved": step87_preserved,
+        "webgpuWebgl2SameFramePresentationMixed": get_path(
+            frame_contract,
+            ["webgpuWebgl2SameFramePresentationMixed"],
+        ),
+        "fallbackMixingPrevented": get_path(
+            frame_contract,
+            ["fallbackMixingPrevented"],
+        ),
+        "fullCudaParityDeferred": get_path(
+            frame_contract,
+            ["fullCudaParityDeferred"],
+        ),
+        "finalProductionCompositorDeferred": get_path(
+            frame_contract,
+            ["finalProductionCompositorDeferred"],
+        ),
+        "fullRendererSuccessClaimed": get_path(
+            frame_contract,
+            ["fullRendererSuccessClaimed"],
+        ),
+        "sourceTileCompositorContractVersion": get_path(
+            frame_contract,
+            ["sourceTileCompositorContractVersion"],
+        ),
+        "sourceDepthOrderingContractVersion": get_path(
+            frame_contract,
+            ["sourceDepthOrderingContractVersion"],
+        ),
+        "sourceBoundaryContractVersion": get_path(
+            frame_contract,
+            ["sourceBoundaryContractVersion"],
+        ),
+        "reason": get_path(frame_contract, ["reason"]),
+    }
+
+
 def build_step75_camera_aware_visible_summary(
     summary: Dict[str, Any],
     webgpu_camera_aware_visible_output: Dict[str, Any],
@@ -4340,6 +5517,9 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
     step87_tile_depth_ordering_for_compositor = (
         build_step87_tile_depth_ordering_summary(summary)
     )
+    step88_tile_compositor_frame_implementation = (
+        build_step88_tile_compositor_frame_implementation_summary(summary)
+    )
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -4385,6 +5565,8 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             step86_backend_boundary_and_dirty_contract,
         "step87TileDepthOrderingForCompositor":
             step87_tile_depth_ordering_for_compositor,
+        "step88TileCompositorFrameImplementation":
+            step88_tile_compositor_frame_implementation,
         "comparisonContract": get_path(summary, ["comparisonContract"], {}),
         "comparisonTolerance": get_path(summary, ["comparisonTolerance"], {}),
         "radiusContract": get_path(summary, ["radiusContract"], {}),
@@ -9431,6 +10613,12 @@ def print_human_summary(summary: Dict[str, Any]) -> None:
         "Step87 WebGPU tile depth ordering for compositor",
         summary.get("webgpuVisibleRecordDryRun", {}).get(
             "step87TileDepthOrderingForCompositor"
+        ),
+    )
+    print_section(
+        "Step88 WebGPU tile-compositor frame implementation",
+        summary.get("webgpuVisibleRecordDryRun", {}).get(
+            "step88TileCompositorFrameImplementation"
         ),
     )
     print_section("WebGPU visible record dry-run", summary.get("webgpuVisibleRecordDryRun"))

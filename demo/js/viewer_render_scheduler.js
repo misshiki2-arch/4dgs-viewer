@@ -4,10 +4,21 @@ export function createRenderScheduler({
   isPlaying,
   buildFramePresentationBoundary
 }) {
+  function summarizeRenderError(error) {
+    return {
+      name: error?.name ?? 'Error',
+      message: error?.message ?? String(error),
+      stack: error?.stack ?? null,
+      string: String(error)
+    };
+  }
+
   const state = {
     renderPending: false,
     rendering: false,
-    needsRenderAgain: false
+    needsRenderAgain: false,
+    lastRenderError: null,
+    lastRenderFailed: false
   };
 
   async function scheduleRender() {
@@ -36,6 +47,8 @@ export function createRenderScheduler({
         const renderResult = await renderFrame({
           schedulerFrameState
         });
+        state.lastRenderError = null;
+        state.lastRenderFailed = false;
         schedulerFrameState.renderFrameCompleted = true;
         if (
           renderResult &&
@@ -47,6 +60,11 @@ export function createRenderScheduler({
               renderResult
             });
         }
+      } catch (error) {
+        state.lastRenderError = summarizeRenderError(error);
+        state.lastRenderFailed = true;
+        schedulerFrameState.renderFrameError = state.lastRenderError;
+        console.error('Viewer render scheduler frame failed', error);
       } finally {
         state.rendering = false;
 

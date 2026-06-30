@@ -52,7 +52,8 @@ const QUERY_WEBGPU_BACKEND_MODE_VALUES = new Set([
 ]);
 const QUERY_WEBGPU_BACKEND_IMPLEMENTATION_VALUES = new Set([
   'webgpu-visible-record-dry-run-runtime',
-  'webgpu-normal-backend-frame-implementation'
+  'webgpu-normal-backend-frame-implementation',
+  'webgpu-tile-compositor-frame-implementation'
 ]);
 
 function parseNumber(value, fallback = null) {

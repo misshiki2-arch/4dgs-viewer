@@ -226,6 +226,11 @@ def build_raw_visible_record_dryrun_command(args: argparse.Namespace) -> str:
 def build_webgpu_visible_record_dryrun_command(args: argparse.Namespace) -> str:
     if args.source_mode != "screenCoarse":
         return ""
+    backend_implementation_line = (
+        f"\n    webgpuBackendImplementation: {quote(args.webgpu_backend_implementation)},"
+        if args.webgpu_backend_implementation
+        else ""
+    )
 
     return f"""try {{
   var webgpuVisibleRecordDryRunResult =
@@ -233,7 +238,7 @@ def build_webgpu_visible_record_dryrun_command(args: argparse.Namespace) -> str:
     ensureCurrentFrame: false,
     maxRecords: {args.webgpu_visible_record_max_count},
     epsilon: {args.webgpu_visible_record_epsilon},
-    maxMismatches: {args.max_mismatches}
+    maxMismatches: {args.max_mismatches},{backend_implementation_line}
   }});
 
   await window.gpuViewerDebug.downloadJsonDebug(
@@ -679,6 +684,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--raw-visible-record-epsilon", default="1e-3")
     parser.add_argument("--webgpu-visible-record-max-count", type=int, default=65536)
     parser.add_argument("--webgpu-visible-record-epsilon", default="1e-3")
+    parser.add_argument("--webgpu-backend-implementation", default=None)
 
     # visibleSrcIndices.
     parser.add_argument("--subset-count", type=int, default=1024)

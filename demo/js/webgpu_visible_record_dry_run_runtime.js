@@ -88,6 +88,9 @@ import {
 import {
   buildWebGpuTileListCompositor
 } from './webgpu_tile_list_compositor.js';
+import {
+  buildWebGpuTileCompositorFrameImplementation
+} from './webgpu_tile_compositor_frame_implementation.js';
 
 const DEFAULT_MAX_RECORDS = 65536;
 const DEFAULT_EPSILON = DEFAULT_COMPARISON_EPSILON;
@@ -4693,7 +4696,8 @@ export async function runWebGpuVisibleRecordDryRun({
     device,
     gpuOwnedTileListLayout: webgpuGpuOwnedTileListLayout,
     canvasWidth,
-    canvasHeight
+    canvasHeight,
+    viewerCanvasState
   });
   for (const buffer of [
     webgpuGpuOwnedTileListLayout.gpuResources?.inputBuffer,
@@ -5089,6 +5093,31 @@ export async function runWebGpuVisibleRecordDryRun({
       reason:
         'Step86 records Phase 3 backend ownership and dirty update entrypoints before depth sort/final compositor work'
     });
+  const selectedBackendImplementationKind =
+    viewerLifecycleIntegrationRequest.backendImplementationKind ??
+    viewerLifecycleIntegrationRequest.webgpuBackendImplementation ??
+    metadata?.deterministicState?.webgpuBackendImplementation ??
+    metadata?.webgpuBackendImplementation ??
+    'webgpu-visible-record-dry-run-runtime';
+  const webgpuTileCompositorFrameImplementation =
+    buildWebGpuTileCompositorFrameImplementation({
+      backendImplementationKind: selectedBackendImplementationKind,
+      webgpu4DStateSourceContract: webgpu4DStateSource.contract,
+      webgpuGaussianAttributeEvaluationContract:
+        webgpu4DStateSource.gaussianAttributeEvaluationContract,
+      webgpuGaussianFootprintEvaluationContract:
+        webgpu4DStateSource.gaussianFootprintEvaluationContract,
+      webgpuTileAwareRenderInputContract: webgpuTileAwareRenderInput.contract,
+      webgpuGpuOwnedTileListLayoutContract:
+        webgpuGpuOwnedTileListLayout.contract,
+      webgpuTileListCompositorContract: webgpuTileListCompositor.contract,
+      webgpuPhase3BackendBoundaryContract,
+      viewerLoopPersistenceContract:
+        viewerLifecycleIntegrationRequest
+          .lastRenderTileCompositorViewerLoopPersistence ?? null,
+      viewerLoopRuntimeFatalError:
+        viewerLifecycleIntegrationRequest.lastRenderSchedulerFatalError ?? null
+    });
   const compareStartMs = nowMs();
   const comparisonTolerance = createComparisonToleranceMetadata({ epsilon, maxMismatches });
   const recordComparison = compareRecords(cpuReference.records, computeResult.records, cpuReference.count, {
@@ -5104,7 +5133,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step87 adds depth-aware ordering consumption to the partial WebGPU tile-list compositor while preserving the Step85/Step86 backend boundaries.',
+    scaffoldNote: 'Phase 3 Step88 selects a tile-compositor-owned WebGPU frame implementation and presents depth-aware compositor output through the guarded currentTexture path.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,
@@ -5134,6 +5163,7 @@ export async function runWebGpuVisibleRecordDryRun({
     webgpuTileListCompositorSummary: {
       compositorSummary: webgpuTileListCompositor.compositorSummary
     },
+    webgpuTileCompositorFrameImplementation,
     webgpuPhase3BackendBoundaryContract,
     webgpuVisibleRecordGateSummary: {
       ...statePositionAvailabilitySummary,
@@ -5201,6 +5231,36 @@ export async function runWebGpuVisibleRecordDryRun({
         webgpuTileListCompositor.contract?.compositedReferenceCount ?? 0,
       tileCompositorClassification:
         webgpuTileListCompositor.contract?.compositorClassification ?? null,
+      tileCompositorFrameImplementationReady:
+        webgpuTileCompositorFrameImplementation
+          ?.frameImplementationReady === true,
+      tileCompositorFrameImplementationKind:
+        webgpuTileCompositorFrameImplementation
+          ?.frameImplementationKind ?? null,
+      selectedFrameImplementation:
+        webgpuTileCompositorFrameImplementation
+          ?.selectedFrameImplementation ?? null,
+      tileCompositorFrameImplementationSelected:
+        webgpuTileCompositorFrameImplementation
+          ?.frameImplementationSelected === true,
+      tileCompositorFrameImplementationExecuted:
+        webgpuTileCompositorFrameImplementation
+          ?.frameImplementationExecuted === true,
+      tileCompositorOutputPresentedToCurrentTexture:
+        webgpuTileCompositorFrameImplementation
+          ?.compositorOutputPresentedToCurrentTexture === true,
+      currentTextureUsesWebGpuTileCompositorOutput:
+        webgpuTileCompositorFrameImplementation
+          ?.currentTextureUsesWebGpuTileCompositorOutput === true,
+      currentTextureSource:
+        webgpuTileCompositorFrameImplementation
+          ?.currentTextureSource ?? null,
+      presentationStableUntilCapture:
+        webgpuTileCompositorFrameImplementation
+          ?.presentationStableUntilCapture === true,
+      tileCompositorFrameNormalBackendPresentationUsed:
+        webgpuTileCompositorFrameImplementation
+          ?.normalBackendPresentationUsed === true,
       phase3BackendBoundaryReady:
         webgpuPhase3BackendBoundaryContract.phase3BackendBoundaryReady === true,
       dirtyUpdateContractReady:

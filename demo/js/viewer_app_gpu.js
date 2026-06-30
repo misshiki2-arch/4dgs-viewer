@@ -104,8 +104,17 @@ import {
 } from './gpu_candidate_runtime_selector.js';
 import { buildGpuCandidateRuntimeFallbackSummary } from './gpu_candidate_runtime_fallback.js';
 import { buildGpuOwnedCandidateSourceComparison } from './gpu_candidate_source_runtime.js';
+import {
+  presentCachedWebGpuTileCompositorOutputHeartbeat
+} from './webgpu_tile_list_compositor.js';
 
 const canvas = document.getElementById('glCanvas');
+
+const WEBGPU_TILE_COMPOSITOR_FRAME_IMPLEMENTATION =
+  'webgpu-tile-compositor-frame-implementation';
+const WEBGPU_TILE_COMPOSITOR_VIEWER_LOOP_PERSISTENCE_FRAME_COUNT = 8;
+const WEBGPU_TILE_COMPOSITOR_RAF_TRACE_RING_BUFFER_CAPACITY = 240;
+const webgpuTileCompositorFinalPresentTraceRecords = [];
 
 const ui = {
   fileInput: document.getElementById('file'),
@@ -1282,6 +1291,30 @@ function delayMs(ms) {
   return new Promise((resolve) => setTimeout(resolve, Math.max(0, ms | 0)));
 }
 
+function waitForAnimationFrameBoundary() {
+  if (typeof requestAnimationFrame !== 'function') {
+    return delayMs(16);
+  }
+  return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+}
+
+function appendTileCompositorFinalPresentTraceRecord(record) {
+  if (!record?.finalPresentRecord) {
+    return;
+  }
+  webgpuTileCompositorFinalPresentTraceRecords.push(record);
+  while (
+    webgpuTileCompositorFinalPresentTraceRecords.length >
+    WEBGPU_TILE_COMPOSITOR_RAF_TRACE_RING_BUFFER_CAPACITY
+  ) {
+    webgpuTileCompositorFinalPresentTraceRecords.shift();
+  }
+}
+
+function snapshotTileCompositorFinalPresentTraceRecords() {
+  return webgpuTileCompositorFinalPresentTraceRecords.slice();
+}
+
 function buildViewerDebugDataReadinessSummary() {
   const rawCount = Number.isFinite(raw?.count)
     ? Number(raw.count)
@@ -1361,13 +1394,15 @@ async function waitForRenderSchedulerIdle(timeoutMs = 2000) {
   return {
     idle: !scheduler?.state || (!scheduler.state.rendering && !scheduler.state.renderPending),
     waitedMs: performance.now() - start,
-    schedulerState: scheduler?.state
-      ? {
-          rendering: !!scheduler.state.rendering,
-          renderPending: !!scheduler.state.renderPending,
-          needsRenderAgain: !!scheduler.state.needsRenderAgain
-        }
-      : null
+      schedulerState: scheduler?.state
+        ? {
+            rendering: !!scheduler.state.rendering,
+            renderPending: !!scheduler.state.renderPending,
+            needsRenderAgain: !!scheduler.state.needsRenderAgain,
+            lastRenderFailed: scheduler.state.lastRenderFailed === true,
+            lastRenderError: scheduler.state.lastRenderError ?? null
+          }
+        : null
   };
 }
 
@@ -2164,6 +2199,16 @@ async function runWebGpuVisibleRecordDryRunFromViewerState({
         webgpuBackendViewerLoopHook: enableViewerLoopHook,
         requestedBackendMode: requestedWebGpuBackendMode,
         allowViewerCanvasPresentation,
+        backendImplementationKind:
+          metadataOverrides.selectedBackendImplementationKind ??
+          metadataOverrides.webgpuBackendImplementation ??
+          options.webgpuBackendImplementation ??
+          null,
+        webgpuBackendImplementation:
+          metadataOverrides.selectedBackendImplementationKind ??
+          metadataOverrides.webgpuBackendImplementation ??
+          options.webgpuBackendImplementation ??
+          null,
         renderLifecycleStage:
           metadataOverrides.renderLifecycleStage ??
           'captureWebGpuVisibleRecordDryRunDebug',
@@ -2183,7 +2228,18 @@ async function runWebGpuVisibleRecordDryRunFromViewerState({
         lastRenderBackendFrameExecutor:
           debugRender.renderResult?.webgpuBackendViewerFrameExecutor ?? null,
         lastRenderSchedulerFramePresentationBoundary:
-          debugRender.renderResult?.webgpuSchedulerFramePresentationBoundary ?? null
+          debugRender.renderResult?.webgpuSchedulerFramePresentationBoundary ?? null,
+        lastRenderTileCompositorViewerLoopPersistence:
+          debugRender.renderResult?.webgpuTileCompositorViewerLoopPersistence ?? null,
+        lastRenderSchedulerFatalError:
+          scheduler?.state?.lastRenderFailed === true
+            ? scheduler.state.lastRenderError ?? {
+                name: 'Error',
+                message: 'viewer scheduler recorded a render failure',
+                stack: null,
+                string: 'viewer scheduler recorded a render failure'
+              }
+            : null
       }
     }
   });
@@ -2207,6 +2263,10 @@ async function captureWebGpuVisibleRecordDryRunDebug(options = {}) {
   const enableViewerLoopHook =
     options.webgpuBackendViewerLoopHook === true ||
     deterministicQueryState.webgpuBackendViewerLoopHook === true;
+  const captureBackendImplementation =
+    options.webgpuBackendImplementation ??
+    deterministicQueryState.webgpuBackendImplementation ??
+    null;
   const useExclusiveWebGpuFrameLifecycle = shouldUseWebGpuExclusiveFrameLifecycle({
     requestedBackendMode: requestedWebGpuBackendMode,
     allowViewerCanvasPresentation
@@ -2231,7 +2291,10 @@ async function captureWebGpuVisibleRecordDryRunDebug(options = {}) {
           attempts: [{ stage: 'reuse-latest-render-result' }]
         };
   return runWebGpuVisibleRecordDryRunFromViewerState({
-    options,
+    options: {
+      ...options,
+      webgpuBackendImplementation: captureBackendImplementation
+    },
     requestedWebGpuBackendMode,
     allowViewerCanvasPresentation,
     enableViewerLoopHook,
@@ -2241,7 +2304,9 @@ async function captureWebGpuVisibleRecordDryRunDebug(options = {}) {
       viewerDataReadiness,
       captureSource: viewerDataReadiness.ready
         ? 'forced-rebuild-viewer-data-ready'
-        : 'forced-rebuild-viewer-data-unavailable'
+        : 'forced-rebuild-viewer-data-unavailable',
+      selectedBackendImplementationKind: captureBackendImplementation,
+      webgpuBackendImplementation: captureBackendImplementation
     }
   });
 }
@@ -3580,6 +3645,16 @@ function buildSlimDeterministicStateSummary(summary) {
     tileCompositePrimitive: summary?.tileCompositePrimitive ?? 'point',
     inspectSource: summary?.inspectSource ?? 'auto',
     inspectJsonMode: summary?.inspectJsonMode ?? 'slim',
+    webgpuBackendMode: summary?.webgpuBackendMode ?? null,
+    webgpuAllowViewerCanvasPresentation:
+      typeof summary?.webgpuAllowViewerCanvasPresentation === 'boolean'
+        ? summary.webgpuAllowViewerCanvasPresentation
+        : null,
+    webgpuBackendViewerLoopHook:
+      typeof summary?.webgpuBackendViewerLoopHook === 'boolean'
+        ? summary.webgpuBackendViewerLoopHook
+        : null,
+    webgpuBackendImplementation: summary?.webgpuBackendImplementation ?? null,
     gpuFramePolicyOverride: summary?.gpuFramePolicyOverride ?? 'auto',
     gpuCandidateRuntime: summary?.gpuCandidateRuntime ?? 'off',
     gpuCandidateFallback: summary?.gpuCandidateFallback ?? null,
@@ -4539,6 +4614,662 @@ function isWebGpuExclusiveViewerLifecycleRequested(options = {}) {
   });
 }
 
+function shouldKeepWebGpuTileCompositorViewerLoopAlive() {
+  return shouldUseWebGpuExclusiveFrameLifecycle({
+    requestedBackendMode:
+      deterministicQueryState.webgpuBackendMode ?? 'webgl2-fallback',
+    allowViewerCanvasPresentation:
+      deterministicQueryState.webgpuAllowViewerCanvasPresentation === true
+  }) &&
+    deterministicQueryState.webgpuBackendViewerLoopHook === true &&
+    deterministicQueryState.webgpuBackendImplementation ===
+      WEBGPU_TILE_COMPOSITOR_FRAME_IMPLEMENTATION;
+}
+
+function getNowMs() {
+  return typeof performance !== 'undefined' && typeof performance.now === 'function'
+    ? performance.now()
+    : Date.now();
+}
+
+function classifyTileCompositorHeartbeatFinalPresentSource(heartbeat) {
+  if (heartbeat?.presentationHeartbeatReady === true) {
+    return 'tile-compositor-heartbeat-present';
+  }
+  if (heartbeat?.canvasClearBetweenCompositorFramesDetected === true) {
+    return 'canvas-clear';
+  }
+  if (heartbeat?.reason === 'last-valid-compositor-output-unavailable') {
+    return 'no-op';
+  }
+  return 'unknown';
+}
+
+async function runTileCompositorHeartbeatPresentationFrame({
+  viewerCanvasState,
+  animationFrameIndex = 0,
+  waitForRaf = true
+} = {}) {
+  if (waitForRaf) {
+    await waitForAnimationFrameBoundary();
+  }
+  const heartbeat = await presentCachedWebGpuTileCompositorOutputHeartbeat({
+    viewerCanvasState,
+    canvasWidth: canvas.width,
+    canvasHeight: canvas.height,
+    frameCount: 1
+  });
+  const finalPresentSource =
+    classifyTileCompositorHeartbeatFinalPresentSource(heartbeat);
+  const timestamp = getNowMs();
+  return {
+    heartbeat,
+    finalPresentRecord: {
+      rafIndex: animationFrameIndex,
+      timestamp,
+      finalPresentSource,
+      finalPresentSourceDetail:
+        heartbeat?.reason ??
+        heartbeat?.presentationSource ??
+        heartbeat?.currentTextureSource ??
+        null,
+      presentedByTileCompositorUpdate: false,
+      presentedByTileCompositorHeartbeat:
+        finalPresentSource === 'tile-compositor-heartbeat-present',
+      presentedByNormalBackend: false,
+      presentedByWebgl2Fallback: false,
+      presentedByDebugClear: false,
+      presentedByCanvasClear: finalPresentSource === 'canvas-clear',
+      presentedByNoOp: finalPresentSource === 'no-op',
+      presentedByUnknown: finalPresentSource === 'unknown',
+      currentTextureSource: heartbeat?.currentTextureSource ?? null,
+      nonzeroPixelRatio: heartbeat?.presentationNonzeroPixelRatioMin ?? 0,
+      frameHash:
+        Array.isArray(heartbeat?.presentationFrameSamples) &&
+        heartbeat.presentationFrameSamples.length > 0
+          ? heartbeat.presentationFrameSamples[0]?.frameHash ?? null
+          : null,
+      deviceConsistent: heartbeat?.webgpuDeviceConsistencyReady === true,
+      contextConfiguredThisFrame:
+        heartbeat?.currentTextureContextReconfigured === true,
+      presentationSubmitted:
+        heartbeat?.compositorCurrentTextureRenderPassSubmitted === true,
+      queueSubmitFailureDetected:
+        heartbeat?.queueSubmitFailureDetected === true
+    }
+  };
+}
+
+function buildTileCompositorUpdatePresentTraceRecord({
+  frameImplementationContract,
+  frameIndex = 0
+} = {}) {
+  const usesCompositorOutput =
+    frameImplementationContract?.currentTextureUsesWebGpuTileCompositorOutput === true;
+  const readbackMatches =
+    frameImplementationContract?.currentTextureReadbackMatchesCompositorOutput === true;
+  const finalPresentSource = usesCompositorOutput
+    ? 'tile-compositor-update-present'
+    : 'unknown';
+  return {
+    heartbeat: {
+      presentationHeartbeatReady: usesCompositorOutput,
+      currentTextureUsesWebGpuTileCompositorOutput: usesCompositorOutput,
+      compositorCurrentTextureReadbackNonZero: readbackMatches,
+      presentationSampleFrameCount: usesCompositorOutput ? 1 : 0,
+      presentationNonBlankFrameCount: usesCompositorOutput && readbackMatches ? 1 : 0,
+      presentationBlankFrameCount: usesCompositorOutput && readbackMatches ? 0 : 1,
+      presentationAllSampledFramesNonBlank: usesCompositorOutput && readbackMatches,
+      compositorOutputPresentedEverySampledFrame: usesCompositorOutput,
+      presentationHeartbeatFrameCount: usesCompositorOutput ? 1 : 0,
+      lastValidCompositorOutputCached: usesCompositorOutput,
+      lastValidCompositorOutputPresentedOnCleanFrames: usesCompositorOutput,
+      dirtySkippedCompositorUpdateButPresentedCachedOutput: false,
+      webgpuDeviceConsistencyReady:
+        frameImplementationContract?.webgpuDeviceConsistencyReady === true,
+      presentationDeviceMatchesCompositorDevice:
+        frameImplementationContract?.presentationDeviceMatchesCompositorDevice === true,
+      currentTextureViewFreshPerPresentation:
+        frameImplementationContract?.currentTextureViewFreshPerPresentation === true,
+      currentTextureViewReusedAcrossFrames:
+        frameImplementationContract?.currentTextureViewReusedAcrossFrames === true,
+      staleTextureViewReuseDetected:
+        frameImplementationContract?.staleTextureViewReuseDetected === true,
+      crossDeviceTextureViewUseDetected:
+        frameImplementationContract?.crossDeviceTextureViewUseDetected === true,
+      contextReconfiguredOnDeviceChange:
+        frameImplementationContract?.contextReconfiguredOnDeviceChange === true,
+      compositorOutputCacheInvalidatedOnDeviceChange:
+        frameImplementationContract?.compositorOutputCacheInvalidatedOnDeviceChange === true,
+      webgpuValidationErrorDetected:
+        frameImplementationContract?.webgpuValidationErrorDetected === true,
+      invalidCommandBufferDetected:
+        frameImplementationContract?.invalidCommandBufferDetected === true,
+      queueSubmitFailureDetected:
+        frameImplementationContract?.queueSubmitFailureDetected === true,
+      currentTextureSource: frameImplementationContract?.currentTextureSource ?? null,
+      presentationFrameSamples: []
+    },
+    finalPresentRecord: {
+      rafIndex: frameIndex,
+      timestamp: getNowMs(),
+      finalPresentSource,
+      finalPresentSourceDetail:
+        frameImplementationContract?.reason ??
+        frameImplementationContract?.currentTextureSource ??
+        null,
+      presentedByTileCompositorUpdate: usesCompositorOutput,
+      presentedByTileCompositorHeartbeat: false,
+      presentedByNormalBackend: false,
+      presentedByWebgl2Fallback: false,
+      presentedByDebugClear: false,
+      presentedByCanvasClear: false,
+      presentedByNoOp: false,
+      presentedByUnknown: !usesCompositorOutput,
+      currentTextureSource: frameImplementationContract?.currentTextureSource ?? null,
+      nonzeroPixelRatio:
+        frameImplementationContract?.presentationNonzeroPixelRatioMin ?? 0,
+      frameHash: null,
+      deviceConsistent:
+        frameImplementationContract?.webgpuDeviceConsistencyReady === true,
+      contextConfiguredThisFrame:
+        frameImplementationContract?.contextReconfiguredOnDeviceChange === true,
+      presentationSubmitted: usesCompositorOutput,
+      queueSubmitFailureDetected:
+        frameImplementationContract?.queueSubmitFailureDetected === true
+    }
+  };
+}
+
+function buildTileCompositorViewerLoopPersistenceContract({
+  viewerLoopPersistenceRecords,
+  viewerLoopPersistenceDelayMs,
+  viewerLoopFrameImplementationActive,
+  frameImplementationRegisteredWithViewerLoop,
+  expectedSampledRafCount = WEBGPU_TILE_COMPOSITOR_VIEWER_LOOP_PERSISTENCE_FRAME_COUNT,
+  requiredSteadyStateRafCount = WEBGPU_TILE_COMPOSITOR_VIEWER_LOOP_PERSISTENCE_FRAME_COUNT,
+  rafTraceCapturedBeforeCommandStart = false,
+  captureWaitedForSteadyStateRaf = false,
+  captureSteadyStateWaitTimedOut = false,
+  source
+}) {
+  const records = Array.isArray(viewerLoopPersistenceRecords)
+    ? viewerLoopPersistenceRecords
+    : [];
+  const heartbeatResults = records.map((record) => record?.heartbeat ?? {});
+  const finalPresentRecords = records.map((record) => record?.finalPresentRecord ?? {});
+  const finalPresentSourceSequence = finalPresentRecords.map(
+    (record) => record.finalPresentSource ?? 'unknown'
+  );
+  const countBySource = (sourceName) =>
+    finalPresentSourceSequence.filter((sourceValue) => sourceValue === sourceName)
+      .length;
+  const isTileCompositorPresentSource = (sourceValue) =>
+    sourceValue === 'tile-compositor-update-present' ||
+    sourceValue === 'tile-compositor-heartbeat-present';
+  const sampledRafCount = finalPresentRecords.length;
+  const tileCompositorFinalPresentFrameCount =
+    countBySource('tile-compositor-update-present') +
+    countBySource('tile-compositor-heartbeat-present');
+  const heartbeatFinalPresentFrameCount =
+    countBySource('tile-compositor-heartbeat-present');
+  const normalBackendFinalPresentFrameCount =
+    countBySource('normal-backend-present');
+  const webgl2FallbackFinalPresentFrameCount =
+    countBySource('webgl2-fallback-present');
+  const debugClearFinalPresentFrameCount = countBySource('debug-clear');
+  const canvasClearFinalPresentFrameCount = countBySource('canvas-clear');
+  const noOpFinalPresentFrameCount = countBySource('no-op');
+  const unknownFinalPresentFrameCount = countBySource('unknown');
+  const finalPresentSourceTracingReady = sampledRafCount > 0;
+  const finalPresentSourceStable =
+    finalPresentSourceTracingReady &&
+    finalPresentSourceSequence.every(
+      (sourceValue) => sourceValue === finalPresentSourceSequence[0]
+    );
+  const finalPresentSourceAlternates = finalPresentSourceSequence.some(
+    (sourceValue, index, sequence) =>
+      index > 0 && sourceValue !== sequence[index - 1]
+  );
+  const tileCompositorOwnsFinalPresentation =
+    sampledRafCount > 0 &&
+    tileCompositorFinalPresentFrameCount === sampledRafCount &&
+    normalBackendFinalPresentFrameCount === 0 &&
+    webgl2FallbackFinalPresentFrameCount === 0 &&
+    debugClearFinalPresentFrameCount === 0 &&
+    canvasClearFinalPresentFrameCount === 0 &&
+    noOpFinalPresentFrameCount === 0 &&
+    unknownFinalPresentFrameCount === 0;
+  const firstValidCompositorOutputRecordIndex = finalPresentRecords.findIndex(
+    (record) =>
+      isTileCompositorPresentSource(record?.finalPresentSource) &&
+      record?.currentTextureSource ===
+        'cached-webgpu-tile-compositor-output-texture'
+  );
+  const firstValidCompositorOutputFrame =
+    firstValidCompositorOutputRecordIndex >= 0
+      ? Number(
+          finalPresentRecords[firstValidCompositorOutputRecordIndex]?.rafIndex ??
+            firstValidCompositorOutputRecordIndex
+        )
+      : -1;
+  const startupTransientRecords =
+    firstValidCompositorOutputRecordIndex > 0
+      ? finalPresentRecords.slice(0, firstValidCompositorOutputRecordIndex)
+      : [];
+  const startupTransientFrameCount = startupTransientRecords.length;
+  const startupTransientFinalPresentSourceSequence =
+    startupTransientRecords.map((record) => record.finalPresentSource ?? 'unknown');
+  const startupTransientObserved = startupTransientRecords.some(
+    (record) =>
+      !isTileCompositorPresentSource(record?.finalPresentSource) ||
+      record?.presentedByCanvasClear === true ||
+      record?.presentedByNoOp === true ||
+      record?.presentedByUnknown === true
+  );
+  const steadyStateRecords =
+    firstValidCompositorOutputRecordIndex >= 0
+      ? records.slice(firstValidCompositorOutputRecordIndex)
+      : [];
+  const steadyStateFinalPresentRecords = steadyStateRecords.map(
+    (record) => record?.finalPresentRecord ?? {}
+  );
+  const steadyStateHeartbeatResults = steadyStateRecords.map(
+    (record) => record?.heartbeat ?? {}
+  );
+  const steadyStateFinalPresentSourceSequence =
+    steadyStateFinalPresentRecords.map(
+      (record) => record.finalPresentSource ?? 'unknown'
+    );
+  const steadyStateSampledRafCount =
+    steadyStateFinalPresentSourceSequence.length;
+  const steadyCountBySource = (sourceName) =>
+    steadyStateFinalPresentSourceSequence.filter(
+      (sourceValue) => sourceValue === sourceName
+    ).length;
+  const steadyStateTileCompositorFinalPresentFrameCount =
+    steadyStateFinalPresentSourceSequence.filter(isTileCompositorPresentSource)
+      .length;
+  const steadyStateHeartbeatFinalPresentFrameCount =
+    steadyCountBySource('tile-compositor-heartbeat-present');
+  const steadyStateNormalBackendFinalPresentFrameCount =
+    steadyCountBySource('normal-backend-present');
+  const steadyStateWebgl2FallbackFinalPresentFrameCount =
+    steadyCountBySource('webgl2-fallback-present');
+  const steadyStateDebugClearFinalPresentFrameCount =
+    steadyCountBySource('debug-clear');
+  const steadyStateCanvasClearFinalPresentFrameCount =
+    steadyCountBySource('canvas-clear');
+  const steadyStateNoOpFrameCount = steadyCountBySource('no-op');
+  const steadyStateUnknownFrameCount = steadyCountBySource('unknown');
+  const steadyStateClearFrameCount =
+    steadyStateDebugClearFinalPresentFrameCount +
+    steadyStateCanvasClearFinalPresentFrameCount;
+  const steadyStateTileCompositorOwnsFinalPresentation =
+    steadyStateSampledRafCount >= requiredSteadyStateRafCount &&
+    steadyStateTileCompositorFinalPresentFrameCount ===
+      steadyStateSampledRafCount &&
+    steadyStateNormalBackendFinalPresentFrameCount === 0 &&
+    steadyStateWebgl2FallbackFinalPresentFrameCount === 0 &&
+    steadyStateClearFrameCount === 0 &&
+    steadyStateNoOpFrameCount === 0 &&
+    steadyStateUnknownFrameCount === 0;
+  const steadyStateFinalPresentSourceStable =
+    steadyStateSampledRafCount > 0 &&
+    steadyStateFinalPresentSourceSequence.every(
+      (sourceValue) => isTileCompositorPresentSource(sourceValue)
+    );
+  const steadyStateFinalPresentSourceAlternates =
+    steadyStateFinalPresentSourceSequence.some(
+      (sourceValue) => !isTileCompositorPresentSource(sourceValue)
+    );
+  const presentationSampleFrameCount = heartbeatResults.reduce(
+    (count, heartbeat) =>
+      count + Math.max(0, Number(heartbeat?.presentationSampleFrameCount ?? 0)),
+    0
+  );
+  const presentationNonBlankFrameCount = heartbeatResults.reduce(
+    (count, heartbeat) =>
+      count + Math.max(0, Number(heartbeat?.presentationNonBlankFrameCount ?? 0)),
+    0
+  );
+  const presentationBlankFrameCount = heartbeatResults.reduce(
+    (count, heartbeat) =>
+      count + Math.max(0, Number(heartbeat?.presentationBlankFrameCount ?? 0)),
+    0
+  );
+  const presentationNonzeroPixelRatios = heartbeatResults.flatMap((heartbeat) =>
+    Array.isArray(heartbeat?.presentationFrameSamples)
+      ? heartbeat.presentationFrameSamples.map((sample) =>
+          Number(sample?.nonzeroPixelRatio ?? 0)
+        )
+      : []
+  );
+  const presentationFrameBlankStates = heartbeatResults.flatMap((heartbeat) =>
+    Array.isArray(heartbeat?.presentationFrameSamples)
+      ? heartbeat.presentationFrameSamples.map(
+          (sample) => Number(sample?.nonzeroPixelCount ?? 0) <= 0
+        )
+      : []
+  );
+  const presentationFrameHashes = heartbeatResults.flatMap((heartbeat) =>
+    Array.isArray(heartbeat?.presentationFrameSamples)
+      ? heartbeat.presentationFrameSamples.map((sample) => sample?.frameHash ?? null)
+      : []
+  ).filter(Boolean);
+  const steadyStatePresentationFrameSamples = steadyStateHeartbeatResults.flatMap(
+    (heartbeat) =>
+      Array.isArray(heartbeat?.presentationFrameSamples)
+        ? heartbeat.presentationFrameSamples
+        : []
+  );
+  const steadyStateBlankFrameCount =
+    steadyStatePresentationFrameSamples.filter(
+      (sample) => Number(sample?.nonzeroPixelCount ?? 0) <= 0
+    ).length;
+  const steadyStatePresentationSampleFrameCount =
+    steadyStatePresentationFrameSamples.length;
+  const steadyStatePresentationNonBlankFrameCount =
+    steadyStatePresentationSampleFrameCount - steadyStateBlankFrameCount;
+  const presentationAllSampledFramesNonBlank =
+    steadyStatePresentationSampleFrameCount >= requiredSteadyStateRafCount &&
+    steadyStateBlankFrameCount === 0 &&
+    steadyStatePresentationNonBlankFrameCount ===
+      steadyStatePresentationSampleFrameCount;
+  const presentationAlternatingBlankDetected = presentationFrameBlankStates.some(
+    (isBlank, index, states) => index > 0 && isBlank !== states[index - 1]
+  );
+  const presentationNonzeroPixelRatioMin =
+    presentationNonzeroPixelRatios.length > 0
+      ? Math.min(...presentationNonzeroPixelRatios)
+      : 0;
+  const presentationNonzeroPixelRatioMax =
+    presentationNonzeroPixelRatios.length > 0
+      ? Math.max(...presentationNonzeroPixelRatios)
+      : 0;
+  const presentationFrameHashChanges = presentationFrameHashes.reduce(
+    (count, hash, index, hashes) =>
+      index > 0 && hash !== hashes[index - 1] ? count + 1 : count,
+    0
+  );
+  const animationFramePresentationCount = heartbeatResults.filter(
+    (heartbeat) =>
+      heartbeat?.currentTextureUsesWebGpuTileCompositorOutput === true &&
+      heartbeat?.compositorCurrentTextureReadbackNonZero === true
+  ).length;
+  const steadyStateAnimationFramePresentationCount =
+    steadyStateHeartbeatResults.filter(
+      (heartbeat) =>
+        heartbeat?.currentTextureUsesWebGpuTileCompositorOutput === true &&
+        heartbeat?.compositorCurrentTextureReadbackNonZero === true
+    ).length;
+  const compositorOutputPresentedEverySampledFrame =
+    steadyStateSampledRafCount >= requiredSteadyStateRafCount &&
+    steadyStateHeartbeatResults.every(
+      (heartbeat) =>
+        heartbeat?.currentTextureUsesWebGpuTileCompositorOutput === true &&
+        heartbeat?.presentationAllSampledFramesNonBlank === true &&
+        heartbeat?.compositorOutputPresentedEverySampledFrame === true
+    );
+  const canvasClearBetweenCompositorFramesDetected =
+    canvasClearFinalPresentFrameCount > 0 ||
+    presentationBlankFrameCount > 0 ||
+    heartbeatResults.some(
+      (heartbeat) => heartbeat?.canvasClearBetweenCompositorFramesDetected === true
+    );
+  const presentationHeartbeatFrameCount = heartbeatResults.reduce(
+    (count, heartbeat) =>
+      count + Math.max(0, Number(heartbeat?.presentationHeartbeatFrameCount ?? 0)),
+    0
+  );
+  const steadyStatePresentationHeartbeatFrameCount =
+    steadyStateHeartbeatResults.reduce(
+      (count, heartbeat) =>
+        count + Math.max(0, Number(heartbeat?.presentationHeartbeatFrameCount ?? 0)),
+      0
+    );
+  const viewerLoopPresentationCadenceStable =
+    steadyStateSampledRafCount >= requiredSteadyStateRafCount &&
+    steadyStateAnimationFramePresentationCount === steadyStateSampledRafCount &&
+    compositorOutputPresentedEverySampledFrame &&
+    !presentationAlternatingBlankDetected &&
+    steadyStateClearFrameCount === 0 &&
+    steadyStateTileCompositorOwnsFinalPresentation &&
+    steadyStateFinalPresentSourceStable;
+  const presentationStableVisualOutput =
+    viewerLoopPresentationCadenceStable &&
+    presentationAllSampledFramesNonBlank &&
+    !finalPresentSourceAlternates;
+  const presentationHeartbeatReady =
+    steadyStateHeartbeatResults.length > 0 &&
+    steadyStateHeartbeatResults.every(
+      (heartbeat) => heartbeat?.presentationHeartbeatReady === true
+    );
+  const deviceConsistencyReady =
+    steadyStateHeartbeatResults.length > 0 &&
+    steadyStateHeartbeatResults.every(
+      (heartbeat) => heartbeat?.webgpuDeviceConsistencyReady === true
+    );
+  const visualFlickerDetected =
+    finalPresentSourceAlternates ||
+    !tileCompositorOwnsFinalPresentation ||
+    presentationAlternatingBlankDetected ||
+    canvasClearBetweenCompositorFramesDetected ||
+    presentationBlankFrameCount > 0;
+  const steadyStateSamplingReady =
+    steadyStateSampledRafCount >= requiredSteadyStateRafCount;
+  const steadyStateVisualFlickerDetected =
+    !steadyStateTileCompositorOwnsFinalPresentation ||
+    steadyStateFinalPresentSourceAlternates ||
+    steadyStateBlankFrameCount > 0 ||
+    steadyStateNoOpFrameCount > 0 ||
+    steadyStateClearFrameCount > 0 ||
+    steadyStateUnknownFrameCount > 0 ||
+    steadyStateNormalBackendFinalPresentFrameCount > 0 ||
+    steadyStateWebgl2FallbackFinalPresentFrameCount > 0;
+  const presentationPersistsAfterStartup =
+    firstValidCompositorOutputFrame >= 0 &&
+    steadyStateSamplingReady &&
+    steadyStateTileCompositorOwnsFinalPresentation &&
+    steadyStateVisualFlickerDetected === false;
+  const presentationPersistsAcrossSteadyStateRaf =
+    presentationPersistsAfterStartup &&
+    steadyStateSampledRafCount >= 2 &&
+    steadyStateFinalPresentSourceStable &&
+    steadyStateFinalPresentSourceAlternates === false;
+  return {
+    contractVersion:
+      'phase3-step88-fix10-raf-trace-ring-buffer-steady-state-v1',
+    rafTraceRingBufferReady: true,
+    rafTraceRecordedFromViewerLoopStart: true,
+    rafTraceCapturedBeforeCommandStart,
+    rafTraceRingBufferFrameCount: sampledRafCount,
+    requiredSteadyStateRafCount,
+    viewerLoopFrameImplementationActive,
+    frameImplementationRegisteredWithViewerLoop,
+    compositorOutputPresentedByViewerLoop: tileCompositorOwnsFinalPresentation,
+    presentationPersistsAfterDelay:
+      presentationStableVisualOutput && viewerLoopPersistenceDelayMs >= 16,
+    presentationPersistenceDelayMs: viewerLoopPersistenceDelayMs,
+    presentationPersistsAcrossAnimationFrames:
+      presentationStableVisualOutput &&
+      steadyStateAnimationFramePresentationCount >= 2,
+    animationFramePresentationCount: steadyStateAnimationFramePresentationCount,
+    presentationSampleFrameCount: steadyStatePresentationSampleFrameCount,
+    presentationNonBlankFrameCount: steadyStatePresentationNonBlankFrameCount,
+    presentationBlankFrameCount: steadyStateBlankFrameCount,
+    presentationAllSampledFramesNonBlank,
+    presentationAlternatingBlankDetected,
+    presentationStableVisualOutput,
+    presentationNonzeroPixelRatioMin,
+    presentationNonzeroPixelRatioMax,
+    presentationFrameHashChanges,
+    compositorOutputPresentedEverySampledFrame,
+    canvasClearBetweenCompositorFramesDetected,
+    viewerLoopPresentationCadenceStable,
+    attemptedAnimationFrameCount: sampledRafCount,
+    finalPresentSourceTracingReady,
+    sampledRafCount,
+    tileCompositorFinalPresentFrameCount,
+    heartbeatFinalPresentFrameCount,
+    normalBackendFinalPresentFrameCount,
+    webgl2FallbackFinalPresentFrameCount,
+    debugClearFinalPresentFrameCount,
+    canvasClearFinalPresentFrameCount,
+    noOpFinalPresentFrameCount,
+    unknownFinalPresentFrameCount,
+    finalPresentSourceStable,
+    finalPresentSourceAlternates,
+    finalPresentSourceSequence,
+    finalPresentSourceFrames: finalPresentRecords,
+    tileCompositorOwnsFinalPresentation,
+    summaryCanDetectObservedFlicker: finalPresentSourceTracingReady,
+    startupTransientObserved,
+    startupTransientFrameCount,
+    startupTransientFinalPresentSourceSequence,
+    firstValidCompositorOutputFrame,
+    steadyStateSamplingReady,
+    steadyStateSampledRafCount,
+    steadyStateSamplingWindowStartFrame:
+      steadyStateFinalPresentRecords.length > 0
+        ? Number(steadyStateFinalPresentRecords[0]?.rafIndex ?? 0)
+        : -1,
+    steadyStateSamplingWindowEndFrame:
+      steadyStateFinalPresentRecords.length > 0
+        ? Number(
+            steadyStateFinalPresentRecords[
+              steadyStateFinalPresentRecords.length - 1
+            ]?.rafIndex ?? 0
+          )
+        : -1,
+    steadyStateFinalPresentSourceSequence,
+    steadyStateTileCompositorOwnsFinalPresentation,
+    steadyStateFinalPresentSourceStable,
+    steadyStateFinalPresentSourceAlternates,
+    steadyStateBlankFrameCount,
+    steadyStateNoOpFrameCount,
+    steadyStateClearFrameCount,
+    steadyStateUnknownFrameCount,
+    steadyStateNormalBackendFrameCount:
+      steadyStateNormalBackendFinalPresentFrameCount,
+    steadyStateWebgl2FallbackFrameCount:
+      steadyStateWebgl2FallbackFinalPresentFrameCount,
+    steadyStateVisualFlickerDetected,
+    summaryCanDetectStartupTransient: firstValidCompositorOutputFrame >= 0,
+    summaryCanDetectSteadyStateFlicker: steadyStateSamplingReady,
+    presentationPersistsAfterStartup,
+    presentationPersistsAcrossSteadyStateRaf,
+    captureWaitedForSteadyStateRaf,
+    captureSteadyStateWaitTimedOut,
+    presentationHeartbeatReady,
+    presentationHeartbeatRunsEveryViewerRaf:
+      presentationHeartbeatReady &&
+      steadyStateSampledRafCount >= requiredSteadyStateRafCount,
+    presentationDecoupledFromCompositorUpdate:
+      presentationHeartbeatReady &&
+      steadyStateSampledRafCount >= requiredSteadyStateRafCount,
+    lastValidCompositorOutputCached:
+      steadyStateHeartbeatResults.length > 0 &&
+      steadyStateHeartbeatResults.every(
+        (heartbeat) => heartbeat?.lastValidCompositorOutputCached === true
+      ),
+    lastValidCompositorOutputPresentedOnCleanFrames:
+      steadyStateHeartbeatResults.length > 0 &&
+      steadyStateHeartbeatResults.every(
+        (heartbeat) =>
+          heartbeat?.lastValidCompositorOutputPresentedOnCleanFrames === true
+      ),
+    compositorUpdateFrameCount: 1,
+    presentationHeartbeatFrameCount: steadyStatePresentationHeartbeatFrameCount,
+    presentationHeartbeatFrameCountMatchesSampledRaf:
+      steadyStatePresentationHeartbeatFrameCount === steadyStateSampledRafCount,
+    dirtySkippedCompositorUpdateButPresentedCachedOutput:
+      steadyStateHeartbeatResults.length > 0 &&
+      steadyStateHeartbeatResults.every(
+        (heartbeat) =>
+          heartbeat?.dirtySkippedCompositorUpdateButPresentedCachedOutput === true
+      ),
+    noBlankFrameBetweenHeartbeatPresentations:
+      presentationBlankFrameCount === 0 &&
+      steadyStateNoOpFrameCount === 0 &&
+      steadyStateUnknownFrameCount === 0,
+    canvasVisibleOutputStableAcrossRaf: presentationStableVisualOutput,
+    visualFlickerDetected: steadyStateVisualFlickerDetected,
+    webgpuDeviceConsistencyReady: deviceConsistencyReady,
+    presentationDeviceMatchesCompositorDevice:
+      steadyStateHeartbeatResults.length > 0 &&
+      steadyStateHeartbeatResults.every(
+        (heartbeat) => heartbeat?.presentationDeviceMatchesCompositorDevice === true
+      ),
+    currentTextureViewFreshPerPresentation:
+      steadyStateHeartbeatResults.length > 0 &&
+      steadyStateHeartbeatResults.every(
+        (heartbeat) => heartbeat?.currentTextureViewFreshPerPresentation === true
+      ),
+    currentTextureViewReusedAcrossFrames: heartbeatResults.some(
+      (heartbeat) => heartbeat?.currentTextureViewReusedAcrossFrames === true
+    ),
+    staleTextureViewReuseDetected: heartbeatResults.some(
+      (heartbeat) => heartbeat?.staleTextureViewReuseDetected === true
+    ),
+    crossDeviceTextureViewUseDetected: heartbeatResults.some(
+      (heartbeat) => heartbeat?.crossDeviceTextureViewUseDetected === true
+    ),
+    contextReconfiguredOnDeviceChange: heartbeatResults.some(
+      (heartbeat) => heartbeat?.contextReconfiguredOnDeviceChange === true
+    ),
+    compositorOutputCacheInvalidatedOnDeviceChange: heartbeatResults.some(
+      (heartbeat) =>
+        heartbeat?.compositorOutputCacheInvalidatedOnDeviceChange === true
+    ),
+    webgpuValidationErrorDetected: heartbeatResults.some(
+      (heartbeat) => heartbeat?.webgpuValidationErrorDetected === true
+    ),
+    invalidCommandBufferDetected: heartbeatResults.some(
+      (heartbeat) => heartbeat?.invalidCommandBufferDetected === true
+    ),
+    queueSubmitFailureDetected: heartbeatResults.some(
+      (heartbeat) => heartbeat?.queueSubmitFailureDetected === true
+    ),
+    presentationErrorName:
+      heartbeatResults.find((heartbeat) => heartbeat?.presentationErrorName)
+        ?.presentationErrorName ?? null,
+    presentationErrorMessage:
+      heartbeatResults.find((heartbeat) => heartbeat?.presentationErrorMessage)
+        ?.presentationErrorMessage ?? null,
+    canvasOverwriteAfterCompositorPresentationDetected:
+      canvasClearBetweenCompositorFramesDetected,
+    normalBackendOverwriteAfterCompositorPresentationDetected:
+      normalBackendFinalPresentFrameCount > 0,
+    fallbackOverwriteAfterCompositorPresentationDetected:
+      webgl2FallbackFinalPresentFrameCount > 0,
+    currentTextureUsesWebGpuTileCompositorOutput:
+      steadyStateTileCompositorOwnsFinalPresentation &&
+      steadyStateHeartbeatResults.every(
+        (heartbeat) => heartbeat?.currentTextureUsesWebGpuTileCompositorOutput === true
+      ),
+    currentTextureReadbackMatchesCompositorOutput:
+      steadyStateTileCompositorOwnsFinalPresentation &&
+      steadyStateHeartbeatResults.every(
+        (heartbeat) => heartbeat?.compositorCurrentTextureReadbackNonZero === true
+      ),
+    currentTextureSource:
+      steadyStateTileCompositorOwnsFinalPresentation
+        ? 'cached-webgpu-tile-compositor-output-texture'
+        : null,
+    source,
+    reason: presentationStableVisualOutput
+      ? null
+      : finalPresentSourceAlternates
+        ? 'viewer-loop-final-present-source-alternates'
+        : !tileCompositorOwnsFinalPresentation
+          ? 'viewer-loop-final-present-source-not-owned-by-tile-compositor'
+          : presentationBlankFrameCount > 0
+            ? 'viewer-loop-tile-compositor-blank-frame-detected'
+            : 'viewer-loop-tile-compositor-visual-persistence-not-observed'
+  };
+}
+
 async function saveCurrentCanvasPng(options = {}) {
   const input = typeof options === 'string' ? { name: options } : (options ?? {});
   const download = input.download !== false;
@@ -4582,6 +5313,12 @@ async function renderCurrentFrame(options = {}) {
       options.webgpuBackendImplementation ??
       deterministicQueryState.webgpuBackendImplementation ??
       'webgpu-visible-record-dry-run-runtime';
+    const schedulerFrameState = options.schedulerFrameState ?? null;
+    const calledFromSchedulerFrameLoop =
+      schedulerFrameState?.calledFromSchedulerFrameLoop === true &&
+      schedulerFrameState?.frameRequestIssued === true &&
+      schedulerFrameState?.requestAnimationFrameCallbackEntered === true &&
+      schedulerFrameState?.renderFrameInvoked === true;
     const frameIndex = Number.isFinite(latestRenderResult?.executionSummary?.frameIndex)
       ? latestRenderResult.executionSummary.frameIndex + 1
       : 0;
@@ -4670,6 +5407,60 @@ async function renderCurrentFrame(options = {}) {
           adapterInvocationSource: 'viewer-render-lifecycle-hook-boundary'
         })
       : null;
+    if (
+      calledFromSchedulerFrameLoop &&
+      backendImplementationKind === WEBGPU_TILE_COMPOSITOR_FRAME_IMPLEMENTATION &&
+      shouldKeepWebGpuTileCompositorViewerLoopAlive()
+    ) {
+      const heartbeatFrame = await runTileCompositorHeartbeatPresentationFrame({
+        viewerCanvasState,
+        animationFrameIndex: frameIndex,
+        waitForRaf: false
+      });
+      appendTileCompositorFinalPresentTraceRecord(heartbeatFrame);
+      const heartbeat = heartbeatFrame.heartbeat;
+      if (heartbeat?.presentationHeartbeatReady === true) {
+        const traceRecords = snapshotTileCompositorFinalPresentTraceRecords();
+        const tileCompositorViewerLoopPersistence =
+          buildTileCompositorViewerLoopPersistenceContract({
+            viewerLoopPersistenceRecords: traceRecords,
+            viewerLoopPersistenceDelayMs: 16,
+            viewerLoopFrameImplementationActive: true,
+            frameImplementationRegisteredWithViewerLoop:
+              enableViewerLoopHook === true &&
+              webgpuBackendViewerLifecycleIntegrationBoundary
+                ?.integrationBoundaryReady === true,
+            expectedSampledRafCount:
+              WEBGPU_TILE_COMPOSITOR_VIEWER_LOOP_PERSISTENCE_FRAME_COUNT,
+            requiredSteadyStateRafCount:
+              WEBGPU_TILE_COMPOSITOR_VIEWER_LOOP_PERSISTENCE_FRAME_COUNT,
+            rafTraceCapturedBeforeCommandStart: traceRecords.length > 1,
+            captureWaitedForSteadyStateRaf: false,
+            captureSteadyStateWaitTimedOut:
+              traceRecords.length <
+              WEBGPU_TILE_COMPOSITOR_VIEWER_LOOP_PERSISTENCE_FRAME_COUNT,
+            source:
+              'scheduler RAF final presentation heartbeat reused cached WebGPU tile compositor output texture'
+          });
+        const renderResult = {
+          ...latestRenderResult,
+          webgpuTileCompositorViewerLoopPersistence:
+            tileCompositorViewerLoopPersistence,
+          executionSummary: {
+            ...(latestRenderResult?.executionSummary ?? {}),
+            frameIndex,
+            webgpuTileCompositorPresentationHeartbeatReady: true,
+            webgpuTileCompositorCompositorUpdateSkipped: true,
+            finalPresentSource:
+              heartbeatFrame.finalPresentRecord.finalPresentSource
+          },
+          limitedDrawRuntimeSummary: null
+        };
+        latestRenderResult = renderResult;
+        latestGpuCandidateShadowCompare = null;
+        return renderResult;
+      }
+    }
     const backendFrameExecutorResult =
       webgpuBackendViewerLifecycleIntegrationBoundary
         ? await executeWebGpuBackendViewerFrame({
@@ -4708,6 +5499,9 @@ async function renderCurrentFrame(options = {}) {
                     (backendImplementationKind ===
                     'webgpu-normal-backend-frame-implementation'
                       ? 'phase3-step78-true-webgpu-visible-record-path'
+                      : backendImplementationKind ===
+                        WEBGPU_TILE_COMPOSITOR_FRAME_IMPLEMENTATION
+                        ? 'phase3-step88-tile-compositor-frame-implementation'
                       : 'phase3-step61-viewer-backend-runtime-runner')
                 },
                 requestedWebGpuBackendMode: requestedBackendMode,
@@ -4730,6 +5524,9 @@ async function renderCurrentFrame(options = {}) {
                     backendImplementationKind ===
                     'webgpu-normal-backend-frame-implementation'
                       ? 'phase3-step78'
+                      : backendImplementationKind ===
+                        WEBGPU_TILE_COMPOSITOR_FRAME_IMPLEMENTATION
+                        ? 'phase3-step88'
                       : 'phase3-step61',
                   renderLifecycleStage: 'renderCurrentFrame',
                   invocationSource: 'renderCurrentFrame-viewer-backend-executor',
@@ -4750,6 +5547,255 @@ async function renderCurrentFrame(options = {}) {
               })
           })
         : null;
+    async function runTileCompositorViewerLoopPersistenceFrame({
+      animationFrameIndex,
+      executorFrameIndex
+    }) {
+      if (
+        !webgpuBackendViewerLifecycleIntegrationBoundary ||
+        backendImplementationKind !== WEBGPU_TILE_COMPOSITOR_FRAME_IMPLEMENTATION
+      ) {
+        return null;
+      }
+      await waitForAnimationFrameBoundary();
+      return executeWebGpuBackendViewerFrame({
+        requestedBackendMode,
+        allowViewerCanvasPresentation,
+        enableViewerLoopHook,
+        invocationSource:
+          'renderCurrentFrame-viewer-loop-tile-compositor-persistence',
+        frameIndex: executorFrameIndex,
+        integrationBoundary: webgpuBackendViewerLifecycleIntegrationBoundary,
+        cameraSnapshot,
+        viewerCanvasState,
+        backendImplementationKind,
+        runBackendFrame: ({
+          executorContract,
+          runnerContract,
+          backendImplementationKind: selectedBackendImplementationKind,
+          implementationContract,
+          frameInputContract,
+          frameConstantsContract,
+          uniformResourcePreparationContract,
+          uniformResourceLifecycleContract
+        }) =>
+          runWebGpuVisibleRecordDryRunFromViewerState({
+            options: {
+              ...options,
+              ensureCurrentFrame: false,
+              webgpuBackendMode: requestedBackendMode,
+              webgpuBackendImplementation: 'webgpu-visible-record-dry-run-runtime',
+              webgpuAllowViewerCanvasPresentation: allowViewerCanvasPresentation,
+              webgpuBackendViewerLoopHook: true,
+              webgpuBackendViewerLifecycleInvocationSource:
+                'renderCurrentFrame-viewer-loop-tile-compositor-persistence',
+              webgpuBackendViewerLifecycleControlledExecution: true,
+      comparisonMode: 'phase3-step88-fix2-viewer-loop-persistent-tile-compositor'
+            },
+            requestedWebGpuBackendMode: requestedBackendMode,
+            allowViewerCanvasPresentation,
+            enableViewerLoopHook: true,
+            useExclusiveWebGpuFrameLifecycle: true,
+            debugRender: {
+              renderResult: latestRenderResult,
+              attempts: [
+                {
+                  stage: 'viewer-loop-tile-compositor-persistence-frame',
+                  animationFrameIndex,
+                  reason:
+                    'viewer loop re-runs the WebGPU tile compositor frame implementation across animation frames'
+                }
+              ]
+            },
+            metadataOverrides: {
+              captureSource: 'viewer-loop-tile-compositor-persistence',
+              phase: 'phase3-step88',
+              renderLifecycleStage: 'renderCurrentFrame',
+              invocationSource:
+                'renderCurrentFrame-viewer-loop-tile-compositor-persistence',
+              controlledExecutionRequested: true,
+              selectedBackendImplementationKind,
+              validationOracleBackendImplementationKind:
+                'webgpu-visible-record-dry-run-runtime',
+              backendExecutorRequest: {
+                executorContract,
+                runnerContract,
+                implementationContract,
+                frameInputContract,
+                frameConstantsContract,
+                uniformResourcePreparationContract,
+                uniformResourceLifecycleContract
+              }
+            }
+          })
+      });
+    }
+
+    const viewerLoopPersistenceStart =
+      getNowMs();
+    const viewerLoopPersistenceRecords = [];
+    const initialFrameImplementationContract =
+      backendFrameExecutorResult?.backendFrameResult
+        ?.webgpuTileCompositorFrameImplementation ?? null;
+    const useViewerLoopPresentationHeartbeat =
+      backendImplementationKind === WEBGPU_TILE_COMPOSITOR_FRAME_IMPLEMENTATION &&
+      shouldKeepWebGpuTileCompositorViewerLoopAlive();
+    if (
+      backendImplementationKind === WEBGPU_TILE_COMPOSITOR_FRAME_IMPLEMENTATION &&
+      initialFrameImplementationContract?.frameImplementationSelected === true &&
+      initialFrameImplementationContract?.frameImplementationExecuted === true
+    ) {
+      appendTileCompositorFinalPresentTraceRecord(
+        buildTileCompositorUpdatePresentTraceRecord({
+          frameImplementationContract: initialFrameImplementationContract,
+          frameIndex
+        })
+      );
+    }
+    if (
+      useViewerLoopPresentationHeartbeat &&
+      backendImplementationKind === WEBGPU_TILE_COMPOSITOR_FRAME_IMPLEMENTATION &&
+      initialFrameImplementationContract?.frameImplementationSelected === true &&
+      initialFrameImplementationContract?.frameImplementationExecuted === true &&
+      initialFrameImplementationContract
+        ?.currentTextureUsesWebGpuTileCompositorOutput === true
+    ) {
+      for (
+        let animationFrameIndex = 0;
+        animationFrameIndex < WEBGPU_TILE_COMPOSITOR_VIEWER_LOOP_PERSISTENCE_FRAME_COUNT;
+        animationFrameIndex += 1
+      ) {
+        const heartbeatFrame =
+          await runTileCompositorHeartbeatPresentationFrame({
+            viewerCanvasState,
+            animationFrameIndex,
+            waitForRaf: true
+          });
+        viewerLoopPersistenceRecords.push(heartbeatFrame);
+        appendTileCompositorFinalPresentTraceRecord(heartbeatFrame);
+      }
+    } else if (
+      !useViewerLoopPresentationHeartbeat &&
+      backendImplementationKind === WEBGPU_TILE_COMPOSITOR_FRAME_IMPLEMENTATION &&
+      initialFrameImplementationContract?.frameImplementationSelected === true &&
+      initialFrameImplementationContract?.frameImplementationExecuted === true &&
+      initialFrameImplementationContract
+        ?.currentTextureUsesWebGpuTileCompositorOutput === true
+    ) {
+      for (
+        let animationFrameIndex = 0;
+        animationFrameIndex < WEBGPU_TILE_COMPOSITOR_VIEWER_LOOP_PERSISTENCE_FRAME_COUNT;
+        animationFrameIndex += 1
+      ) {
+        const persistenceResult =
+          await runTileCompositorViewerLoopPersistenceFrame({
+            animationFrameIndex,
+            executorFrameIndex: frameIndex + animationFrameIndex + 1
+          });
+        const contract =
+          persistenceResult?.backendFrameResult?.webgpuTileCompositorFrameImplementation ??
+          null;
+        const persistenceFrame = {
+          heartbeat: {
+            presentationHeartbeatReady:
+              contract?.currentTextureUsesWebGpuTileCompositorOutput === true,
+            currentTextureUsesWebGpuTileCompositorOutput:
+              contract?.currentTextureUsesWebGpuTileCompositorOutput === true,
+            compositorCurrentTextureReadbackNonZero:
+              contract?.currentTextureReadbackMatchesCompositorOutput === true,
+            presentationSampleFrameCount:
+              contract?.presentationSampleFrameCount ?? 0,
+            presentationNonBlankFrameCount:
+              contract?.presentationNonBlankFrameCount ?? 0,
+            presentationBlankFrameCount:
+              contract?.presentationBlankFrameCount ?? 0,
+            presentationAllSampledFramesNonBlank:
+              contract?.presentationAllSampledFramesNonBlank === true,
+            compositorOutputPresentedEverySampledFrame:
+              contract?.compositorOutputPresentedEverySampledFrame === true,
+            webgpuDeviceConsistencyReady:
+              contract?.webgpuDeviceConsistencyReady === true,
+            presentationDeviceMatchesCompositorDevice:
+              contract?.presentationDeviceMatchesCompositorDevice === true,
+            currentTextureViewFreshPerPresentation:
+              contract?.currentTextureViewFreshPerPresentation === true,
+            currentTextureSource: contract?.currentTextureSource ?? null
+          },
+          finalPresentRecord: {
+            rafIndex: animationFrameIndex,
+            timestamp: getNowMs(),
+            finalPresentSource:
+              contract?.currentTextureUsesWebGpuTileCompositorOutput === true
+                ? 'tile-compositor-update-present'
+                : 'unknown',
+            finalPresentSourceDetail:
+              contract?.reason ?? 'viewer-loop-backend-rerun',
+            presentedByTileCompositorUpdate:
+              contract?.currentTextureUsesWebGpuTileCompositorOutput === true,
+            presentedByTileCompositorHeartbeat: false,
+            presentedByNormalBackend: false,
+            presentedByWebgl2Fallback: false,
+            presentedByDebugClear: false,
+            presentedByCanvasClear: false,
+            presentedByNoOp: false,
+            presentedByUnknown:
+              contract?.currentTextureUsesWebGpuTileCompositorOutput !== true,
+            currentTextureSource: contract?.currentTextureSource ?? null,
+            nonzeroPixelRatio: contract?.presentationNonzeroPixelRatioMin ?? 0,
+            frameHash: null,
+            deviceConsistent: contract?.webgpuDeviceConsistencyReady === true,
+            contextConfiguredThisFrame: false,
+            presentationSubmitted:
+              contract?.currentTextureUsesWebGpuTileCompositorOutput === true,
+            queueSubmitFailureDetected:
+              contract?.queueSubmitFailureDetected === true
+          }
+        };
+        viewerLoopPersistenceRecords.push(persistenceFrame);
+        appendTileCompositorFinalPresentTraceRecord(persistenceFrame);
+      }
+    }
+    const traceRecords = snapshotTileCompositorFinalPresentTraceRecords();
+    const enoughSteadyStateTrace =
+      traceRecords.filter(
+        (record) =>
+          record?.finalPresentRecord?.finalPresentSource ===
+            'tile-compositor-heartbeat-present' ||
+          record?.finalPresentRecord?.finalPresentSource ===
+            'tile-compositor-update-present'
+      ).length >= WEBGPU_TILE_COMPOSITOR_VIEWER_LOOP_PERSISTENCE_FRAME_COUNT;
+    const viewerLoopPersistenceDelayMs =
+      getNowMs() - viewerLoopPersistenceStart;
+    const viewerLoopFrameImplementationActive =
+      backendImplementationKind === WEBGPU_TILE_COMPOSITOR_FRAME_IMPLEMENTATION &&
+      initialFrameImplementationContract?.frameImplementationSelected === true &&
+      initialFrameImplementationContract?.frameImplementationExecuted === true &&
+      initialFrameImplementationContract
+        ?.currentTextureUsesWebGpuTileCompositorOutput === true &&
+      initialFrameImplementationContract
+        ?.currentTextureReadbackMatchesCompositorOutput === true;
+    const frameImplementationRegisteredWithViewerLoop =
+      viewerLoopFrameImplementationActive &&
+      enableViewerLoopHook === true &&
+      webgpuBackendViewerLifecycleIntegrationBoundary?.integrationBoundaryReady === true &&
+      shouldKeepWebGpuTileCompositorViewerLoopAlive();
+    const tileCompositorViewerLoopPersistence =
+      buildTileCompositorViewerLoopPersistenceContract({
+        viewerLoopPersistenceRecords: traceRecords,
+        viewerLoopPersistenceDelayMs,
+        viewerLoopFrameImplementationActive,
+        frameImplementationRegisteredWithViewerLoop,
+        expectedSampledRafCount:
+          WEBGPU_TILE_COMPOSITOR_VIEWER_LOOP_PERSISTENCE_FRAME_COUNT,
+        requiredSteadyStateRafCount:
+          WEBGPU_TILE_COMPOSITOR_VIEWER_LOOP_PERSISTENCE_FRAME_COUNT,
+        rafTraceCapturedBeforeCommandStart:
+          traceRecords.length > viewerLoopPersistenceRecords.length,
+        captureWaitedForSteadyStateRaf: viewerLoopPersistenceRecords.length > 0,
+        captureSteadyStateWaitTimedOut: !enoughSteadyStateTrace,
+        source:
+          'renderCurrentFrame sampled final present source ownership from viewer RAF trace ring buffer'
+      });
     const webgpuBackendViewerFrameExecutor =
       backendFrameExecutorResult?.summary ?? null;
     const webgpuBackendViewerFramePresentationPass =
@@ -4778,6 +5824,8 @@ async function renderCurrentFrame(options = {}) {
       webgpuBackendViewerLifecycleControlledExecution,
       webgpuBackendViewerFrameExecutor,
       webgpuBackendViewerFramePresentationPass,
+      webgpuTileCompositorViewerLoopPersistence:
+        tileCompositorViewerLoopPersistence,
       drawPathSummary: {
         requestedPath: 'webgpu-exclusive',
         actualPath:
@@ -5113,7 +6161,9 @@ function bindSliderTextUpdates() {
 const scheduler = createRenderScheduler({
   renderFrame: renderCurrentFrame,
   tokenRef,
-  isPlaying: () => (playback ? playback.isPlaying() : false),
+  isPlaying: () =>
+    (playback ? playback.isPlaying() : false) ||
+    shouldKeepWebGpuTileCompositorViewerLoopAlive(),
   buildFramePresentationBoundary: ({ schedulerFrameState, renderResult }) => {
     const executor = renderResult?.webgpuBackendViewerFrameExecutor ?? null;
     const pass =

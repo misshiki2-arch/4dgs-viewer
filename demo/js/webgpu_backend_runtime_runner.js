@@ -2,6 +2,9 @@ import {
   WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_MODE,
   runWebGpuNormalBackendFrameImplementation
 } from './webgpu_normal_backend_frame_implementation.js';
+import {
+  WEBGPU_TILE_COMPOSITOR_FRAME_IMPLEMENTATION_MODE
+} from './webgpu_tile_compositor_frame_implementation.js';
 
 export const WEBGPU_BACKEND_RUNTIME_RUNNER_MODE =
   'webgpu-backend-runtime-runner';
@@ -32,7 +35,9 @@ function buildRunnerContract({
   const selectedBackendImplementationKind =
     backendImplementationKind === WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_MODE
       ? WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_MODE
-      : WEBGPU_BACKEND_DRY_RUN_IMPLEMENTATION_KIND;
+      : backendImplementationKind === WEBGPU_TILE_COMPOSITOR_FRAME_IMPLEMENTATION_MODE
+        ? WEBGPU_TILE_COMPOSITOR_FRAME_IMPLEMENTATION_MODE
+        : WEBGPU_BACKEND_DRY_RUN_IMPLEMENTATION_KIND;
   return {
     contractVersion: WEBGPU_BACKEND_RUNTIME_RUNNER_CONTRACT_VERSION,
     runnerMode: 'viewer-backend-runtime-frame-runner',
@@ -46,6 +51,8 @@ function buildRunnerContract({
     backendImplementationSelectionMode:
       selectedBackendImplementationKind === WEBGPU_NORMAL_BACKEND_FRAME_IMPLEMENTATION_MODE
         ? 'explicit-normal-webgpu-backend-implementation'
+        : selectedBackendImplementationKind === WEBGPU_TILE_COMPOSITOR_FRAME_IMPLEMENTATION_MODE
+          ? 'explicit-tile-compositor-webgpu-frame-implementation'
         : 'validation-oracle-dry-run-implementation',
     backendImplementationReplaceable: true,
     recorderObserverSeparated: true,

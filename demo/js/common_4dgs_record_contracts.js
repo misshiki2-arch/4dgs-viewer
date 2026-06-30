@@ -4,7 +4,7 @@ export const WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION =
 export const WEBGPU_VISIBLE_RECORD_COMPUTE_MODE =
   'webgpu-storage-buffer-compute-fixed-record';
 
-export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step87';
+export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step88';
 
 export const WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE =
   'wgsl-valid-screen-projection-with-true-native-bounded-color-sources';
@@ -16,13 +16,16 @@ export const WEBGPU_GPU_OWNED_TILE_LIST_LAYOUT_CONTRACT_VERSION =
   'phase3-step84-webgpu-gpu-owned-tile-list-layout-v1';
 
 export const WEBGPU_TILE_LIST_COMPOSITOR_CONTRACT_VERSION =
-  'phase3-step85-webgpu-tile-list-compositor-v1';
+  'phase3-step85-webgpu-tile-list-compositor-v2';
 
 export const WEBGPU_PHASE3_BACKEND_BOUNDARY_CONTRACT_VERSION =
   'phase3-step86-webgpu-backend-boundary-and-dirty-contract-v1';
 
 export const WEBGPU_TILE_DEPTH_ORDERING_CONTRACT_VERSION =
   'phase3-step87-webgpu-tile-depth-ordering-v1';
+
+export const WEBGPU_TILE_COMPOSITOR_FRAME_IMPLEMENTATION_CONTRACT_VERSION =
+  'phase3-step88-webgpu-tile-compositor-frame-implementation-v5';
 
 export const WEBGPU_RADIUS_FIELD_COMPUTE_MODE =
   'deferred-covariance-conic-dependent';
@@ -658,6 +661,43 @@ export function buildWebGpuTileListCompositorContract({
   normalBackendFallbackMaintained = true,
   sourceGpuOwnedTileListLayoutContractVersion = null,
   currentTexturePathMaintained = false,
+  tileCompositorOutputPresentedToCurrentTexture = false,
+  compositorCurrentTextureRenderPassSubmitted = false,
+  compositorCurrentTextureReadbackCompleted = false,
+  compositorCurrentTextureReadbackNonZero = false,
+  presentationFrameCount = 0,
+  compositorPresentationFrameCount = 0,
+  currentTextureSource = null,
+  currentTextureUsesWebGpuTileCompositorOutput = false,
+  presentationStableUntilCapture = false,
+  presentationSampleFrameCount = 0,
+  presentationNonBlankFrameCount = 0,
+  presentationBlankFrameCount = 0,
+  presentationAllSampledFramesNonBlank = false,
+  presentationAlternatingBlankDetected = false,
+  presentationStableVisualOutput = false,
+  presentationNonzeroPixelRatioMin = 0,
+  presentationNonzeroPixelRatioMax = 0,
+  presentationFrameHashChanges = 0,
+  compositorOutputPresentedEverySampledFrame = false,
+  canvasClearBetweenCompositorFramesDetected = false,
+  currentTextureContextReconfigured = false,
+  webgpuDeviceConsistencyReady = false,
+  presentationDeviceMatchesCompositorDevice = false,
+  currentTextureViewFreshPerPresentation = false,
+  currentTextureViewReusedAcrossFrames = false,
+  staleTextureViewReuseDetected = false,
+  crossDeviceTextureViewUseDetected = false,
+  contextReconfiguredOnDeviceChange = false,
+  compositorOutputCacheInvalidatedOnDeviceChange = false,
+  webgpuValidationErrorDetected = false,
+  invalidCommandBufferDetected = false,
+  queueSubmitFailureDetected = false,
+  presentationErrorName = null,
+  presentationErrorMessage = null,
+  presentationFrameSamples = [],
+  compositorCurrentTexturePresentationMode =
+    'tile-compositor-output-texture-to-currentTexture-render-pass',
   reason = null
 } = {}) {
   const ready =
@@ -715,6 +755,42 @@ export function buildWebGpuTileListCompositorContract({
     normalBackendFallbackMaintained,
     sourceGpuOwnedTileListLayoutContractVersion,
     currentTexturePathMaintained,
+    tileCompositorOutputPresentedToCurrentTexture,
+    compositorCurrentTextureRenderPassSubmitted,
+    compositorCurrentTextureReadbackCompleted,
+    compositorCurrentTextureReadbackNonZero,
+    presentationFrameCount,
+    compositorPresentationFrameCount,
+    currentTextureSource,
+    currentTextureUsesWebGpuTileCompositorOutput,
+    presentationStableUntilCapture,
+    presentationSampleFrameCount,
+    presentationNonBlankFrameCount,
+    presentationBlankFrameCount,
+    presentationAllSampledFramesNonBlank,
+    presentationAlternatingBlankDetected,
+    presentationStableVisualOutput,
+    presentationNonzeroPixelRatioMin,
+    presentationNonzeroPixelRatioMax,
+    presentationFrameHashChanges,
+    compositorOutputPresentedEverySampledFrame,
+    canvasClearBetweenCompositorFramesDetected,
+    currentTextureContextReconfigured,
+    webgpuDeviceConsistencyReady,
+    presentationDeviceMatchesCompositorDevice,
+    currentTextureViewFreshPerPresentation,
+    currentTextureViewReusedAcrossFrames,
+    staleTextureViewReuseDetected,
+    crossDeviceTextureViewUseDetected,
+    contextReconfiguredOnDeviceChange,
+    compositorOutputCacheInvalidatedOnDeviceChange,
+    webgpuValidationErrorDetected,
+    invalidCommandBufferDetected,
+    queueSubmitFailureDetected,
+    presentationErrorName,
+    presentationErrorMessage,
+    presentationFrameSamples,
+    compositorCurrentTexturePresentationMode,
     reason
   };
 }
@@ -889,6 +965,387 @@ export function buildWebGpuPhase3BackendBoundaryContract({
     nextDepthSortBoundaryReady,
     nextFinalCompositorBoundaryReady,
     nextChunkLodStreamingBoundaryReady,
+    reason
+  };
+}
+
+export function buildWebGpuTileCompositorFrameImplementationContract({
+  status = 'ok',
+  frameImplementationKind = 'webgpu-tile-compositor-frame-implementation',
+  frameImplementationMode = 'tile-compositor-owned-webgpu-frame',
+  selectedFrameImplementation = frameImplementationKind,
+  frameImplementationSelected = false,
+  frameImplementationExecuted = false,
+  webgpuOwnsFramePassChain = false,
+  statePassReady = false,
+  attributePassReady = false,
+  footprintPassReady = false,
+  tileInputPassReady = false,
+  tileListPassReady = false,
+  depthOrderingPassReady = false,
+  tileCompositorPassReady = false,
+  presentationPassReady = false,
+  compositorOutputPresentedToCurrentTexture = false,
+  depthAwareCompositorPresented = false,
+  currentTextureConnectionReady = false,
+  currentTextureSource = null,
+  currentTextureUsesWebGpuTileCompositorOutput = false,
+  currentTextureReadbackMatchesCompositorOutput = false,
+  presentationFrameCount = 0,
+  compositorPresentationFrameCount = 0,
+  presentationStableUntilCapture = false,
+  viewerLoopFrameImplementationActive = false,
+  frameImplementationRegisteredWithViewerLoop = false,
+  compositorOutputPresentedByViewerLoop = false,
+  presentationPersistsAfterDelay = false,
+  presentationPersistenceDelayMs = 0,
+  presentationPersistsAcrossAnimationFrames = false,
+  animationFramePresentationCount = 0,
+  presentationSampleFrameCount = 0,
+  presentationNonBlankFrameCount = 0,
+  presentationBlankFrameCount = 0,
+  presentationAllSampledFramesNonBlank = false,
+  presentationAlternatingBlankDetected = false,
+  presentationStableVisualOutput = false,
+  presentationNonzeroPixelRatioMin = 0,
+  presentationNonzeroPixelRatioMax = 0,
+  presentationFrameHashChanges = 0,
+  compositorOutputPresentedEverySampledFrame = false,
+  canvasClearBetweenCompositorFramesDetected = false,
+  viewerLoopPresentationCadenceStable = false,
+  presentationHeartbeatReady = false,
+  presentationHeartbeatRunsEveryViewerRaf = false,
+  presentationDecoupledFromCompositorUpdate = false,
+  lastValidCompositorOutputCached = false,
+  lastValidCompositorOutputPresentedOnCleanFrames = false,
+  compositorUpdateFrameCount = 0,
+  presentationHeartbeatFrameCount = 0,
+  presentationHeartbeatFrameCountMatchesSampledRaf = false,
+  dirtySkippedCompositorUpdateButPresentedCachedOutput = false,
+  noBlankFrameBetweenHeartbeatPresentations = false,
+  canvasVisibleOutputStableAcrossRaf = false,
+  visualFlickerDetected = false,
+  finalPresentSourceTracingReady = false,
+  sampledRafCount = 0,
+  tileCompositorFinalPresentFrameCount = 0,
+  heartbeatFinalPresentFrameCount = 0,
+  normalBackendFinalPresentFrameCount = 0,
+  webgl2FallbackFinalPresentFrameCount = 0,
+  debugClearFinalPresentFrameCount = 0,
+  canvasClearFinalPresentFrameCount = 0,
+  noOpFinalPresentFrameCount = 0,
+  unknownFinalPresentFrameCount = 0,
+  finalPresentSourceStable = false,
+  finalPresentSourceAlternates = false,
+  finalPresentSourceSequence = [],
+  tileCompositorOwnsFinalPresentation = false,
+  summaryCanDetectObservedFlicker = false,
+  rafTraceRingBufferReady = false,
+  rafTraceRecordedFromViewerLoopStart = false,
+  rafTraceCapturedBeforeCommandStart = false,
+  rafTraceRingBufferFrameCount = 0,
+  requiredSteadyStateRafCount = 8,
+  startupTransientObserved = false,
+  startupTransientFrameCount = 0,
+  startupTransientFinalPresentSourceSequence = [],
+  firstValidCompositorOutputFrame = -1,
+  steadyStateSamplingReady = false,
+  steadyStateSampledRafCount = 0,
+  steadyStateSamplingWindowStartFrame = -1,
+  steadyStateSamplingWindowEndFrame = -1,
+  steadyStateFinalPresentSourceSequence = [],
+  steadyStateTileCompositorOwnsFinalPresentation = false,
+  steadyStateFinalPresentSourceStable = false,
+  steadyStateFinalPresentSourceAlternates = false,
+  steadyStateBlankFrameCount = 0,
+  steadyStateNoOpFrameCount = 0,
+  steadyStateClearFrameCount = 0,
+  steadyStateUnknownFrameCount = 0,
+  steadyStateNormalBackendFrameCount = 0,
+  steadyStateWebgl2FallbackFrameCount = 0,
+  steadyStateVisualFlickerDetected = false,
+  summaryCanDetectStartupTransient = false,
+  summaryCanDetectSteadyStateFlicker = false,
+  presentationPersistsAfterStartup = false,
+  presentationPersistsAcrossSteadyStateRaf = false,
+  captureWaitedForSteadyStateRaf = false,
+  captureSteadyStateWaitTimedOut = false,
+  webgpuDeviceConsistencyReady = false,
+  presentationDeviceMatchesCompositorDevice = false,
+  currentTextureViewFreshPerPresentation = false,
+  currentTextureViewReusedAcrossFrames = false,
+  staleTextureViewReuseDetected = false,
+  crossDeviceTextureViewUseDetected = false,
+  contextReconfiguredOnDeviceChange = false,
+  compositorOutputCacheInvalidatedOnDeviceChange = false,
+  webgpuValidationErrorDetected = false,
+  invalidCommandBufferDetected = false,
+  queueSubmitFailureDetected = false,
+  presentationErrorName = null,
+  presentationErrorMessage = null,
+  canvasOverwriteAfterCompositorPresentationDetected = false,
+  normalBackendOverwriteAfterCompositorPresentationDetected = false,
+  fallbackOverwriteAfterCompositorPresentationDetected = false,
+  viewerLoopRuntimeFatalErrorDetected = false,
+  viewerLoopRuntimeFatalError = null,
+  normalBackendFrameImplementationUsed = false,
+  normalBackendPresentationUsed = false,
+  normalBackendPresentationBypassed = false,
+  normalBackendDependencyReduced = false,
+  step85TileCompositorPathPreserved = false,
+  step86BoundaryContractPreserved = false,
+  step87DepthOrderingPreserved = false,
+  webgpuWebgl2SameFramePresentationMixed = false,
+  fallbackMixingPrevented = false,
+  fullCudaParity = false,
+  finalProductionCompositor = false,
+  fullRendererSuccessClaimed = false,
+  sourceTileCompositorContractVersion = null,
+  sourceDepthOrderingContractVersion = null,
+  sourceBoundaryContractVersion = null,
+  reason = null
+} = {}) {
+  const heartbeatPresentationReady =
+    presentationHeartbeatReady === true &&
+    presentationHeartbeatRunsEveryViewerRaf === true &&
+    presentationDecoupledFromCompositorUpdate === true &&
+    lastValidCompositorOutputCached === true &&
+    lastValidCompositorOutputPresentedOnCleanFrames === true &&
+    presentationHeartbeatFrameCount >= 1 &&
+    presentationHeartbeatFrameCountMatchesSampledRaf === true &&
+    dirtySkippedCompositorUpdateButPresentedCachedOutput === true &&
+    noBlankFrameBetweenHeartbeatPresentations === true &&
+    canvasVisibleOutputStableAcrossRaf === true &&
+    visualFlickerDetected === false;
+  const deviceConsistencyReady =
+    webgpuDeviceConsistencyReady === true &&
+    presentationDeviceMatchesCompositorDevice === true &&
+    currentTextureViewFreshPerPresentation === true &&
+    currentTextureViewReusedAcrossFrames === false &&
+    staleTextureViewReuseDetected === false &&
+    crossDeviceTextureViewUseDetected === false &&
+    webgpuValidationErrorDetected === false &&
+    invalidCommandBufferDetected === false &&
+    queueSubmitFailureDetected === false;
+  const sampledPresentationReady =
+    presentationSampleFrameCount >= 1 &&
+    presentationNonBlankFrameCount === presentationSampleFrameCount &&
+    presentationBlankFrameCount === 0 &&
+    presentationAllSampledFramesNonBlank === true &&
+    presentationAlternatingBlankDetected === false &&
+    presentationStableVisualOutput === true &&
+    compositorOutputPresentedEverySampledFrame === true &&
+    canvasClearBetweenCompositorFramesDetected === false &&
+    viewerLoopPresentationCadenceStable === true;
+  const finalPresentSourceReady =
+    finalPresentSourceTracingReady === true &&
+    sampledRafCount >= 1 &&
+    rafTraceRingBufferReady === true &&
+    rafTraceRecordedFromViewerLoopStart === true &&
+    rafTraceRingBufferFrameCount >= sampledRafCount &&
+    summaryCanDetectObservedFlicker === true;
+  const steadyStatePresentationReady =
+    steadyStateSamplingReady === true &&
+    requiredSteadyStateRafCount >= 8 &&
+    steadyStateSampledRafCount >= requiredSteadyStateRafCount &&
+    steadyStateTileCompositorOwnsFinalPresentation === true &&
+    steadyStateFinalPresentSourceStable === true &&
+    steadyStateFinalPresentSourceAlternates === false &&
+    steadyStateBlankFrameCount === 0 &&
+    steadyStateNoOpFrameCount === 0 &&
+    steadyStateClearFrameCount === 0 &&
+    steadyStateUnknownFrameCount === 0 &&
+    steadyStateNormalBackendFrameCount === 0 &&
+    steadyStateWebgl2FallbackFrameCount === 0 &&
+    steadyStateVisualFlickerDetected === false &&
+    summaryCanDetectStartupTransient === true &&
+    summaryCanDetectSteadyStateFlicker === true &&
+    presentationPersistsAfterStartup === true &&
+    presentationPersistsAcrossSteadyStateRaf === true &&
+    captureSteadyStateWaitTimedOut === false;
+  const ready =
+    status === 'ok' &&
+    frameImplementationSelected === true &&
+    frameImplementationExecuted === true &&
+    webgpuOwnsFramePassChain === true &&
+    statePassReady === true &&
+    attributePassReady === true &&
+    footprintPassReady === true &&
+    tileInputPassReady === true &&
+    tileListPassReady === true &&
+    depthOrderingPassReady === true &&
+    tileCompositorPassReady === true &&
+    presentationPassReady === true &&
+    compositorOutputPresentedToCurrentTexture === true &&
+    depthAwareCompositorPresented === true &&
+    currentTextureConnectionReady === true &&
+    currentTextureUsesWebGpuTileCompositorOutput === true &&
+    currentTextureReadbackMatchesCompositorOutput === true &&
+    presentationStableUntilCapture === true &&
+    viewerLoopFrameImplementationActive === true &&
+    frameImplementationRegisteredWithViewerLoop === true &&
+    compositorOutputPresentedByViewerLoop === true &&
+    presentationPersistsAfterDelay === true &&
+    presentationPersistsAcrossAnimationFrames === true &&
+    animationFramePresentationCount >= 1 &&
+    sampledPresentationReady &&
+    heartbeatPresentationReady &&
+    finalPresentSourceReady &&
+    steadyStatePresentationReady &&
+    deviceConsistencyReady &&
+    canvasOverwriteAfterCompositorPresentationDetected === false &&
+    normalBackendOverwriteAfterCompositorPresentationDetected === false &&
+    fallbackOverwriteAfterCompositorPresentationDetected === false &&
+    viewerLoopRuntimeFatalErrorDetected === false &&
+    normalBackendFrameImplementationUsed === false &&
+    normalBackendPresentationUsed === false &&
+    normalBackendPresentationBypassed === true &&
+    normalBackendDependencyReduced === true &&
+    step85TileCompositorPathPreserved === true &&
+    step86BoundaryContractPreserved === true &&
+    step87DepthOrderingPreserved === true &&
+    webgpuWebgl2SameFramePresentationMixed === false &&
+    fallbackMixingPrevented === true &&
+    fullRendererSuccessClaimed === false;
+  return {
+    contractVersion:
+      WEBGPU_TILE_COMPOSITOR_FRAME_IMPLEMENTATION_CONTRACT_VERSION,
+    status: ready ? 'ok' : status,
+    frameImplementationKind,
+    frameImplementationMode,
+    selectedFrameImplementation,
+    frameImplementationReady: ready,
+    frameImplementationSelected,
+    frameImplementationExecuted,
+    webgpuOwnsFramePassChain,
+    statePassReady,
+    attributePassReady,
+    footprintPassReady,
+    tileInputPassReady,
+    tileListPassReady,
+    depthOrderingPassReady,
+    tileCompositorPassReady,
+    presentationPassReady,
+    compositorOutputPresentedToCurrentTexture,
+    depthAwareCompositorPresented,
+    currentTextureConnectionReady,
+    currentTextureSource,
+    currentTextureUsesWebGpuTileCompositorOutput,
+    currentTextureReadbackMatchesCompositorOutput,
+    presentationFrameCount,
+    compositorPresentationFrameCount,
+    presentationStableUntilCapture,
+    viewerLoopFrameImplementationActive,
+    frameImplementationRegisteredWithViewerLoop,
+    compositorOutputPresentedByViewerLoop,
+    presentationPersistsAfterDelay,
+    presentationPersistenceDelayMs,
+    presentationPersistsAcrossAnimationFrames,
+    animationFramePresentationCount,
+    presentationSampleFrameCount,
+    presentationNonBlankFrameCount,
+    presentationBlankFrameCount,
+    presentationAllSampledFramesNonBlank,
+    presentationAlternatingBlankDetected,
+    presentationStableVisualOutput,
+    presentationNonzeroPixelRatioMin,
+    presentationNonzeroPixelRatioMax,
+    presentationFrameHashChanges,
+    compositorOutputPresentedEverySampledFrame,
+    canvasClearBetweenCompositorFramesDetected,
+    viewerLoopPresentationCadenceStable,
+    presentationHeartbeatReady,
+    presentationHeartbeatRunsEveryViewerRaf,
+    presentationDecoupledFromCompositorUpdate,
+    lastValidCompositorOutputCached,
+    lastValidCompositorOutputPresentedOnCleanFrames,
+    compositorUpdateFrameCount,
+    presentationHeartbeatFrameCount,
+    presentationHeartbeatFrameCountMatchesSampledRaf,
+    dirtySkippedCompositorUpdateButPresentedCachedOutput,
+    noBlankFrameBetweenHeartbeatPresentations,
+    canvasVisibleOutputStableAcrossRaf,
+    visualFlickerDetected,
+    finalPresentSourceTracingReady,
+    sampledRafCount,
+    tileCompositorFinalPresentFrameCount,
+    heartbeatFinalPresentFrameCount,
+    normalBackendFinalPresentFrameCount,
+    webgl2FallbackFinalPresentFrameCount,
+    debugClearFinalPresentFrameCount,
+    canvasClearFinalPresentFrameCount,
+    noOpFinalPresentFrameCount,
+    unknownFinalPresentFrameCount,
+    finalPresentSourceStable,
+    finalPresentSourceAlternates,
+    finalPresentSourceSequence,
+    tileCompositorOwnsFinalPresentation,
+    summaryCanDetectObservedFlicker,
+    rafTraceRingBufferReady,
+    rafTraceRecordedFromViewerLoopStart,
+    rafTraceCapturedBeforeCommandStart,
+    rafTraceRingBufferFrameCount,
+    requiredSteadyStateRafCount,
+    startupTransientObserved,
+    startupTransientFrameCount,
+    startupTransientFinalPresentSourceSequence,
+    firstValidCompositorOutputFrame,
+    steadyStateSamplingReady,
+    steadyStateSampledRafCount,
+    steadyStateSamplingWindowStartFrame,
+    steadyStateSamplingWindowEndFrame,
+    steadyStateFinalPresentSourceSequence,
+    steadyStateTileCompositorOwnsFinalPresentation,
+    steadyStateFinalPresentSourceStable,
+    steadyStateFinalPresentSourceAlternates,
+    steadyStateBlankFrameCount,
+    steadyStateNoOpFrameCount,
+    steadyStateClearFrameCount,
+    steadyStateUnknownFrameCount,
+    steadyStateNormalBackendFrameCount,
+    steadyStateWebgl2FallbackFrameCount,
+    steadyStateVisualFlickerDetected,
+    summaryCanDetectStartupTransient,
+    summaryCanDetectSteadyStateFlicker,
+    presentationPersistsAfterStartup,
+    presentationPersistsAcrossSteadyStateRaf,
+    captureWaitedForSteadyStateRaf,
+    captureSteadyStateWaitTimedOut,
+    webgpuDeviceConsistencyReady,
+    presentationDeviceMatchesCompositorDevice,
+    currentTextureViewFreshPerPresentation,
+    currentTextureViewReusedAcrossFrames,
+    staleTextureViewReuseDetected,
+    crossDeviceTextureViewUseDetected,
+    contextReconfiguredOnDeviceChange,
+    compositorOutputCacheInvalidatedOnDeviceChange,
+    webgpuValidationErrorDetected,
+    invalidCommandBufferDetected,
+    queueSubmitFailureDetected,
+    presentationErrorName,
+    presentationErrorMessage,
+    canvasOverwriteAfterCompositorPresentationDetected,
+    normalBackendOverwriteAfterCompositorPresentationDetected,
+    fallbackOverwriteAfterCompositorPresentationDetected,
+    viewerLoopRuntimeFatalErrorDetected,
+    viewerLoopRuntimeFatalError,
+    normalBackendFrameImplementationUsed,
+    normalBackendPresentationUsed,
+    normalBackendPresentationBypassed,
+    normalBackendDependencyReduced,
+    step85TileCompositorPathPreserved,
+    step86BoundaryContractPreserved,
+    step87DepthOrderingPreserved,
+    webgpuWebgl2SameFramePresentationMixed,
+    fallbackMixingPrevented,
+    fullCudaParity,
+    finalProductionCompositor,
+    fullCudaParityDeferred: fullCudaParity !== true,
+    finalProductionCompositorDeferred: finalProductionCompositor !== true,
+    fullRendererSuccessClaimed,
+    sourceTileCompositorContractVersion,
+    sourceDepthOrderingContractVersion,
+    sourceBoundaryContractVersion,
     reason
   };
 }
