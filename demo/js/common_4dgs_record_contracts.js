@@ -4,7 +4,7 @@ export const WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION =
 export const WEBGPU_VISIBLE_RECORD_COMPUTE_MODE =
   'webgpu-storage-buffer-compute-fixed-record';
 
-export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step90';
+export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step91';
 
 export const WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE =
   'wgsl-valid-screen-projection-with-true-native-bounded-color-sources';
@@ -16,7 +16,7 @@ export const WEBGPU_GPU_OWNED_TILE_LIST_LAYOUT_CONTRACT_VERSION =
   'phase3-step84-webgpu-gpu-owned-tile-list-layout-v1';
 
 export const WEBGPU_TILE_LIST_COMPOSITOR_CONTRACT_VERSION =
-  'phase3-step90-webgpu-realtime-runtime-path-v1';
+  'phase3-step91-gpu-side-tile-ordering-production-accumulation-v1';
 
 export const WEBGPU_PHASE3_BACKEND_BOUNDARY_CONTRACT_VERSION =
   'phase3-step86-webgpu-backend-boundary-and-dirty-contract-v1';
@@ -728,6 +728,20 @@ export function buildWebGpuTileListCompositorContract({
   cpuGpuSyncDependencyReduced = false,
   realtimeReadinessImproved = false,
   step89RealCompositorOutputPreserved = false,
+  gpuSideTileOrderingReady = false,
+  perTileOrderingRuntimePathUsed = false,
+  orderedReferencesGeneratedOrUpdatedOnGpu = false,
+  orderedReferencesConsumedByProductionAccumulation = false,
+  productionAccumulationPathImproved = false,
+  tileReferenceBufferLifecycleReady = false,
+  sortOrOrderingDispatchCount = 0,
+  orderingWorkItemCount = 0,
+  orderingScratchBufferBytes = 0,
+  orderedReferenceBufferBytes = 0,
+  gpuOwnedOrderedReferenceRatio = 0,
+  step90RuntimePathPreserved = false,
+  step91ProductionAccumulationMode =
+    'gpu-updated-ordered-reference-buffer-depth-aware-alpha-color-accumulation',
   deferredProductionItems = [],
   reason = null
 } = {}) {
@@ -774,6 +788,18 @@ export function buildWebGpuTileListCompositorContract({
     orderedReferenceCount > 0 &&
     accumulationContributionCount > 0 &&
     nonzeroOutputRatio > 0;
+  const gpuSideOrderingReady =
+    gpuSideTileOrderingReady === true &&
+    perTileOrderingRuntimePathUsed === true &&
+    orderedReferencesGeneratedOrUpdatedOnGpu === true &&
+    orderedReferencesConsumedByProductionAccumulation === true &&
+    productionAccumulationPathImproved === true &&
+    tileReferenceBufferLifecycleReady === true &&
+    sortOrOrderingDispatchCount > 0 &&
+    orderingWorkItemCount > 0 &&
+    orderedReferenceBufferBytes > 0 &&
+    gpuOwnedOrderedReferenceRatio > 0 &&
+    step90RuntimePathPreserved === true;
   return {
     contractVersion: WEBGPU_TILE_LIST_COMPOSITOR_CONTRACT_VERSION,
     status: ready ? 'ok' : status,
@@ -882,6 +908,19 @@ export function buildWebGpuTileListCompositorContract({
     cpuGpuSyncDependencyReduced,
     realtimeReadinessImproved,
     step89RealCompositorOutputPreserved,
+    gpuSideTileOrderingReady: gpuSideOrderingReady,
+    perTileOrderingRuntimePathUsed,
+    orderedReferencesGeneratedOrUpdatedOnGpu,
+    orderedReferencesConsumedByProductionAccumulation,
+    productionAccumulationPathImproved,
+    tileReferenceBufferLifecycleReady,
+    sortOrOrderingDispatchCount,
+    orderingWorkItemCount,
+    orderingScratchBufferBytes,
+    orderedReferenceBufferBytes,
+    gpuOwnedOrderedReferenceRatio,
+    step90RuntimePathPreserved,
+    step91ProductionAccumulationMode,
     deferredProductionItems,
     reason
   };

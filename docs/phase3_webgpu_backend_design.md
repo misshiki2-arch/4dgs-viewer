@@ -1550,6 +1550,37 @@ from capture/readback validation.
 - deferred scope: full CUDA parity, final production compositor behavior, full
   parallel per-tile sorting, and chunk/LOD/streaming remain deferred.
 
+## Step91 WebGPU GPU-Side Tile Ordering and Production Accumulation v1
+
+Step91 keeps the Step88 steady-state presentation owner, Step89 Gaussian
+alpha/color accumulation, and Step90 readback-separated runtime path, then moves
+the tile reference ordering boundary further onto GPU-owned resources. A
+dedicated GPU ordering preparation pass now reads the GPU-owned tile
+`offset/count` table and source splat reference list, writes a GPU-owned ordered
+reference buffer, and the compositor consumes that ordered buffer for its
+depth-aware alpha/color accumulation.
+
+- selected goal: Step91 combines A, B, and C. The main implementation is a
+  GPU-side ordered reference buffer update; the production accumulation pass is
+  wired to that updated buffer instead of reading the source reference list
+  directly.
+- runtime evidence: the compositor contract reports
+  `gpuSideTileOrderingReady`, `perTileOrderingRuntimePathUsed`,
+  `orderedReferencesGeneratedOrUpdatedOnGpu`,
+  `orderedReferencesConsumedByProductionAccumulation`,
+  `productionAccumulationPathImproved`, `tileReferenceBufferLifecycleReady`,
+  `sortOrOrderingDispatchCount`, `orderingWorkItemCount`,
+  `orderedReferenceBufferBytes`, and `gpuOwnedOrderedReferenceRatio`.
+- preservation: Step91 success still requires the Step88 final presentation
+  owner, Step89 real compositor output, Step90 GPU-owned readback-separated
+  runtime path, fresh currentTexture views, WebGPU device consistency, and no
+  normal backend / WebGL2 fallback / clear / no-op final-present frames in
+  steady state.
+- deferred scope: the ordered reference buffer is GPU-generated and consumed by
+  production accumulation, but full parallel per-tile sort parity, CUDA
+  compositor parity, final production compositor behavior, and chunk/LOD
+  streaming remain deferred.
+
 ## Step86 Phase 3 WebGPU Backend Boundary and Dirty Contract Hardening
 
 Step86 freezes the ownership boundaries added during Steps80-85 before the

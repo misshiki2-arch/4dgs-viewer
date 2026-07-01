@@ -4,6 +4,7 @@ import {
 } from './common_4dgs_record_contracts.js';
 
 const COMPOSITOR_SUMMARY_FLOAT_COUNT = 24;
+const ORDERING_SUMMARY_UINT_COUNT = 8;
 const viewerCanvasWebGpuContextState = new WeakMap();
 const viewerCanvasTileCompositorOutputState = new WeakMap();
 
@@ -63,6 +64,19 @@ function readCompositorSummary(summary) {
     tileCompositorContributionCount: Math.round(finiteNumberOr(summary[22], 0)),
     debugPatternBypassedForCompositor:
       Math.round(finiteNumberOr(summary[23], 0)) === 1
+  };
+}
+
+function readOrderingSummary(summary) {
+  return {
+    orderedReferenceUpdateCount: Math.round(finiteNumberOr(summary[0], 0)),
+    orderedTileCount: Math.round(finiteNumberOr(summary[1], 0)),
+    depthKeyObserved: Math.round(finiteNumberOr(summary[2], 0)) === 1,
+    sortKeyObserved: Math.round(finiteNumberOr(summary[3], 0)) === 1,
+    sourceReferenceCount: Math.round(finiteNumberOr(summary[4], 0)),
+    referenceCapacity: Math.round(finiteNumberOr(summary[5], 0)),
+    orderingStatusCode: Math.round(finiteNumberOr(summary[6], 0)),
+    orderedBufferWritten: Math.round(finiteNumberOr(summary[7], 0)) === 1
   };
 }
 
@@ -660,6 +674,126 @@ export async function buildWebGpuTileListCompositor({
     size: summaryData.byteLength,
     usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
   });
+  const referenceCapacity = Math.max(1, resources.tileCount * resources.maxRefsPerTile);
+  const orderedReferenceBufferBytes = Math.max(16, referenceCapacity * 4 * 4);
+  const orderedReferenceBuffer = device.createBuffer({
+    label: 'phase3-step91-webgpu-ordered-reference-buffer',
+    size: orderedReferenceBufferBytes,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST
+  });
+  const orderingSummaryData = new Uint32Array(ORDERING_SUMMARY_UINT_COUNT);
+  const orderingSummaryBuffer = createBuffer(
+    device,
+    orderingSummaryData,
+    GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
+  );
+  const orderingParams = new Uint32Array([
+    resources.tileCount,
+    referenceCapacity,
+    resources.maxRefsPerTile,
+    91
+  ]);
+  const orderingParamsBuffer = createBuffer(device, orderingParams, GPUBufferUsage.UNIFORM);
+  const orderingSummaryReadbackBuffer = device.createBuffer({
+    size: orderingSummaryData.byteLength,
+    usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+  });
+  const orderingShader = device.createShaderModule({
+    label: 'phase3-step91-webgpu-gpu-side-tile-ordering-wgsl',
+    code: `
+struct OrderingParams {
+  tileCount: u32,
+  referenceCapacity: u32,
+  maxRefsPerTile: u32,
+  statusCode: u32,
+};
+
+@group(0) @binding(0) var<storage, read> tileTable: array<vec4f>;
+@group(0) @binding(1) var<storage, read> sourceReferences: array<vec4f>;
+@group(0) @binding(2) var<storage, read_write> orderedReferences: array<vec4f>;
+@group(0) @binding(3) var<storage, read_write> orderingSummary: array<atomic<u32>>;
+@group(0) @binding(4) var<uniform> orderingParams: OrderingParams;
+
+@compute @workgroup_size(64)
+fn prepareOrderedReferences(@builtin(global_invocation_id) id: vec3u) {
+  let tile = id.x;
+  if (tile >= orderingParams.tileCount) {
+    return;
+  }
+  let table = tileTable[tile];
+  if (table.w != 84.0 || table.y <= 0.0) {
+    return;
+  }
+  atomicAdd(&orderingSummary[1], 1u);
+  let offset = u32(table.x);
+  let count = min(u32(table.y), orderingParams.maxRefsPerTile);
+  for (var slot: u32 = 0u; slot < count; slot = slot + 1u) {
+    let referenceIndex = offset + slot;
+    if (referenceIndex < orderingParams.referenceCapacity) {
+      let splatRef = sourceReferences[referenceIndex];
+      orderedReferences[referenceIndex] = splatRef;
+      atomicAdd(&orderingSummary[0], 1u);
+      atomicAdd(&orderingSummary[4], 1u);
+      if (splatRef.z != 0.0) {
+        atomicStore(&orderingSummary[2], 1u);
+      }
+      if (splatRef.w != 0.0) {
+        atomicStore(&orderingSummary[3], 1u);
+      }
+      atomicStore(&orderingSummary[7], 1u);
+    }
+  }
+  atomicStore(&orderingSummary[5], orderingParams.referenceCapacity);
+  atomicStore(&orderingSummary[6], orderingParams.statusCode);
+}
+`
+  });
+  const orderingBindGroupLayout = device.createBindGroupLayout({
+    entries: [
+      {
+        binding: 0,
+        visibility: GPUShaderStage.COMPUTE,
+        buffer: { type: 'read-only-storage' }
+      },
+      {
+        binding: 1,
+        visibility: GPUShaderStage.COMPUTE,
+        buffer: { type: 'read-only-storage' }
+      },
+      {
+        binding: 2,
+        visibility: GPUShaderStage.COMPUTE,
+        buffer: { type: 'storage' }
+      },
+      {
+        binding: 3,
+        visibility: GPUShaderStage.COMPUTE,
+        buffer: { type: 'storage' }
+      },
+      {
+        binding: 4,
+        visibility: GPUShaderStage.COMPUTE,
+        buffer: { type: 'uniform' }
+      }
+    ]
+  });
+  const orderingPipelineLayout = device.createPipelineLayout({
+    bindGroupLayouts: [orderingBindGroupLayout]
+  });
+  const orderingPipeline = device.createComputePipeline({
+    layout: orderingPipelineLayout,
+    compute: { module: orderingShader, entryPoint: 'prepareOrderedReferences' }
+  });
+  const orderingBindGroup = device.createBindGroup({
+    layout: orderingBindGroupLayout,
+    entries: [
+      { binding: 0, resource: { buffer: resources.tileTableBuffer } },
+      { binding: 1, resource: { buffer: resources.referenceListBuffer } },
+      { binding: 2, resource: { buffer: orderedReferenceBuffer } },
+      { binding: 3, resource: { buffer: orderingSummaryBuffer } },
+      { binding: 4, resource: { buffer: orderingParamsBuffer } }
+    ]
+  });
   const shader = device.createShaderModule({
     label: 'phase3-step85-webgpu-tile-list-compositor-wgsl',
     code: `
@@ -879,7 +1013,7 @@ fn finalizeSummary() {
     entries: [
       { binding: 0, resource: { buffer: resources.inputBuffer } },
       { binding: 1, resource: { buffer: resources.tileTableBuffer } },
-      { binding: 2, resource: { buffer: resources.referenceListBuffer } },
+      { binding: 2, resource: { buffer: orderedReferenceBuffer } },
       { binding: 3, resource: outputTexture.createView() },
       { binding: 4, resource: { buffer: summaryBuffer } },
       { binding: 5, resource: { buffer: paramsBuffer } }
@@ -891,6 +1025,9 @@ fn finalizeSummary() {
   const pass = encoder.beginComputePass({
     label: 'phase3-step85-webgpu-tile-list-compositor-pass'
   });
+  pass.setBindGroup(0, orderingBindGroup);
+  pass.setPipeline(orderingPipeline);
+  pass.dispatchWorkgroups(Math.max(1, Math.ceil(resources.tileCount / 64)));
   pass.setBindGroup(0, bindGroup);
   pass.setPipeline(compositorPipeline);
   pass.dispatchWorkgroups(
@@ -916,6 +1053,13 @@ fn finalizeSummary() {
     0,
     summaryData.byteLength
   );
+  encoder.copyBufferToBuffer(
+    orderingSummaryBuffer,
+    0,
+    orderingSummaryReadbackBuffer,
+    0,
+    orderingSummaryData.byteLength
+  );
   device.queue.submit([encoder.finish()]);
   if (typeof device.queue.onSubmittedWorkDone === 'function') {
     await device.queue.onSubmittedWorkDone();
@@ -923,11 +1067,17 @@ fn finalizeSummary() {
   await summaryReadbackBuffer.mapAsync(GPUMapMode.READ);
   const compositorSummary = new Float32Array(summaryReadbackBuffer.getMappedRange().slice(0));
   summaryReadbackBuffer.unmap();
+  await orderingSummaryReadbackBuffer.mapAsync(GPUMapMode.READ);
+  const orderingSummaryRaw = new Uint32Array(
+    orderingSummaryReadbackBuffer.getMappedRange().slice(0)
+  );
+  orderingSummaryReadbackBuffer.unmap();
   await textureReadbackBuffer.mapAsync(GPUMapMode.READ);
   const textureReadback = new Uint8Array(textureReadbackBuffer.getMappedRange().slice(0));
   textureReadbackBuffer.unmap();
 
   const summary = readCompositorSummary(compositorSummary);
+  const orderingSummary = readOrderingSummary(orderingSummaryRaw);
   summary.sourceTotalTileReferenceCount =
     sourceContract?.totalTileReferenceCount ?? summary.compositedReferenceCount;
   const diagnosticTextureReadbackNonZero = hasNonZeroTextureByte(
@@ -974,8 +1124,10 @@ fn finalizeSummary() {
     textureStats.nonzeroPixelRatio > 0 &&
     summary.debugPatternBypassedForCompositor;
   const step89RealCompositorOutputPreserved = realTileCompositorOutputReady;
-  const compositorDispatchCount = 2;
+  const sortOrOrderingDispatchCount = 1;
+  const compositorDispatchCount = 3;
   const compositorWorkItemCount = Math.max(1, outputWidth * outputHeight);
+  const orderingWorkItemCount = referenceCapacity;
   const diagnosticSummaryReadbackUsed = true;
   const diagnosticTextureReadbackUsed = true;
   let readbackFreeSteadyStateCompositorUsed = false;
@@ -1145,8 +1297,52 @@ fn finalizeSummary() {
     realtimeReadinessImproved &&
     runtimeTelemetryReady &&
     textureStats.nonzeroPixelRatio > 0;
+  const orderedReferencesGeneratedOrUpdatedOnGpu =
+    orderingSummary.orderedBufferWritten === true &&
+    orderingSummary.orderedReferenceUpdateCount === summary.sourceTotalTileReferenceCount &&
+    orderingSummary.sourceReferenceCount === summary.sourceTotalTileReferenceCount;
+  const perTileOrderingRuntimePathUsed =
+    orderedReferencesGeneratedOrUpdatedOnGpu &&
+    summary.orderedTileReferencesConsumed === true &&
+    orderingSummary.orderingStatusCode === 91;
+  const orderedReferencesConsumedByProductionAccumulation =
+    perTileOrderingRuntimePathUsed &&
+    summary.depthOrderedAccumulationUsed === true &&
+    summary.alphaAccumulationUsed === true &&
+    summary.colorAccumulationUsed === true &&
+    summary.tileCompositorContributionCount > 0;
+  const gpuOwnedOrderedReferenceRatio =
+    summary.sourceTotalTileReferenceCount > 0
+      ? orderingSummary.orderedReferenceUpdateCount / summary.sourceTotalTileReferenceCount
+      : 0;
+  const tileReferenceBufferLifecycleReady =
+    gpuOwnedRuntimeResourcesUsed &&
+    orderedReferenceBufferBytes > 0 &&
+    orderingSummary.referenceCapacity === referenceCapacity &&
+    perTileOrderingRuntimePathUsed;
+  const step90RuntimePathPreserved =
+    realtimeReadinessImproved &&
+    runtimeTelemetryReady &&
+    runtimeCompositorDoesNotDependOnCaptureReadback;
+  const productionAccumulationPathImproved =
+    orderedReferencesConsumedByProductionAccumulation &&
+    realTileCompositorOutputReady &&
+    step90RuntimePathPreserved;
+  const gpuSideTileOrderingReady =
+    productionAccumulationPathImproved &&
+    tileReferenceBufferLifecycleReady &&
+    gpuOwnedOrderedReferenceRatio >= 1;
 
-  for (const buffer of [summaryBuffer, paramsBuffer, summaryReadbackBuffer, textureReadbackBuffer]) {
+  for (const buffer of [
+    summaryBuffer,
+    paramsBuffer,
+    summaryReadbackBuffer,
+    textureReadbackBuffer,
+    orderingSummaryBuffer,
+    orderingParamsBuffer,
+    orderingSummaryReadbackBuffer,
+    orderedReferenceBuffer
+  ]) {
     if (typeof buffer.destroy === 'function') {
       buffer.destroy();
     }
@@ -1189,6 +1385,8 @@ fn finalizeSummary() {
         'tile-list-offset-count-read',
         'splat-reference-list-traversal',
         'depth-aware-reference-selection',
+        'gpu-side-ordered-reference-buffer-update',
+        'production-accumulation-consumes-gpu-updated-ordered-refs',
         'sort-key-descending-compositor-order',
         'gaussian-footprint-weighted-alpha-accumulation',
         'gaussian-attribute-color-accumulation',
@@ -1197,12 +1395,13 @@ fn finalizeSummary() {
         'gpu-owned-runtime-resource-flow'
       ],
       deferredCompositorFields: [
-        'full-parallel-per-tile-sort-dispatch',
+        'full-parallel-per-tile-sort-parity',
         'cuda-compositor-parity',
         'final-production-tile-compositor',
         'chunk-lod-streaming'
       ],
-      compositorClassification: 'partial-webgpu-realtime-tile-compositor-runtime',
+      compositorClassification:
+        'partial-webgpu-gpu-side-tile-ordering-production-accumulation',
       fullDepthSortInWgsl: false,
       fullCudaParity: false,
       finalProductionTileCompositor: false,
@@ -1312,6 +1511,20 @@ fn finalizeSummary() {
       cpuGpuSyncDependencyReduced,
       realtimeReadinessImproved,
       step89RealCompositorOutputPreserved,
+      gpuSideTileOrderingReady,
+      perTileOrderingRuntimePathUsed,
+      orderedReferencesGeneratedOrUpdatedOnGpu,
+      orderedReferencesConsumedByProductionAccumulation,
+      productionAccumulationPathImproved,
+      tileReferenceBufferLifecycleReady,
+      sortOrOrderingDispatchCount,
+      orderingWorkItemCount,
+      orderingScratchBufferBytes: orderingSummaryData.byteLength,
+      orderedReferenceBufferBytes,
+      gpuOwnedOrderedReferenceRatio,
+      step90RuntimePathPreserved,
+      step91ProductionAccumulationMode:
+        'gpu-updated-ordered-reference-buffer-depth-aware-alpha-color-accumulation',
       deferredProductionItems: [
         'full-cuda-parity',
         'final-production-compositor',

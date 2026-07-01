@@ -4698,6 +4698,235 @@ def build_step90_realtime_runtime_path_summary(
     }
 
 
+def build_step91_gpu_side_tile_ordering_summary(
+    summary: Dict[str, Any],
+) -> Dict[str, Any]:
+    frame_contract = get_path(
+        summary,
+        ["webgpuTileCompositorFrameImplementation"],
+        {},
+    )
+    compositor_contract = get_path(
+        summary,
+        ["webgpuTileListCompositorContract"],
+        {},
+    )
+    phase_step = get_path(summary, ["phaseStep"])
+    steady_state_counts_clear = (
+        numeric_value(get_path(frame_contract, ["steadyStateBlankFrameCount"]), 0) == 0
+        and numeric_value(get_path(frame_contract, ["steadyStateNoOpFrameCount"]), 0) == 0
+        and numeric_value(get_path(frame_contract, ["steadyStateClearFrameCount"]), 0) == 0
+        and numeric_value(get_path(frame_contract, ["steadyStateUnknownFrameCount"]), 0) == 0
+        and numeric_value(get_path(frame_contract, ["steadyStateNormalBackendFrameCount"]), 0) == 0
+        and numeric_value(get_path(frame_contract, ["steadyStateWebgl2FallbackFrameCount"]), 0) == 0
+    )
+    step88_presentation_contract_preserved = (
+        get_path(frame_contract, ["selectedFrameImplementation"])
+        == "webgpu-tile-compositor-frame-implementation"
+        and get_path(frame_contract, ["frameImplementationSelected"]) is True
+        and get_path(frame_contract, ["frameImplementationExecuted"]) is True
+        and get_path(frame_contract, ["frameImplementationReady"]) is True
+        and get_path(frame_contract, ["steadyStateSamplingReady"]) is True
+        and get_path(frame_contract, ["steadyStateTileCompositorOwnsFinalPresentation"]) is True
+        and get_path(frame_contract, ["steadyStateFinalPresentSourceStable"]) is True
+        and get_path(frame_contract, ["steadyStateFinalPresentSourceAlternates"]) is False
+        and steady_state_counts_clear
+        and get_path(frame_contract, ["currentTextureUsesWebGpuTileCompositorOutput"]) is True
+        and get_path(frame_contract, ["currentTextureViewFreshPerPresentation"]) is True
+        and get_path(frame_contract, ["webgpuDeviceConsistencyReady"]) is True
+        and get_path(frame_contract, ["webgpuValidationErrorDetected"]) is False
+        and get_path(frame_contract, ["invalidCommandBufferDetected"]) is False
+        and get_path(frame_contract, ["queueSubmitFailureDetected"]) is False
+        and get_path(frame_contract, ["step85TileCompositorPathPreserved"]) is True
+        and get_path(frame_contract, ["step86BoundaryContractPreserved"]) is True
+        and get_path(frame_contract, ["step87DepthOrderingPreserved"]) is True
+        and get_path(frame_contract, ["webgpuWebgl2SameFramePresentationMixed"]) is False
+        and get_path(frame_contract, ["fallbackMixingPrevented"]) is True
+    )
+    step89_output_preserved = (
+        get_path(compositor_contract, ["step89RealCompositorOutputPreserved"]) is True
+        and get_path(compositor_contract, ["realTileCompositorOutputReady"]) is True
+        and get_path(compositor_contract, ["gaussianAttributePayloadConsumed"]) is True
+        and get_path(compositor_contract, ["footprintPayloadConsumed"]) is True
+        and get_path(compositor_contract, ["orderedTileReferencesConsumed"]) is True
+        and get_path(compositor_contract, ["depthOrderedAccumulationUsed"]) is True
+        and get_path(compositor_contract, ["alphaAccumulationUsed"]) is True
+        and get_path(compositor_contract, ["colorAccumulationUsed"]) is True
+        and numeric_value(get_path(compositor_contract, ["tileCompositorContributionCount"]), 0) > 0
+        and numeric_value(get_path(compositor_contract, ["nonzeroOutputRatio"]), 0) > 0
+    )
+    step90_runtime_preserved = (
+        get_path(compositor_contract, ["step90RuntimePathPreserved"]) is True
+        and get_path(compositor_contract, ["realTimeRuntimePathReady"]) is True
+        and get_path(compositor_contract, ["readbackFreeSteadyStateCompositorUsed"]) is True
+        and get_path(compositor_contract, ["runtimeCompositorDoesNotDependOnCaptureReadback"]) is True
+        and get_path(compositor_contract, ["gpuOwnedRuntimeResourcesUsed"]) is True
+        and get_path(compositor_contract, ["diagnosticReadbackSeparatedFromRuntimePath"]) is True
+        and get_path(compositor_contract, ["runtimeTelemetryReady"]) is True
+        and get_path(compositor_contract, ["cpuGpuSyncDependencyReduced"]) is True
+        and get_path(compositor_contract, ["realtimeReadinessImproved"]) is True
+    )
+    gpu_side_ordering_ready = (
+        get_path(compositor_contract, ["gpuSideTileOrderingReady"]) is True
+        and get_path(compositor_contract, ["perTileOrderingRuntimePathUsed"]) is True
+        and get_path(compositor_contract, ["orderedReferencesGeneratedOrUpdatedOnGpu"]) is True
+        and get_path(compositor_contract, ["orderedReferencesConsumedByProductionAccumulation"]) is True
+        and get_path(compositor_contract, ["productionAccumulationPathImproved"]) is True
+        and get_path(compositor_contract, ["tileReferenceBufferLifecycleReady"]) is True
+        and get_path(compositor_contract, ["orderedReferenceCountMatchesSource"]) is True
+        and numeric_value(get_path(compositor_contract, ["tileReferenceCount"]), 0) > 0
+        and numeric_value(get_path(compositor_contract, ["orderedReferenceCount"]), 0) > 0
+        and numeric_value(get_path(compositor_contract, ["sortOrOrderingDispatchCount"]), 0) > 0
+        and numeric_value(get_path(compositor_contract, ["orderingWorkItemCount"]), 0) > 0
+        and numeric_value(get_path(compositor_contract, ["orderedReferenceBufferBytes"]), 0) > 0
+        and numeric_value(get_path(compositor_contract, ["gpuOwnedOrderedReferenceRatio"]), 0) >= 1
+    )
+    success = (
+        phase_step == "phase3-step91"
+        and step88_presentation_contract_preserved
+        and step89_output_preserved
+        and step90_runtime_preserved
+        and gpu_side_ordering_ready
+        and get_path(frame_contract, ["fullRendererSuccessClaimed"]) is False
+    )
+    blocked_reason = None
+    if not success:
+        if phase_step != "phase3-step91":
+            blocked_reason = "summary-phase-step-is-not-phase3-step91"
+        elif not step88_presentation_contract_preserved:
+            blocked_reason = "step88-steady-state-presentation-contract-not-preserved"
+        elif not step89_output_preserved:
+            blocked_reason = "step89-real-compositor-output-not-preserved"
+        elif not step90_runtime_preserved:
+            blocked_reason = "step90-realtime-runtime-path-not-preserved"
+        elif not gpu_side_ordering_ready:
+            blocked_reason = "step91-gpu-side-tile-ordering-not-ready"
+        else:
+            blocked_reason = "step91-runtime-validation-failed"
+    return {
+        "step91Decision": "success" if success else "blocked",
+        "step91BlockedReason": blocked_reason,
+        "step91SelectedGoal":
+            "A+B+C-gpu-side-ordered-reference-buffer-production-accumulation",
+        "phaseStep": phase_step,
+        "step91SummaryApplies": phase_step == "phase3-step91",
+        "selectedFrameImplementation": get_path(frame_contract, ["selectedFrameImplementation"]),
+        "frameImplementationSelected": get_path(frame_contract, ["frameImplementationSelected"]),
+        "frameImplementationExecuted": get_path(frame_contract, ["frameImplementationExecuted"]),
+        "frameImplementationReady": get_path(frame_contract, ["frameImplementationReady"]),
+        "gpuSideTileOrderingReady": get_path(compositor_contract, ["gpuSideTileOrderingReady"]),
+        "perTileOrderingRuntimePathUsed": get_path(compositor_contract, ["perTileOrderingRuntimePathUsed"]),
+        "orderedReferencesGeneratedOrUpdatedOnGpu": get_path(
+            compositor_contract,
+            ["orderedReferencesGeneratedOrUpdatedOnGpu"],
+        ),
+        "orderedReferencesConsumedByProductionAccumulation": get_path(
+            compositor_contract,
+            ["orderedReferencesConsumedByProductionAccumulation"],
+        ),
+        "productionAccumulationPathImproved": get_path(
+            compositor_contract,
+            ["productionAccumulationPathImproved"],
+        ),
+        "tileReferenceBufferLifecycleReady": get_path(
+            compositor_contract,
+            ["tileReferenceBufferLifecycleReady"],
+        ),
+        "tileReferenceCount": get_path(compositor_contract, ["tileReferenceCount"]),
+        "orderedReferenceCount": get_path(compositor_contract, ["orderedReferenceCount"]),
+        "orderedReferenceCountMatchesSource": get_path(
+            compositor_contract,
+            ["orderedReferenceCountMatchesSource"],
+        ),
+        "sortOrOrderingDispatchCount": get_path(compositor_contract, ["sortOrOrderingDispatchCount"]),
+        "orderingWorkItemCount": get_path(compositor_contract, ["orderingWorkItemCount"]),
+        "orderingScratchBufferBytes": get_path(compositor_contract, ["orderingScratchBufferBytes"]),
+        "orderedReferenceBufferBytes": get_path(compositor_contract, ["orderedReferenceBufferBytes"]),
+        "gpuOwnedOrderedReferenceRatio": get_path(
+            compositor_contract,
+            ["gpuOwnedOrderedReferenceRatio"],
+        ),
+        "step91ProductionAccumulationMode": get_path(
+            compositor_contract,
+            ["step91ProductionAccumulationMode"],
+        ),
+        "step90RuntimePathPreserved": step90_runtime_preserved,
+        "realTimeRuntimePathReady": get_path(compositor_contract, ["realTimeRuntimePathReady"]),
+        "readbackFreeSteadyStateCompositorUsed": get_path(
+            compositor_contract,
+            ["readbackFreeSteadyStateCompositorUsed"],
+        ),
+        "runtimeCompositorDoesNotDependOnCaptureReadback": get_path(
+            compositor_contract,
+            ["runtimeCompositorDoesNotDependOnCaptureReadback"],
+        ),
+        "gpuOwnedRuntimeResourcesUsed": get_path(compositor_contract, ["gpuOwnedRuntimeResourcesUsed"]),
+        "diagnosticReadbackSeparatedFromRuntimePath": get_path(
+            compositor_contract,
+            ["diagnosticReadbackSeparatedFromRuntimePath"],
+        ),
+        "step89RealCompositorOutputPreserved": step89_output_preserved,
+        "gaussianAttributePayloadConsumed": get_path(compositor_contract, ["gaussianAttributePayloadConsumed"]),
+        "footprintPayloadConsumed": get_path(compositor_contract, ["footprintPayloadConsumed"]),
+        "orderedTileReferencesConsumed": get_path(compositor_contract, ["orderedTileReferencesConsumed"]),
+        "depthOrderedAccumulationUsed": get_path(compositor_contract, ["depthOrderedAccumulationUsed"]),
+        "alphaAccumulationUsed": get_path(compositor_contract, ["alphaAccumulationUsed"]),
+        "colorAccumulationUsed": get_path(compositor_contract, ["colorAccumulationUsed"]),
+        "tileCompositorContributionCount": get_path(
+            compositor_contract,
+            ["tileCompositorContributionCount"],
+        ),
+        "nonzeroOutputRatio": get_path(compositor_contract, ["nonzeroOutputRatio"]),
+        "step88PresentationContractPreserved": step88_presentation_contract_preserved,
+        "steadyStateSampledRafCount": get_path(frame_contract, ["steadyStateSampledRafCount"]),
+        "steadyStateTileCompositorOwnsFinalPresentation": get_path(
+            frame_contract,
+            ["steadyStateTileCompositorOwnsFinalPresentation"],
+        ),
+        "steadyStateBlankFrameCount": get_path(frame_contract, ["steadyStateBlankFrameCount"]),
+        "steadyStateNoOpFrameCount": get_path(frame_contract, ["steadyStateNoOpFrameCount"]),
+        "steadyStateClearFrameCount": get_path(frame_contract, ["steadyStateClearFrameCount"]),
+        "steadyStateUnknownFrameCount": get_path(frame_contract, ["steadyStateUnknownFrameCount"]),
+        "steadyStateNormalBackendFrameCount": get_path(
+            frame_contract,
+            ["steadyStateNormalBackendFrameCount"],
+        ),
+        "steadyStateWebgl2FallbackFrameCount": get_path(
+            frame_contract,
+            ["steadyStateWebgl2FallbackFrameCount"],
+        ),
+        "currentTextureUsesWebGpuTileCompositorOutput": get_path(
+            frame_contract,
+            ["currentTextureUsesWebGpuTileCompositorOutput"],
+        ),
+        "currentTextureViewFreshPerPresentation": get_path(
+            frame_contract,
+            ["currentTextureViewFreshPerPresentation"],
+        ),
+        "webgpuDeviceConsistencyReady": get_path(frame_contract, ["webgpuDeviceConsistencyReady"]),
+        "webgpuValidationErrorDetected": get_path(frame_contract, ["webgpuValidationErrorDetected"]),
+        "invalidCommandBufferDetected": get_path(frame_contract, ["invalidCommandBufferDetected"]),
+        "queueSubmitFailureDetected": get_path(frame_contract, ["queueSubmitFailureDetected"]),
+        "step85TileCompositorPathPreserved": get_path(frame_contract, ["step85TileCompositorPathPreserved"]),
+        "step86BoundaryContractPreserved": get_path(frame_contract, ["step86BoundaryContractPreserved"]),
+        "step87DepthOrderingPreserved": get_path(frame_contract, ["step87DepthOrderingPreserved"]),
+        "webgpuWebgl2SameFramePresentationMixed": get_path(
+            frame_contract,
+            ["webgpuWebgl2SameFramePresentationMixed"],
+        ),
+        "fallbackMixingPrevented": get_path(frame_contract, ["fallbackMixingPrevented"]),
+        "generatedCompositorFields": get_path(compositor_contract, ["generatedCompositorFields"], []),
+        "deferredProductionItems": get_path(compositor_contract, ["deferredProductionItems"], []),
+        "deferredCompositorFields": get_path(compositor_contract, ["deferredCompositorFields"], []),
+        "fullCudaParityDeferred": get_path(frame_contract, ["fullCudaParityDeferred"]),
+        "finalProductionCompositorDeferred": get_path(
+            frame_contract,
+            ["finalProductionCompositorDeferred"],
+        ),
+        "fullRendererSuccessClaimed": get_path(frame_contract, ["fullRendererSuccessClaimed"]),
+    }
+
+
 def build_step75_camera_aware_visible_summary(
     summary: Dict[str, Any],
     webgpu_camera_aware_visible_output: Dict[str, Any],
@@ -5897,6 +6126,9 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
     step90_realtime_runtime_path = (
         build_step90_realtime_runtime_path_summary(summary)
     )
+    step91_gpu_side_tile_ordering = (
+        build_step91_gpu_side_tile_ordering_summary(summary)
+    )
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -5948,6 +6180,8 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             step89_real_tile_compositor_output,
         "step90RealtimeRuntimePath":
             step90_realtime_runtime_path,
+        "step91GpuSideTileOrdering":
+            step91_gpu_side_tile_ordering,
         "comparisonContract": get_path(summary, ["comparisonContract"], {}),
         "comparisonTolerance": get_path(summary, ["comparisonTolerance"], {}),
         "radiusContract": get_path(summary, ["radiusContract"], {}),
@@ -11012,6 +11246,12 @@ def print_human_summary(summary: Dict[str, Any]) -> None:
         "Step90 realtime WebGPU compositor runtime path",
         summary.get("webgpuVisibleRecordDryRun", {}).get(
             "step90RealtimeRuntimePath"
+        ),
+    )
+    print_section(
+        "Step91 WebGPU GPU-side tile ordering",
+        summary.get("webgpuVisibleRecordDryRun", {}).get(
+            "step91GpuSideTileOrdering"
         ),
     )
     print_section("WebGPU visible record dry-run", summary.get("webgpuVisibleRecordDryRun"))
