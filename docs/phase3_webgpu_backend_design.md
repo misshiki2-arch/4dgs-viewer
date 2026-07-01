@@ -1491,6 +1491,38 @@ owner.
   parallel sorting, compacted prefix/list ownership, streaming, chunking, LOD,
   and partial upload remain deferred.
 
+## Step89 WebGPU Real Tile-Compositor Output
+
+Step89 keeps the Step88 viewer-loop ownership and presentation heartbeat intact
+while moving the tile compositor output away from diagnostic tile-grid color.
+The compositor now writes a canvas-resolution `rgba8unorm` output texture by
+walking the GPU-owned tile list, selecting depth-ordered references, reading the
+WebGPU Gaussian attribute payload and footprint payload, and applying a partial
+Gaussian alpha/color accumulation per output pixel.
+
+- selected goal: Step89 combines A, B, and C. It advances the compositor output
+  itself, connects the existing Gaussian attribute and footprint payloads, and
+  makes depth-ordered references contribute to accumulation rather than only to
+  metadata.
+- payload use: `gaussianAttributePayloadConsumed`,
+  `footprintPayloadConsumed`, `orderedTileReferencesConsumed`,
+  `depthOrderedAccumulationUsed`, `alphaAccumulationUsed`, and
+  `colorAccumulationUsed` report whether the compositor consumed the real
+  render inputs.
+- output evidence: `realTileCompositorOutputReady`,
+  `debugOutputBypassedForCompositor`,
+  `tileCompositorContributionCount`,
+  `tileCompositorNonzeroOutputRatio`, and
+  `tileCompositorOutputChangedFromDebugPattern` distinguish the Step89 output
+  from the earlier tile-grid diagnostic pattern.
+- preservation: Step89 success still requires the Step88 steady-state
+  presentation contract, fresh currentTexture views, matching WebGPU device
+  ownership, and no normal backend / WebGL2 fallback / clear / no-op
+  final-present frames in steady state.
+- classification: Step89 remains a partial WebGPU tile compositor. Full CUDA
+  parity, final production compositor behavior, full parallel per-tile sorting,
+  and streaming/chunk/LOD integration remain deferred.
+
 ## Step86 Phase 3 WebGPU Backend Boundary and Dirty Contract Hardening
 
 Step86 freezes the ownership boundaries added during Steps80-85 before the

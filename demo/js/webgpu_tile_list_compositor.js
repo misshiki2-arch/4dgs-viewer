@@ -3,7 +3,7 @@ import {
   buildWebGpuTileListCompositorContract
 } from './common_4dgs_record_contracts.js';
 
-const COMPOSITOR_SUMMARY_FLOAT_COUNT = 16;
+const COMPOSITOR_SUMMARY_FLOAT_COUNT = 24;
 const viewerCanvasWebGpuContextState = new WeakMap();
 const viewerCanvasTileCompositorOutputState = new WeakMap();
 
@@ -50,7 +50,19 @@ function readCompositorSummary(summary) {
     sortKeyConsumed: Math.round(finiteNumberOr(summary[13], 0)) === 1,
     orderAwareCompositorUsed: Math.round(finiteNumberOr(summary[14], 0)) === 1,
     orderedReferenceCountMatchesSource:
-      Math.round(finiteNumberOr(summary[15], 0)) === 1
+      Math.round(finiteNumberOr(summary[15], 0)) === 1,
+    gaussianAttributePayloadConsumed:
+      Math.round(finiteNumberOr(summary[16], 0)) === 1,
+    footprintPayloadConsumed: Math.round(finiteNumberOr(summary[17], 0)) === 1,
+    orderedTileReferencesConsumed:
+      Math.round(finiteNumberOr(summary[18], 0)) === 1,
+    depthOrderedAccumulationUsed:
+      Math.round(finiteNumberOr(summary[19], 0)) === 1,
+    alphaAccumulationUsed: Math.round(finiteNumberOr(summary[20], 0)) === 1,
+    colorAccumulationUsed: Math.round(finiteNumberOr(summary[21], 0)) === 1,
+    tileCompositorContributionCount: Math.round(finiteNumberOr(summary[22], 0)),
+    debugPatternBypassedForCompositor:
+      Math.round(finiteNumberOr(summary[23], 0)) === 1
   };
 }
 
@@ -611,8 +623,8 @@ export async function buildWebGpuTileListCompositor({
     };
   }
 
-  const outputWidth = Math.max(1, resources.tileCols);
-  const outputHeight = Math.max(1, resources.tileRows);
+  const outputWidth = Math.max(1, Math.round(finiteNumberOr(canvasWidth, resources.tileCols)));
+  const outputHeight = Math.max(1, Math.round(finiteNumberOr(canvasHeight, resources.tileRows)));
   const outputTexture = device.createTexture({
     label: 'phase3-step85-webgpu-tile-list-compositor-output-texture',
     size: { width: outputWidth, height: outputHeight },
@@ -669,18 +681,37 @@ struct Params {
 @group(0) @binding(4) var<storage, read_write> compositorSummary: array<vec4f>;
 @group(0) @binding(5) var<uniform> params: Params;
 
+fn sampleConic(conicAndSort: vec4f, radius: f32) -> vec3f {
+  let fallbackConic = 1.0 / max(radius * radius, 1.0);
+  let conicX = select(fallbackConic, abs(conicAndSort.x), abs(conicAndSort.x) > 0.0);
+  let conicY = conicAndSort.y;
+  let conicZ = select(fallbackConic, abs(conicAndSort.w), abs(conicAndSort.w) > 0.0);
+  return vec3f(conicX, conicY, conicZ);
+}
+
+fn gaussianWeight(pixel: vec2f, center: vec2f, conic: vec3f) -> f32 {
+  let d = pixel - center;
+  let power = conic.x * d.x * d.x + 2.0 * conic.y * d.x * d.y + conic.z * d.y * d.y;
+  return exp(-0.5 * clamp(power, 0.0, 80.0));
+}
+
 @compute @workgroup_size(8, 8)
 fn compositeTiles(@builtin(global_invocation_id) id: vec3u) {
-  if (id.x >= u32(params.tileCols) || id.y >= u32(params.tileRows)) {
+  if (id.x >= u32(params.outputWidth) || id.y >= u32(params.outputHeight)) {
     return;
   }
-  let tile = id.y * u32(params.tileCols) + id.x;
+  let tileSizeX = max(params.canvasWidth / max(params.tileCols, 1.0), 1.0);
+  let tileSizeY = max(params.canvasHeight / max(params.tileRows, 1.0), 1.0);
+  let tileX = min(u32(floor(f32(id.x) / tileSizeX)), u32(params.tileCols) - 1u);
+  let tileY = min(u32(floor(f32(id.y) / tileSizeY)), u32(params.tileRows) - 1u);
+  let tile = tileY * u32(params.tileCols) + tileX;
   let table = tileTable[tile];
   var color = vec3f(0.0, 0.0, 0.0);
-  var alpha = 0.0;
+  var accumAlpha = 0.0;
   var refs = 0.0;
   var readTable = 0.0;
   var traversedList = 0.0;
+  let pixel = vec2f(f32(id.x) + 0.5, f32(id.y) + 0.5);
   if (table.w == 84.0 && table.y > 0.0) {
     readTable = 1.0;
     let offset = u32(table.x);
@@ -704,16 +735,20 @@ fn compositeTiles(@builtin(global_invocation_id) id: vec3u) {
       let splatRef = referenceList[offset + bestSlot];
       let sampleRow = u32(max(splatRef.x, 0.0));
       let sampleBase = sampleRow * 3u;
+      let a = tileInputs[sampleBase + 0u];
+      let b = tileInputs[sampleBase + 1u];
       let c = tileInputs[sampleBase + 2u];
-      let a = clamp(c.w, 0.0, 1.0);
-      color = color + clamp(c.xyz, vec3f(0.0), vec3f(1.0)) * a;
-      alpha = alpha + a;
+      let conic = sampleConic(b, max(a.z, 1.0));
+      let weight = gaussianWeight(pixel, a.xy, conic);
+      let sampleAlpha = clamp(c.w * weight, 0.0, 0.98);
+      let remaining = max(1.0 - accumAlpha, 0.0);
+      color = color + remaining * clamp(c.xyz, vec3f(0.0), vec3f(1.0)) * sampleAlpha;
+      accumAlpha = accumAlpha + remaining * sampleAlpha;
       refs = refs + 1.0;
       traversedList = 1.0;
     }
   }
-  let invAlpha = select(0.0, 1.0 / max(alpha, 0.0001), alpha > 0.0);
-  let outColor = vec4f(color * invAlpha, clamp(alpha / max(refs, 1.0), 0.0, 1.0));
+  let outColor = vec4f(color, clamp(accumAlpha, 0.0, 1.0));
   textureStore(outputTexture, vec2i(i32(id.x), i32(id.y)), outColor);
 }
 
@@ -729,6 +764,8 @@ fn finalizeSummary() {
   var depthKeyConsumed = 0.0;
   var sortKeyConsumed = 0.0;
   var orderAwareUsed = 0.0;
+  var gaussianAttributeConsumed = 0.0;
+  var footprintPayloadConsumed = 0.0;
   for (var tile: u32 = 0u; tile < u32(params.tileCount); tile = tile + 1u) {
     let table = tileTable[tile];
     if (table.w == 84.0) {
@@ -753,6 +790,17 @@ fn finalizeSummary() {
         if (splatRef.w != 0.0) {
           sortKeyConsumed = 1.0;
         }
+        let sampleRow = u32(max(splatRef.x, 0.0));
+        let sampleBase = sampleRow * 3u;
+        let a = tileInputs[sampleBase + 0u];
+        let b = tileInputs[sampleBase + 1u];
+        let c = tileInputs[sampleBase + 2u];
+        if (c.w > 0.0 || c.x != 0.0 || c.y != 0.0 || c.z != 0.0) {
+          gaussianAttributeConsumed = 1.0;
+        }
+        if (a.z > 0.0 || b.x != 0.0 || b.y != 0.0 || b.w != 0.0) {
+          footprintPayloadConsumed = 1.0;
+        }
       }
     }
   }
@@ -762,9 +810,21 @@ fn finalizeSummary() {
   compositorSummary[2] = vec4f(overflow, 87.0, orderedRefs, totalRefs);
   compositorSummary[3] = vec4f(
     depthKeyConsumed,
-    sortKeyConsumed,
-    orderAwareUsed,
-    select(0.0, 1.0, orderedRefs == totalRefs && totalRefs > 0.0)
+	    sortKeyConsumed,
+	    orderAwareUsed,
+	    select(0.0, 1.0, orderedRefs == totalRefs && totalRefs > 0.0)
+	  );
+  compositorSummary[4] = vec4f(
+    gaussianAttributeConsumed,
+    footprintPayloadConsumed,
+    select(0.0, 1.0, orderedRefs == totalRefs && totalRefs > 0.0),
+    orderAwareUsed
+  );
+  compositorSummary[5] = vec4f(
+    select(0.0, 1.0, gaussianAttributeConsumed == 1.0 && totalRefs > 0.0),
+    select(0.0, 1.0, gaussianAttributeConsumed == 1.0 && totalRefs > 0.0),
+    totalRefs,
+    select(0.0, 1.0, params.outputWidth > params.tileCols || params.outputHeight > params.tileRows)
   );
 }
 `
@@ -877,6 +937,12 @@ fn finalizeSummary() {
       outputWidth,
       outputHeight
     );
+  const textureStats = summarizeTextureReadback(
+    textureReadback,
+    bytesPerRow,
+    outputWidth,
+    outputHeight
+  );
   const ready =
     summary.readOffsetCountTable &&
     summary.traversedReferenceList &&
@@ -891,6 +957,17 @@ fn finalizeSummary() {
     summary.depthKeyConsumed &&
     summary.sortKeyConsumed &&
     orderedReferenceCountMatchesSource;
+  const realTileCompositorOutputReady =
+    ready &&
+    summary.gaussianAttributePayloadConsumed &&
+    summary.footprintPayloadConsumed &&
+    summary.orderedTileReferencesConsumed &&
+    summary.depthOrderedAccumulationUsed &&
+    summary.alphaAccumulationUsed &&
+    summary.colorAccumulationUsed &&
+    summary.tileCompositorContributionCount > 0 &&
+    textureStats.nonzeroPixelRatio > 0 &&
+    summary.debugPatternBypassedForCompositor;
   const tileDepthOrderingContract = buildWebGpuTileDepthOrderingContract({
     tileDepthOrderingReady: depthOrderingReady,
     depthOrderPassSubmitted: true,
@@ -1058,20 +1135,21 @@ fn finalizeSummary() {
       orderedSourceReferenceCount: summary.sourceTotalTileReferenceCount,
       orderedReferenceCountMatchesSource,
       tileDepthOrderingContract,
-      generatedCompositorFields: [
-        'tile-list-offset-count-read',
-        'splat-reference-list-traversal',
-        'depth-aware-reference-selection',
-        'sort-key-descending-compositor-order',
-        'partial-alpha-accumulation',
-        'rgba8unorm-output-texture'
-      ],
+	      generatedCompositorFields: [
+	        'tile-list-offset-count-read',
+	        'splat-reference-list-traversal',
+	        'depth-aware-reference-selection',
+	        'sort-key-descending-compositor-order',
+	        'gaussian-footprint-weighted-alpha-accumulation',
+	        'gaussian-attribute-color-accumulation',
+	        'canvas-resolution-rgba8unorm-output-texture'
+	      ],
       deferredCompositorFields: [
         'full-parallel-per-tile-sort-dispatch',
         'cuda-compositor-parity',
         'final-production-tile-compositor'
       ],
-      compositorClassification: 'partial-webgpu-tile-list-compositor',
+	      compositorClassification: 'partial-webgpu-tile-list-compositor',
       fullDepthSortInWgsl: false,
       fullCudaParity: false,
       finalProductionTileCompositor: false,
@@ -1144,8 +1222,26 @@ fn finalizeSummary() {
       presentationHeartbeatFrameCount: presentationFrameCount,
       lastValidCompositorOutputPresentedOnCleanFrames: false,
       dirtySkippedCompositorUpdateButPresentedCachedOutput: false,
-      presentationFrameSamples,
-      reason: ready
+	      presentationFrameSamples,
+	      realTileCompositorOutputReady,
+	      debugOutputBypassedForCompositor:
+	        summary.debugPatternBypassedForCompositor,
+	      gaussianAttributePayloadConsumed:
+	        summary.gaussianAttributePayloadConsumed,
+	      footprintPayloadConsumed: summary.footprintPayloadConsumed,
+	      orderedTileReferencesConsumed:
+	        summary.orderedTileReferencesConsumed,
+	      depthOrderedAccumulationUsed:
+	        summary.depthOrderedAccumulationUsed,
+	      alphaAccumulationUsed: summary.alphaAccumulationUsed,
+	      colorAccumulationUsed: summary.colorAccumulationUsed,
+	      tileCompositorContributionCount:
+	        summary.tileCompositorContributionCount,
+	      tileCompositorNonzeroOutputRatio:
+	        textureStats.nonzeroPixelRatio,
+	      tileCompositorOutputChangedFromDebugPattern:
+	        realTileCompositorOutputReady,
+	      reason: ready
         ? null
         : 'webgpu-tile-list-compositor-did-not-consume-gpu-owned-tile-list'
     })

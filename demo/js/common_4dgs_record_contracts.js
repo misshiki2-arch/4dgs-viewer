@@ -4,7 +4,7 @@ export const WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION =
 export const WEBGPU_VISIBLE_RECORD_COMPUTE_MODE =
   'webgpu-storage-buffer-compute-fixed-record';
 
-export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step88';
+export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step89';
 
 export const WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE =
   'wgsl-valid-screen-projection-with-true-native-bounded-color-sources';
@@ -16,7 +16,7 @@ export const WEBGPU_GPU_OWNED_TILE_LIST_LAYOUT_CONTRACT_VERSION =
   'phase3-step84-webgpu-gpu-owned-tile-list-layout-v1';
 
 export const WEBGPU_TILE_LIST_COMPOSITOR_CONTRACT_VERSION =
-  'phase3-step85-webgpu-tile-list-compositor-v2';
+  'phase3-step89-webgpu-real-tile-compositor-v1';
 
 export const WEBGPU_PHASE3_BACKEND_BOUNDARY_CONTRACT_VERSION =
   'phase3-step86-webgpu-backend-boundary-and-dirty-contract-v1';
@@ -698,6 +698,18 @@ export function buildWebGpuTileListCompositorContract({
   presentationFrameSamples = [],
   compositorCurrentTexturePresentationMode =
     'tile-compositor-output-texture-to-currentTexture-render-pass',
+  realTileCompositorOutputReady = false,
+  debugOutputBypassedForCompositor = false,
+  gaussianAttributePayloadConsumed = false,
+  footprintPayloadConsumed = false,
+  orderedTileReferencesConsumed = false,
+  depthOrderedAccumulationUsed = false,
+  alphaAccumulationUsed = false,
+  colorAccumulationUsed = false,
+  tileCompositorContributionCount = 0,
+  tileCompositorNonzeroOutputRatio = 0,
+  tileCompositorOutputChangedFromDebugPattern = false,
+  step88PresentationContractPreserved = false,
   reason = null
 } = {}) {
   const ready =
@@ -713,6 +725,18 @@ export function buildWebGpuTileListCompositorContract({
     compositedTileCount === nonEmptyCompositedTileCount &&
     nonEmptyCompositedTileCount > 0 &&
     compositedReferenceCount > 0;
+  const realOutputReady =
+    realTileCompositorOutputReady === true &&
+    debugOutputBypassedForCompositor === true &&
+    gaussianAttributePayloadConsumed === true &&
+    footprintPayloadConsumed === true &&
+    orderedTileReferencesConsumed === true &&
+    depthOrderedAccumulationUsed === true &&
+    alphaAccumulationUsed === true &&
+    colorAccumulationUsed === true &&
+    tileCompositorContributionCount > 0 &&
+    tileCompositorNonzeroOutputRatio > 0 &&
+    tileCompositorOutputChangedFromDebugPattern === true;
   return {
     contractVersion: WEBGPU_TILE_LIST_COMPOSITOR_CONTRACT_VERSION,
     status: ready ? 'ok' : status,
@@ -791,6 +815,18 @@ export function buildWebGpuTileListCompositorContract({
     presentationErrorMessage,
     presentationFrameSamples,
     compositorCurrentTexturePresentationMode,
+    realTileCompositorOutputReady: realOutputReady,
+    debugOutputBypassedForCompositor,
+    gaussianAttributePayloadConsumed,
+    footprintPayloadConsumed,
+    orderedTileReferencesConsumed,
+    depthOrderedAccumulationUsed,
+    alphaAccumulationUsed,
+    colorAccumulationUsed,
+    tileCompositorContributionCount,
+    tileCompositorNonzeroOutputRatio,
+    tileCompositorOutputChangedFromDebugPattern,
+    step88PresentationContractPreserved,
     reason
   };
 }

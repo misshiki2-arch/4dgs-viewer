@@ -30,6 +30,9 @@ function packTileInputSamples(samples) {
   samples.forEach((sample, index) => {
     const offset = index * TILE_INPUT_FLOAT_STRIDE;
     const footprint = sample?.footprintPayload ?? {};
+    const conic = Array.isArray(sample?.conic)
+      ? sample.conic
+      : (Array.isArray(footprint?.conic) ? footprint.conic : []);
     const colorAlpha = Array.isArray(sample?.colorAlpha)
       ? sample.colorAlpha
       : [
@@ -45,13 +48,10 @@ function packTileInputSamples(samples) {
       0
     );
     data[offset + 3] = finiteNumberOr(sample?.depth, 0);
-    data[offset + 4] = finiteNumberOr(sample?.recordIndex, index);
-    data[offset + 5] = finiteNumberOr(sample?.srcIndex, sample?.recordIndex ?? index);
+    data[offset + 4] = finiteNumberOr(conic[0], 0);
+    data[offset + 5] = finiteNumberOr(conic[1], 0);
     data[offset + 6] = finiteNumberOr(sample?.sortKey, sample?.depth ?? 0);
-    data[offset + 7] =
-      sample?.footprintPayloadSource === 'webgpu-gaussian-footprint-evaluator'
-        ? 1
-        : 0;
+    data[offset + 7] = finiteNumberOr(conic[2], 0);
     data[offset + 8] = finiteNumberOr(colorAlpha[0], 1);
     data[offset + 9] = finiteNumberOr(colorAlpha[1], 0);
     data[offset + 10] = finiteNumberOr(colorAlpha[2], 0);
