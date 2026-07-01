@@ -4,7 +4,7 @@ export const WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION =
 export const WEBGPU_VISIBLE_RECORD_COMPUTE_MODE =
   'webgpu-storage-buffer-compute-fixed-record';
 
-export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step89';
+export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step90';
 
 export const WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE =
   'wgsl-valid-screen-projection-with-true-native-bounded-color-sources';
@@ -16,7 +16,7 @@ export const WEBGPU_GPU_OWNED_TILE_LIST_LAYOUT_CONTRACT_VERSION =
   'phase3-step84-webgpu-gpu-owned-tile-list-layout-v1';
 
 export const WEBGPU_TILE_LIST_COMPOSITOR_CONTRACT_VERSION =
-  'phase3-step89-webgpu-real-tile-compositor-v1';
+  'phase3-step90-webgpu-realtime-runtime-path-v1';
 
 export const WEBGPU_PHASE3_BACKEND_BOUNDARY_CONTRACT_VERSION =
   'phase3-step86-webgpu-backend-boundary-and-dirty-contract-v1';
@@ -710,6 +710,25 @@ export function buildWebGpuTileListCompositorContract({
   tileCompositorNonzeroOutputRatio = 0,
   tileCompositorOutputChangedFromDebugPattern = false,
   step88PresentationContractPreserved = false,
+  realTimeRuntimePathReady = false,
+  readbackFreeSteadyStateCompositorUsed = false,
+  runtimeCompositorDoesNotDependOnCaptureReadback = false,
+  gpuOwnedRuntimeResourcesUsed = false,
+  diagnosticReadbackSeparatedFromRuntimePath = false,
+  debugPathSeparatedFromRuntimePath = false,
+  runtimeOutputReadyWithoutTextureReadback = false,
+  diagnosticTextureReadbackUsed = false,
+  diagnosticSummaryReadbackUsed = false,
+  compositorDispatchCount = 0,
+  compositorWorkItemCount = 0,
+  tileReferenceCount = 0,
+  accumulationContributionCount = 0,
+  nonzeroOutputRatio = 0,
+  runtimeTelemetryReady = false,
+  cpuGpuSyncDependencyReduced = false,
+  realtimeReadinessImproved = false,
+  step89RealCompositorOutputPreserved = false,
+  deferredProductionItems = [],
   reason = null
 } = {}) {
   const ready =
@@ -737,6 +756,24 @@ export function buildWebGpuTileListCompositorContract({
     tileCompositorContributionCount > 0 &&
     tileCompositorNonzeroOutputRatio > 0 &&
     tileCompositorOutputChangedFromDebugPattern === true;
+  const realtimeReady =
+    realTimeRuntimePathReady === true &&
+    readbackFreeSteadyStateCompositorUsed === true &&
+    runtimeCompositorDoesNotDependOnCaptureReadback === true &&
+    gpuOwnedRuntimeResourcesUsed === true &&
+    diagnosticReadbackSeparatedFromRuntimePath === true &&
+    debugPathSeparatedFromRuntimePath === true &&
+    runtimeOutputReadyWithoutTextureReadback === true &&
+    runtimeTelemetryReady === true &&
+    cpuGpuSyncDependencyReduced === true &&
+    realtimeReadinessImproved === true &&
+    step89RealCompositorOutputPreserved === true &&
+    compositorDispatchCount > 0 &&
+    compositorWorkItemCount > 0 &&
+    tileReferenceCount > 0 &&
+    orderedReferenceCount > 0 &&
+    accumulationContributionCount > 0 &&
+    nonzeroOutputRatio > 0;
   return {
     contractVersion: WEBGPU_TILE_LIST_COMPOSITOR_CONTRACT_VERSION,
     status: ready ? 'ok' : status,
@@ -827,6 +864,25 @@ export function buildWebGpuTileListCompositorContract({
     tileCompositorNonzeroOutputRatio,
     tileCompositorOutputChangedFromDebugPattern,
     step88PresentationContractPreserved,
+    realTimeRuntimePathReady: realtimeReady,
+    readbackFreeSteadyStateCompositorUsed,
+    runtimeCompositorDoesNotDependOnCaptureReadback,
+    gpuOwnedRuntimeResourcesUsed,
+    diagnosticReadbackSeparatedFromRuntimePath,
+    debugPathSeparatedFromRuntimePath,
+    runtimeOutputReadyWithoutTextureReadback,
+    diagnosticTextureReadbackUsed,
+    diagnosticSummaryReadbackUsed,
+    compositorDispatchCount,
+    compositorWorkItemCount,
+    tileReferenceCount,
+    accumulationContributionCount,
+    nonzeroOutputRatio,
+    runtimeTelemetryReady,
+    cpuGpuSyncDependencyReduced,
+    realtimeReadinessImproved,
+    step89RealCompositorOutputPreserved,
+    deferredProductionItems,
     reason
   };
 }

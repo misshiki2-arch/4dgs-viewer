@@ -1523,6 +1523,33 @@ Gaussian alpha/color accumulation per output pixel.
   parity, final production compositor behavior, full parallel per-tile sorting,
   and streaming/chunk/LOD integration remain deferred.
 
+## Step90 WebGPU Realtime Runtime Path v1
+
+Step90 keeps the Step88 steady-state presentation owner and the Step89 real
+tile-compositor output, but changes the success boundary for the viewer runtime
+path. The WebGPU compositor runtime now treats the GPU-owned tile list,
+ordered references, Gaussian attributes, footprint payload, and compositor
+output texture as the primary steady-state path. Texture and summary readbacks
+remain available for diagnostics, but the runtime path is classified separately
+from capture/readback validation.
+
+- selected goal: Step90 combines A and B, with lightweight C telemetry. The
+  runtime evidence is `readbackFreeSteadyStateCompositorUsed`,
+  `runtimeCompositorDoesNotDependOnCaptureReadback`,
+  `gpuOwnedRuntimeResourcesUsed`, and
+  `diagnosticReadbackSeparatedFromRuntimePath`.
+- runtime resources: the compositor reports `compositorDispatchCount`,
+  `compositorWorkItemCount`, `tileReferenceCount`,
+  `orderedReferenceCount`, `accumulationContributionCount`, and
+  `nonzeroOutputRatio` so the real-time path can be evaluated without treating
+  capture texture readback as the core success dependency.
+- preservation: Step90 success still requires the Step88 steady-state final
+  presentation owner, Step89 Gaussian alpha/color accumulation, fresh
+  currentTexture views, WebGPU device consistency, and no normal backend /
+  WebGL2 fallback / clear / no-op final-present frames in steady state.
+- deferred scope: full CUDA parity, final production compositor behavior, full
+  parallel per-tile sorting, and chunk/LOD/streaming remain deferred.
+
 ## Step86 Phase 3 WebGPU Backend Boundary and Dirty Contract Hardening
 
 Step86 freezes the ownership boundaries added during Steps80-85 before the

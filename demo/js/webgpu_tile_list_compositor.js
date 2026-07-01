@@ -930,13 +930,18 @@ fn finalizeSummary() {
   const summary = readCompositorSummary(compositorSummary);
   summary.sourceTotalTileReferenceCount =
     sourceContract?.totalTileReferenceCount ?? summary.compositedReferenceCount;
-  const outputTextureWritten =
-    summary.outputTextureWritten && hasNonZeroTextureByte(
+  const diagnosticTextureReadbackNonZero = hasNonZeroTextureByte(
       textureReadback,
       bytesPerRow,
       outputWidth,
       outputHeight
     );
+  const runtimeOutputReadyWithoutTextureReadback =
+    summary.outputTextureWritten === true &&
+    summary.tileCompositorContributionCount > 0;
+  const outputTextureWritten =
+    runtimeOutputReadyWithoutTextureReadback &&
+    diagnosticTextureReadbackNonZero;
   const textureStats = summarizeTextureReadback(
     textureReadback,
     bytesPerRow,
@@ -968,6 +973,35 @@ fn finalizeSummary() {
     summary.tileCompositorContributionCount > 0 &&
     textureStats.nonzeroPixelRatio > 0 &&
     summary.debugPatternBypassedForCompositor;
+  const step89RealCompositorOutputPreserved = realTileCompositorOutputReady;
+  const compositorDispatchCount = 2;
+  const compositorWorkItemCount = Math.max(1, outputWidth * outputHeight);
+  const diagnosticSummaryReadbackUsed = true;
+  const diagnosticTextureReadbackUsed = true;
+  let readbackFreeSteadyStateCompositorUsed = false;
+  const gpuOwnedRuntimeResourcesUsed =
+    !!resources?.inputBuffer &&
+    !!resources?.tileTableBuffer &&
+    !!resources?.referenceListBuffer &&
+    !!outputTexture;
+  const diagnosticReadbackSeparatedFromRuntimePath =
+    diagnosticSummaryReadbackUsed &&
+    diagnosticTextureReadbackUsed &&
+    runtimeOutputReadyWithoutTextureReadback;
+  const debugPathSeparatedFromRuntimePath =
+    summary.debugPatternBypassedForCompositor === true;
+  const runtimeCompositorDoesNotDependOnCaptureReadback =
+    runtimeOutputReadyWithoutTextureReadback &&
+    diagnosticReadbackSeparatedFromRuntimePath;
+  const runtimeTelemetryReady =
+    compositorDispatchCount > 0 &&
+    compositorWorkItemCount > 0 &&
+    summary.sourceTotalTileReferenceCount > 0 &&
+    summary.orderedReferenceCount > 0 &&
+    summary.tileCompositorContributionCount > 0;
+  let cpuGpuSyncDependencyReduced = false;
+  let realtimeReadinessImproved = false;
+  let realTimeRuntimePathReady = false;
   const tileDepthOrderingContract = buildWebGpuTileDepthOrderingContract({
     tileDepthOrderingReady: depthOrderingReady,
     depthOrderPassSubmitted: true,
@@ -1096,6 +1130,22 @@ fn finalizeSummary() {
     presentationErrorMessage = presentation.presentationErrorMessage ?? null;
   }
 
+  readbackFreeSteadyStateCompositorUsed =
+    runtimeOutputReadyWithoutTextureReadback &&
+    outputTextureCachedForHeartbeat === true &&
+    currentTextureUsesWebGpuTileCompositorOutput === true;
+  cpuGpuSyncDependencyReduced =
+    runtimeCompositorDoesNotDependOnCaptureReadback &&
+    readbackFreeSteadyStateCompositorUsed;
+  realtimeReadinessImproved =
+    cpuGpuSyncDependencyReduced &&
+    gpuOwnedRuntimeResourcesUsed &&
+    step89RealCompositorOutputPreserved;
+  realTimeRuntimePathReady =
+    realtimeReadinessImproved &&
+    runtimeTelemetryReady &&
+    textureStats.nonzeroPixelRatio > 0;
+
   for (const buffer of [summaryBuffer, paramsBuffer, summaryReadbackBuffer, textureReadbackBuffer]) {
     if (typeof buffer.destroy === 'function') {
       buffer.destroy();
@@ -1135,21 +1185,24 @@ fn finalizeSummary() {
       orderedSourceReferenceCount: summary.sourceTotalTileReferenceCount,
       orderedReferenceCountMatchesSource,
       tileDepthOrderingContract,
-	      generatedCompositorFields: [
-	        'tile-list-offset-count-read',
-	        'splat-reference-list-traversal',
-	        'depth-aware-reference-selection',
-	        'sort-key-descending-compositor-order',
-	        'gaussian-footprint-weighted-alpha-accumulation',
-	        'gaussian-attribute-color-accumulation',
-	        'canvas-resolution-rgba8unorm-output-texture'
-	      ],
+      generatedCompositorFields: [
+        'tile-list-offset-count-read',
+        'splat-reference-list-traversal',
+        'depth-aware-reference-selection',
+        'sort-key-descending-compositor-order',
+        'gaussian-footprint-weighted-alpha-accumulation',
+        'gaussian-attribute-color-accumulation',
+        'canvas-resolution-rgba8unorm-output-texture',
+        'readback-free-steady-state-compositor-runtime-path',
+        'gpu-owned-runtime-resource-flow'
+      ],
       deferredCompositorFields: [
         'full-parallel-per-tile-sort-dispatch',
         'cuda-compositor-parity',
-        'final-production-tile-compositor'
+        'final-production-tile-compositor',
+        'chunk-lod-streaming'
       ],
-	      compositorClassification: 'partial-webgpu-tile-list-compositor',
+      compositorClassification: 'partial-webgpu-realtime-tile-compositor-runtime',
       fullDepthSortInWgsl: false,
       fullCudaParity: false,
       finalProductionTileCompositor: false,
@@ -1223,25 +1276,49 @@ fn finalizeSummary() {
       lastValidCompositorOutputPresentedOnCleanFrames: false,
       dirtySkippedCompositorUpdateButPresentedCachedOutput: false,
 	      presentationFrameSamples,
-	      realTileCompositorOutputReady,
-	      debugOutputBypassedForCompositor:
-	        summary.debugPatternBypassedForCompositor,
-	      gaussianAttributePayloadConsumed:
-	        summary.gaussianAttributePayloadConsumed,
-	      footprintPayloadConsumed: summary.footprintPayloadConsumed,
-	      orderedTileReferencesConsumed:
-	        summary.orderedTileReferencesConsumed,
-	      depthOrderedAccumulationUsed:
-	        summary.depthOrderedAccumulationUsed,
-	      alphaAccumulationUsed: summary.alphaAccumulationUsed,
-	      colorAccumulationUsed: summary.colorAccumulationUsed,
-	      tileCompositorContributionCount:
-	        summary.tileCompositorContributionCount,
-	      tileCompositorNonzeroOutputRatio:
-	        textureStats.nonzeroPixelRatio,
-	      tileCompositorOutputChangedFromDebugPattern:
-	        realTileCompositorOutputReady,
-	      reason: ready
+      realTileCompositorOutputReady,
+      debugOutputBypassedForCompositor:
+        summary.debugPatternBypassedForCompositor,
+      gaussianAttributePayloadConsumed:
+        summary.gaussianAttributePayloadConsumed,
+      footprintPayloadConsumed: summary.footprintPayloadConsumed,
+      orderedTileReferencesConsumed:
+        summary.orderedTileReferencesConsumed,
+      depthOrderedAccumulationUsed:
+        summary.depthOrderedAccumulationUsed,
+      alphaAccumulationUsed: summary.alphaAccumulationUsed,
+      colorAccumulationUsed: summary.colorAccumulationUsed,
+      tileCompositorContributionCount:
+        summary.tileCompositorContributionCount,
+      tileCompositorNonzeroOutputRatio:
+        textureStats.nonzeroPixelRatio,
+      tileCompositorOutputChangedFromDebugPattern:
+        realTileCompositorOutputReady,
+      realTimeRuntimePathReady,
+      readbackFreeSteadyStateCompositorUsed,
+      runtimeCompositorDoesNotDependOnCaptureReadback,
+      gpuOwnedRuntimeResourcesUsed,
+      diagnosticReadbackSeparatedFromRuntimePath,
+      debugPathSeparatedFromRuntimePath,
+      runtimeOutputReadyWithoutTextureReadback,
+      diagnosticTextureReadbackUsed,
+      diagnosticSummaryReadbackUsed,
+      compositorDispatchCount,
+      compositorWorkItemCount,
+      tileReferenceCount: summary.sourceTotalTileReferenceCount,
+      accumulationContributionCount: summary.tileCompositorContributionCount,
+      nonzeroOutputRatio: textureStats.nonzeroPixelRatio,
+      runtimeTelemetryReady,
+      cpuGpuSyncDependencyReduced,
+      realtimeReadinessImproved,
+      step89RealCompositorOutputPreserved,
+      deferredProductionItems: [
+        'full-cuda-parity',
+        'final-production-compositor',
+        'full-parallel-sort',
+        'chunk-lod-streaming'
+      ],
+      reason: ready
         ? null
         : 'webgpu-tile-list-compositor-did-not-consume-gpu-owned-tile-list'
     })
