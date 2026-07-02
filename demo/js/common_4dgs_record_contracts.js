@@ -4,7 +4,7 @@ export const WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION =
 export const WEBGPU_VISIBLE_RECORD_COMPUTE_MODE =
   'webgpu-storage-buffer-compute-fixed-record';
 
-export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step92';
+export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step93';
 
 export const WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE =
   'wgsl-valid-screen-projection-with-true-native-bounded-color-sources';
@@ -16,7 +16,7 @@ export const WEBGPU_GPU_OWNED_TILE_LIST_LAYOUT_CONTRACT_VERSION =
   'phase3-step84-webgpu-gpu-owned-tile-list-layout-v1';
 
 export const WEBGPU_TILE_LIST_COMPOSITOR_CONTRACT_VERSION =
-  'phase3-step92-gpu-side-per-tile-depth-sort-v1';
+  'phase3-step93-overflow-aware-scalable-tile-ordering-v1';
 
 export const WEBGPU_PHASE3_BACKEND_BOUNDARY_CONTRACT_VERSION =
   'phase3-step86-webgpu-backend-boundary-and-dirty-contract-v1';
@@ -758,6 +758,21 @@ export function buildWebGpuTileListCompositorContract({
   sortOrOrderingBufferBytes = 0,
   step91OrderedReferenceRuntimePathPreserved = false,
   step92SortMode = 'bounded-gpu-selection-sort-per-tile-descending-sort-key',
+  overflowAwareOrderingReady = false,
+  sortCapacityLimit = 64,
+  overflowTileCount = 0,
+  overflowReferenceCount = 0,
+  droppedReferenceCount = 0,
+  overflowHandlingPolicy =
+    'capacity-capped-sort-with-explicit-overflow-and-dropped-reference-telemetry',
+  sortedReferenceCountMatchesSourceOrCapacityPolicy = false,
+  capacityUtilizationMax = 0,
+  capacityUtilizationAvg = 0,
+  scalableSortPreparationReady = false,
+  sortScratchBufferReady = false,
+  tileHistogramOrCapacityTableReady = false,
+  productionOrderedReferenceLifecycleReady = false,
+  sortedAccumulationCapacityPolicyUsed = false,
   deferredProductionItems = [],
   reason = null
 } = {}) {
@@ -816,6 +831,10 @@ export function buildWebGpuTileListCompositorContract({
     orderedReferenceBufferBytes > 0 &&
     gpuOwnedOrderedReferenceRatio > 0 &&
     step90RuntimePathPreserved === true;
+  const capacityPolicyMatches =
+    sortedReferenceCountMatchesSourceOrCapacityPolicy === true &&
+    unsortedFallbackTileCount === overflowTileCount &&
+    droppedReferenceCount >= overflowReferenceCount;
   const perTileSortReady =
     gpuSidePerTileSortReady === true &&
     boundedPerTileSortUsed === true &&
@@ -827,11 +846,26 @@ export function buildWebGpuTileListCompositorContract({
     sortWorkItemCount > 0 &&
     sortedTileCount > 0 &&
     sortedReferenceCount > 0 &&
-    unsortedFallbackTileCount === 0 &&
+    capacityPolicyMatches &&
     maxReferencesPerTile > 0 &&
     avgReferencesPerTile > 0 &&
     sortOrOrderingBufferBytes > 0 &&
     step91OrderedReferenceRuntimePathPreserved === true;
+  const overflowAwareReady =
+    overflowAwareOrderingReady === true &&
+    sortCapacityLimit > 0 &&
+    overflowTileCount >= 0 &&
+    overflowReferenceCount >= 0 &&
+    droppedReferenceCount >= 0 &&
+    capacityPolicyMatches &&
+    capacityUtilizationMax >= 0 &&
+    capacityUtilizationAvg >= 0 &&
+    scalableSortPreparationReady === true &&
+    sortScratchBufferReady === true &&
+    tileHistogramOrCapacityTableReady === true &&
+    productionOrderedReferenceLifecycleReady === true &&
+    sortedAccumulationCapacityPolicyUsed === true &&
+    perTileSortReady === true;
   return {
     contractVersion: WEBGPU_TILE_LIST_COMPOSITOR_CONTRACT_VERSION,
     status: ready ? 'ok' : status,
@@ -969,6 +1003,20 @@ export function buildWebGpuTileListCompositorContract({
     sortOrOrderingBufferBytes,
     step91OrderedReferenceRuntimePathPreserved,
     step92SortMode,
+    overflowAwareOrderingReady: overflowAwareReady,
+    sortCapacityLimit,
+    overflowTileCount,
+    overflowReferenceCount,
+    droppedReferenceCount,
+    overflowHandlingPolicy,
+    sortedReferenceCountMatchesSourceOrCapacityPolicy,
+    capacityUtilizationMax,
+    capacityUtilizationAvg,
+    scalableSortPreparationReady,
+    sortScratchBufferReady,
+    tileHistogramOrCapacityTableReady,
+    productionOrderedReferenceLifecycleReady,
+    sortedAccumulationCapacityPolicyUsed,
     deferredProductionItems,
     reason
   };

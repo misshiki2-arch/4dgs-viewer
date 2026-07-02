@@ -4,7 +4,8 @@ import {
 } from './common_4dgs_record_contracts.js';
 
 const COMPOSITOR_SUMMARY_FLOAT_COUNT = 24;
-const ORDERING_SUMMARY_UINT_COUNT = 12;
+const ORDERING_SUMMARY_UINT_COUNT = 20;
+const BOUNDED_SORT_CAPACITY_LIMIT = 64;
 const viewerCanvasWebGpuContextState = new WeakMap();
 const viewerCanvasTileCompositorOutputState = new WeakMap();
 
@@ -68,6 +69,7 @@ function readCompositorSummary(summary) {
 }
 
 function readOrderingSummary(summary) {
+  const scaledCapacity = 100000;
   return {
     orderedReferenceUpdateCount: Math.round(finiteNumberOr(summary[0], 0)),
     orderedTileCount: Math.round(finiteNumberOr(summary[1], 0)),
@@ -80,7 +82,17 @@ function readOrderingSummary(summary) {
     sortedTileCount: Math.round(finiteNumberOr(summary[8], 0)),
     sortedReferenceCount: Math.round(finiteNumberOr(summary[9], 0)),
     unsortedFallbackTileCount: Math.round(finiteNumberOr(summary[10], 0)),
-    maxReferencesPerTile: Math.round(finiteNumberOr(summary[11], 0))
+    maxReferencesPerTile: Math.round(finiteNumberOr(summary[11], 0)),
+    sourceReferenceCountBeforeSortLimit: Math.round(finiteNumberOr(summary[12], 0)),
+    droppedReferenceCount: Math.round(finiteNumberOr(summary[13], 0)),
+    overflowTileCount: Math.round(finiteNumberOr(summary[14], 0)),
+    overflowReferenceCount: Math.round(finiteNumberOr(summary[15], 0)),
+    sortCapacityLimit: Math.round(finiteNumberOr(summary[16], 0)),
+    capacityUtilizationMax:
+      finiteNumberOr(summary[17], 0) / scaledCapacity,
+    capacityUtilizationSum:
+      finiteNumberOr(summary[18], 0) / scaledCapacity,
+    capacityTelemetryTileCount: Math.round(finiteNumberOr(summary[19], 0))
   };
 }
 
@@ -679,6 +691,10 @@ export async function buildWebGpuTileListCompositor({
     usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
   });
   const referenceCapacity = Math.max(1, resources.tileCount * resources.maxRefsPerTile);
+  const sortCapacityLimit = Math.max(
+    1,
+    Math.min(resources.maxRefsPerTile, BOUNDED_SORT_CAPACITY_LIMIT)
+  );
   const orderedReferenceBufferBytes = Math.max(16, referenceCapacity * 4 * 4);
   const orderedReferenceBuffer = device.createBuffer({
     label: 'phase3-step92-webgpu-depth-sorted-reference-buffer',
@@ -695,7 +711,7 @@ export async function buildWebGpuTileListCompositor({
     resources.tileCount,
     referenceCapacity,
     resources.maxRefsPerTile,
-    92
+    93
   ]);
   const orderingParamsBuffer = createBuffer(device, orderingParams, GPUBufferUsage.UNIFORM);
   const orderingSummaryReadbackBuffer = device.createBuffer({
@@ -731,12 +747,23 @@ fn prepareOrderedReferences(@builtin(global_invocation_id) id: vec3u) {
   atomicAdd(&orderingSummary[1], 1u);
   let offset = u32(table.x);
   let rawCount = min(u32(table.y), orderingParams.maxRefsPerTile);
-  let count = min(rawCount, 64u);
-  if (rawCount > 64u) {
+  let overflowRefs = u32(max(table.z, 0.0));
+  let sortLimit = min(orderingParams.maxRefsPerTile, 64u);
+  let count = min(rawCount, sortLimit);
+  atomicAdd(&orderingSummary[12], rawCount);
+  atomicAdd(&orderingSummary[13], (rawCount - count) + overflowRefs);
+  atomicAdd(&orderingSummary[15], overflowRefs);
+  atomicStore(&orderingSummary[16], sortLimit);
+  if (rawCount > count || overflowRefs > 0u) {
     atomicAdd(&orderingSummary[10], 1u);
+    atomicAdd(&orderingSummary[14], 1u);
   }
   atomicAdd(&orderingSummary[8], 1u);
   atomicMax(&orderingSummary[11], count);
+  let utilization = select(0u, (count * 100000u) / max(sortLimit, 1u), sortLimit > 0u);
+  atomicMax(&orderingSummary[17], utilization);
+  atomicAdd(&orderingSummary[18], utilization);
+  atomicAdd(&orderingSummary[19], 1u);
   var consumed: array<u32, 64>;
   for (var initSlot: u32 = 0u; initSlot < 64u; initSlot = initSlot + 1u) {
     consumed[initSlot] = 0u;
@@ -879,7 +906,7 @@ fn compositeTiles(@builtin(global_invocation_id) id: vec3u) {
   if (table.w == 84.0 && table.y > 0.0) {
     readTable = 1.0;
     let offset = u32(table.x);
-    let count = u32(table.y);
+    let count = min(u32(table.y), min(u32(params.maxRefsPerTile), 64u));
     for (var orderSlot: u32 = 0u; orderSlot < count; orderSlot = orderSlot + 1u) {
       let splatRef = referenceList[offset + orderSlot];
       let sampleRow = u32(max(splatRef.x, 0.0));
@@ -922,11 +949,11 @@ fn finalizeSummary() {
     }
     if (table.w == 84.0 && table.y > 0.0) {
       nonEmpty = nonEmpty + 1.0;
-      totalRefs = totalRefs + table.y;
-      maxRefs = max(maxRefs, table.y);
-      overflow = overflow + table.z;
+      let count = min(u32(table.y), min(u32(params.maxRefsPerTile), 64u));
+      totalRefs = totalRefs + f32(count);
+      maxRefs = max(maxRefs, f32(count));
+      overflow = overflow + table.z + max(table.y - f32(count), 0.0);
       let offset = u32(table.x);
-      let count = u32(table.y);
       for (var slot: u32 = 0u; slot < count; slot = slot + 1u) {
         let splatRef = referenceList[offset + slot];
         orderedRefs = orderedRefs + 1.0;
@@ -1314,12 +1341,12 @@ fn finalizeSummary() {
     textureStats.nonzeroPixelRatio > 0;
   const orderedReferencesGeneratedOrUpdatedOnGpu =
     orderingSummary.orderedBufferWritten === true &&
-    orderingSummary.orderedReferenceUpdateCount === summary.sourceTotalTileReferenceCount &&
-    orderingSummary.sourceReferenceCount === summary.sourceTotalTileReferenceCount;
+    orderingSummary.orderedReferenceUpdateCount === summary.orderedReferenceCount &&
+    orderingSummary.sourceReferenceCount === summary.orderedReferenceCount;
   const perTileOrderingRuntimePathUsed =
     orderedReferencesGeneratedOrUpdatedOnGpu &&
     summary.orderedTileReferencesConsumed === true &&
-    orderingSummary.orderingStatusCode === 92;
+    orderingSummary.orderingStatusCode === 93;
   const orderedReferencesConsumedByProductionAccumulation =
     perTileOrderingRuntimePathUsed &&
     summary.depthOrderedAccumulationUsed === true &&
@@ -1336,9 +1363,56 @@ fn finalizeSummary() {
   const maxReferencesPerTile = orderingSummary.maxReferencesPerTile;
   const avgReferencesPerTile =
     sortedTileCount > 0 ? sortedReferenceCount / sortedTileCount : 0;
+  const overflowReferenceCount = Math.max(
+    0,
+    orderingSummary.overflowReferenceCount
+  );
+  const droppedReferenceCount = Math.max(
+    0,
+    orderingSummary.droppedReferenceCount
+  );
+  const overflowTileCount = Math.max(0, orderingSummary.overflowTileCount);
+  const capacityUtilizationAvg =
+    orderingSummary.capacityTelemetryTileCount > 0
+      ? orderingSummary.capacityUtilizationSum /
+        orderingSummary.capacityTelemetryTileCount
+      : 0;
+  const sortedReferenceCountMatchesSourceOrCapacityPolicy =
+    sortedReferenceCount === summary.sourceTotalTileReferenceCount ||
+    sortedReferenceCount + droppedReferenceCount >=
+      summary.sourceTotalTileReferenceCount;
+  const sortScratchBufferReady =
+    orderedReferenceBufferBytes > 0 &&
+    orderingSummaryData.byteLength >= ORDERING_SUMMARY_UINT_COUNT * 4;
+  const tileReferenceBufferLifecycleReady =
+    gpuOwnedRuntimeResourcesUsed &&
+    orderedReferenceBufferBytes > 0 &&
+    orderingSummary.referenceCapacity === referenceCapacity &&
+    perTileOrderingRuntimePathUsed;
+  const tileHistogramOrCapacityTableReady =
+    orderingSummary.capacityTelemetryTileCount === sortedTileCount &&
+    sortedTileCount > 0 &&
+    orderingSummary.sortCapacityLimit === sortCapacityLimit;
+  const sortedAccumulationCapacityPolicyUsed =
+    sortedReferenceCountMatchesSourceOrCapacityPolicy &&
+    unsortedFallbackTileCount === overflowTileCount &&
+    droppedReferenceCount >= overflowReferenceCount;
+  const productionOrderedReferenceLifecycleReady =
+    tileReferenceBufferLifecycleReady &&
+    sortScratchBufferReady &&
+    sortedReferenceCountMatchesSourceOrCapacityPolicy;
+  const scalableSortPreparationReady =
+    sortScratchBufferReady &&
+    tileHistogramOrCapacityTableReady &&
+    orderingSummary.sortCapacityLimit > 0 &&
+    orderingSummary.referenceCapacity === referenceCapacity;
+  const overflowAwareOrderingReady =
+    scalableSortPreparationReady &&
+    productionOrderedReferenceLifecycleReady &&
+    sortedAccumulationCapacityPolicyUsed;
   const depthSortedOrderedReferencesGenerated =
     orderedReferencesGeneratedOrUpdatedOnGpu &&
-    sortedReferenceCount === summary.sourceTotalTileReferenceCount &&
+    sortedReferenceCountMatchesSourceOrCapacityPolicy &&
     sortedTileCount > 0 &&
     orderingSummary.sortKeyObserved === true;
   const depthSortedReferencesConsumedByAccumulation =
@@ -1346,17 +1420,12 @@ fn finalizeSummary() {
     orderedReferencesConsumedByProductionAccumulation;
   const boundedPerTileSortUsed =
     sortOrOrderingDispatchCount > 0 &&
-    maxReferencesPerTile <= 64 &&
-    unsortedFallbackTileCount === 0;
+    maxReferencesPerTile <= sortCapacityLimit &&
+    unsortedFallbackTileCount === overflowTileCount;
   const sortedAccumulationPathUsed =
     boundedPerTileSortUsed &&
     depthSortedReferencesConsumedByAccumulation &&
     summary.depthOrderedAccumulationUsed === true;
-  const tileReferenceBufferLifecycleReady =
-    gpuOwnedRuntimeResourcesUsed &&
-    orderedReferenceBufferBytes > 0 &&
-    orderingSummary.referenceCapacity === referenceCapacity &&
-    perTileOrderingRuntimePathUsed;
   const step90RuntimePathPreserved =
     realtimeReadinessImproved &&
     runtimeTelemetryReady &&
@@ -1372,7 +1441,7 @@ fn finalizeSummary() {
   const gpuSidePerTileSortReady =
     gpuSideTileOrderingReady &&
     sortedAccumulationPathUsed &&
-    sortedReferenceCount === summary.orderedReferenceCount;
+    sortedReferenceCountMatchesSourceOrCapacityPolicy;
 
   for (const buffer of [
     summaryBuffer,
@@ -1428,6 +1497,9 @@ fn finalizeSummary() {
         'depth-aware-reference-selection',
         'gpu-side-ordered-reference-buffer-update',
         'bounded-gpu-per-tile-depth-sort-v1',
+        'overflow-aware-tile-ordering-capacity-policy',
+        'scalable-sort-scratch-buffer-boundary',
+        'tile-histogram-capacity-table-telemetry',
         'depth-sorted-ordered-reference-buffer-consumed-by-accumulation',
         'production-accumulation-consumes-gpu-updated-ordered-refs',
         'sort-key-descending-compositor-order',
@@ -1585,10 +1657,25 @@ fn finalizeSummary() {
         orderedReferenceBufferBytes + orderingSummaryData.byteLength,
       step91OrderedReferenceRuntimePathPreserved: gpuSideTileOrderingReady,
       step92SortMode: 'bounded-gpu-selection-sort-per-tile-descending-sort-key',
+      overflowAwareOrderingReady,
+      sortCapacityLimit,
+      overflowTileCount,
+      overflowReferenceCount,
+      droppedReferenceCount,
+      overflowHandlingPolicy:
+        'capacity-capped-sort-with-explicit-overflow-and-dropped-reference-telemetry',
+      sortedReferenceCountMatchesSourceOrCapacityPolicy,
+      capacityUtilizationMax: orderingSummary.capacityUtilizationMax,
+      capacityUtilizationAvg,
+      scalableSortPreparationReady,
+      sortScratchBufferReady,
+      tileHistogramOrCapacityTableReady,
+      productionOrderedReferenceLifecycleReady,
+      sortedAccumulationCapacityPolicyUsed,
       deferredProductionItems: [
         'full-cuda-parity',
         'final-production-compositor',
-        'full-parallel-sort',
+        'full-parallel-sort-parity',
         'chunk-lod-streaming'
       ],
       reason: ready
