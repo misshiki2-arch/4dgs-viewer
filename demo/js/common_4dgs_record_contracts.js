@@ -4,7 +4,7 @@ export const WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION =
 export const WEBGPU_VISIBLE_RECORD_COMPUTE_MODE =
   'webgpu-storage-buffer-compute-fixed-record';
 
-export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step94';
+export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step96';
 
 export const WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE =
   'wgsl-valid-screen-projection-with-true-native-bounded-color-sources';
@@ -16,7 +16,7 @@ export const WEBGPU_GPU_OWNED_TILE_LIST_LAYOUT_CONTRACT_VERSION =
   'phase3-step84-webgpu-gpu-owned-tile-list-layout-v1';
 
 export const WEBGPU_TILE_LIST_COMPOSITOR_CONTRACT_VERSION =
-  'phase3-step94-parallel-per-tile-sort-v1';
+  'phase3-step96-production-tile-compositor-v1';
 
 export const WEBGPU_PHASE3_BACKEND_BOUNDARY_CONTRACT_VERSION =
   'phase3-step86-webgpu-backend-boundary-and-dirty-contract-v1';
@@ -715,6 +715,27 @@ export function buildWebGpuTileListCompositorContract({
   runtimeCompositorDoesNotDependOnCaptureReadback = false,
   gpuOwnedRuntimeResourcesUsed = false,
   diagnosticReadbackSeparatedFromRuntimePath = false,
+  diagnosticReadbackSeparatedFromProductionPath = false,
+  productionTileCompositorReady = false,
+  productionTileCompositorPathUsed = false,
+  productionAccumulationConsumedParallelSortedRefs = false,
+  activeTileDispatchReady = false,
+  activeTileDispatchUsed = false,
+  activeTileCount = 0,
+  inactiveTileCount = 0,
+  activeTilePixelWorkItemCount = 0,
+  fullScreenPixelWorkAvoided = 0,
+  accumulationWorkReductionRatio = 0,
+  inactiveBackgroundHandlingReady = false,
+  inactivePixelOrTileWritePolicy = 'none',
+  outputTextureProducedByProductionCompositor = false,
+  lastValidOutputPreservedForCleanFrames = false,
+  readyBufferGuardUsed = false,
+  invalidOrEmptyBufferRejected = false,
+  debugOutputBypassedForProduction = false,
+  fallbackOnlyCompositorUsed = false,
+  normalBackendPresentationUsed = false,
+  webgl2FallbackFinalPresentFrameCount = 0,
   debugPathSeparatedFromRuntimePath = false,
   runtimeOutputReadyWithoutTextureReadback = false,
   diagnosticTextureReadbackUsed = false,
@@ -777,6 +798,7 @@ export function buildWebGpuTileListCompositorContract({
   parallelSortOutputGuardUsed = false,
   preservedBoundedSortFallbackUsed = false,
   visualOutputDegeneratedDetected = false,
+  step94ParallelSortPreserved = false,
   step93OverflowPolicyPreserved = false,
   overflowAwareOrderingReady = false,
   sortCapacityLimit = 64,
@@ -886,6 +908,31 @@ export function buildWebGpuTileListCompositorContract({
     productionOrderedReferenceLifecycleReady === true &&
     sortedAccumulationCapacityPolicyUsed === true &&
     perTileSortReady === true;
+  const productionReady =
+    productionTileCompositorReady === true &&
+    productionTileCompositorPathUsed === true &&
+    productionAccumulationConsumedParallelSortedRefs === true &&
+    parallelSortedBufferReady === true &&
+    parallelSortedBufferNonEmpty === true &&
+    parallelSortedBufferPromotedToAccumulation === true &&
+    activeTileDispatchReady === true &&
+    activeTileDispatchUsed === true &&
+    activeTileCount > 0 &&
+    activeTilePixelWorkItemCount > 0 &&
+    fullScreenPixelWorkAvoided >= 0 &&
+    inactiveBackgroundHandlingReady === true &&
+    outputTextureProducedByProductionCompositor === true &&
+    readyBufferGuardUsed === true &&
+    invalidOrEmptyBufferRejected === false &&
+    debugOutputBypassedForProduction === true &&
+    fallbackOnlyCompositorUsed === false &&
+    normalBackendPresentationUsed === false &&
+    webgl2FallbackFinalPresentFrameCount === 0 &&
+    diagnosticReadbackSeparatedFromRuntimePath === true &&
+    diagnosticReadbackSeparatedFromProductionPath === true &&
+    overflowAwareReady === true &&
+    gpuParallelPerTileSortReady === true &&
+    visualOutputDegeneratedDetected === false;
   return {
     contractVersion: WEBGPU_TILE_LIST_COMPOSITOR_CONTRACT_VERSION,
     status: ready ? 'ok' : status,
@@ -981,6 +1028,27 @@ export function buildWebGpuTileListCompositorContract({
     runtimeCompositorDoesNotDependOnCaptureReadback,
     gpuOwnedRuntimeResourcesUsed,
     diagnosticReadbackSeparatedFromRuntimePath,
+    diagnosticReadbackSeparatedFromProductionPath,
+    productionTileCompositorReady: productionReady,
+    productionTileCompositorPathUsed,
+    productionAccumulationConsumedParallelSortedRefs,
+    activeTileDispatchReady,
+    activeTileDispatchUsed,
+    activeTileCount,
+    inactiveTileCount,
+    activeTilePixelWorkItemCount,
+    fullScreenPixelWorkAvoided,
+    accumulationWorkReductionRatio,
+    inactiveBackgroundHandlingReady,
+    inactivePixelOrTileWritePolicy,
+    outputTextureProducedByProductionCompositor,
+    lastValidOutputPreservedForCleanFrames,
+    readyBufferGuardUsed,
+    invalidOrEmptyBufferRejected,
+    debugOutputBypassedForProduction,
+    fallbackOnlyCompositorUsed,
+    normalBackendPresentationUsed,
+    webgl2FallbackFinalPresentFrameCount,
     debugPathSeparatedFromRuntimePath,
     runtimeOutputReadyWithoutTextureReadback,
     diagnosticTextureReadbackUsed,
@@ -1042,6 +1110,7 @@ export function buildWebGpuTileListCompositorContract({
     parallelSortOutputGuardUsed,
     preservedBoundedSortFallbackUsed,
     visualOutputDegeneratedDetected,
+    step94ParallelSortPreserved,
     step93OverflowPolicyPreserved,
     overflowAwareOrderingReady: overflowAwareReady,
     sortCapacityLimit,

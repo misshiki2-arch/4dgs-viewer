@@ -1904,3 +1904,55 @@ Step95 does not change runtime output or contract JSON by itself. A recapture is
 not required for Step95 when this section is the only change; the existing
 Step94 Summary already exposes the required preservation evidence for the
 design gate.
+
+## Step96 Production Tile Compositor V1 Integration
+
+Step96 implements the Step95 A+B+C+D recommendation as a bounded production
+tile compositor v1 integration. The intent is not to claim final CUDA parity,
+but to make the WebGPU compositor consume the same GPU-side parallel sorted
+reference path that the production renderer will build on.
+
+The Step96 runtime path is:
+
+```text
+GPU-side parallel sorted refs
+-> active-tile production accumulation
+-> inactive/background handling
+-> output texture
+-> steady-state final presentation
+```
+
+- Production input: Step94's compute-seeded, workgroup parallel sorted
+  reference buffer is the mandatory production accumulation input. The
+  compositor records `parallelSortedBufferReady`,
+  `parallelSortedBufferNonEmpty`, `parallelSortedBufferPromotedToAccumulation`,
+  and `productionAccumulationConsumedParallelSortedRefs` so fallback-only or
+  empty-buffer output cannot satisfy Step96.
+- Active-tile dispatch: the compositor separates production accumulation from
+  full-frame diagnostic pixel work. It dispatches active tile/subtile work for
+  tiles with references, and records `activeTileDispatchReady`,
+  `activeTileDispatchUsed`, `activeTileCount`,
+  `activeTilePixelWorkItemCount`, `fullScreenPixelWorkAvoided`, and
+  `accumulationWorkReductionRatio`.
+- Inactive/background handling: a WebGPU production background pass clears the
+  output texture before active tiles write accumulated results. This is
+  reported through `inactiveBackgroundHandlingReady`, `inactiveTileCount`, and
+  `inactivePixelOrTileWritePolicy`; fallback clears and debug fills do not
+  count as production inactive handling.
+- Output and presentation: the output texture remains the WebGPU tile
+  compositor output used by the Step88 steady-state presentation heartbeat.
+  Step96 preserves fresh `currentTexture` views and does not cache
+  `TextureView`s across frames.
+- Boundary enforcement: diagnostic readback remains capture evidence only, not
+  a runtime dependency. Step96 records
+  `diagnosticReadbackSeparatedFromProductionPath`,
+  `debugOutputBypassedForProduction`, `fallbackOnlyCompositorUsed`,
+  `normalBackendPresentationUsed`, and
+  `webgl2FallbackFinalPresentFrameCount` to keep production, debug, fallback,
+  and diagnostic paths distinct.
+
+Step96 preserves the Step88 presentation owner, Step89 real compositor output,
+Step90 GPU-owned runtime path, Step91 ordered reference runtime path, Step92
+bounded sort baseline, Step93 overflow/capacity policy, and Step94 workgroup
+parallel sort. Deferred work remains full CUDA compositor parity, full
+production parallel sort parity, chunk/LOD/streaming, and early termination v1.

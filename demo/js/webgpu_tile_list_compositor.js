@@ -3,7 +3,7 @@ import {
   buildWebGpuTileListCompositorContract
 } from './common_4dgs_record_contracts.js';
 
-const COMPOSITOR_SUMMARY_FLOAT_COUNT = 24;
+const COMPOSITOR_SUMMARY_FLOAT_COUNT = 36;
 const ORDERING_SUMMARY_UINT_COUNT = 28;
 const BOUNDED_SORT_CAPACITY_LIMIT = 64;
 const PARALLEL_SORT_STAGE_COUNT = 21;
@@ -65,7 +65,24 @@ function readCompositorSummary(summary) {
     colorAccumulationUsed: Math.round(finiteNumberOr(summary[21], 0)) === 1,
     tileCompositorContributionCount: Math.round(finiteNumberOr(summary[22], 0)),
     debugPatternBypassedForCompositor:
-      Math.round(finiteNumberOr(summary[23], 0)) === 1
+      Math.round(finiteNumberOr(summary[23], 0)) === 1,
+    productionTileCompositorPathUsed:
+      Math.round(finiteNumberOr(summary[24], 0)) === 1,
+    productionAccumulationConsumedParallelSortedRefs:
+      Math.round(finiteNumberOr(summary[25], 0)) === 1,
+    activeTileDispatchUsed: Math.round(finiteNumberOr(summary[26], 0)) === 1,
+    inactiveBackgroundHandlingReady:
+      Math.round(finiteNumberOr(summary[27], 0)) === 1,
+    activeTileCount: Math.round(finiteNumberOr(summary[28], 0)),
+    inactiveTileCount: Math.round(finiteNumberOr(summary[29], 0)),
+    activeTilePixelWorkItemCount: Math.round(finiteNumberOr(summary[30], 0)),
+    fullScreenPixelWorkAvoided: Math.round(finiteNumberOr(summary[31], 0)),
+    accumulationWorkReductionRatio: finiteNumberOr(summary[32], 0),
+    outputTextureProducedByProductionCompositor:
+      Math.round(finiteNumberOr(summary[33], 0)) === 1,
+    debugOutputBypassedForProduction:
+      Math.round(finiteNumberOr(summary[34], 0)) === 1,
+    activeTileDispatchReady: Math.round(finiteNumberOr(summary[35], 0)) === 1
   };
 }
 
@@ -945,45 +962,70 @@ fn gaussianWeight(pixel: vec2f, center: vec2f, conic: vec3f) -> f32 {
 }
 
 @compute @workgroup_size(8, 8)
-fn compositeTiles(@builtin(global_invocation_id) id: vec3u) {
+fn clearProductionBackground(@builtin(global_invocation_id) id: vec3u) {
   if (id.x >= u32(params.outputWidth) || id.y >= u32(params.outputHeight)) {
     return;
   }
-  let tileSizeX = max(params.canvasWidth / max(params.tileCols, 1.0), 1.0);
-  let tileSizeY = max(params.canvasHeight / max(params.tileRows, 1.0), 1.0);
-  let tileX = min(u32(floor(f32(id.x) / tileSizeX)), u32(params.tileCols) - 1u);
-  let tileY = min(u32(floor(f32(id.y) / tileSizeY)), u32(params.tileRows) - 1u);
+  textureStore(outputTexture, vec2i(i32(id.x), i32(id.y)), vec4f(0.0, 0.0, 0.0, 0.0));
+}
+
+@compute @workgroup_size(8, 8)
+fn compositeActiveTiles(
+  @builtin(workgroup_id) workgroupId: vec3u,
+  @builtin(local_invocation_id) localId: vec3u
+) {
+  let tileSizeX = max(params.outputWidth / max(params.tileCols, 1.0), 1.0);
+  let tileSizeY = max(params.outputHeight / max(params.tileRows, 1.0), 1.0);
+  let subtileCols = u32(max(ceil(tileSizeX / 8.0), 1.0));
+  let subtileRows = u32(max(ceil(tileSizeY / 8.0), 1.0));
+  let tileX = workgroupId.x / subtileCols;
+  let tileY = workgroupId.y / subtileRows;
+  if (tileX >= u32(params.tileCols) || tileY >= u32(params.tileRows)) {
+    return;
+  }
   let tile = tileY * u32(params.tileCols) + tileX;
   let table = tileTable[tile];
+  if (table.w != 84.0 || table.y <= 0.0) {
+    return;
+  }
+  let subtileX = workgroupId.x % subtileCols;
+  let subtileY = workgroupId.y % subtileRows;
+  let tileStartX = u32(floor(f32(tileX) * tileSizeX));
+  let tileStartY = u32(floor(f32(tileY) * tileSizeY));
+  let tileEndX = min(u32(ceil(f32(tileX + 1u) * tileSizeX)), u32(params.outputWidth));
+  let tileEndY = min(u32(ceil(f32(tileY + 1u) * tileSizeY)), u32(params.outputHeight));
+  let pixelX = tileStartX + subtileX * 8u + localId.x;
+  let pixelY = tileStartY + subtileY * 8u + localId.y;
+  if (pixelX >= tileEndX || pixelY >= tileEndY) {
+    return;
+  }
   var color = vec3f(0.0, 0.0, 0.0);
   var accumAlpha = 0.0;
   var refs = 0.0;
   var readTable = 0.0;
   var traversedList = 0.0;
-  let pixel = vec2f(f32(id.x) + 0.5, f32(id.y) + 0.5);
-  if (table.w == 84.0 && table.y > 0.0) {
-    readTable = 1.0;
-    let offset = u32(table.x);
-    let count = min(u32(table.y), min(u32(params.maxRefsPerTile), 64u));
-    for (var orderSlot: u32 = 0u; orderSlot < count; orderSlot = orderSlot + 1u) {
-      let splatRef = referenceList[offset + orderSlot];
-      let sampleRow = u32(max(splatRef.x, 0.0));
-      let sampleBase = sampleRow * 3u;
-      let a = tileInputs[sampleBase + 0u];
-      let b = tileInputs[sampleBase + 1u];
-      let c = tileInputs[sampleBase + 2u];
-      let conic = sampleConic(b, max(a.z, 1.0));
-      let weight = gaussianWeight(pixel, a.xy, conic);
-      let sampleAlpha = clamp(c.w * weight, 0.0, 0.98);
-      let remaining = max(1.0 - accumAlpha, 0.0);
-      color = color + remaining * clamp(c.xyz, vec3f(0.0), vec3f(1.0)) * sampleAlpha;
-      accumAlpha = accumAlpha + remaining * sampleAlpha;
-      refs = refs + 1.0;
-      traversedList = 1.0;
-    }
+  let pixel = vec2f(f32(pixelX) + 0.5, f32(pixelY) + 0.5);
+  readTable = 1.0;
+  let offset = u32(table.x);
+  let count = min(u32(table.y), min(u32(params.maxRefsPerTile), 64u));
+  for (var orderSlot: u32 = 0u; orderSlot < count; orderSlot = orderSlot + 1u) {
+    let splatRef = referenceList[offset + orderSlot];
+    let sampleRow = u32(max(splatRef.x, 0.0));
+    let sampleBase = sampleRow * 3u;
+    let a = tileInputs[sampleBase + 0u];
+    let b = tileInputs[sampleBase + 1u];
+    let c = tileInputs[sampleBase + 2u];
+    let conic = sampleConic(b, max(a.z, 1.0));
+    let weight = gaussianWeight(pixel, a.xy, conic);
+    let sampleAlpha = clamp(c.w * weight, 0.0, 0.98);
+    let remaining = max(1.0 - accumAlpha, 0.0);
+    color = color + remaining * clamp(c.xyz, vec3f(0.0), vec3f(1.0)) * sampleAlpha;
+    accumAlpha = accumAlpha + remaining * sampleAlpha;
+    refs = refs + 1.0;
+    traversedList = 1.0;
   }
   let outColor = vec4f(color, clamp(accumAlpha, 0.0, 1.0));
-  textureStore(outputTexture, vec2i(i32(id.x), i32(id.y)), outColor);
+  textureStore(outputTexture, vec2i(i32(pixelX), i32(pixelY)), outColor);
 }
 
 @compute @workgroup_size(1)
@@ -1044,6 +1086,14 @@ fn finalizeSummary() {
   let gaussianAttributeReady = gaussianAttributeConsumed == 1.0 && totalRefsAvailable;
   let outputIsCanvasSized =
     params.outputWidth > params.tileCols || params.outputHeight > params.tileRows;
+  let fullScreenPixelWork = max(params.outputWidth * params.outputHeight, 1.0);
+  let tileSizeX = max(params.outputWidth / max(params.tileCols, 1.0), 1.0);
+  let tileSizeY = max(params.outputHeight / max(params.tileRows, 1.0), 1.0);
+  let activeTilePixelWork = nonEmpty * tileSizeX * tileSizeY;
+  let fullScreenPixelWorkAvoided = max(fullScreenPixelWork - activeTilePixelWork, 0.0);
+  let workReductionRatio = fullScreenPixelWorkAvoided / fullScreenPixelWork;
+  let productionPathUsed = orderAwareReady && gaussianAttributeReady && outputIsCanvasSized;
+  let inactiveTileCount = max(params.tileCount - nonEmpty, 0.0);
   orderAwareUsed = select(0.0, 1.0, orderAwareReady);
   compositorSummary[0] = vec4f(params.tileCount, nonEmpty, totalRefs, totalRefs);
   compositorSummary[1] = vec4f(readTable, traversedList, select(0.0, 1.0, totalRefsAvailable), maxRefs);
@@ -1065,6 +1115,24 @@ fn finalizeSummary() {
     select(0.0, 1.0, gaussianAttributeReady),
     totalRefs,
     select(0.0, 1.0, outputIsCanvasSized)
+  );
+  compositorSummary[6] = vec4f(
+    select(0.0, 1.0, productionPathUsed),
+    select(0.0, 1.0, orderAwareReady),
+    select(0.0, 1.0, nonEmpty > 0.0),
+    1.0
+  );
+  compositorSummary[7] = vec4f(
+    nonEmpty,
+    inactiveTileCount,
+    activeTilePixelWork,
+    fullScreenPixelWorkAvoided
+  );
+  compositorSummary[8] = vec4f(
+    workReductionRatio,
+    select(0.0, 1.0, productionPathUsed),
+    select(0.0, 1.0, productionPathUsed),
+    select(0.0, 1.0, nonEmpty > 0.0)
   );
 }
 `
@@ -1106,9 +1174,13 @@ fn finalizeSummary() {
   const pipelineLayout = device.createPipelineLayout({
     bindGroupLayouts: [bindGroupLayout]
   });
+  const backgroundPipeline = device.createComputePipeline({
+    layout: pipelineLayout,
+    compute: { module: shader, entryPoint: 'clearProductionBackground' }
+  });
   const compositorPipeline = device.createComputePipeline({
     layout: pipelineLayout,
-    compute: { module: shader, entryPoint: 'compositeTiles' }
+    compute: { module: shader, entryPoint: 'compositeActiveTiles' }
   });
   const finalizePipeline = device.createComputePipeline({
     layout: pipelineLayout,
@@ -1137,10 +1209,19 @@ fn finalizeSummary() {
   pass.setPipeline(orderingPipeline);
   pass.dispatchWorkgroups(Math.max(1, resources.tileCount));
   pass.setBindGroup(0, bindGroup);
-  pass.setPipeline(compositorPipeline);
+  pass.setPipeline(backgroundPipeline);
   pass.dispatchWorkgroups(
     Math.max(1, Math.ceil(outputWidth / 8)),
     Math.max(1, Math.ceil(outputHeight / 8))
+  );
+  const tileSizeXForDispatch = Math.max(outputWidth / Math.max(resources.tileCols, 1), 1);
+  const tileSizeYForDispatch = Math.max(outputHeight / Math.max(resources.tileRows, 1), 1);
+  const tileSubtileCols = Math.max(1, Math.ceil(tileSizeXForDispatch / 8));
+  const tileSubtileRows = Math.max(1, Math.ceil(tileSizeYForDispatch / 8));
+  pass.setPipeline(compositorPipeline);
+  pass.dispatchWorkgroups(
+    Math.max(1, resources.tileCols * tileSubtileCols),
+    Math.max(1, resources.tileRows * tileSubtileRows)
   );
   pass.setPipeline(finalizePipeline);
   pass.dispatchWorkgroups(1);
@@ -1233,8 +1314,17 @@ fn finalizeSummary() {
     summary.debugPatternBypassedForCompositor;
   const step89RealCompositorOutputPreserved = realTileCompositorOutputReady;
   const sortOrOrderingDispatchCount = 1;
-  const compositorDispatchCount = 3;
-  const compositorWorkItemCount = Math.max(1, outputWidth * outputHeight);
+  const fullScreenPixelWorkItemCount = Math.max(1, outputWidth * outputHeight);
+  const activeTileDispatchReady =
+    summary.activeTileDispatchReady === true &&
+    summary.activeTileCount === summary.nonEmptyCompositedTileCount &&
+    summary.activeTileCount > 0;
+  const activeTileDispatchUsed =
+    summary.activeTileDispatchUsed === true && activeTileDispatchReady;
+  const compositorDispatchCount = 5;
+  const compositorWorkItemCount =
+    fullScreenPixelWorkItemCount +
+    Math.max(1, summary.activeTilePixelWorkItemCount);
   const orderingWorkItemCount = referenceCapacity;
   const diagnosticSummaryReadbackUsed = true;
   const diagnosticTextureReadbackUsed = true;
@@ -1542,6 +1632,10 @@ fn finalizeSummary() {
   const parallelSortOutputGuardUsed = true;
   const preservedBoundedSortFallbackUsed =
     parallelSortOutputGuardUsed && !parallelSortedBufferReady && ready;
+  const readyBufferGuardUsed = parallelSortOutputGuardUsed;
+  const invalidOrEmptyBufferRejected =
+    readyBufferGuardUsed &&
+    (!parallelSortedBufferReady || !parallelSortedBufferNonEmpty);
   const visualOutputDegeneratedDetected =
     outputTextureWritten && summary.tileCompositorContributionCount <= 1;
   const parallelSortFailureReason =
@@ -1569,6 +1663,41 @@ fn finalizeSummary() {
     scalableSortPreparationReady &&
     productionOrderedReferenceLifecycleReady &&
     sortedAccumulationCapacityPolicyUsed;
+  const productionAccumulationConsumedParallelSortedRefs =
+    parallelSortedBufferPromotedToAccumulation &&
+    summary.productionAccumulationConsumedParallelSortedRefs === true &&
+    depthSortedReferencesConsumedByAccumulation &&
+    sortedAccumulationPathUsed;
+  const inactiveBackgroundHandlingReady =
+    summary.inactiveBackgroundHandlingReady === true &&
+    summary.inactiveTileCount >= 0 &&
+    outputTextureWritten;
+  const outputTextureProducedByProductionCompositor =
+    summary.outputTextureProducedByProductionCompositor === true &&
+    runtimeOutputReadyWithoutTextureReadback &&
+    outputTextureWritten;
+  const debugOutputBypassedForProduction =
+    summary.debugOutputBypassedForProduction === true &&
+    summary.debugPatternBypassedForCompositor === true;
+  const fallbackOnlyCompositorUsed = false;
+  const productionTileCompositorPathUsed =
+    summary.productionTileCompositorPathUsed === true &&
+    productionAccumulationConsumedParallelSortedRefs &&
+    activeTileDispatchUsed &&
+    inactiveBackgroundHandlingReady &&
+    outputTextureProducedByProductionCompositor &&
+    debugOutputBypassedForProduction &&
+    fallbackOnlyCompositorUsed === false;
+  const productionTileCompositorReady =
+    productionTileCompositorPathUsed &&
+    gpuParallelPerTileSortReady &&
+    step93OverflowPolicyPreserved &&
+    realTimeRuntimePathReady &&
+    step89RealCompositorOutputPreserved &&
+    visualOutputDegeneratedDetected === false;
+  const diagnosticReadbackSeparatedFromProductionPath =
+    diagnosticReadbackSeparatedFromRuntimePath &&
+    runtimeCompositorDoesNotDependOnCaptureReadback;
 
   for (const buffer of [
     summaryBuffer,
@@ -1627,6 +1756,10 @@ fn finalizeSummary() {
         'reference-list-compute-seed-pass',
         'copy-free-reference-seed-guard',
         'parallel-sorted-buffer-readiness-guard',
+        'production-tile-compositor-v1-main-path',
+        'active-tile-subtile-accumulation-dispatch',
+        'production-background-clear-pass',
+        'inactive-background-handling-in-compositor',
         'bounded-gpu-per-tile-depth-sort-v1',
         'overflow-aware-tile-ordering-capacity-policy',
         'scalable-sort-scratch-buffer-boundary',
@@ -1639,7 +1772,8 @@ fn finalizeSummary() {
         'gaussian-attribute-color-accumulation',
         'canvas-resolution-rgba8unorm-output-texture',
         'readback-free-steady-state-compositor-runtime-path',
-        'gpu-owned-runtime-resource-flow'
+        'gpu-owned-runtime-resource-flow',
+        'production-readiness-telemetry'
       ],
       deferredCompositorFields: [
         'full-production-parallel-sort-parity',
@@ -1648,7 +1782,7 @@ fn finalizeSummary() {
         'chunk-lod-streaming'
       ],
       compositorClassification:
-        'partial-webgpu-parallel-per-tile-depth-sorted-accumulation',
+        'production-webgpu-tile-compositor-v1-integration',
       fullDepthSortInWgsl: false,
       fullCudaParity: false,
       finalProductionTileCompositor: false,
@@ -1721,7 +1855,7 @@ fn finalizeSummary() {
       presentationHeartbeatFrameCount: presentationFrameCount,
       lastValidCompositorOutputPresentedOnCleanFrames: false,
       dirtySkippedCompositorUpdateButPresentedCachedOutput: false,
-	      presentationFrameSamples,
+      presentationFrameSamples,
       realTileCompositorOutputReady,
       debugOutputBypassedForCompositor:
         summary.debugPatternBypassedForCompositor,
@@ -1745,6 +1879,30 @@ fn finalizeSummary() {
       runtimeCompositorDoesNotDependOnCaptureReadback,
       gpuOwnedRuntimeResourcesUsed,
       diagnosticReadbackSeparatedFromRuntimePath,
+      diagnosticReadbackSeparatedFromProductionPath,
+      productionTileCompositorReady,
+      productionTileCompositorPathUsed,
+      productionAccumulationConsumedParallelSortedRefs,
+      activeTileDispatchReady,
+      activeTileDispatchUsed,
+      activeTileCount: summary.activeTileCount,
+      inactiveTileCount: summary.inactiveTileCount,
+      activeTilePixelWorkItemCount: summary.activeTilePixelWorkItemCount,
+      fullScreenPixelWorkAvoided: summary.fullScreenPixelWorkAvoided,
+      accumulationWorkReductionRatio: summary.accumulationWorkReductionRatio,
+      inactiveBackgroundHandlingReady,
+      inactivePixelOrTileWritePolicy:
+        'clear-output-texture-then-write-active-tile-pixels',
+      outputTextureProducedByProductionCompositor,
+      lastValidOutputPreservedForCleanFrames:
+        outputTextureCachedForHeartbeat &&
+        readbackFreeSteadyStateCompositorUsed,
+      readyBufferGuardUsed,
+      invalidOrEmptyBufferRejected,
+      debugOutputBypassedForProduction,
+      fallbackOnlyCompositorUsed,
+      normalBackendPresentationUsed: false,
+      webgl2FallbackFinalPresentFrameCount: 0,
       debugPathSeparatedFromRuntimePath,
       runtimeOutputReadyWithoutTextureReadback,
       diagnosticTextureReadbackUsed,
@@ -1808,6 +1966,7 @@ fn finalizeSummary() {
       parallelSortOutputGuardUsed,
       preservedBoundedSortFallbackUsed,
       visualOutputDegeneratedDetected,
+      step94ParallelSortPreserved: gpuParallelPerTileSortReady,
       step93OverflowPolicyPreserved,
       overflowAwareOrderingReady,
       sortCapacityLimit,
