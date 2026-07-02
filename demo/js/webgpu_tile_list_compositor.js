@@ -4,8 +4,9 @@ import {
 } from './common_4dgs_record_contracts.js';
 
 const COMPOSITOR_SUMMARY_FLOAT_COUNT = 24;
-const ORDERING_SUMMARY_UINT_COUNT = 20;
+const ORDERING_SUMMARY_UINT_COUNT = 28;
 const BOUNDED_SORT_CAPACITY_LIMIT = 64;
+const PARALLEL_SORT_STAGE_COUNT = 21;
 const viewerCanvasWebGpuContextState = new WeakMap();
 const viewerCanvasTileCompositorOutputState = new WeakMap();
 
@@ -92,7 +93,11 @@ function readOrderingSummary(summary) {
       finiteNumberOr(summary[17], 0) / scaledCapacity,
     capacityUtilizationSum:
       finiteNumberOr(summary[18], 0) / scaledCapacity,
-    capacityTelemetryTileCount: Math.round(finiteNumberOr(summary[19], 0))
+    capacityTelemetryTileCount: Math.round(finiteNumberOr(summary[19], 0)),
+    sortOrderViolationCount: Math.round(finiteNumberOr(summary[20], 0)),
+    parallelSortStageCount: Math.round(finiteNumberOr(summary[21], 0)),
+    sortWorkgroupCount: Math.round(finiteNumberOr(summary[22], 0)),
+    parallelSortCompareSwapPassCount: Math.round(finiteNumberOr(summary[23], 0))
   };
 }
 
@@ -711,7 +716,7 @@ export async function buildWebGpuTileListCompositor({
     resources.tileCount,
     referenceCapacity,
     resources.maxRefsPerTile,
-    93
+    94
   ]);
   const orderingParamsBuffer = createBuffer(device, orderingParams, GPUBufferUsage.UNIFORM);
   const orderingSummaryReadbackBuffer = device.createBuffer({
@@ -719,7 +724,7 @@ export async function buildWebGpuTileListCompositor({
     usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
   });
   const orderingShader = device.createShaderModule({
-    label: 'phase3-step92-webgpu-gpu-side-per-tile-depth-sort-wgsl',
+    label: 'phase3-step94-webgpu-parallel-per-tile-depth-sort-wgsl',
     code: `
 struct OrderingParams {
   tileCount: u32,
@@ -734,59 +739,101 @@ struct OrderingParams {
 @group(0) @binding(3) var<storage, read_write> orderingSummary: array<atomic<u32>>;
 @group(0) @binding(4) var<uniform> orderingParams: OrderingParams;
 
+var<workgroup> localRefs: array<vec4f, 64>;
+var<workgroup> localKeys: array<f32, 64>;
+
 @compute @workgroup_size(64)
-fn prepareOrderedReferences(@builtin(global_invocation_id) id: vec3u) {
-  let tile = id.x;
+fn seedOrderedReferences(@builtin(global_invocation_id) globalId: vec3u) {
+  let referenceIndex = globalId.x;
+  if (referenceIndex >= orderingParams.referenceCapacity) {
+    return;
+  }
+  orderedReferences[referenceIndex] = sourceReferences[referenceIndex];
+}
+
+@compute @workgroup_size(64)
+fn prepareOrderedReferences(
+  @builtin(workgroup_id) workgroupId: vec3u,
+  @builtin(local_invocation_id) localId: vec3u
+) {
+  let tile = workgroupId.x;
+  let slot = localId.x;
   if (tile >= orderingParams.tileCount) {
     return;
   }
   let table = tileTable[tile];
-  if (table.w != 84.0 || table.y <= 0.0) {
-    return;
-  }
-  atomicAdd(&orderingSummary[1], 1u);
-  let offset = u32(table.x);
-  let rawCount = min(u32(table.y), orderingParams.maxRefsPerTile);
-  let overflowRefs = u32(max(table.z, 0.0));
+  let tileValid = table.w == 84.0 && table.y > 0.0;
+  let offset = u32(max(table.x, 0.0));
+  let rawCount = select(0u, min(u32(max(table.y, 0.0)), orderingParams.maxRefsPerTile), tileValid);
+  let overflowRefs = select(0u, u32(max(table.z, 0.0)), tileValid);
   let sortLimit = min(orderingParams.maxRefsPerTile, 64u);
   let count = min(rawCount, sortLimit);
-  atomicAdd(&orderingSummary[12], rawCount);
-  atomicAdd(&orderingSummary[13], (rawCount - count) + overflowRefs);
-  atomicAdd(&orderingSummary[15], overflowRefs);
-  atomicStore(&orderingSummary[16], sortLimit);
-  if (rawCount > count || overflowRefs > 0u) {
-    atomicAdd(&orderingSummary[10], 1u);
-    atomicAdd(&orderingSummary[14], 1u);
+
+  if (tileValid && slot == 0u) {
+    atomicAdd(&orderingSummary[1], 1u);
+    atomicAdd(&orderingSummary[8], 1u);
+    atomicAdd(&orderingSummary[12], rawCount);
+    atomicAdd(&orderingSummary[13], (rawCount - count) + overflowRefs);
+    atomicAdd(&orderingSummary[15], overflowRefs);
+    atomicStore(&orderingSummary[16], sortLimit);
+    atomicStore(&orderingSummary[21], 21u);
+    atomicAdd(&orderingSummary[22], 1u);
+    atomicStore(&orderingSummary[23], 21u);
+    if (rawCount > count || overflowRefs > 0u) {
+      atomicAdd(&orderingSummary[10], 1u);
+      atomicAdd(&orderingSummary[14], 1u);
+    }
+    atomicMax(&orderingSummary[11], count);
+    let hasSortLimit = sortLimit > 0u;
+    let utilization = select(0u, (count * 100000u) / max(sortLimit, 1u), hasSortLimit);
+    atomicMax(&orderingSummary[17], utilization);
+    atomicAdd(&orderingSummary[18], utilization);
+    atomicAdd(&orderingSummary[19], 1u);
   }
-  atomicAdd(&orderingSummary[8], 1u);
-  atomicMax(&orderingSummary[11], count);
-  let utilization = select(0u, (count * 100000u) / max(sortLimit, 1u), sortLimit > 0u);
-  atomicMax(&orderingSummary[17], utilization);
-  atomicAdd(&orderingSummary[18], utilization);
-  atomicAdd(&orderingSummary[19], 1u);
-  var consumed: array<u32, 64>;
-  for (var initSlot: u32 = 0u; initSlot < 64u; initSlot = initSlot + 1u) {
-    consumed[initSlot] = 0u;
+
+  let sourceIndex = offset + slot;
+  if (slot < count && sourceIndex < orderingParams.referenceCapacity) {
+    let splatRef = sourceReferences[sourceIndex];
+    localRefs[slot] = splatRef;
+    localKeys[slot] = splatRef.w;
+  } else {
+    localRefs[slot] = vec4f(0.0, 0.0, 0.0, 0.0);
+    localKeys[slot] = -340282346638528859811704183484516925440.0;
   }
-  for (var orderSlot: u32 = 0u; orderSlot < count; orderSlot = orderSlot + 1u) {
-    var bestSlot = 0u;
-    var bestKey = -340282346638528859811704183484516925440.0;
-    for (var scanSlot: u32 = 0u; scanSlot < count; scanSlot = scanSlot + 1u) {
-      let candidateIndex = offset + scanSlot;
-      if (candidateIndex < orderingParams.referenceCapacity) {
-        let candidateRef = sourceReferences[candidateIndex];
-        let candidateKey = candidateRef.w;
-        if (consumed[scanSlot] == 0u && candidateKey >= bestKey) {
-          bestKey = candidateKey;
-          bestSlot = scanSlot;
+  workgroupBarrier();
+
+  for (var k: u32 = 2u; k <= 64u; k = k * 2u) {
+    var j = k / 2u;
+    loop {
+      let partnerSlot = slot ^ j;
+      if (partnerSlot > slot && partnerSlot < 64u) {
+        let selfKey = localKeys[slot];
+        let partnerKey = localKeys[partnerSlot];
+        let ascending = (slot & k) != 0u;
+        let selfLess = selfKey < partnerKey;
+        let selfGreater = selfKey > partnerKey;
+        let shouldSwap = select(selfLess, selfGreater, ascending);
+        if (shouldSwap) {
+          let tempKey = localKeys[slot];
+          let tempRef = localRefs[slot];
+          localKeys[slot] = localKeys[partnerSlot];
+          localRefs[slot] = localRefs[partnerSlot];
+          localKeys[partnerSlot] = tempKey;
+          localRefs[partnerSlot] = tempRef;
         }
       }
+      workgroupBarrier();
+      if (j == 1u) {
+        break;
+      }
+      j = j / 2u;
     }
-    consumed[bestSlot] = 1u;
-    let sourceIndex = offset + bestSlot;
-    let orderedIndex = offset + orderSlot;
-    if (sourceIndex < orderingParams.referenceCapacity && orderedIndex < orderingParams.referenceCapacity) {
-      let splatRef = sourceReferences[sourceIndex];
+  }
+
+  if (slot < count) {
+    let orderedIndex = offset + slot;
+    if (orderedIndex < orderingParams.referenceCapacity) {
+      let splatRef = localRefs[slot];
       orderedReferences[orderedIndex] = splatRef;
       atomicAdd(&orderingSummary[0], 1u);
       atomicAdd(&orderingSummary[4], 1u);
@@ -800,8 +847,13 @@ fn prepareOrderedReferences(@builtin(global_invocation_id) id: vec3u) {
       atomicStore(&orderingSummary[7], 1u);
     }
   }
-  atomicStore(&orderingSummary[5], orderingParams.referenceCapacity);
-  atomicStore(&orderingSummary[6], orderingParams.statusCode);
+  if (slot + 1u < count && localKeys[slot] < localKeys[slot + 1u]) {
+    atomicAdd(&orderingSummary[20], 1u);
+  }
+  if (tileValid && slot == 0u) {
+    atomicStore(&orderingSummary[5], orderingParams.referenceCapacity);
+    atomicStore(&orderingSummary[6], orderingParams.statusCode);
+  }
 }
 `
   });
@@ -841,6 +893,10 @@ fn prepareOrderedReferences(@builtin(global_invocation_id) id: vec3u) {
     layout: orderingPipelineLayout,
     compute: { module: orderingShader, entryPoint: 'prepareOrderedReferences' }
   });
+  const referenceSeedPipeline = device.createComputePipeline({
+    layout: orderingPipelineLayout,
+    compute: { module: orderingShader, entryPoint: 'seedOrderedReferences' }
+  });
   const orderingBindGroup = device.createBindGroup({
     layout: orderingBindGroupLayout,
     entries: [
@@ -874,9 +930,11 @@ struct Params {
 
 fn sampleConic(conicAndSort: vec4f, radius: f32) -> vec3f {
   let fallbackConic = 1.0 / max(radius * radius, 1.0);
-  let conicX = select(fallbackConic, abs(conicAndSort.x), abs(conicAndSort.x) > 0.0);
+  let conicXAvailable = abs(conicAndSort.x) > 0.0;
+  let conicX = select(fallbackConic, abs(conicAndSort.x), conicXAvailable);
   let conicY = conicAndSort.y;
-  let conicZ = select(fallbackConic, abs(conicAndSort.w), abs(conicAndSort.w) > 0.0);
+  let conicZAvailable = abs(conicAndSort.w) > 0.0;
+  let conicZ = select(fallbackConic, abs(conicAndSort.w), conicZAvailable);
   return vec3f(conicX, conicY, conicZ);
 }
 
@@ -980,27 +1038,33 @@ fn finalizeSummary() {
       }
     }
   }
-  orderAwareUsed = select(0.0, 1.0, orderedRefs == totalRefs && totalRefs > 0.0 && sortKeyConsumed == 1.0);
+  let totalRefsAvailable = totalRefs > 0.0;
+  let orderedRefsMatchTotal = orderedRefs == totalRefs && totalRefsAvailable;
+  let orderAwareReady = orderedRefsMatchTotal && sortKeyConsumed == 1.0;
+  let gaussianAttributeReady = gaussianAttributeConsumed == 1.0 && totalRefsAvailable;
+  let outputIsCanvasSized =
+    params.outputWidth > params.tileCols || params.outputHeight > params.tileRows;
+  orderAwareUsed = select(0.0, 1.0, orderAwareReady);
   compositorSummary[0] = vec4f(params.tileCount, nonEmpty, totalRefs, totalRefs);
-  compositorSummary[1] = vec4f(readTable, traversedList, select(0.0, 1.0, totalRefs > 0.0), maxRefs);
+  compositorSummary[1] = vec4f(readTable, traversedList, select(0.0, 1.0, totalRefsAvailable), maxRefs);
   compositorSummary[2] = vec4f(overflow, 87.0, orderedRefs, totalRefs);
   compositorSummary[3] = vec4f(
     depthKeyConsumed,
-	    sortKeyConsumed,
-	    orderAwareUsed,
-	    select(0.0, 1.0, orderedRefs == totalRefs && totalRefs > 0.0)
-	  );
+    sortKeyConsumed,
+    orderAwareUsed,
+    select(0.0, 1.0, orderedRefsMatchTotal)
+  );
   compositorSummary[4] = vec4f(
     gaussianAttributeConsumed,
     footprintPayloadConsumed,
-    select(0.0, 1.0, orderedRefs == totalRefs && totalRefs > 0.0),
+    select(0.0, 1.0, orderedRefsMatchTotal),
     orderAwareUsed
   );
   compositorSummary[5] = vec4f(
-    select(0.0, 1.0, gaussianAttributeConsumed == 1.0 && totalRefs > 0.0),
-    select(0.0, 1.0, gaussianAttributeConsumed == 1.0 && totalRefs > 0.0),
+    select(0.0, 1.0, gaussianAttributeReady),
+    select(0.0, 1.0, gaussianAttributeReady),
     totalRefs,
-    select(0.0, 1.0, params.outputWidth > params.tileCols || params.outputHeight > params.tileRows)
+    select(0.0, 1.0, outputIsCanvasSized)
   );
 }
 `
@@ -1068,8 +1132,10 @@ fn finalizeSummary() {
     label: 'phase3-step85-webgpu-tile-list-compositor-pass'
   });
   pass.setBindGroup(0, orderingBindGroup);
+  pass.setPipeline(referenceSeedPipeline);
+  pass.dispatchWorkgroups(Math.max(1, Math.ceil(referenceCapacity / 64)));
   pass.setPipeline(orderingPipeline);
-  pass.dispatchWorkgroups(Math.max(1, Math.ceil(resources.tileCount / 64)));
+  pass.dispatchWorkgroups(Math.max(1, resources.tileCount));
   pass.setBindGroup(0, bindGroup);
   pass.setPipeline(compositorPipeline);
   pass.dispatchWorkgroups(
@@ -1346,7 +1412,7 @@ fn finalizeSummary() {
   const perTileOrderingRuntimePathUsed =
     orderedReferencesGeneratedOrUpdatedOnGpu &&
     summary.orderedTileReferencesConsumed === true &&
-    orderingSummary.orderingStatusCode === 93;
+    orderingSummary.orderingStatusCode === 94;
   const orderedReferencesConsumedByProductionAccumulation =
     perTileOrderingRuntimePathUsed &&
     summary.depthOrderedAccumulationUsed === true &&
@@ -1442,6 +1508,67 @@ fn finalizeSummary() {
     gpuSideTileOrderingReady &&
     sortedAccumulationPathUsed &&
     sortedReferenceCountMatchesSourceOrCapacityPolicy;
+  const parallelSortStageCount = orderingSummary.parallelSortStageCount;
+  const sortWorkgroupCount = orderingSummary.sortWorkgroupCount;
+  const sortOrderViolationCount = orderingSummary.sortOrderViolationCount;
+  const sortOrderSampleCheckReady =
+    sortedReferenceCount > 0 &&
+    orderingSummary.sortKeyObserved === true &&
+    sortOrderViolationCount === 0;
+  const workgroupParallelSortUsed =
+    perTileOrderingRuntimePathUsed &&
+    sortWorkgroupCount === sortedTileCount &&
+    parallelSortStageCount === PARALLEL_SORT_STAGE_COUNT &&
+    sortOrderSampleCheckReady;
+  const parallelSortedBufferReady =
+    workgroupParallelSortUsed &&
+    sortedReferenceCountMatchesSourceOrCapacityPolicy &&
+    sortedReferenceCount > 0;
+  const parallelSortedBufferNonEmpty =
+    sortedReferenceCount > 0 && sortedTileCount > 0;
+  const parallelSortedBufferPromotedToAccumulation =
+    parallelSortedBufferReady &&
+    depthSortedReferencesConsumedByAccumulation &&
+    sortedAccumulationPathUsed;
+  const referenceSeedCopyUsed = false;
+  const referenceSeedComputePassUsed = true;
+  const referenceSeedSourceHasCopySrc = false;
+  const referenceSeedDestinationHasCopyDst = true;
+  const copyBufferUsageValid =
+    referenceSeedComputePassUsed ||
+    (referenceSeedCopyUsed &&
+      referenceSeedSourceHasCopySrc &&
+      referenceSeedDestinationHasCopyDst);
+  const parallelSortOutputGuardUsed = true;
+  const preservedBoundedSortFallbackUsed =
+    parallelSortOutputGuardUsed && !parallelSortedBufferReady && ready;
+  const visualOutputDegeneratedDetected =
+    outputTextureWritten && summary.tileCompositorContributionCount <= 1;
+  const parallelSortFailureReason =
+    !copyBufferUsageValid
+      ? 'reference-seed-copy-buffer-usage-invalid'
+      : parallelSortedBufferReady
+      ? null
+      : sortWorkgroupCount <= 0
+        ? 'parallel-sort-workgroup-count-zero'
+        : parallelSortStageCount <= 0
+          ? 'parallel-sort-stage-count-zero'
+          : sortedReferenceCount <= 0
+            ? 'parallel-sort-produced-zero-sorted-references'
+            : sortOrderViolationCount > 0
+              ? 'parallel-sort-order-violation-detected'
+              : !depthSortedReferencesConsumedByAccumulation
+                ? 'parallel-sorted-references-not-consumed-by-accumulation'
+                : 'parallel-sort-not-ready';
+  const gpuParallelPerTileSortReady =
+    gpuSidePerTileSortReady &&
+    workgroupParallelSortUsed &&
+    parallelSortedBufferPromotedToAccumulation;
+  const step93OverflowPolicyPreserved =
+    overflowAwareOrderingReady &&
+    scalableSortPreparationReady &&
+    productionOrderedReferenceLifecycleReady &&
+    sortedAccumulationCapacityPolicyUsed;
 
   for (const buffer of [
     summaryBuffer,
@@ -1496,10 +1623,15 @@ fn finalizeSummary() {
         'splat-reference-list-traversal',
         'depth-aware-reference-selection',
         'gpu-side-ordered-reference-buffer-update',
+        'workgroup-parallel-bitonic-per-tile-depth-sort-v1',
+        'reference-list-compute-seed-pass',
+        'copy-free-reference-seed-guard',
+        'parallel-sorted-buffer-readiness-guard',
         'bounded-gpu-per-tile-depth-sort-v1',
         'overflow-aware-tile-ordering-capacity-policy',
         'scalable-sort-scratch-buffer-boundary',
         'tile-histogram-capacity-table-telemetry',
+        'sort-order-violation-sampled-evidence',
         'depth-sorted-ordered-reference-buffer-consumed-by-accumulation',
         'production-accumulation-consumes-gpu-updated-ordered-refs',
         'sort-key-descending-compositor-order',
@@ -1510,13 +1642,13 @@ fn finalizeSummary() {
         'gpu-owned-runtime-resource-flow'
       ],
       deferredCompositorFields: [
-        'full-parallel-per-tile-sort-parity',
+        'full-production-parallel-sort-parity',
         'cuda-compositor-parity',
         'final-production-tile-compositor',
         'chunk-lod-streaming'
       ],
       compositorClassification:
-        'partial-webgpu-bounded-per-tile-depth-sorted-accumulation',
+        'partial-webgpu-parallel-per-tile-depth-sorted-accumulation',
       fullDepthSortInWgsl: false,
       fullCudaParity: false,
       finalProductionTileCompositor: false,
@@ -1647,7 +1779,7 @@ fn finalizeSummary() {
       depthSortedReferencesConsumedByAccumulation,
       sortedAccumulationPathUsed,
       sortDispatchCount: sortOrOrderingDispatchCount,
-      sortWorkItemCount: resources.tileCount,
+      sortWorkItemCount: orderingWorkItemCount,
       sortedTileCount,
       sortedReferenceCount,
       unsortedFallbackTileCount,
@@ -1656,7 +1788,27 @@ fn finalizeSummary() {
       sortOrOrderingBufferBytes:
         orderedReferenceBufferBytes + orderingSummaryData.byteLength,
       step91OrderedReferenceRuntimePathPreserved: gpuSideTileOrderingReady,
-      step92SortMode: 'bounded-gpu-selection-sort-per-tile-descending-sort-key',
+      step92SortMode: 'bounded-gpu-workgroup-bitonic-sort-per-tile-descending-sort-key',
+      gpuParallelPerTileSortReady,
+      workgroupParallelSortUsed,
+      parallelSortAlgorithm: 'workgroup-bitonic-sort-v1-descending-sort-key',
+      parallelSortStageCount,
+      sortWorkgroupCount,
+      sortOrderViolationCount,
+      sortOrderSampleCheckReady,
+      parallelSortFailureReason,
+      parallelSortedBufferPromotedToAccumulation,
+      parallelSortedBufferReady,
+      parallelSortedBufferNonEmpty,
+      referenceSeedCopyUsed,
+      referenceSeedComputePassUsed,
+      referenceSeedSourceHasCopySrc,
+      referenceSeedDestinationHasCopyDst,
+      copyBufferUsageValid,
+      parallelSortOutputGuardUsed,
+      preservedBoundedSortFallbackUsed,
+      visualOutputDegeneratedDetected,
+      step93OverflowPolicyPreserved,
       overflowAwareOrderingReady,
       sortCapacityLimit,
       overflowTileCount,

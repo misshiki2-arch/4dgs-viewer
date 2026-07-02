@@ -1644,6 +1644,42 @@ shared compositor contract.
 - deferred scope: full parallel sort parity, full CUDA compositor parity, final
   production compositor behavior, and chunk/LOD streaming remain deferred.
 
+## Step94 Workgroup Parallel Per-Tile Sort V1
+
+Step94 advances the Step92/Step93 bounded selection-sort path into a GPU-side
+workgroup parallel sort v1. The WebGPU compositor keeps the fixed-capacity tile
+list and overflow policy from Step93, but each tile is sorted by a 64-lane
+workgroup bitonic compare/swap pass before production accumulation consumes the
+ordered reference buffer.
+
+- selected goal: A+C are the primary path, with B/D/E telemetry included. The
+  implementation replaces the single-invocation bounded selection scan with a
+  bounded workgroup bitonic sort, then keeps the existing sorted accumulation
+  path as the production consumer.
+- runtime boundary: WebGPU owns source tile refs, the ordered reference buffer,
+  parallel sort dispatch, sort-order evidence, overflow/capacity telemetry, and
+  alpha/color accumulation. Viewer shell and tools do not own runtime sorting.
+- contract evidence: `gpuParallelPerTileSortReady`,
+  `workgroupParallelSortUsed`, `parallelSortAlgorithm`,
+  `parallelSortStageCount`, `sortWorkgroupCount`, `sortOrderViolationCount`,
+  `sortOrderSampleCheckReady`, `depthSortedReferencesConsumedByAccumulation`,
+  and `step93OverflowPolicyPreserved`.
+- guarded accumulation input: the ordered reference buffer is seeded from the
+  source reference list by a storage-buffer compute seed pass before the
+  parallel sort pass. This avoids requiring `COPY_SRC` on the source reference
+  list while still preserving the readiness guard. If the parallel sorted buffer
+  is not ready, Summary reports `parallelSortFailureReason`,
+  `referenceSeedComputePassUsed`, `copyBufferUsageValid`, and
+  `parallelSortOutputGuardUsed` instead of promoting an empty sorted buffer as a
+  successful Step94 path.
+- preservation: Step94 success still requires the Step88 steady-state
+  presentation contract, Step89 real compositor output, Step90 readback-free
+  runtime path, Step91 ordered reference buffer, Step92 sorted accumulation, and
+  Step93 overflow-aware capacity policy.
+- deferred scope: this is not full production parallel sort parity, CUDA
+  compositor parity, final production compositor behavior, or chunk/LOD
+  streaming.
+
 ## Step86 Phase 3 WebGPU Backend Boundary and Dirty Contract Hardening
 
 Step86 freezes the ownership boundaries added during Steps80-85 before the

@@ -5501,7 +5501,7 @@ async function renderCurrentFrame(options = {}) {
                       ? 'phase3-step78-true-webgpu-visible-record-path'
                       : backendImplementationKind ===
                         WEBGPU_TILE_COMPOSITOR_FRAME_IMPLEMENTATION
-                        ? 'phase3-step93-overflow-aware-scalable-tile-ordering'
+                        ? 'phase3-step94-parallel-per-tile-sort'
                       : 'phase3-step61-viewer-backend-runtime-runner')
                 },
                 requestedWebGpuBackendMode: requestedBackendMode,
@@ -5526,7 +5526,7 @@ async function renderCurrentFrame(options = {}) {
                       ? 'phase3-step78'
                       : backendImplementationKind ===
                         WEBGPU_TILE_COMPOSITOR_FRAME_IMPLEMENTATION
-                        ? 'phase3-step93'
+                        ? 'phase3-step94'
                       : 'phase3-step61',
                   renderLifecycleStage: 'renderCurrentFrame',
                   invocationSource: 'renderCurrentFrame-viewer-backend-executor',
@@ -5590,7 +5590,7 @@ async function renderCurrentFrame(options = {}) {
               webgpuBackendViewerLifecycleInvocationSource:
                 'renderCurrentFrame-viewer-loop-tile-compositor-persistence',
               webgpuBackendViewerLifecycleControlledExecution: true,
-      comparisonMode: 'phase3-step93-overflow-aware-scalable-tile-ordering'
+      comparisonMode: 'phase3-step94-parallel-per-tile-sort'
             },
             requestedWebGpuBackendMode: requestedBackendMode,
             allowViewerCanvasPresentation,
@@ -5609,7 +5609,7 @@ async function renderCurrentFrame(options = {}) {
             },
             metadataOverrides: {
               captureSource: 'viewer-loop-tile-compositor-persistence',
-              phase: 'phase3-step93',
+              phase: 'phase3-step94',
               renderLifecycleStage: 'renderCurrentFrame',
               invocationSource:
                 'renderCurrentFrame-viewer-loop-tile-compositor-persistence',

@@ -12,8 +12,9 @@ function finiteNumberOr(value, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
-function createBuffer(device, data, usage) {
+function createBuffer(device, data, usage, label = undefined) {
   const buffer = device.createBuffer({
+    label,
     size: Math.max(4, Math.ceil(data.byteLength / 4) * 4),
     usage,
     mappedAtCreation: true
@@ -139,7 +140,8 @@ export async function buildWebGpuGpuOwnedTileListLayout({
   const referenceListBuffer = createBuffer(
     device,
     referenceList,
-    GPUBufferUsage.STORAGE
+    GPUBufferUsage.STORAGE,
+    'phase3-step84-webgpu-gpu-owned-splat-reference-list-buffer'
   );
   const consumerSummaryBuffer = createBuffer(
     device,

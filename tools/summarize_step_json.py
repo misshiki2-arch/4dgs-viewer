@@ -5826,6 +5826,409 @@ def build_step93_overflow_aware_tile_ordering_summary(
     }
 
 
+def build_step94_parallel_per_tile_sort_summary(
+    summary: Dict[str, Any],
+) -> Dict[str, Any]:
+    frame_contract = get_path(
+        summary,
+        ["webgpuTileCompositorFrameImplementation"],
+        {},
+    )
+    compositor_contract = get_path(
+        summary,
+        ["webgpuTileListCompositorContract"],
+        {},
+    )
+    phase_step = get_path(summary, ["phaseStep"])
+    step92_summary = build_step92_per_tile_depth_sort_summary(summary)
+    step88_presentation_contract_preserved = (
+        get_path(step92_summary, ["step88PresentationContractPreserved"]) is True
+    )
+    step89_output_preserved = (
+        get_path(step92_summary, ["step89RealCompositorOutputPreserved"]) is True
+    )
+    step90_runtime_preserved = (
+        get_path(step92_summary, ["step90RuntimePathPreserved"]) is True
+    )
+    step91_ordered_reference_path_preserved = (
+        get_path(step92_summary, ["step91OrderedReferenceRuntimePathPreserved"])
+        is True
+    )
+    step92_bounded_sort_path_preserved = (
+        get_path(compositor_contract, ["gpuSidePerTileSortReady"]) is True
+        and get_path(compositor_contract, ["boundedPerTileSortUsed"]) is True
+        and get_path(compositor_contract, ["depthKeyBufferConsumed"]) is True
+        and get_path(
+            compositor_contract,
+            ["depthSortedReferencesConsumedByAccumulation"],
+        )
+        is True
+        and get_path(compositor_contract, ["sortedAccumulationPathUsed"]) is True
+        and numeric_value(get_path(compositor_contract, ["sortedReferenceCount"]), 0)
+        > 0
+    )
+    step93_overflow_policy_preserved = (
+        get_path(compositor_contract, ["step93OverflowPolicyPreserved"]) is True
+        and get_path(compositor_contract, ["overflowAwareOrderingReady"]) is True
+        and get_path(compositor_contract, ["scalableSortPreparationReady"]) is True
+        and get_path(
+            compositor_contract,
+            ["sortedAccumulationCapacityPolicyUsed"],
+        )
+        is True
+        and get_path(
+            compositor_contract,
+            ["sortedReferenceCountMatchesSourceOrCapacityPolicy"],
+        )
+        is True
+    )
+    reference_seed_usage_ready = (
+        get_path(compositor_contract, ["copyBufferUsageValid"]) is True
+        and (
+            get_path(compositor_contract, ["referenceSeedComputePassUsed"])
+            is True
+            or (
+                get_path(compositor_contract, ["referenceSeedCopyUsed"]) is True
+                and get_path(compositor_contract, ["referenceSeedSourceHasCopySrc"])
+                is True
+                and get_path(
+                    compositor_contract,
+                    ["referenceSeedDestinationHasCopyDst"],
+                )
+                is True
+            )
+        )
+    )
+    parallel_sort_ready = (
+        get_path(compositor_contract, ["gpuParallelPerTileSortReady"]) is True
+        and get_path(compositor_contract, ["workgroupParallelSortUsed"]) is True
+        and get_path(compositor_contract, ["parallelSortAlgorithm"])
+        == "workgroup-bitonic-sort-v1-descending-sort-key"
+        and numeric_value(
+            get_path(compositor_contract, ["parallelSortStageCount"]),
+            0,
+        )
+        > 0
+        and numeric_value(get_path(compositor_contract, ["sortDispatchCount"]), 0)
+        > 0
+        and numeric_value(get_path(compositor_contract, ["sortWorkgroupCount"]), 0)
+        > 0
+        and numeric_value(get_path(compositor_contract, ["sortWorkItemCount"]), 0)
+        > 0
+        and get_path(
+            compositor_contract,
+            ["parallelSortedBufferReady"],
+        )
+        is True
+        and get_path(
+            compositor_contract,
+            ["parallelSortedBufferNonEmpty"],
+        )
+        is True
+    )
+    order_evidence_ready = (
+        get_path(compositor_contract, ["sortOrderSampleCheckReady"]) is True
+        and numeric_value(
+            get_path(compositor_contract, ["sortOrderViolationCount"]),
+            1,
+        )
+        == 0
+        and get_path(compositor_contract, ["depthKeyBufferConsumed"]) is True
+    )
+    sorted_accumulation_consumed = (
+        get_path(
+            compositor_contract,
+            ["depthSortedReferencesConsumedByAccumulation"],
+        )
+        is True
+        and get_path(compositor_contract, ["sortedAccumulationPathUsed"]) is True
+        and get_path(compositor_contract, ["depthOrderedAccumulationUsed"]) is True
+        and get_path(compositor_contract, ["alphaAccumulationUsed"]) is True
+        and get_path(compositor_contract, ["colorAccumulationUsed"]) is True
+        and numeric_value(
+            get_path(compositor_contract, ["tileCompositorContributionCount"]),
+            0,
+        )
+        > 0
+        and get_path(
+            compositor_contract,
+            ["parallelSortedBufferPromotedToAccumulation"],
+        )
+        is True
+    )
+    error_free = (
+        get_path(frame_contract, ["webgpuValidationErrorDetected"]) is False
+        and get_path(frame_contract, ["invalidCommandBufferDetected"]) is False
+        and get_path(frame_contract, ["queueSubmitFailureDetected"]) is False
+        and get_path(frame_contract, ["webgpuWebgl2SameFramePresentationMixed"])
+        is False
+        and get_path(frame_contract, ["fallbackMixingPrevented"]) is True
+        and get_path(frame_contract, ["fullRendererSuccessClaimed"]) is False
+    )
+    success = (
+        phase_step == "phase3-step94"
+        and reference_seed_usage_ready
+        and parallel_sort_ready
+        and order_evidence_ready
+        and sorted_accumulation_consumed
+        and step93_overflow_policy_preserved
+        and step92_bounded_sort_path_preserved
+        and step91_ordered_reference_path_preserved
+        and step90_runtime_preserved
+        and step89_output_preserved
+        and step88_presentation_contract_preserved
+        and get_path(
+            compositor_contract,
+            ["visualOutputDegeneratedDetected"],
+        )
+        is not True
+        and error_free
+    )
+    blocked_reason = None
+    if not success:
+        if phase_step != "phase3-step94":
+            blocked_reason = "summary-phase-step-is-not-phase3-step94"
+        elif not reference_seed_usage_ready:
+            blocked_reason = "step94-reference-seed-buffer-usage-invalid"
+        elif not parallel_sort_ready:
+            blocked_reason = "step94-parallel-per-tile-sort-not-ready"
+        elif (
+            get_path(compositor_contract, ["visualOutputDegeneratedDetected"])
+            is True
+        ):
+            blocked_reason = "step94-visual-output-degenerated"
+        elif not order_evidence_ready:
+            blocked_reason = "step94-sort-order-evidence-not-ready"
+        elif not sorted_accumulation_consumed:
+            blocked_reason = "step94-sorted-refs-not-consumed-by-accumulation"
+        elif not step93_overflow_policy_preserved:
+            blocked_reason = "step93-overflow-policy-not-preserved"
+        elif not step92_bounded_sort_path_preserved:
+            blocked_reason = "step92-bounded-sort-path-not-preserved"
+        elif not step91_ordered_reference_path_preserved:
+            blocked_reason = "step91-ordered-reference-runtime-path-not-preserved"
+        elif not step90_runtime_preserved:
+            blocked_reason = "step90-realtime-runtime-path-not-preserved"
+        elif not step89_output_preserved:
+            blocked_reason = "step89-real-compositor-output-not-preserved"
+        elif not step88_presentation_contract_preserved:
+            blocked_reason = "step88-presentation-contract-not-preserved"
+        else:
+            blocked_reason = "step94-runtime-validation-failed"
+    return {
+        "step94Decision": "success" if success else "blocked",
+        "step94BlockedReason": blocked_reason,
+        "step94SelectedGoal":
+            "A+C+B+D+E-workgroup-parallel-per-tile-sort-v1",
+        "phaseStep": phase_step,
+        "step94SummaryApplies": phase_step == "phase3-step94",
+        "gpuParallelPerTileSortReady": get_path(
+            compositor_contract,
+            ["gpuParallelPerTileSortReady"],
+        ),
+        "workgroupParallelSortUsed": get_path(
+            compositor_contract,
+            ["workgroupParallelSortUsed"],
+        ),
+        "parallelSortAlgorithm": get_path(
+            compositor_contract,
+            ["parallelSortAlgorithm"],
+        ),
+        "parallelSortStageCount": get_path(
+            compositor_contract,
+            ["parallelSortStageCount"],
+        ),
+        "sortDispatchCount": get_path(compositor_contract, ["sortDispatchCount"]),
+        "sortWorkgroupCount": get_path(
+            compositor_contract,
+            ["sortWorkgroupCount"],
+        ),
+        "sortWorkItemCount": get_path(
+            compositor_contract,
+            ["sortWorkItemCount"],
+        ),
+        "sortedTileCount": get_path(compositor_contract, ["sortedTileCount"]),
+        "sortedReferenceCount": get_path(
+            compositor_contract,
+            ["sortedReferenceCount"],
+        ),
+        "sortOrderViolationCount": get_path(
+            compositor_contract,
+            ["sortOrderViolationCount"],
+        ),
+        "sortOrderSampleCheckReady": get_path(
+            compositor_contract,
+            ["sortOrderSampleCheckReady"],
+        ),
+        "parallelSortFailureReason": get_path(
+            compositor_contract,
+            ["parallelSortFailureReason"],
+        ),
+        "parallelSortedBufferPromotedToAccumulation": get_path(
+            compositor_contract,
+            ["parallelSortedBufferPromotedToAccumulation"],
+        ),
+        "parallelSortedBufferReady": get_path(
+            compositor_contract,
+            ["parallelSortedBufferReady"],
+        ),
+        "parallelSortedBufferNonEmpty": get_path(
+            compositor_contract,
+            ["parallelSortedBufferNonEmpty"],
+        ),
+        "referenceSeedCopyUsed": get_path(
+            compositor_contract,
+            ["referenceSeedCopyUsed"],
+        ),
+        "referenceSeedComputePassUsed": get_path(
+            compositor_contract,
+            ["referenceSeedComputePassUsed"],
+        ),
+        "referenceSeedSourceHasCopySrc": get_path(
+            compositor_contract,
+            ["referenceSeedSourceHasCopySrc"],
+        ),
+        "referenceSeedDestinationHasCopyDst": get_path(
+            compositor_contract,
+            ["referenceSeedDestinationHasCopyDst"],
+        ),
+        "copyBufferUsageValid": get_path(
+            compositor_contract,
+            ["copyBufferUsageValid"],
+        ),
+        "parallelSortOutputGuardUsed": get_path(
+            compositor_contract,
+            ["parallelSortOutputGuardUsed"],
+        ),
+        "preservedBoundedSortFallbackUsed": get_path(
+            compositor_contract,
+            ["preservedBoundedSortFallbackUsed"],
+        ),
+        "visualOutputDegeneratedDetected": get_path(
+            compositor_contract,
+            ["visualOutputDegeneratedDetected"],
+        ),
+        "depthSortedReferencesConsumedByAccumulation": get_path(
+            compositor_contract,
+            ["depthSortedReferencesConsumedByAccumulation"],
+        ),
+        "sortedAccumulationPathUsed": get_path(
+            compositor_contract,
+            ["sortedAccumulationPathUsed"],
+        ),
+        "tileReferenceCount": get_path(compositor_contract, ["tileReferenceCount"]),
+        "orderedReferenceCount": get_path(
+            compositor_contract,
+            ["orderedReferenceCount"],
+        ),
+        "orderedReferenceCountMatchesSource": get_path(
+            compositor_contract,
+            ["orderedReferenceCountMatchesSource"],
+        ),
+        "sortCapacityLimit": get_path(compositor_contract, ["sortCapacityLimit"]),
+        "overflowTileCount": get_path(compositor_contract, ["overflowTileCount"]),
+        "overflowReferenceCount": get_path(
+            compositor_contract,
+            ["overflowReferenceCount"],
+        ),
+        "droppedReferenceCount": get_path(
+            compositor_contract,
+            ["droppedReferenceCount"],
+        ),
+        "sortedReferenceCountMatchesSourceOrCapacityPolicy": get_path(
+            compositor_contract,
+            ["sortedReferenceCountMatchesSourceOrCapacityPolicy"],
+        ),
+        "capacityUtilizationMax": get_path(
+            compositor_contract,
+            ["capacityUtilizationMax"],
+        ),
+        "capacityUtilizationAvg": get_path(
+            compositor_contract,
+            ["capacityUtilizationAvg"],
+        ),
+        "step93OverflowPolicyPreserved": step93_overflow_policy_preserved,
+        "step92BoundedSortPathPreserved": step92_bounded_sort_path_preserved,
+        "step91OrderedReferenceRuntimePathPreserved":
+            step91_ordered_reference_path_preserved,
+        "step90RuntimePathPreserved": step90_runtime_preserved,
+        "step89RealCompositorOutputPreserved": step89_output_preserved,
+        "step88PresentationContractPreserved":
+            step88_presentation_contract_preserved,
+        "steadyStateTileCompositorOwnsFinalPresentation": get_path(
+            frame_contract,
+            ["steadyStateTileCompositorOwnsFinalPresentation"],
+        ),
+        "steadyStateBlankFrameCount": get_path(
+            frame_contract,
+            ["steadyStateBlankFrameCount"],
+        ),
+        "steadyStateNoOpFrameCount": get_path(
+            frame_contract,
+            ["steadyStateNoOpFrameCount"],
+        ),
+        "steadyStateClearFrameCount": get_path(
+            frame_contract,
+            ["steadyStateClearFrameCount"],
+        ),
+        "steadyStateUnknownFrameCount": get_path(
+            frame_contract,
+            ["steadyStateUnknownFrameCount"],
+        ),
+        "currentTextureUsesWebGpuTileCompositorOutput": get_path(
+            frame_contract,
+            ["currentTextureUsesWebGpuTileCompositorOutput"],
+        ),
+        "currentTextureViewFreshPerPresentation": get_path(
+            frame_contract,
+            ["currentTextureViewFreshPerPresentation"],
+        ),
+        "webgpuDeviceConsistencyReady": get_path(
+            frame_contract,
+            ["webgpuDeviceConsistencyReady"],
+        ),
+        "webgpuValidationErrorDetected": get_path(
+            frame_contract,
+            ["webgpuValidationErrorDetected"],
+        ),
+        "invalidCommandBufferDetected": get_path(
+            frame_contract,
+            ["invalidCommandBufferDetected"],
+        ),
+        "queueSubmitFailureDetected": get_path(
+            frame_contract,
+            ["queueSubmitFailureDetected"],
+        ),
+        "webgpuWebgl2SameFramePresentationMixed": get_path(
+            frame_contract,
+            ["webgpuWebgl2SameFramePresentationMixed"],
+        ),
+        "fallbackMixingPrevented": get_path(
+            frame_contract,
+            ["fallbackMixingPrevented"],
+        ),
+        "generatedCompositorFields": get_path(
+            compositor_contract,
+            ["generatedCompositorFields"],
+            [],
+        ),
+        "deferredProductionItems": get_path(
+            compositor_contract,
+            ["deferredProductionItems"],
+            [],
+        ),
+        "deferredCompositorFields": get_path(
+            compositor_contract,
+            ["deferredCompositorFields"],
+            [],
+        ),
+        "fullRendererSuccessClaimed": get_path(
+            frame_contract,
+            ["fullRendererSuccessClaimed"],
+        ),
+    }
+
+
 def build_step75_camera_aware_visible_summary(
     summary: Dict[str, Any],
     webgpu_camera_aware_visible_output: Dict[str, Any],
@@ -7034,6 +7437,9 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
     step93_overflow_aware_tile_ordering = (
         build_step93_overflow_aware_tile_ordering_summary(summary)
     )
+    step94_parallel_per_tile_sort = (
+        build_step94_parallel_per_tile_sort_summary(summary)
+    )
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -7091,6 +7497,8 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             step92_per_tile_depth_sort,
         "step93OverflowAwareTileOrdering":
             step93_overflow_aware_tile_ordering,
+        "step94ParallelPerTileSort":
+            step94_parallel_per_tile_sort,
         "comparisonContract": get_path(summary, ["comparisonContract"], {}),
         "comparisonTolerance": get_path(summary, ["comparisonTolerance"], {}),
         "radiusContract": get_path(summary, ["radiusContract"], {}),
@@ -12173,6 +12581,12 @@ def print_human_summary(summary: Dict[str, Any]) -> None:
         "Step93 WebGPU overflow-aware tile ordering",
         summary.get("webgpuVisibleRecordDryRun", {}).get(
             "step93OverflowAwareTileOrdering"
+        ),
+    )
+    print_section(
+        "Step94 WebGPU parallel per-tile sort",
+        summary.get("webgpuVisibleRecordDryRun", {}).get(
+            "step94ParallelPerTileSort"
         ),
     )
     print_section("WebGPU visible record dry-run", summary.get("webgpuVisibleRecordDryRun"))

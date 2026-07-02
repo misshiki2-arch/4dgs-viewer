@@ -4,7 +4,7 @@ export const WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION =
 export const WEBGPU_VISIBLE_RECORD_COMPUTE_MODE =
   'webgpu-storage-buffer-compute-fixed-record';
 
-export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step93';
+export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step94';
 
 export const WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE =
   'wgsl-valid-screen-projection-with-true-native-bounded-color-sources';
@@ -16,7 +16,7 @@ export const WEBGPU_GPU_OWNED_TILE_LIST_LAYOUT_CONTRACT_VERSION =
   'phase3-step84-webgpu-gpu-owned-tile-list-layout-v1';
 
 export const WEBGPU_TILE_LIST_COMPOSITOR_CONTRACT_VERSION =
-  'phase3-step93-overflow-aware-scalable-tile-ordering-v1';
+  'phase3-step94-parallel-per-tile-sort-v1';
 
 export const WEBGPU_PHASE3_BACKEND_BOUNDARY_CONTRACT_VERSION =
   'phase3-step86-webgpu-backend-boundary-and-dirty-contract-v1';
@@ -757,7 +757,27 @@ export function buildWebGpuTileListCompositorContract({
   avgReferencesPerTile = 0,
   sortOrOrderingBufferBytes = 0,
   step91OrderedReferenceRuntimePathPreserved = false,
-  step92SortMode = 'bounded-gpu-selection-sort-per-tile-descending-sort-key',
+  step92SortMode = 'bounded-gpu-workgroup-bitonic-sort-per-tile-descending-sort-key',
+  gpuParallelPerTileSortReady = false,
+  workgroupParallelSortUsed = false,
+  parallelSortAlgorithm = 'workgroup-bitonic-sort-v1-descending-sort-key',
+  parallelSortStageCount = 0,
+  sortWorkgroupCount = 0,
+  sortOrderViolationCount = 0,
+  sortOrderSampleCheckReady = false,
+  parallelSortFailureReason = null,
+  parallelSortedBufferPromotedToAccumulation = false,
+  parallelSortedBufferReady = false,
+  parallelSortedBufferNonEmpty = false,
+  referenceSeedCopyUsed = false,
+  referenceSeedComputePassUsed = false,
+  referenceSeedSourceHasCopySrc = false,
+  referenceSeedDestinationHasCopyDst = false,
+  copyBufferUsageValid = false,
+  parallelSortOutputGuardUsed = false,
+  preservedBoundedSortFallbackUsed = false,
+  visualOutputDegeneratedDetected = false,
+  step93OverflowPolicyPreserved = false,
   overflowAwareOrderingReady = false,
   sortCapacityLimit = 64,
   overflowTileCount = 0,
@@ -1003,6 +1023,26 @@ export function buildWebGpuTileListCompositorContract({
     sortOrOrderingBufferBytes,
     step91OrderedReferenceRuntimePathPreserved,
     step92SortMode,
+    gpuParallelPerTileSortReady,
+    workgroupParallelSortUsed,
+    parallelSortAlgorithm,
+    parallelSortStageCount,
+    sortWorkgroupCount,
+    sortOrderViolationCount,
+    sortOrderSampleCheckReady,
+    parallelSortFailureReason,
+    parallelSortedBufferPromotedToAccumulation,
+    parallelSortedBufferReady,
+    parallelSortedBufferNonEmpty,
+    referenceSeedCopyUsed,
+    referenceSeedComputePassUsed,
+    referenceSeedSourceHasCopySrc,
+    referenceSeedDestinationHasCopyDst,
+    copyBufferUsageValid,
+    parallelSortOutputGuardUsed,
+    preservedBoundedSortFallbackUsed,
+    visualOutputDegeneratedDetected,
+    step93OverflowPolicyPreserved,
     overflowAwareOrderingReady: overflowAwareReady,
     sortCapacityLimit,
     overflowTileCount,
