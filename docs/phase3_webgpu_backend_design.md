@@ -1581,6 +1581,37 @@ depth-aware alpha/color accumulation.
   compositor parity, final production compositor behavior, and chunk/LOD
   streaming remain deferred.
 
+## Step92 WebGPU Bounded Per-Tile Depth Sort v1
+
+Step92 advances the Step91 ordered reference buffer from a GPU-updated
+reference copy into a bounded GPU-side per-tile depth ordering pass. The
+ordering pass reads each tile's GPU-owned `offset/count` table and source
+reference list, performs a fixed-capacity selection sort by the per-reference
+sort/depth key, writes the depth-sorted references into the ordered reference
+buffer, and the compositor accumulation pass consumes that sorted buffer in
+linear order.
+
+- selected goal: Step92 combines A, B, C, and D. The implementation favors a
+  bounded per-tile sort that matches the current fixed-capacity tile list
+  layout, while preserving the Step88 steady-state presentation owner and the
+  Step90 readback-separated runtime path.
+- runtime evidence: the compositor contract reports
+  `gpuSidePerTileSortReady`, `boundedPerTileSortUsed`,
+  `depthKeyBufferConsumed`, `depthSortedOrderedReferencesGenerated`,
+  `depthSortedReferencesConsumedByAccumulation`, `sortedAccumulationPathUsed`,
+  `sortDispatchCount`, `sortWorkItemCount`, `sortedTileCount`,
+  `sortedReferenceCount`, `unsortedFallbackTileCount`,
+  `maxReferencesPerTile`, `avgReferencesPerTile`, and
+  `sortOrOrderingBufferBytes`.
+- preservation: Step92 success still requires the Step91 ordered reference
+  runtime path, Step90 GPU-owned runtime path, Step89 alpha/color accumulation,
+  Step88 steady-state final presentation ownership, fresh currentTexture views,
+  WebGPU device consistency, and no normal backend / WebGL2 fallback / clear /
+  no-op final-present frames in steady state.
+- deferred scope: this is not full parallel sort parity or final production
+  compositor parity. Full CUDA parity, production compositor behavior beyond
+  the bounded sort, and chunk/LOD/streaming remain deferred.
+
 ## Step86 Phase 3 WebGPU Backend Boundary and Dirty Contract Hardening
 
 Step86 freezes the ownership boundaries added during Steps80-85 before the
