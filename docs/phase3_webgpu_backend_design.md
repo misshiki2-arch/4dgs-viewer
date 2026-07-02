@@ -1338,6 +1338,66 @@ compositing against the viewer target, CUDA/compositor parity, compacted prefix
 ownership for large tile lists, complete SH/color evaluation, streaming,
 chunking, LOD, and partial upload.
 
+## Step86 Phase 3 WebGPU Backend Boundary and Dirty Contract Hardening
+
+Step86 freezes the ownership boundaries added during Steps80-85 before the
+backend moves into depth sorting, final compositing, chunking, LOD, or
+streaming. It is not a new rendering feature step. Its success condition is that
+the runtime capture can report the Phase 3 backend boundary and dirty update
+entrypoints through common contract fields while preserving the Step85
+tile-list compositor path.
+
+- viewer shell: owns URL/query parsing, capture entrypoints, and camera/canvas
+  adapter wiring. `viewer_app_gpu.js` should not accumulate new WebGPU pass
+  construction logic; backend modules own state, attribute, footprint, tile
+  input, tile list, and compositor passes.
+- three adapter: Three.js and OrbitControls remain camera input, canvas
+  integration, and debug-view adapters. They are not the rendering core and do
+  not own WebGPU backend pass state.
+- common contracts: shared record, projection, tile, compositor, dirty update,
+  and capture summary contracts are the comparison boundary for WebGPU, WebGL2,
+  and CUDA Reference. Backend-specific record formats should not be introduced
+  outside these contracts.
+- tools: `make_step_url.py`, `make_capture_commands.py`,
+  `check_step_files.py`, and `summarize_step_json.py` own capture command
+  generation, saved-result checking, step summary extraction, and contract
+  validation reporting. They do not own runtime backend execution.
+- WebGPU backend: owns state evaluation, Gaussian attribute evaluation,
+  footprint evaluation, tile-aware input, GPU-owned tile lists, and the partial
+  tile compositor. The Step86 boundary keeps `webgpu-exclusive` presentation
+  separate from WebGL2 fallback/oracle rendering.
+- WebGL2: remains fallback, validation, and regression oracle. It must not be
+  mixed with WebGPU presentation in the same displayed frame.
+- CUDA Reference: remains a fixed comparison reference and is not an
+  interactive viewer backend.
+
+The Step86 dirty update contract is an entrypoint contract rather than a full
+incremental scheduler. It exposes:
+
+- `dirtyCameraConstants`
+- `dirtyTimeState`
+- `dirtyVisibleRecords`
+- `dirtyTileList`
+- `dirtyCompositorInput`
+
+Current runtime captures still rebuild the bounded pipeline for validation, but
+these flags establish the dependency graph needed for future incremental frame
+updates. `dirtyCameraConstants` and `dirtyTimeState` invalidate visible records;
+visible-record changes invalidate tile input and tile lists; tile-list or
+footprint changes invalidate compositor input. The contract also records that
+`fullDatasetGpuResidencyRequired=false`, so future chunk/LOD/streaming work can
+attach without turning the viewer into an all-Gaussian, all-frame residency
+requirement.
+
+Step86 keeps the Step85 runtime path intact and reports that preservation
+directly in the Step86 summary. The preserved signals include the Step85 tile
+compositor path, the `currentTexture` path-maintained flag, and the compositor
+output readback match used as the Step85 currentTexture preservation evidence.
+Partial WebGPU tile-list compositor output remains the current renderer-owned
+output boundary, while full depth sort, CUDA compositor parity, final production
+compositor, compacted prefix/list ownership, streaming, chunking, LOD, and
+partial upload remain deferred.
+
 ## Step87 WebGPU Tile Depth Ordering for Compositor
 
 Step87 advances the Step85 compositor from fixed reference traversal to
@@ -1680,62 +1740,167 @@ ordered reference buffer.
   compositor parity, final production compositor behavior, or chunk/LOD
   streaming.
 
-## Step86 Phase 3 WebGPU Backend Boundary and Dirty Contract Hardening
+## Step95 Production Tile Compositor V1 Design Gate
 
-Step86 freezes the ownership boundaries added during Steps80-85 before the
-backend moves into depth sorting, final compositing, chunking, LOD, or
-streaming. It is not a new rendering feature step. Its success condition is that
-the runtime capture can report the Phase 3 backend boundary and dirty update
-entrypoints through common contract fields while preserving the Step85
-tile-list compositor path.
+Step95 is the design gate before the WebGPU backend moves from the partial
+tile-list compositor into `production tile compositor v1`. It does not claim a
+completed production compositor. Its job is to freeze the integration choice
+for Steps88-94, define the production path, and make sure fallback, debug, and
+diagnostic paths cannot be mistaken for the main runtime path.
 
-- viewer shell: owns URL/query parsing, capture entrypoints, and camera/canvas
-  adapter wiring. `viewer_app_gpu.js` should not accumulate new WebGPU pass
-  construction logic; backend modules own state, attribute, footprint, tile
-  input, tile list, and compositor passes.
-- three adapter: Three.js and OrbitControls remain camera input, canvas
-  integration, and debug-view adapters. They are not the rendering core and do
-  not own WebGPU backend pass state.
-- common contracts: shared record, projection, tile, compositor, dirty update,
-  and capture summary contracts are the comparison boundary for WebGPU, WebGL2,
-  and CUDA Reference. Backend-specific record formats should not be introduced
-  outside these contracts.
-- tools: `make_step_url.py`, `make_capture_commands.py`,
-  `check_step_files.py`, and `summarize_step_json.py` own capture command
-  generation, saved-result checking, step summary extraction, and contract
-  validation reporting. They do not own runtime backend execution.
-- WebGPU backend: owns state evaluation, Gaussian attribute evaluation,
-  footprint evaluation, tile-aware input, GPU-owned tile lists, and the partial
-  tile compositor. The Step86 boundary keeps `webgpu-exclusive` presentation
-  separate from WebGL2 fallback/oracle rendering.
-- WebGL2: remains fallback, validation, and regression oracle. It must not be
-  mixed with WebGPU presentation in the same displayed frame.
-- CUDA Reference: remains a fixed comparison reference and is not an
-  interactive viewer backend.
+### Current WebGPU Frame Pipeline
 
-The Step86 dirty update contract is an entrypoint contract rather than a full
-incremental scheduler. It exposes:
+- viewer loop: owns RAF scheduling, frame implementation registration, camera
+  input wiring, capture entrypoints, and current backend selection. It invokes
+  the WebGPU tile compositor frame implementation, but does not own tile
+  sorting, accumulation, or output texture internals.
+- WebGPU backend: owns frame implementation execution, GPU device/context
+  consistency, compositor update, presentation heartbeat, fresh currentTexture
+  views, and final present source evidence.
+- tile list / ordered refs: Step84-91 provide GPU-owned tile `offset/count`
+  tables, source splat references, ordered reference buffers, lifecycle
+  telemetry, and production accumulation input ownership.
+- parallel sort: Step92-94 provide bounded per-tile depth sort, overflow-aware
+  capacity policy, workgroup bitonic compare/swap sorting, sort-order evidence,
+  and guarded promotion of only ready/non-empty sorted buffers.
+- accumulation: Step89-94 consume Gaussian attributes, footprint payload,
+  ordered tile references, depth/sort keys, and alpha/color contribution data to
+  write a real compositor output texture rather than a debug pattern.
+- output texture: WebGPU owns the compositor output texture as the source for
+  steady-state presentation. Diagnostic texture readback is separate from the
+  runtime path.
+- presentation: Step88 owns steady-state final presentation through
+  `webgpu-tile-compositor-frame-implementation`; successful runs require tile
+  compositor ownership across viewer RAF samples with no normal/WebGL2/fallback
+  final-present mixing.
+- diagnostic readback: readbacks remain capture/summary evidence only. They can
+  validate output, ordering, telemetry, and currentTexture matching, but the
+  runtime compositor must not depend on readback to produce or present a frame.
+- fallback/debug path: WebGL2, normal backend, debug clear, diagnostic fills,
+  and bounded fallback paths remain validation or failure-preservation paths.
+  They must be reported explicitly when used and cannot satisfy production path
+  success by themselves.
 
-- `dirtyCameraConstants`
-- `dirtyTimeState`
-- `dirtyVisibleRecords`
-- `dirtyTileList`
-- `dirtyCompositorInput`
+### Production Tile Compositor V1 Main Path
 
-Current runtime captures still rebuild the bounded pipeline for validation, but
-these flags establish the dependency graph needed for future incremental frame
-updates. `dirtyCameraConstants` and `dirtyTimeState` invalidate visible records;
-visible-record changes invalidate tile input and tile lists; tile-list or
-footprint changes invalidate compositor input. The contract also records that
-`fullDatasetGpuResidencyRequired=false`, so future chunk/LOD/streaming work can
-attach without turning the viewer into an all-Gaussian, all-frame residency
-requirement.
+The Step96 production path should use this ownership chain:
 
-Step86 keeps the Step85 runtime path intact and reports that preservation
-directly in the Step86 summary. The preserved signals include the Step85 tile
-compositor path, the `currentTexture` path-maintained flag, and the compositor
-output readback match used as the Step85 currentTexture preservation evidence.
-Partial WebGPU tile-list compositor output remains the current renderer-owned
-output boundary, while full depth sort, CUDA compositor parity, final production
-compositor, compacted prefix/list ownership, streaming, chunking, LOD, and
-partial upload remain deferred.
+```text
+GPU-side parallel sorted refs
+-> tile-based production accumulation
+-> inactive/background handling
+-> output texture
+-> steady-state final presentation
+```
+
+- GPU-side parallel sorted refs: `webgpu_tile_list_compositor.js` should keep
+  Step94's compute-seeded, workgroup-sorted ordered reference buffer as the
+  primary accumulation input. Step96 should reject or clearly block if
+  `parallelSortedBufferReady`, `parallelSortedBufferNonEmpty`, or
+  `parallelSortedBufferPromotedToAccumulation` is false.
+- tile-based production accumulation: the compositor module should own
+  per-tile work dispatch and accumulation. It should consume sorted refs,
+  Gaussian color/alpha, footprint/conic/radius, depth/sort key, overflow policy,
+  and capacity metadata through shared contracts rather than viewer-shell
+  ad hoc records.
+- inactive/background handling: production v1 should define how pixels or tiles
+  with no active references are written. Background handling belongs in the
+  compositor path, not in WebGL2 fallback, debug clear, or capture helpers.
+- output texture: the compositor output texture remains the runtime output.
+  It should be valid even when no compositor update is needed, with the Step88
+  presentation heartbeat presenting the last valid output on clean frames.
+- steady-state final presentation: the Step88 final-present source tracing and
+  fresh currentTexture view lifecycle remain mandatory. Production v1 success
+  must preserve tile compositor final presentation ownership in steady state.
+
+### Step88-94 Adoption Decision
+
+- Step88 presentation owner: keep as mandatory frame implementation boundary.
+  Step96 should not introduce a second final-present owner.
+- Step89 real compositor output: adopt the real Gaussian alpha/color output as
+  the minimum output quality floor. Debug patterns cannot be production v1
+  success.
+- Step90 GPU-owned runtime path: keep readback-separated runtime execution.
+  Diagnostic readbacks remain allowed only as capture evidence.
+- Step91 ordered reference buffer: keep the GPU-owned ordered reference
+  lifecycle as the production accumulation input boundary.
+- Step92 bounded sort: keep as capacity-limited compatibility and telemetry
+  baseline, but not as the primary success path when Step94 parallel sort is
+  ready.
+- Step93 overflow/capacity policy: keep explicit overflow, dropped reference,
+  capacity utilization, scratch, histogram/capacity table, and lifecycle
+  evidence. Production v1 should be honest about capacity-capped output.
+- Step94 workgroup parallel sort: adopt as the primary per-tile ordering path.
+  The compute seed pass and sorted-buffer promotion guard remain required.
+
+### Production / Fallback / Debug / Diagnostic Boundary
+
+- production path: WebGPU tile compositor frame implementation owns sorted refs,
+  tile accumulation, inactive/background handling, output texture, and
+  steady-state presentation.
+- fallback path: normal backend and WebGL2 are comparison, regression, and
+  failure-preservation paths. Summary must report any successful fallback use
+  separately from production compositor success.
+- debug path: debug fills, debug clears, and diagnostic patterns are allowed as
+  explicit diagnostics only. They must set a debug/fallback classification and
+  must not satisfy production v1 output readiness.
+- diagnostic path: texture/summary readbacks, visible-record comparisons, and
+  sort-order sample checks validate the path. They do not feed runtime
+  accumulation or presentation.
+
+### Step96 Candidate Choice
+
+Candidate set for the next implementation step:
+
+- A. production tile compositor v1 integration: define the production contract,
+  make sorted refs the mandatory input, and connect output/background handling
+  to steady-state presentation.
+- B. active-tile dispatch / tile-based accumulation: move dispatch and work item
+  accounting toward active/non-empty tile execution instead of full-frame
+  diagnostics.
+- C. accumulation input lifecycle hardening: formalize sorted buffer readiness,
+  output texture lifecycle, and last-valid-output preservation across dirty and
+  clean frames.
+- D. inactive/background handling: explicitly write inactive tiles/pixels in the
+  compositor output without relying on fallback clears.
+- E. early termination v1: add alpha/T threshold telemetry and optional early
+  exit once production accumulation is stable.
+- F. production-readiness telemetry: add Summary evidence that separates
+  production input, production output, diagnostic readback, fallback, and debug
+  paths.
+
+Recommended Step96 scope: implement A+B+C+D together if the code remains
+localized to the WebGPU compositor/frame implementation and common contracts.
+These items share the same buffers and success boundary, and Summary can split
+them by `productionTileCompositorReady`, active tile dispatch telemetry,
+sorted-buffer lifecycle evidence, and inactive/background handling evidence.
+Keep E deferred unless the production accumulation path is already stable after
+A-D. Include F as part of the contract/tool surface for A-D.
+
+### Step96 Summary Success Conditions
+
+Step96 should be considered successful only when Summary can read:
+
+- `productionTileCompositorReady: True`
+- `productionTileCompositorPathUsed: True`
+- `parallelSortedBufferReady: True`
+- `parallelSortedBufferPromotedToAccumulation: True`
+- `productionAccumulationConsumedParallelSortedRefs: True`
+- `activeTileDispatchUsed` and active/non-empty tile counts
+- `inactiveBackgroundHandlingReady: True`
+- `outputTextureProducedByProductionCompositor: True`
+- `debugOutputBypassedForProduction: True`
+- `diagnosticReadbackSeparatedFromProductionPath: True`
+- `normalBackendPresentationUsed: False`
+- `webgl2FallbackFinalPresentFrameCount: 0`
+- `step94ParallelSortPreserved: True`
+- Step88 steady-state presentation, Step89 real output, Step90 GPU-owned
+  runtime, Step91 ordered refs, Step92 bounded/capacity baseline, and Step93
+  overflow policy are all preserved
+- WebGPU validation error, invalid command buffer, queue submit failure,
+  fallback mixing, and full renderer success misclassification are all false
+
+Step95 does not change runtime output or contract JSON by itself. A recapture is
+not required for Step95 when this section is the only change; the existing
+Step94 Summary already exposes the required preservation evidence for the
+design gate.
