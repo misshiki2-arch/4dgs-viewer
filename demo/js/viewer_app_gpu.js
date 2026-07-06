@@ -174,6 +174,9 @@ const interactionState = createGpuInteractionState();
 let playback = null;
 let latestRenderResult = null;
 let latestGpuCandidateShadowCompare = null;
+let latestViewerProductionRuntimeTimeState = null;
+let latestViewerConnectedSchedulerRuntimeState = null;
+let latestViewerConnectedSchedulerTimeControlEvidence = null;
 let appliedCameraPresetName = deterministicQueryState.cameraPresetName ?? 'none';
 let lastSnapshotSummary = {
   available: true,
@@ -2123,6 +2126,95 @@ function resolveCandidateInfoForWebGpuDryRun({
   };
 }
 
+function recordViewerConnectedSchedulerTimeControlEvidence({
+  viewerTimeState,
+  schedulerFrameState,
+  source
+} = {}) {
+  const beforeTimeSeconds = Number(viewerTimeState?.previousTimeSeconds);
+  const afterTimeSeconds = Number(viewerTimeState?.timeSeconds);
+  const schedulerFrameCount = Number(schedulerFrameState?.schedulerFrameCount);
+  const timeChanged =
+    Number.isFinite(beforeTimeSeconds) &&
+    Number.isFinite(afterTimeSeconds) &&
+    beforeTimeSeconds !== afterTimeSeconds;
+  const schedulerFrameAdvanced =
+    schedulerFrameState?.calledFromSchedulerFrameLoop === true &&
+    schedulerFrameState?.requestAnimationFrameCallbackEntered === true &&
+    schedulerFrameState?.renderFrameInvoked === true &&
+    Number.isFinite(schedulerFrameCount) &&
+    schedulerFrameCount > 0;
+
+  if (!timeChanged || !schedulerFrameAdvanced) {
+    return null;
+  }
+
+  latestViewerConnectedSchedulerTimeControlEvidence = {
+    schemaVersion: 'phase3-step98-viewer-time-control-evidence-v1',
+    source: source ?? 'viewer-scheduler-time-state-change',
+    beforeTimeSeconds,
+    afterTimeSeconds,
+    timeDeltaSeconds: afterTimeSeconds - beforeTimeSeconds,
+    schedulerFrameCount,
+    schedulerFrameIndex: Number.isFinite(
+      Number(schedulerFrameState?.schedulerFrameIndex)
+    )
+      ? Number(schedulerFrameState.schedulerFrameIndex)
+      : null,
+    schedulerFrameState: schedulerFrameState
+      ? { ...schedulerFrameState }
+      : null,
+    viewerTimeState: viewerTimeState
+      ? { ...viewerTimeState }
+      : null
+  };
+
+  return latestViewerConnectedSchedulerTimeControlEvidence;
+}
+
+function buildViewerConnectedSchedulerViewerTimeStateForDryRun() {
+  const latestViewerTimeState =
+    latestViewerConnectedSchedulerRuntimeState?.viewerTimeState ?? null;
+  const evidence = latestViewerConnectedSchedulerTimeControlEvidence;
+  if (!evidence) {
+    return latestViewerTimeState;
+  }
+
+  return {
+    ...(latestViewerTimeState ?? {}),
+    source: 'viewer-time-playback-state',
+    timeSeconds: evidence.afterTimeSeconds,
+    previousTimeSeconds: evidence.beforeTimeSeconds,
+    timeSliderConnected:
+      latestViewerTimeState?.timeSliderConnected ??
+      evidence.viewerTimeState?.timeSliderConnected ??
+      true,
+    playbackConnected:
+      latestViewerTimeState?.playbackConnected ??
+      evidence.viewerTimeState?.playbackConnected ??
+      false,
+    playbackActive:
+      latestViewerTimeState?.playbackActive ??
+      evidence.viewerTimeState?.playbackActive ??
+      false,
+    schedulerFrameCount:
+      latestViewerTimeState?.schedulerFrameCount ??
+      evidence.schedulerFrameCount,
+    schedulerFrameIndex:
+      latestViewerTimeState?.schedulerFrameIndex ??
+      evidence.schedulerFrameIndex,
+    timeStateChangedByViewerControl: true,
+    playbackOrTimeSliderDrivesDirtyTimeState: true,
+    dirtyTimeState: true,
+    dirtyCameraConstants:
+      latestViewerTimeState?.dirtyCameraConstants ??
+      evidence.viewerTimeState?.dirtyCameraConstants ??
+      true,
+    dirtyTimeStateReason: 'viewer-time-control-change',
+    viewerTimeControlEvidence: evidence
+  };
+}
+
 async function runWebGpuVisibleRecordDryRunFromViewerState({
   options = {},
   requestedWebGpuBackendMode = 'webgl2-fallback',
@@ -2161,6 +2253,12 @@ async function runWebGpuVisibleRecordDryRunFromViewerState({
     : useExclusiveWebGpuFrameLifecycle
       ? 'webgpu-exclusive-lifecycle-requested'
       : 'unknown';
+  const schedulerFrameStateForDryRun =
+    latestViewerConnectedSchedulerRuntimeState?.schedulerFrameState ??
+    latestViewerConnectedSchedulerTimeControlEvidence?.schedulerFrameState ??
+    null;
+  const viewerTimeStateForDryRun =
+    buildViewerConnectedSchedulerViewerTimeStateForDryRun();
   // Viewer shell owns capture/query/camera/canvas adaptation only; WebGPU pass
   // construction stays in the backend modules and common contracts.
   return runWebGpuVisibleRecordDryRun({
@@ -2182,7 +2280,9 @@ async function runWebGpuVisibleRecordDryRunFromViewerState({
       contextMode: viewerCanvasContextMode,
       requestedBackendMode: requestedWebGpuBackendMode,
       allowViewerCanvasPresentation,
-      webgl2FrameLifecycleSuppressed: useExclusiveWebGpuFrameLifecycle
+      webgl2FrameLifecycleSuppressed: useExclusiveWebGpuFrameLifecycle,
+      schedulerFrameState: schedulerFrameStateForDryRun,
+      viewerTimeState: viewerTimeStateForDryRun
     },
     metadata: {
       comparisonMode: options.comparisonMode ?? 'webgpu-storage-buffer-compute-fixed-record-vs-cpu-fixed-record',
@@ -5355,6 +5455,48 @@ async function renderCurrentFrame(options = {}) {
         : Number.isFinite(Number(ui.timeSlider?.value))
           ? Number(ui.timeSlider.value)
           : 0;
+    const previousViewerProductionRuntimeTimeState =
+      latestViewerProductionRuntimeTimeState;
+    const playbackActive =
+      playback && typeof playback.isPlaying === 'function'
+        ? playback.isPlaying()
+        : false;
+    const timeSliderConnected = !!ui.timeSlider;
+    const playbackConnected = !!playback;
+    const previousTimeSeconds = Number(
+      previousViewerProductionRuntimeTimeState?.timeSeconds
+    );
+    const viewerTimeChangedSinceLastRuntimeFrame =
+      Number.isFinite(previousTimeSeconds) &&
+      Number.isFinite(frameTimeSeconds) &&
+      previousTimeSeconds !== frameTimeSeconds;
+    const viewerTimeState = {
+      source: 'viewer-time-playback-state',
+      timeSeconds: frameTimeSeconds,
+      previousTimeSeconds: Number.isFinite(previousTimeSeconds)
+        ? previousTimeSeconds
+        : null,
+      timeSliderConnected,
+      playbackConnected,
+      playbackActive,
+      schedulerFrameCount: Number.isFinite(
+        Number(schedulerFrameState?.schedulerFrameCount)
+      )
+        ? Number(schedulerFrameState.schedulerFrameCount)
+        : null,
+      schedulerFrameIndex: Number.isFinite(
+        Number(schedulerFrameState?.schedulerFrameIndex)
+      )
+        ? Number(schedulerFrameState.schedulerFrameIndex)
+        : null,
+      timeStateChangedByViewerControl:
+        viewerTimeChangedSinceLastRuntimeFrame || playbackActive,
+      playbackOrTimeSliderDrivesDirtyTimeState:
+        timeSliderConnected || playbackConnected,
+      dirtyTimeState: viewerTimeChangedSinceLastRuntimeFrame || playbackActive,
+      dirtyCameraConstants: true
+    };
+    latestViewerProductionRuntimeTimeState = viewerTimeState;
     const cameraSnapshot = {
       deterministicState: buildSlimDeterministicStateSummary(deterministicState),
       frameConstants: {
@@ -5393,8 +5535,21 @@ async function renderCurrentFrame(options = {}) {
       requestedBackendMode,
       allowViewerCanvasPresentation,
       webgl2FrameLifecycleSuppressed: true,
-      viewport
+      viewport,
+      schedulerFrameState,
+      viewerTimeState
     };
+    if (calledFromSchedulerFrameLoop) {
+      latestViewerConnectedSchedulerRuntimeState = {
+        schedulerFrameState: { ...schedulerFrameState },
+        viewerTimeState: { ...viewerTimeState }
+      };
+      recordViewerConnectedSchedulerTimeControlEvidence({
+        viewerTimeState,
+        schedulerFrameState,
+        source: 'renderCurrentFrame-viewer-scheduler-time-state-change'
+      });
+    }
     const webgpuBackendViewerLifecycleIntegrationBoundary = enableViewerLoopHook
       ? buildWebGpuBackendViewerLifecycleIntegrationBoundary({
           requestedBackendMode,
@@ -5410,7 +5565,8 @@ async function renderCurrentFrame(options = {}) {
     if (
       calledFromSchedulerFrameLoop &&
       backendImplementationKind === WEBGPU_TILE_COMPOSITOR_FRAME_IMPLEMENTATION &&
-      shouldKeepWebGpuTileCompositorViewerLoopAlive()
+      shouldKeepWebGpuTileCompositorViewerLoopAlive() &&
+      viewerTimeState.dirtyTimeState !== true
     ) {
       const heartbeatFrame = await runTileCompositorHeartbeatPresentationFrame({
         viewerCanvasState,
@@ -5501,7 +5657,7 @@ async function renderCurrentFrame(options = {}) {
                       ? 'phase3-step78-true-webgpu-visible-record-path'
                       : backendImplementationKind ===
                         WEBGPU_TILE_COMPOSITOR_FRAME_IMPLEMENTATION
-                        ? 'phase3-step94-parallel-per-tile-sort'
+                        ? 'phase3-step98-viewer-connected-interactive-scheduler'
                       : 'phase3-step61-viewer-backend-runtime-runner')
                 },
                 requestedWebGpuBackendMode: requestedBackendMode,
@@ -5526,7 +5682,7 @@ async function renderCurrentFrame(options = {}) {
                       ? 'phase3-step78'
                       : backendImplementationKind ===
                         WEBGPU_TILE_COMPOSITOR_FRAME_IMPLEMENTATION
-                        ? 'phase3-step94'
+                        ? 'phase3-step98'
                       : 'phase3-step61',
                   renderLifecycleStage: 'renderCurrentFrame',
                   invocationSource: 'renderCurrentFrame-viewer-backend-executor',
@@ -5590,7 +5746,7 @@ async function renderCurrentFrame(options = {}) {
               webgpuBackendViewerLifecycleInvocationSource:
                 'renderCurrentFrame-viewer-loop-tile-compositor-persistence',
               webgpuBackendViewerLifecycleControlledExecution: true,
-      comparisonMode: 'phase3-step94-parallel-per-tile-sort'
+      comparisonMode: 'phase3-step98-viewer-connected-interactive-scheduler'
             },
             requestedWebGpuBackendMode: requestedBackendMode,
             allowViewerCanvasPresentation,
@@ -5609,7 +5765,7 @@ async function renderCurrentFrame(options = {}) {
             },
             metadataOverrides: {
               captureSource: 'viewer-loop-tile-compositor-persistence',
-              phase: 'phase3-step94',
+              phase: 'phase3-step98',
               renderLifecycleStage: 'renderCurrentFrame',
               invocationSource:
                 'renderCurrentFrame-viewer-loop-tile-compositor-persistence',
@@ -6097,6 +6253,7 @@ function installViewerDebugApi() {
     getLatestDebugText: () => refreshLatestDebugText(),
     getLastRenderResult: () => latestRenderResult,
     getLastGpuCandidateShadowCompare: () => latestGpuCandidateShadowCompare,
+    runViewerConnectedSchedulerProbe,
     scheduleRender: () => scheduler.scheduleRender()
   };
 }
@@ -6105,6 +6262,90 @@ function scheduleRenderAndPersist() {
   const state = readAndSaveUiState(ui);
   updateDrawPathNoteFromState(state);
   scheduler.scheduleRender();
+}
+
+async function runViewerConnectedSchedulerProbe(options = {}) {
+  const waitMs = Number.isFinite(Number(options.waitMs))
+    ? Number(options.waitMs)
+    : 750;
+  const timeDelta = Number.isFinite(Number(options.timeDelta))
+    ? Number(options.timeDelta)
+    : 0.05;
+  const beforeCompletedFrameCount = scheduler.state.completedFrameCount;
+  const beforeTime = Number(ui.timeSlider?.value ?? 0);
+  const minTime = Number(ui.timeSlider?.min ?? 0);
+  const maxTime = Number(ui.timeSlider?.max ?? Math.max(1, beforeTime + timeDelta));
+  let nextTime = beforeTime + timeDelta;
+  if (Number.isFinite(maxTime) && nextTime > maxTime) {
+    nextTime = Number.isFinite(minTime) ? minTime : beforeTime - timeDelta;
+  }
+  if (ui.timeSlider && Number.isFinite(nextTime)) {
+    ui.timeSlider.value = nextTime.toFixed(2);
+    if (ui.timeVal) {
+      ui.timeVal.textContent = Number(ui.timeSlider.value).toFixed(2);
+    }
+    ui.timeSlider.dispatchEvent(new Event('input', { bubbles: true }));
+  } else {
+    scheduler.scheduleRender();
+  }
+
+  const deadline = performance.now() + waitMs;
+  while (
+    scheduler.state.completedFrameCount <= beforeCompletedFrameCount &&
+    performance.now() < deadline
+  ) {
+    await waitForAnimationFrameBoundary();
+  }
+  await waitForAnimationFrameBoundary();
+  const afterTime = Number(ui.timeSlider?.value ?? beforeTime);
+  const latestViewerTimeState =
+    latestViewerConnectedSchedulerRuntimeState?.viewerTimeState ?? null;
+  const latestSchedulerFrameState =
+    latestViewerConnectedSchedulerRuntimeState?.schedulerFrameState ?? null;
+  if (
+    Number.isFinite(beforeTime) &&
+    Number.isFinite(afterTime) &&
+    beforeTime !== afterTime &&
+    scheduler.state.completedFrameCount > beforeCompletedFrameCount
+  ) {
+    recordViewerConnectedSchedulerTimeControlEvidence({
+      viewerTimeState: {
+        ...(latestViewerTimeState ?? {}),
+        source: 'viewer-time-playback-state',
+        previousTimeSeconds: beforeTime,
+        timeSeconds: afterTime,
+        timeSliderConnected: !!ui.timeSlider,
+        playbackConnected: !!playback,
+        playbackActive:
+          playback && typeof playback.isPlaying === 'function'
+            ? playback.isPlaying()
+            : false,
+        playbackOrTimeSliderDrivesDirtyTimeState: !!ui.timeSlider || !!playback,
+        timeStateChangedByViewerControl: true,
+        dirtyTimeState: true,
+        dirtyCameraConstants: true
+      },
+      schedulerFrameState: latestSchedulerFrameState,
+      source: 'runViewerConnectedSchedulerProbe-time-slider-input'
+    });
+  }
+  return {
+    schemaVersion: 'phase3-step98-viewer-connected-scheduler-probe-v1',
+    beforeCompletedFrameCount,
+    afterCompletedFrameCount: scheduler.state.completedFrameCount,
+    beforeTime,
+    afterTime,
+    schedulerFrameAdvanced:
+      scheduler.state.completedFrameCount > beforeCompletedFrameCount,
+    timeStateChangedByViewerControl:
+      Number.isFinite(beforeTime) &&
+      Number.isFinite(afterTime) &&
+      beforeTime !== afterTime,
+    latestViewerTimeState,
+    latestSchedulerFrameState,
+    latestTimeControlEvidence:
+      latestViewerConnectedSchedulerTimeControlEvidence
+  };
 }
 
 function updateDrawPathNoteFromState(stateLike) {

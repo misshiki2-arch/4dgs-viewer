@@ -6982,6 +6982,352 @@ def build_step97_time_driven_production_runtime_summary(
     }
 
 
+def build_step98_viewer_connected_interactive_scheduler_summary(
+    summary: Dict[str, Any],
+) -> Dict[str, Any]:
+    frame_contract = get_path(
+        summary,
+        ["webgpuTileCompositorFrameImplementation"],
+        {},
+    )
+    compositor_contract = get_path(
+        summary,
+        ["webgpuTileListCompositorContract"],
+        {},
+    )
+    error_subtypes = detect_webgpu_error_subtypes(
+        frame_contract,
+        compositor_contract,
+        get_path(summary, ["captureErrorString"]),
+        get_path(summary, ["captureErrorStack"]),
+        get_path(summary, ["captureErrorMessage"]),
+        get_path(summary, ["firstValidationFailures"]),
+    )
+    phase_step = get_path(summary, ["phaseStep"])
+    wgsl_parse_error_detected = (
+        get_path(frame_contract, ["wgslParseErrorDetected"]) is True
+        or get_path(compositor_contract, ["wgslParseErrorDetected"]) is True
+        or error_subtypes["wgslParseErrorDetected"]
+    )
+    shader_module_invalid_detected = (
+        get_path(frame_contract, ["shaderModuleInvalidDetected"]) is True
+        or get_path(compositor_contract, ["shaderModuleInvalidDetected"]) is True
+        or error_subtypes["shaderModuleInvalidDetected"]
+    )
+    compute_pipeline_invalid_detected = (
+        get_path(frame_contract, ["computePipelineInvalidDetected"]) is True
+        or get_path(compositor_contract, ["computePipelineInvalidDetected"]) is True
+        or error_subtypes["computePipelineInvalidDetected"]
+    )
+    bind_group_invalid_detected = (
+        get_path(frame_contract, ["bindGroupInvalidDetected"]) is True
+        or get_path(compositor_contract, ["bindGroupInvalidDetected"]) is True
+        or error_subtypes["bindGroupInvalidDetected"]
+    )
+    deferred_production_items = get_path(
+        compositor_contract,
+        ["deferredProductionItems"],
+        [],
+    )
+    if not isinstance(deferred_production_items, list):
+        deferred_production_items = []
+    else:
+        deferred_production_items = list(deferred_production_items)
+    for item in [
+        "full-cuda-parity",
+        "final-production-compositor",
+        "full-parallel-sort-parity",
+        "chunk-lod-streaming",
+        "complete-interactive-control-parity",
+    ]:
+        if item not in deferred_production_items:
+            deferred_production_items.append(item)
+
+    scheduler_frame_count = numeric_value(
+        get_path(compositor_contract, ["schedulerFrameCount"]),
+        0,
+    )
+    viewer_time_before = get_path(compositor_contract, ["viewerTimeBefore"])
+    viewer_time_after = get_path(compositor_contract, ["viewerTimeAfter"])
+    viewer_time_delta = get_path(compositor_contract, ["viewerTimeDelta"])
+    time_control_evidence_ready = (
+        get_path(compositor_contract, ["timeControlEvidenceReady"]) is True
+        and numeric_value(viewer_time_before, None) is not None
+        and numeric_value(viewer_time_after, None) is not None
+        and numeric_value(viewer_time_delta, None) is not None
+        and numeric_value(viewer_time_before, 0)
+        != numeric_value(viewer_time_after, 0)
+        and get_path(
+            compositor_contract,
+            ["timeControlEvidenceFromSchedulerProbe"],
+        )
+        is True
+        and get_path(compositor_contract, ["timeControlEvidenceUsesFixedValue"])
+        is not True
+    )
+    step97_multi_frame_preserved = (
+        get_path(compositor_contract, ["step97MultiFrameRuntimePreserved"])
+        is True
+        and get_path(compositor_contract, ["timeDrivenProductionRuntimeReady"])
+        is True
+        and get_path(compositor_contract, ["multiFrameProductionRuntimeUsed"])
+        is True
+    )
+    step96_production_preserved = (
+        get_path(compositor_contract, ["step96ProductionTileCompositorPreserved"])
+        is True
+        and get_path(compositor_contract, ["productionTileCompositorReady"]) is True
+    )
+    step94_parallel_sort_preserved = (
+        get_path(compositor_contract, ["step94ParallelSortPreserved"]) is True
+        and get_path(compositor_contract, ["gpuParallelPerTileSortReady"]) is True
+    )
+    step88_presentation_contract_preserved = (
+        get_path(compositor_contract, ["step88PresentationContractPreserved"]) is True
+        or get_path(
+            frame_contract,
+            ["steadyStateTileCompositorOwnsFinalPresentation"],
+        )
+        is True
+    )
+    scheduler_ready = (
+        phase_step == "phase3-step98"
+        and get_path(
+            compositor_contract,
+            ["viewerConnectedInteractiveSchedulerReady"],
+        )
+        is True
+        and get_path(compositor_contract, ["viewerTimeStateConnectedToRuntime"])
+        is True
+        and get_path(
+            compositor_contract,
+            ["playbackOrTimeSliderDrivesDirtyTimeState"],
+        )
+        is True
+        and get_path(compositor_contract, ["rafSchedulerInvokesProductionRuntime"])
+        is True
+        and scheduler_frame_count > 0
+        and time_control_evidence_ready
+        and get_path(compositor_contract, ["timeStateChangedByViewerControl"])
+        is True
+        and get_path(
+            compositor_contract,
+            ["dirtyTimeStateTriggeredProductionUpdate"],
+        )
+        is True
+        and get_path(
+            compositor_contract,
+            ["productionRuntimeUpdatedFromViewerScheduler"],
+        )
+        is True
+        and get_path(compositor_contract, ["cleanFrameReuseUnderScheduler"])
+        is True
+        and get_path(
+            compositor_contract,
+            ["lastValidProductionOutputPresentedByScheduler"],
+        )
+        is True
+        and step97_multi_frame_preserved
+        and step96_production_preserved
+        and step94_parallel_sort_preserved
+        and step88_presentation_contract_preserved
+        and get_path(compositor_contract, ["fallbackOnlyCompositorUsed"]) is False
+        and get_path(compositor_contract, ["debugOutputBypassedForProduction"])
+        is True
+        and get_path(
+            compositor_contract,
+            ["diagnosticReadbackSeparatedFromRuntimePath"],
+        )
+        is True
+        and get_path(compositor_contract, ["visualOutputDegeneratedDetected"])
+        is not True
+        and wgsl_parse_error_detected is False
+        and shader_module_invalid_detected is False
+        and compute_pipeline_invalid_detected is False
+        and bind_group_invalid_detected is False
+        and get_path(frame_contract, ["webgpuValidationErrorDetected"]) is False
+        and get_path(frame_contract, ["invalidCommandBufferDetected"]) is False
+        and get_path(frame_contract, ["queueSubmitFailureDetected"]) is False
+        and get_path(frame_contract, ["webgpuWebgl2SameFramePresentationMixed"])
+        is False
+        and get_path(frame_contract, ["fallbackMixingPrevented"]) is True
+        and get_path(frame_contract, ["fullRendererSuccessClaimed"]) is False
+    )
+    blocked_reason = None
+    if not scheduler_ready:
+        if phase_step != "phase3-step98":
+            blocked_reason = "summary-phase-step-is-not-phase3-step98"
+        elif get_path(
+            compositor_contract,
+            ["viewerConnectedInteractiveSchedulerReady"],
+        ) is not True:
+            blocked_reason = "viewer-connected-interactive-scheduler-not-ready"
+        elif get_path(compositor_contract, ["viewerTimeStateConnectedToRuntime"]) is not True:
+            blocked_reason = "viewer-time-state-not-connected-to-runtime"
+        elif get_path(compositor_contract, ["rafSchedulerInvokesProductionRuntime"]) is not True:
+            blocked_reason = "raf-scheduler-does-not-invoke-production-runtime"
+        elif scheduler_frame_count <= 0:
+            blocked_reason = "scheduler-frame-count-too-low"
+        elif not time_control_evidence_ready:
+            blocked_reason = "time-control-evidence-not-ready"
+        elif get_path(
+            compositor_contract,
+            ["dirtyTimeStateTriggeredProductionUpdate"],
+        ) is not True:
+            blocked_reason = "dirty-time-state-did-not-trigger-production-update"
+        elif get_path(compositor_contract, ["cleanFrameReuseUnderScheduler"]) is not True:
+            blocked_reason = "clean-frame-reuse-under-scheduler-not-used"
+        elif not step97_multi_frame_preserved:
+            blocked_reason = "step97-multi-frame-runtime-not-preserved"
+        elif not step96_production_preserved:
+            blocked_reason = "step96-production-tile-compositor-not-preserved"
+        elif not step94_parallel_sort_preserved:
+            blocked_reason = "step94-parallel-sort-not-preserved"
+        elif not step88_presentation_contract_preserved:
+            blocked_reason = "step88-presentation-contract-not-preserved"
+        elif wgsl_parse_error_detected:
+            blocked_reason = "wgsl-parse-error-detected"
+        elif shader_module_invalid_detected:
+            blocked_reason = "shader-module-invalid-detected"
+        elif compute_pipeline_invalid_detected:
+            blocked_reason = "compute-pipeline-invalid-detected"
+        elif bind_group_invalid_detected:
+            blocked_reason = "bind-group-invalid-detected"
+        elif get_path(frame_contract, ["webgpuValidationErrorDetected"]) is True:
+            blocked_reason = "webgpu-validation-error-detected"
+        else:
+            blocked_reason = "step98-scheduler-validation-failed"
+    return {
+        "step98Decision": "success" if scheduler_ready else "blocked",
+        "step98BlockedReason": blocked_reason,
+        "step98SelectedGoal":
+            "A+B+C+D-viewer-connected-interactive-time-scheduler-v1",
+        "phaseStep": phase_step,
+        "step98SummaryApplies": phase_step == "phase3-step98",
+        "viewerConnectedInteractiveSchedulerReady": get_path(
+            compositor_contract,
+            ["viewerConnectedInteractiveSchedulerReady"],
+        ),
+        "viewerTimeStateConnectedToRuntime": get_path(
+            compositor_contract,
+            ["viewerTimeStateConnectedToRuntime"],
+        ),
+        "playbackOrTimeSliderDrivesDirtyTimeState": get_path(
+            compositor_contract,
+            ["playbackOrTimeSliderDrivesDirtyTimeState"],
+        ),
+        "rafSchedulerInvokesProductionRuntime": get_path(
+            compositor_contract,
+            ["rafSchedulerInvokesProductionRuntime"],
+        ),
+        "schedulerFrameCount": get_path(
+            compositor_contract,
+            ["schedulerFrameCount"],
+        ),
+        "timeControlEvidenceReady": get_path(
+            compositor_contract,
+            ["timeControlEvidenceReady"],
+        ),
+        "timeControlEvidenceSource": get_path(
+            compositor_contract,
+            ["timeControlEvidenceSource"],
+        ),
+        "viewerTimeBefore": viewer_time_before,
+        "viewerTimeAfter": viewer_time_after,
+        "viewerTimeDelta": viewer_time_delta,
+        "timeControlEvidenceFromSchedulerProbe": get_path(
+            compositor_contract,
+            ["timeControlEvidenceFromSchedulerProbe"],
+        ),
+        "timeControlEvidenceUsesFixedValue": get_path(
+            compositor_contract,
+            ["timeControlEvidenceUsesFixedValue"],
+        ),
+        "timeStateChangedByViewerControl": get_path(
+            compositor_contract,
+            ["timeStateChangedByViewerControl"],
+        ),
+        "dirtyTimeStateTriggeredProductionUpdate": get_path(
+            compositor_contract,
+            ["dirtyTimeStateTriggeredProductionUpdate"],
+        ),
+        "productionRuntimeUpdatedFromViewerScheduler": get_path(
+            compositor_contract,
+            ["productionRuntimeUpdatedFromViewerScheduler"],
+        ),
+        "cleanFrameReuseUnderScheduler": get_path(
+            compositor_contract,
+            ["cleanFrameReuseUnderScheduler"],
+        ),
+        "lastValidProductionOutputPresentedByScheduler": get_path(
+            compositor_contract,
+            ["lastValidProductionOutputPresentedByScheduler"],
+        ),
+        "step97MultiFrameRuntimePreserved": step97_multi_frame_preserved,
+        "step96ProductionTileCompositorPreserved": step96_production_preserved,
+        "step94ParallelSortPreserved": step94_parallel_sort_preserved,
+        "step93OverflowPolicyPreserved": get_path(
+            compositor_contract,
+            ["step93OverflowPolicyPreserved"],
+        ),
+        "step90RuntimePathPreserved": get_path(
+            compositor_contract,
+            ["step90RuntimePathPreserved"],
+        ),
+        "step88PresentationContractPreserved":
+            step88_presentation_contract_preserved,
+        "step85TileCompositorPathPreserved": get_path(
+            frame_contract,
+            ["step85TileCompositorPathPreserved"],
+        ),
+        "step86BoundaryContractPreserved": get_path(
+            frame_contract,
+            ["step86BoundaryContractPreserved"],
+        ),
+        "step87DepthOrderingPreserved": get_path(
+            frame_contract,
+            ["step87DepthOrderingPreserved"],
+        ),
+        "fallbackOnlyCompositorUsed": get_path(
+            compositor_contract,
+            ["fallbackOnlyCompositorUsed"],
+        ),
+        "debugOutputBypassedForProduction": get_path(
+            compositor_contract,
+            ["debugOutputBypassedForProduction"],
+        ),
+        "diagnosticReadbackSeparatedFromRuntimePath": get_path(
+            compositor_contract,
+            ["diagnosticReadbackSeparatedFromRuntimePath"],
+        ),
+        "visualOutputDegeneratedDetected": get_path(
+            compositor_contract,
+            ["visualOutputDegeneratedDetected"],
+        ),
+        "wgslParseErrorDetected": wgsl_parse_error_detected,
+        "shaderModuleInvalidDetected": shader_module_invalid_detected,
+        "computePipelineInvalidDetected": compute_pipeline_invalid_detected,
+        "bindGroupInvalidDetected": bind_group_invalid_detected,
+        "webgpuValidationErrorDetected": get_path(
+            frame_contract,
+            ["webgpuValidationErrorDetected"],
+        ),
+        "invalidCommandBufferDetected": get_path(
+            frame_contract,
+            ["invalidCommandBufferDetected"],
+        ),
+        "queueSubmitFailureDetected": get_path(
+            frame_contract,
+            ["queueSubmitFailureDetected"],
+        ),
+        "deferredProductionItems": deferred_production_items,
+        "fullRendererSuccessClaimed": get_path(
+            frame_contract,
+            ["fullRendererSuccessClaimed"],
+        ),
+    }
+
+
 def build_step75_camera_aware_visible_summary(
     summary: Dict[str, Any],
     webgpu_camera_aware_visible_output: Dict[str, Any],
@@ -8199,6 +8545,9 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
     step97_time_driven_production_runtime = (
         build_step97_time_driven_production_runtime_summary(summary)
     )
+    step98_viewer_connected_interactive_scheduler = (
+        build_step98_viewer_connected_interactive_scheduler_summary(summary)
+    )
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -8262,6 +8611,8 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             step96_production_tile_compositor,
         "step97TimeDrivenProductionRuntime":
             step97_time_driven_production_runtime,
+        "step98ViewerConnectedInteractiveScheduler":
+            step98_viewer_connected_interactive_scheduler,
         "comparisonContract": get_path(summary, ["comparisonContract"], {}),
         "comparisonTolerance": get_path(summary, ["comparisonTolerance"], {}),
         "radiusContract": get_path(summary, ["radiusContract"], {}),
@@ -13362,6 +13713,12 @@ def print_human_summary(summary: Dict[str, Any]) -> None:
         "Step97 WebGPU time-driven production runtime",
         summary.get("webgpuVisibleRecordDryRun", {}).get(
             "step97TimeDrivenProductionRuntime"
+        ),
+    )
+    print_section(
+        "Step98 WebGPU viewer-connected interactive scheduler",
+        summary.get("webgpuVisibleRecordDryRun", {}).get(
+            "step98ViewerConnectedInteractiveScheduler"
         ),
     )
     print_section("WebGPU visible record dry-run", summary.get("webgpuVisibleRecordDryRun"))

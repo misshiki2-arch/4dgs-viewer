@@ -4,7 +4,7 @@ export const WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION =
 export const WEBGPU_VISIBLE_RECORD_COMPUTE_MODE =
   'webgpu-storage-buffer-compute-fixed-record';
 
-export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step97';
+export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step98';
 
 export const WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE =
   'wgsl-valid-screen-projection-with-true-native-bounded-color-sources';
@@ -16,7 +16,7 @@ export const WEBGPU_GPU_OWNED_TILE_LIST_LAYOUT_CONTRACT_VERSION =
   'phase3-step84-webgpu-gpu-owned-tile-list-layout-v1';
 
 export const WEBGPU_TILE_LIST_COMPOSITOR_CONTRACT_VERSION =
-  'phase3-step97-time-driven-production-runtime-v1';
+  'phase3-step98-viewer-connected-interactive-time-scheduler-v1';
 
 export const WEBGPU_PHASE3_BACKEND_BOUNDARY_CONTRACT_VERSION =
   'phase3-step86-webgpu-backend-boundary-and-dirty-contract-v1';
@@ -813,6 +813,24 @@ export function buildWebGpuTileListCompositorContract({
   lastValidProductionOutputReused = false,
   lastValidOutputPresentedOnCleanFrames = false,
   step96ProductionTileCompositorPreserved = false,
+  viewerConnectedInteractiveSchedulerReady = false,
+  viewerTimeStateConnectedToRuntime = false,
+  playbackOrTimeSliderDrivesDirtyTimeState = false,
+  rafSchedulerInvokesProductionRuntime = false,
+  schedulerFrameCount = 0,
+  timeControlEvidenceReady = false,
+  timeControlEvidenceSource = null,
+  viewerTimeBefore = null,
+  viewerTimeAfter = null,
+  viewerTimeDelta = null,
+  timeControlEvidenceFromSchedulerProbe = false,
+  timeControlEvidenceUsesFixedValue = false,
+  timeStateChangedByViewerControl = false,
+  dirtyTimeStateTriggeredProductionUpdate = false,
+  productionRuntimeUpdatedFromViewerScheduler = false,
+  cleanFrameReuseUnderScheduler = false,
+  lastValidProductionOutputPresentedByScheduler = false,
+  step97MultiFrameRuntimePreserved = false,
   step93OverflowPolicyPreserved = false,
   overflowAwareOrderingReady = false,
   sortCapacityLimit = 64,
@@ -967,6 +985,26 @@ export function buildWebGpuTileListCompositorContract({
     fallbackOnlyCompositorUsed === false &&
     debugOutputBypassedForProduction === true &&
     step96ProductionTileCompositorPreserved === true;
+  const viewerConnectedSchedulerReady =
+    timeDrivenRuntimeReady === true &&
+    viewerConnectedInteractiveSchedulerReady === true &&
+    viewerTimeStateConnectedToRuntime === true &&
+    playbackOrTimeSliderDrivesDirtyTimeState === true &&
+    rafSchedulerInvokesProductionRuntime === true &&
+    schedulerFrameCount > 0 &&
+    timeControlEvidenceReady === true &&
+    Number.isFinite(Number(viewerTimeBefore)) &&
+    Number.isFinite(Number(viewerTimeAfter)) &&
+    Number.isFinite(Number(viewerTimeDelta)) &&
+    Number(viewerTimeBefore) !== Number(viewerTimeAfter) &&
+    timeControlEvidenceFromSchedulerProbe === true &&
+    timeControlEvidenceUsesFixedValue === false &&
+    timeStateChangedByViewerControl === true &&
+    dirtyTimeStateTriggeredProductionUpdate === true &&
+    productionRuntimeUpdatedFromViewerScheduler === true &&
+    cleanFrameReuseUnderScheduler === true &&
+    lastValidProductionOutputPresentedByScheduler === true &&
+    step97MultiFrameRuntimePreserved === true;
   return {
     contractVersion: WEBGPU_TILE_LIST_COMPOSITOR_CONTRACT_VERSION,
     status: ready ? 'ok' : status,
@@ -1159,6 +1197,24 @@ export function buildWebGpuTileListCompositorContract({
     lastValidProductionOutputReused,
     lastValidOutputPresentedOnCleanFrames,
     step96ProductionTileCompositorPreserved,
+    viewerConnectedInteractiveSchedulerReady: viewerConnectedSchedulerReady,
+    viewerTimeStateConnectedToRuntime,
+    playbackOrTimeSliderDrivesDirtyTimeState,
+    rafSchedulerInvokesProductionRuntime,
+    schedulerFrameCount,
+    timeControlEvidenceReady,
+    timeControlEvidenceSource,
+    viewerTimeBefore,
+    viewerTimeAfter,
+    viewerTimeDelta,
+    timeControlEvidenceFromSchedulerProbe,
+    timeControlEvidenceUsesFixedValue,
+    timeStateChangedByViewerControl,
+    dirtyTimeStateTriggeredProductionUpdate,
+    productionRuntimeUpdatedFromViewerScheduler,
+    cleanFrameReuseUnderScheduler,
+    lastValidProductionOutputPresentedByScheduler,
+    step97MultiFrameRuntimePreserved,
     step93OverflowPolicyPreserved,
     overflowAwareOrderingReady: overflowAwareReady,
     sortCapacityLimit,

@@ -1742,6 +1742,103 @@ fn finalizeSummary() {
     productionOutputUpdatedAcrossFrames &&
     cleanFrameFastPathUsed;
   const step96ProductionTileCompositorPreserved = productionTileCompositorReady;
+  const schedulerFrameState = viewerCanvasState?.schedulerFrameState ?? null;
+  const viewerTimeState = viewerCanvasState?.viewerTimeState ?? null;
+  const schedulerFrameCount = Math.max(
+    0,
+    Number.isFinite(Number(viewerTimeState?.schedulerFrameCount))
+      ? Number(viewerTimeState.schedulerFrameCount)
+      : Number.isFinite(Number(schedulerFrameState?.schedulerFrameCount))
+        ? Number(schedulerFrameState.schedulerFrameCount)
+        : 0
+  );
+  const rafSchedulerInvokesProductionRuntime =
+    schedulerFrameState?.calledFromSchedulerFrameLoop === true &&
+    schedulerFrameState?.frameRequestIssued === true &&
+    schedulerFrameState?.requestAnimationFrameCallbackEntered === true &&
+    schedulerFrameState?.renderFrameInvoked === true &&
+    schedulerFrameCount > 0;
+  const viewerTimeStateConnectedToRuntime =
+    viewerTimeState?.source === 'viewer-time-playback-state' &&
+    Number.isFinite(Number(viewerTimeState?.timeSeconds)) &&
+    viewerTimeState?.timeSliderConnected === true;
+  const playbackOrTimeSliderDrivesDirtyTimeState =
+    viewerTimeState?.playbackOrTimeSliderDrivesDirtyTimeState === true;
+  const timeStateChangedByViewerControl =
+    viewerTimeState?.timeStateChangedByViewerControl === true ||
+    viewerTimeState?.dirtyTimeState === true;
+  const timeControlEvidence =
+    viewerTimeState?.viewerTimeControlEvidence ?? null;
+  const viewerTimeBefore = Number.isFinite(
+    Number(timeControlEvidence?.beforeTimeSeconds)
+  )
+    ? Number(timeControlEvidence.beforeTimeSeconds)
+    : Number.isFinite(Number(viewerTimeState?.previousTimeSeconds))
+      ? Number(viewerTimeState.previousTimeSeconds)
+      : null;
+  const viewerTimeAfter = Number.isFinite(
+    Number(timeControlEvidence?.afterTimeSeconds)
+  )
+    ? Number(timeControlEvidence.afterTimeSeconds)
+    : Number.isFinite(Number(viewerTimeState?.timeSeconds))
+      ? Number(viewerTimeState.timeSeconds)
+      : null;
+  const viewerTimeDelta = Number.isFinite(
+    Number(timeControlEvidence?.timeDeltaSeconds)
+  )
+    ? Number(timeControlEvidence.timeDeltaSeconds)
+    : Number.isFinite(viewerTimeBefore) && Number.isFinite(viewerTimeAfter)
+      ? viewerTimeAfter - viewerTimeBefore
+      : null;
+  const timeControlEvidenceSource =
+    timeControlEvidence?.source ??
+    viewerTimeState?.dirtyTimeStateReason ??
+    null;
+  const timeControlEvidenceFromSchedulerProbe =
+    typeof timeControlEvidenceSource === 'string' &&
+    (
+      timeControlEvidenceSource.includes('SchedulerProbe') ||
+      timeControlEvidenceSource.includes('scheduler-probe') ||
+      timeControlEvidenceSource.includes('viewer-scheduler') ||
+      timeControlEvidenceSource.includes('runViewerConnectedSchedulerProbe')
+    );
+  const timeControlEvidenceUsesFixedValue =
+    typeof timeControlEvidenceSource === 'string' &&
+    timeControlEvidenceSource.includes('fixed');
+  const timeControlEvidenceReady =
+    Number.isFinite(viewerTimeBefore) &&
+    Number.isFinite(viewerTimeAfter) &&
+    Number.isFinite(viewerTimeDelta) &&
+    viewerTimeBefore !== viewerTimeAfter &&
+    timeControlEvidenceFromSchedulerProbe === true &&
+    timeControlEvidenceUsesFixedValue === false;
+  const dirtyTimeStateTriggeredProductionUpdate =
+    timeStateChangedByViewerControl &&
+    timeControlEvidenceReady &&
+    productionOutputUpdatedAcrossFrames &&
+    updatedStageNames.includes('time-frame-state');
+  const productionRuntimeUpdatedFromViewerScheduler =
+    rafSchedulerInvokesProductionRuntime &&
+    productionTileCompositorReady &&
+    productionOutputUpdatedAcrossFrames;
+  const cleanFrameReuseUnderScheduler =
+    rafSchedulerInvokesProductionRuntime && cleanFrameFastPathUsed;
+  const lastValidProductionOutputPresentedByScheduler =
+    cleanFrameReuseUnderScheduler &&
+    currentTextureUsesWebGpuTileCompositorOutput === true;
+  const step97MultiFrameRuntimePreserved =
+    timeDrivenProductionRuntimeReady &&
+    productionRuntimeFrameCount > 1;
+  const viewerConnectedInteractiveSchedulerReady =
+    step97MultiFrameRuntimePreserved &&
+    viewerTimeStateConnectedToRuntime &&
+    playbackOrTimeSliderDrivesDirtyTimeState &&
+    rafSchedulerInvokesProductionRuntime &&
+    timeControlEvidenceReady &&
+    dirtyTimeStateTriggeredProductionUpdate &&
+    productionRuntimeUpdatedFromViewerScheduler &&
+    cleanFrameReuseUnderScheduler &&
+    lastValidProductionOutputPresentedByScheduler;
   const diagnosticReadbackSeparatedFromProductionPath =
     diagnosticReadbackSeparatedFromRuntimePath &&
     runtimeCompositorDoesNotDependOnCaptureReadback;
@@ -1823,13 +1920,18 @@ fn finalizeSummary() {
         'production-readiness-telemetry',
         'time-driven-production-runtime-v1',
         'dirty-dependency-executor-v1',
-        'clean-frame-last-valid-production-output-fast-path'
+        'clean-frame-last-valid-production-output-fast-path',
+        'viewer-connected-interactive-time-scheduler-v1',
+        'viewer-time-state-to-dirty-time-state-boundary',
+        'raf-scheduler-production-runtime-invocation'
       ],
       deferredCompositorFields: [
         'full-production-parallel-sort-parity',
         'cuda-compositor-parity',
         'final-production-tile-compositor',
-        'chunk-lod-streaming'
+        'chunk-lod-streaming',
+        'complete-interactive-control-parity',
+        'early-termination-v1'
       ],
       compositorClassification:
         'production-webgpu-tile-compositor-v1-integration',
@@ -2033,6 +2135,24 @@ fn finalizeSummary() {
       lastValidProductionOutputReused: cleanFrameFastPathUsed,
       lastValidOutputPresentedOnCleanFrames: cleanFrameFastPathUsed,
       step96ProductionTileCompositorPreserved,
+      viewerConnectedInteractiveSchedulerReady,
+      viewerTimeStateConnectedToRuntime,
+      playbackOrTimeSliderDrivesDirtyTimeState,
+      rafSchedulerInvokesProductionRuntime,
+      schedulerFrameCount,
+      timeControlEvidenceReady,
+      timeControlEvidenceSource,
+      viewerTimeBefore,
+      viewerTimeAfter,
+      viewerTimeDelta,
+      timeControlEvidenceFromSchedulerProbe,
+      timeControlEvidenceUsesFixedValue,
+      timeStateChangedByViewerControl,
+      dirtyTimeStateTriggeredProductionUpdate,
+      productionRuntimeUpdatedFromViewerScheduler,
+      cleanFrameReuseUnderScheduler,
+      lastValidProductionOutputPresentedByScheduler,
+      step97MultiFrameRuntimePreserved,
       step93OverflowPolicyPreserved,
       overflowAwareOrderingReady,
       sortCapacityLimit,
@@ -2053,6 +2173,8 @@ fn finalizeSummary() {
         'full-cuda-parity',
         'final-production-compositor',
         'full-parallel-sort-parity',
+        'complete-interactive-control-parity',
+        'early-termination-v1',
         'chunk-lod-streaming'
       ],
       reason: ready

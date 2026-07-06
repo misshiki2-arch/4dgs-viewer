@@ -2009,3 +2009,66 @@ presentation preservation.
 Deferred work remains full interactive scheduler integration, full CUDA
 parity, final production compositor parity, full parallel sort parity,
 chunk/LOD/streaming, and early termination v1.
+
+## Step98 Viewer-Connected Interactive Time Scheduler V1
+
+Step98 connects the Step97 production runtime to the viewer's time/playback and
+RAF scheduler boundary. The selected scope is A+B+C+D: viewer-connected time
+scheduler v1, time slider / playback state to `dirtyTimeState`, RAF scheduler
+invocation of the production runtime, and clean-frame reuse under the viewer
+scheduler. Camera/control dirty boundaries and scheduler telemetry are included
+only where they are needed to prove the connection; early termination remains
+deferred.
+
+The Step98 runtime path is:
+
+```text
+viewer time/playback state
+-> scheduler frame state
+-> dirtyTimeState / dirtyCameraConstants decision
+-> Step97 production runtime update or clean-frame reuse
+-> production output texture
+-> steady-state final presentation
+```
+
+- Viewer shell boundary: `viewer_app_gpu.js` owns the UI time/playback state and
+  RAF scheduling connection. It passes a compact `viewerTimeState` and
+  `schedulerFrameState` into the WebGPU backend input boundary, but it does not
+  own tile list, sort, accumulation, output texture, or presentation internals.
+- Capture evidence: Step98 capture commands run a viewer-connected scheduler
+  probe that changes the time slider, waits for a real scheduler RAF frame, and
+  then captures the WebGPU runtime Summary. This keeps `schedulerFrameCount`
+  and `dirtyTimeStateTriggeredProductionUpdate` tied to actual viewer state
+  changes rather than fixed metadata.
+- WebGPU backend boundary: the tile compositor contract combines scheduler
+  evidence with the existing Step97 production update evidence. Step98 records
+  `viewerTimeStateConnectedToRuntime`,
+  `playbackOrTimeSliderDrivesDirtyTimeState`,
+  `rafSchedulerInvokesProductionRuntime`,
+  `dirtyTimeStateTriggeredProductionUpdate`,
+  `productionRuntimeUpdatedFromViewerScheduler`,
+  `cleanFrameReuseUnderScheduler`, and
+  `lastValidProductionOutputPresentedByScheduler`.
+- Clean-frame behavior: clean frames continue to present the cached last valid
+  production output through the Step88 presentation heartbeat. Step98 does not
+  cache `currentTexture` or `TextureView` across frames.
+- Boundary enforcement: fallback-only, debug-only, and diagnostic-readback-only
+  paths remain unable to satisfy the production scheduler success criteria.
+  Diagnostic readback remains evidence for capture and Summary only.
+
+Step98 Summary success requires `viewerConnectedInteractiveSchedulerReady`,
+`viewerTimeStateConnectedToRuntime`,
+`playbackOrTimeSliderDrivesDirtyTimeState`,
+`rafSchedulerInvokesProductionRuntime`, `schedulerFrameCount`,
+`timeStateChangedByViewerControl`,
+`dirtyTimeStateTriggeredProductionUpdate`,
+`productionRuntimeUpdatedFromViewerScheduler`,
+`cleanFrameReuseUnderScheduler`, and
+`lastValidProductionOutputPresentedByScheduler`. It also requires Step97
+multi-frame runtime preservation, Step96 production compositor preservation,
+Step94 parallel sort preservation, and Step88 steady-state presentation
+preservation.
+
+Deferred work remains full CUDA parity, final production compositor parity,
+full parallel sort parity, complete interactive control parity,
+chunk/LOD/streaming, and early termination v1.

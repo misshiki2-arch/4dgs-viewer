@@ -348,6 +348,29 @@ def build_preamble(args: argparse.Namespace) -> str:
     if not args.include_preamble:
         return ""
 
+    if "step98" in args.step:
+        return f"""if (typeof window.gpuViewerDebug.waitForViewerDebugDataReady === 'function') {{
+  var viewerDebugDataReadiness =
+    await window.gpuViewerDebug.waitForViewerDebugDataReady({{
+      timeoutMs: {args.viewer_data_ready_timeout_ms},
+      retryDefaultScene: true,
+      requireRaw: true
+    }});
+  console.log('viewerDebugDataReadiness', viewerDebugDataReadiness);
+}}
+if (typeof window.gpuViewerDebug.runViewerConnectedSchedulerProbe === 'function') {{
+  var viewerConnectedSchedulerProbe =
+    await window.gpuViewerDebug.runViewerConnectedSchedulerProbe({{
+      waitMs: {args.render_wait_ms},
+      timeDelta: 0.05
+    }});
+  console.log('viewerConnectedSchedulerProbe', viewerConnectedSchedulerProbe);
+}} else {{
+  window.gpuViewerDebug.scheduleRender();
+  await new Promise(r => setTimeout(r, {args.render_wait_ms}));
+}}
+"""
+
     return f"""window.gpuViewerDebug.scheduleRender();
 await new Promise(r => setTimeout(r, {args.render_wait_ms}));
 if (typeof window.gpuViewerDebug.waitForViewerDebugDataReady === 'function') {{

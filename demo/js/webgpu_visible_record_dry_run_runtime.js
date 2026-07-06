@@ -5133,7 +5133,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step97 runs a time-driven multi-frame WebGPU production runtime while preserving tile-compositor-owned steady-state presentation.',
+    scaffoldNote: 'Phase 3 Step98 connects viewer time/playback scheduling to the time-driven WebGPU production runtime while preserving tile-compositor-owned steady-state presentation.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,

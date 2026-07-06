@@ -18,7 +18,9 @@ export function createRenderScheduler({
     rendering: false,
     needsRenderAgain: false,
     lastRenderError: null,
-    lastRenderFailed: false
+    lastRenderFailed: false,
+    scheduledFrameCount: 0,
+    completedFrameCount: 0
   };
 
   async function scheduleRender() {
@@ -28,12 +30,15 @@ export function createRenderScheduler({
     }
 
     state.renderPending = true;
+    state.scheduledFrameCount += 1;
     const schedulerFrameState = {
       calledFromSchedulerFrameLoop: true,
       frameRequestIssued: true,
       requestAnimationFrameCallbackEntered: false,
       renderFrameInvoked: false,
-      renderFrameCompleted: false
+      renderFrameCompleted: false,
+      schedulerFrameIndex: state.scheduledFrameCount,
+      schedulerFrameCount: state.scheduledFrameCount
     };
 
     requestAnimationFrame(async () => {
@@ -50,6 +55,9 @@ export function createRenderScheduler({
         state.lastRenderError = null;
         state.lastRenderFailed = false;
         schedulerFrameState.renderFrameCompleted = true;
+        state.completedFrameCount += 1;
+        schedulerFrameState.schedulerCompletedFrameCount =
+          state.completedFrameCount;
         if (
           renderResult &&
           typeof buildFramePresentationBoundary === 'function'
