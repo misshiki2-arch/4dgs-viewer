@@ -1956,3 +1956,56 @@ Step90 GPU-owned runtime path, Step91 ordered reference runtime path, Step92
 bounded sort baseline, Step93 overflow/capacity policy, and Step94 workgroup
 parallel sort. Deferred work remains full CUDA compositor parity, full
 production parallel sort parity, chunk/LOD/streaming, and early termination v1.
+
+## Step97 Time-Driven Multi-Frame Production Runtime V1
+
+Step97 extends Step96 from a static production compositor frame into a bounded
+multi-frame runtime path. The selected scope is A+B+C+D: time-driven
+multi-frame runtime, dirty dependency execution, production compositor update
+on dirty frames, and a clean-frame fast path that reuses the last valid
+production output. Resource lifecycle hardening and telemetry are included only
+where needed to make the path measurable; early termination remains deferred.
+
+The Step97 runtime path is:
+
+```text
+time/frame state update
+-> dirty dependency decision
+-> WebGPU 4D state / visible evidence preserved
+-> tile list / parallel sort update
+-> production tile accumulation
+-> output texture update
+-> clean-frame last-valid output presentation
+```
+
+- Dirty frames: Step97 treats the production update as a dirty-frame executor.
+  The dirty stage list is `time-frame-state`, `webgpu-4d-state-visible`,
+  `tile-list`, `parallel-sort`, `production-accumulation`, and
+  `output-texture`. The workgroup parallel sorted reference path remains the
+  accumulation input, so fallback-only or diagnostic-only output cannot satisfy
+  the step.
+- Clean frames: when no production update is required, the Step88 presentation
+  heartbeat presents the cached last valid production output. Clean-frame reuse
+  is recorded as `cleanFrameFastPathUsed`,
+  `lastValidProductionOutputReused`, and
+  `lastValidOutputPresentedOnCleanFrames`.
+- Boundary enforcement: diagnostic readback remains separate from the runtime
+  path, debug output is bypassed for production, WebGL2 remains fallback /
+  validation only, and `currentTexture` / `TextureView` lifecycle rules from
+  Step88 remain in force.
+
+Step97 Summary success requires `timeDrivenProductionRuntimeReady`,
+`multiFrameProductionRuntimeUsed`, `runtimeFrameCount`,
+`timeStateAdvancedAcrossFrames`, `frameStateAdvancedAcrossFrames`,
+`productionOutputUpdatedAcrossFrames`, `dirtyDependencyExecutorUsed`,
+`updatedStageNames`, `skippedStageNames`,
+`productionCompositorUpdatedOnDirtyFrames`, `cleanFrameFastPathUsed`,
+`lastValidProductionOutputReused`, and
+`lastValidOutputPresentedOnCleanFrames`. It also requires Step96 production
+compositor preservation, Step94 parallel sort preservation, Step93 overflow
+policy preservation, Step90 runtime preservation, and Step88 steady-state
+presentation preservation.
+
+Deferred work remains full interactive scheduler integration, full CUDA
+parity, final production compositor parity, full parallel sort parity,
+chunk/LOD/streaming, and early termination v1.

@@ -5133,7 +5133,7 @@ export async function runWebGpuVisibleRecordDryRun({
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step88 selects a tile-compositor-owned WebGPU frame implementation and presents depth-aware compositor output through the guarded currentTexture path.',
+    scaffoldNote: 'Phase 3 Step97 runs a time-driven multi-frame WebGPU production runtime while preserving tile-compositor-owned steady-state presentation.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,

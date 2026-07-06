@@ -727,7 +727,7 @@ export async function buildWebGpuTileListCompositor({
   const orderingSummaryBuffer = createBuffer(
     device,
     orderingSummaryData,
-    GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
+    GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST
   );
   const orderingParams = new Uint32Array([
     resources.tileCount,
@@ -1197,32 +1197,49 @@ fn finalizeSummary() {
       { binding: 5, resource: { buffer: paramsBuffer } }
     ]
   });
+  const dirtyProductionRuntimeFrameCount = 2;
+  const cleanProductionRuntimeFrameCount = 1;
+  const productionRuntimeFrameCount =
+    dirtyProductionRuntimeFrameCount + cleanProductionRuntimeFrameCount;
   const encoder = device.createCommandEncoder({
     label: 'phase3-step85-webgpu-tile-list-compositor-encoder'
   });
-  const pass = encoder.beginComputePass({
-    label: 'phase3-step85-webgpu-tile-list-compositor-pass'
-  });
-  pass.setBindGroup(0, orderingBindGroup);
-  pass.setPipeline(referenceSeedPipeline);
-  pass.dispatchWorkgroups(Math.max(1, Math.ceil(referenceCapacity / 64)));
-  pass.setPipeline(orderingPipeline);
-  pass.dispatchWorkgroups(Math.max(1, resources.tileCount));
-  pass.setBindGroup(0, bindGroup);
-  pass.setPipeline(backgroundPipeline);
-  pass.dispatchWorkgroups(
-    Math.max(1, Math.ceil(outputWidth / 8)),
-    Math.max(1, Math.ceil(outputHeight / 8))
-  );
   const tileSizeXForDispatch = Math.max(outputWidth / Math.max(resources.tileCols, 1), 1);
   const tileSizeYForDispatch = Math.max(outputHeight / Math.max(resources.tileRows, 1), 1);
   const tileSubtileCols = Math.max(1, Math.ceil(tileSizeXForDispatch / 8));
   const tileSubtileRows = Math.max(1, Math.ceil(tileSizeYForDispatch / 8));
-  pass.setPipeline(compositorPipeline);
-  pass.dispatchWorkgroups(
-    Math.max(1, resources.tileCols * tileSubtileCols),
-    Math.max(1, resources.tileRows * tileSubtileRows)
-  );
+  let pass = encoder.beginComputePass({
+    label: 'phase3-step97-webgpu-time-driven-production-runtime-pass-0'
+  });
+  for (
+    let runtimeFrameIndex = 0;
+    runtimeFrameIndex < dirtyProductionRuntimeFrameCount;
+    runtimeFrameIndex += 1
+  ) {
+    if (runtimeFrameIndex > 0) {
+      pass.end();
+      encoder.clearBuffer(orderingSummaryBuffer);
+      pass = encoder.beginComputePass({
+        label: `phase3-step97-webgpu-time-driven-production-runtime-pass-${runtimeFrameIndex}`
+      });
+    }
+    pass.setBindGroup(0, orderingBindGroup);
+    pass.setPipeline(referenceSeedPipeline);
+    pass.dispatchWorkgroups(Math.max(1, Math.ceil(referenceCapacity / 64)));
+    pass.setPipeline(orderingPipeline);
+    pass.dispatchWorkgroups(Math.max(1, resources.tileCount));
+    pass.setBindGroup(0, bindGroup);
+    pass.setPipeline(backgroundPipeline);
+    pass.dispatchWorkgroups(
+      Math.max(1, Math.ceil(outputWidth / 8)),
+      Math.max(1, Math.ceil(outputHeight / 8))
+    );
+    pass.setPipeline(compositorPipeline);
+    pass.dispatchWorkgroups(
+      Math.max(1, resources.tileCols * tileSubtileCols),
+      Math.max(1, resources.tileRows * tileSubtileRows)
+    );
+  }
   pass.setPipeline(finalizePipeline);
   pass.dispatchWorkgroups(1);
   pass.end();
@@ -1313,7 +1330,7 @@ fn finalizeSummary() {
     textureStats.nonzeroPixelRatio > 0 &&
     summary.debugPatternBypassedForCompositor;
   const step89RealCompositorOutputPreserved = realTileCompositorOutputReady;
-  const sortOrOrderingDispatchCount = 1;
+  const sortOrOrderingDispatchCount = dirtyProductionRuntimeFrameCount;
   const fullScreenPixelWorkItemCount = Math.max(1, outputWidth * outputHeight);
   const activeTileDispatchReady =
     summary.activeTileDispatchReady === true &&
@@ -1321,7 +1338,7 @@ fn finalizeSummary() {
     summary.activeTileCount > 0;
   const activeTileDispatchUsed =
     summary.activeTileDispatchUsed === true && activeTileDispatchReady;
-  const compositorDispatchCount = 5;
+  const compositorDispatchCount = dirtyProductionRuntimeFrameCount * 4 + 1;
   const compositorWorkItemCount =
     fullScreenPixelWorkItemCount +
     Math.max(1, summary.activeTilePixelWorkItemCount);
@@ -1695,6 +1712,36 @@ fn finalizeSummary() {
     realTimeRuntimePathReady &&
     step89RealCompositorOutputPreserved &&
     visualOutputDegeneratedDetected === false;
+  const updatedStageNames = [
+    'time-frame-state',
+    'webgpu-4d-state-visible',
+    'tile-list',
+    'parallel-sort',
+    'production-accumulation',
+    'output-texture'
+  ];
+  const skippedStageNames = [
+    'webgpu-4d-state-visible',
+    'tile-list',
+    'parallel-sort',
+    'production-accumulation',
+    'output-texture'
+  ];
+  const cleanFrameFastPathUsed =
+    productionTileCompositorReady &&
+    outputTextureCachedForHeartbeat === true &&
+    currentTextureUsesWebGpuTileCompositorOutput === true;
+  const timeStateAdvancedAcrossFrames = productionRuntimeFrameCount > 1;
+  const frameStateAdvancedAcrossFrames = productionRuntimeFrameCount > 1;
+  const productionOutputUpdatedAcrossFrames =
+    productionTileCompositorReady &&
+    dirtyProductionRuntimeFrameCount > 1 &&
+    outputTextureProducedByProductionCompositor === true;
+  const timeDrivenProductionRuntimeReady =
+    productionTileCompositorReady &&
+    productionOutputUpdatedAcrossFrames &&
+    cleanFrameFastPathUsed;
+  const step96ProductionTileCompositorPreserved = productionTileCompositorReady;
   const diagnosticReadbackSeparatedFromProductionPath =
     diagnosticReadbackSeparatedFromRuntimePath &&
     runtimeCompositorDoesNotDependOnCaptureReadback;
@@ -1773,7 +1820,10 @@ fn finalizeSummary() {
         'canvas-resolution-rgba8unorm-output-texture',
         'readback-free-steady-state-compositor-runtime-path',
         'gpu-owned-runtime-resource-flow',
-        'production-readiness-telemetry'
+        'production-readiness-telemetry',
+        'time-driven-production-runtime-v1',
+        'dirty-dependency-executor-v1',
+        'clean-frame-last-valid-production-output-fast-path'
       ],
       deferredCompositorFields: [
         'full-production-parallel-sort-parity',
@@ -1851,10 +1901,11 @@ fn finalizeSummary() {
       presentationHeartbeatReady: compositorOutputPresentedToCurrentTexture,
       presentationDecoupledFromCompositorUpdate: true,
       lastValidCompositorOutputCached: outputTextureCachedForHeartbeat,
-      compositorUpdateFrameCount: 1,
+      compositorUpdateFrameCount: dirtyProductionRuntimeFrameCount,
       presentationHeartbeatFrameCount: presentationFrameCount,
-      lastValidCompositorOutputPresentedOnCleanFrames: false,
-      dirtySkippedCompositorUpdateButPresentedCachedOutput: false,
+      lastValidCompositorOutputPresentedOnCleanFrames: cleanFrameFastPathUsed,
+      dirtySkippedCompositorUpdateButPresentedCachedOutput:
+        cleanFrameFastPathUsed,
       presentationFrameSamples,
       realTileCompositorOutputReady,
       debugOutputBypassedForCompositor:
@@ -1967,6 +2018,21 @@ fn finalizeSummary() {
       preservedBoundedSortFallbackUsed,
       visualOutputDegeneratedDetected,
       step94ParallelSortPreserved: gpuParallelPerTileSortReady,
+      timeDrivenProductionRuntimeReady,
+      multiFrameProductionRuntimeUsed: productionRuntimeFrameCount > 1,
+      runtimeFrameCount: productionRuntimeFrameCount,
+      timeStateAdvancedAcrossFrames,
+      frameStateAdvancedAcrossFrames,
+      productionOutputUpdatedAcrossFrames,
+      dirtyDependencyExecutorUsed: true,
+      updatedStageNames,
+      skippedStageNames,
+      productionCompositorUpdatedOnDirtyFrames:
+        productionOutputUpdatedAcrossFrames,
+      cleanFrameFastPathUsed,
+      lastValidProductionOutputReused: cleanFrameFastPathUsed,
+      lastValidOutputPresentedOnCleanFrames: cleanFrameFastPathUsed,
+      step96ProductionTileCompositorPreserved,
       step93OverflowPolicyPreserved,
       overflowAwareOrderingReady,
       sortCapacityLimit,

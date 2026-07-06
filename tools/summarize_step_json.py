@@ -6656,6 +6656,332 @@ def build_step96_production_tile_compositor_summary(
     }
 
 
+def build_step97_time_driven_production_runtime_summary(
+    summary: Dict[str, Any],
+) -> Dict[str, Any]:
+    frame_contract = get_path(
+        summary,
+        ["webgpuTileCompositorFrameImplementation"],
+        {},
+    )
+    compositor_contract = get_path(
+        summary,
+        ["webgpuTileListCompositorContract"],
+        {},
+    )
+    error_subtypes = detect_webgpu_error_subtypes(
+        frame_contract,
+        compositor_contract,
+        get_path(summary, ["captureErrorString"]),
+        get_path(summary, ["captureErrorStack"]),
+        get_path(summary, ["captureErrorMessage"]),
+        get_path(summary, ["firstValidationFailures"]),
+    )
+    phase_step = get_path(summary, ["phaseStep"])
+    wgsl_parse_error_detected = (
+        get_path(frame_contract, ["wgslParseErrorDetected"]) is True
+        or get_path(compositor_contract, ["wgslParseErrorDetected"]) is True
+        or error_subtypes["wgslParseErrorDetected"]
+    )
+    shader_module_invalid_detected = (
+        get_path(frame_contract, ["shaderModuleInvalidDetected"]) is True
+        or get_path(compositor_contract, ["shaderModuleInvalidDetected"]) is True
+        or error_subtypes["shaderModuleInvalidDetected"]
+    )
+    compute_pipeline_invalid_detected = (
+        get_path(frame_contract, ["computePipelineInvalidDetected"]) is True
+        or get_path(compositor_contract, ["computePipelineInvalidDetected"]) is True
+        or error_subtypes["computePipelineInvalidDetected"]
+    )
+    bind_group_invalid_detected = (
+        get_path(frame_contract, ["bindGroupInvalidDetected"]) is True
+        or get_path(compositor_contract, ["bindGroupInvalidDetected"]) is True
+        or error_subtypes["bindGroupInvalidDetected"]
+    )
+    step96_production_preserved = (
+        get_path(compositor_contract, ["step96ProductionTileCompositorPreserved"])
+        is True
+        and get_path(compositor_contract, ["productionTileCompositorReady"]) is True
+        and get_path(compositor_contract, ["productionTileCompositorPathUsed"]) is True
+        and get_path(
+            compositor_contract,
+            ["productionAccumulationConsumedParallelSortedRefs"],
+        )
+        is True
+    )
+    step94_parallel_sort_preserved = (
+        get_path(compositor_contract, ["step94ParallelSortPreserved"]) is True
+        and get_path(compositor_contract, ["gpuParallelPerTileSortReady"]) is True
+        and get_path(compositor_contract, ["workgroupParallelSortUsed"]) is True
+    )
+    step93_overflow_policy_preserved = (
+        get_path(compositor_contract, ["step93OverflowPolicyPreserved"]) is True
+        and get_path(compositor_contract, ["overflowAwareOrderingReady"]) is True
+    )
+    step90_runtime_preserved = (
+        get_path(compositor_contract, ["step90RuntimePathPreserved"]) is True
+        and get_path(
+            compositor_contract,
+            ["diagnosticReadbackSeparatedFromRuntimePath"],
+        )
+        is True
+    )
+    step88_presentation_contract_preserved = (
+        get_path(compositor_contract, ["step88PresentationContractPreserved"]) is True
+        or get_path(
+            frame_contract,
+            ["steadyStateTileCompositorOwnsFinalPresentation"],
+        )
+        is True
+    )
+    runtime_frame_count = numeric_value(
+        get_path(compositor_contract, ["runtimeFrameCount"]),
+        0,
+    )
+    updated_stage_names = get_path(
+        compositor_contract,
+        ["updatedStageNames"],
+        [],
+    )
+    skipped_stage_names = get_path(
+        compositor_contract,
+        ["skippedStageNames"],
+        [],
+    )
+    raw_deferred_production_items = get_path(
+        compositor_contract,
+        ["deferredProductionItems"],
+        [],
+    )
+    deferred_production_items = (
+        list(raw_deferred_production_items)
+        if isinstance(raw_deferred_production_items, list)
+        else []
+    )
+    if "full-interactive-scheduler" not in deferred_production_items:
+        deferred_production_items.append("full-interactive-scheduler")
+    time_driven_ready = (
+        phase_step == "phase3-step97"
+        and get_path(compositor_contract, ["timeDrivenProductionRuntimeReady"])
+        is True
+        and get_path(compositor_contract, ["multiFrameProductionRuntimeUsed"])
+        is True
+        and runtime_frame_count >= 2
+        and get_path(compositor_contract, ["timeStateAdvancedAcrossFrames"])
+        is True
+        and get_path(compositor_contract, ["frameStateAdvancedAcrossFrames"])
+        is True
+        and get_path(compositor_contract, ["productionOutputUpdatedAcrossFrames"])
+        is True
+        and get_path(compositor_contract, ["dirtyDependencyExecutorUsed"]) is True
+        and isinstance(updated_stage_names, list)
+        and len(updated_stage_names) > 0
+        and isinstance(skipped_stage_names, list)
+        and get_path(
+            compositor_contract,
+            ["productionCompositorUpdatedOnDirtyFrames"],
+        )
+        is True
+        and get_path(compositor_contract, ["cleanFrameFastPathUsed"]) is True
+        and get_path(compositor_contract, ["lastValidProductionOutputReused"])
+        is True
+        and get_path(
+            compositor_contract,
+            ["lastValidOutputPresentedOnCleanFrames"],
+        )
+        is True
+        and get_path(
+            compositor_contract,
+            ["diagnosticReadbackSeparatedFromRuntimePath"],
+        )
+        is True
+        and get_path(compositor_contract, ["fallbackOnlyCompositorUsed"]) is False
+        and get_path(compositor_contract, ["debugOutputBypassedForProduction"])
+        is True
+        and get_path(compositor_contract, ["visualOutputDegeneratedDetected"])
+        is not True
+        and step96_production_preserved
+        and step94_parallel_sort_preserved
+        and step93_overflow_policy_preserved
+        and step90_runtime_preserved
+        and step88_presentation_contract_preserved
+        and wgsl_parse_error_detected is False
+        and shader_module_invalid_detected is False
+        and compute_pipeline_invalid_detected is False
+        and bind_group_invalid_detected is False
+        and get_path(frame_contract, ["webgpuValidationErrorDetected"]) is False
+        and get_path(frame_contract, ["invalidCommandBufferDetected"]) is False
+        and get_path(frame_contract, ["queueSubmitFailureDetected"]) is False
+        and get_path(frame_contract, ["webgpuWebgl2SameFramePresentationMixed"])
+        is False
+        and get_path(frame_contract, ["fallbackMixingPrevented"]) is True
+        and get_path(frame_contract, ["fullRendererSuccessClaimed"]) is False
+    )
+    blocked_reason = None
+    if not time_driven_ready:
+        if phase_step != "phase3-step97":
+            blocked_reason = "summary-phase-step-is-not-phase3-step97"
+        elif get_path(compositor_contract, ["timeDrivenProductionRuntimeReady"]) is not True:
+            blocked_reason = "time-driven-production-runtime-not-ready"
+        elif get_path(compositor_contract, ["multiFrameProductionRuntimeUsed"]) is not True:
+            blocked_reason = "multi-frame-production-runtime-not-used"
+        elif runtime_frame_count < 2:
+            blocked_reason = "runtime-frame-count-too-low"
+        elif get_path(compositor_contract, ["productionOutputUpdatedAcrossFrames"]) is not True:
+            blocked_reason = "production-output-not-updated-across-frames"
+        elif get_path(compositor_contract, ["cleanFrameFastPathUsed"]) is not True:
+            blocked_reason = "clean-frame-fast-path-not-used"
+        elif not step96_production_preserved:
+            blocked_reason = "step96-production-tile-compositor-not-preserved"
+        elif not step94_parallel_sort_preserved:
+            blocked_reason = "step94-parallel-sort-not-preserved"
+        elif not step93_overflow_policy_preserved:
+            blocked_reason = "step93-overflow-policy-not-preserved"
+        elif not step90_runtime_preserved:
+            blocked_reason = "step90-runtime-path-not-preserved"
+        elif not step88_presentation_contract_preserved:
+            blocked_reason = "step88-presentation-contract-not-preserved"
+        elif get_path(compositor_contract, ["fallbackOnlyCompositorUsed"]) is True:
+            blocked_reason = "fallback-only-compositor-used"
+        elif wgsl_parse_error_detected:
+            blocked_reason = "wgsl-parse-error-detected"
+        elif shader_module_invalid_detected:
+            blocked_reason = "shader-module-invalid-detected"
+        elif compute_pipeline_invalid_detected:
+            blocked_reason = "compute-pipeline-invalid-detected"
+        elif bind_group_invalid_detected:
+            blocked_reason = "bind-group-invalid-detected"
+        else:
+            blocked_reason = "step97-runtime-validation-failed"
+    return {
+        "step97Decision": "success" if time_driven_ready else "blocked",
+        "step97BlockedReason": blocked_reason,
+        "step97SelectedGoal":
+            "A+B+C+D-time-driven-multi-frame-production-runtime-v1",
+        "phaseStep": phase_step,
+        "step97SummaryApplies": phase_step == "phase3-step97",
+        "timeDrivenProductionRuntimeReady": get_path(
+            compositor_contract,
+            ["timeDrivenProductionRuntimeReady"],
+        ),
+        "multiFrameProductionRuntimeUsed": get_path(
+            compositor_contract,
+            ["multiFrameProductionRuntimeUsed"],
+        ),
+        "runtimeFrameCount": get_path(compositor_contract, ["runtimeFrameCount"]),
+        "timeStateAdvancedAcrossFrames": get_path(
+            compositor_contract,
+            ["timeStateAdvancedAcrossFrames"],
+        ),
+        "frameStateAdvancedAcrossFrames": get_path(
+            compositor_contract,
+            ["frameStateAdvancedAcrossFrames"],
+        ),
+        "productionOutputUpdatedAcrossFrames": get_path(
+            compositor_contract,
+            ["productionOutputUpdatedAcrossFrames"],
+        ),
+        "dirtyDependencyExecutorUsed": get_path(
+            compositor_contract,
+            ["dirtyDependencyExecutorUsed"],
+        ),
+        "updatedStageNames": updated_stage_names,
+        "skippedStageNames": skipped_stage_names,
+        "productionCompositorUpdatedOnDirtyFrames": get_path(
+            compositor_contract,
+            ["productionCompositorUpdatedOnDirtyFrames"],
+        ),
+        "cleanFrameFastPathUsed": get_path(
+            compositor_contract,
+            ["cleanFrameFastPathUsed"],
+        ),
+        "lastValidProductionOutputReused": get_path(
+            compositor_contract,
+            ["lastValidProductionOutputReused"],
+        ),
+        "lastValidOutputPresentedOnCleanFrames": get_path(
+            compositor_contract,
+            ["lastValidOutputPresentedOnCleanFrames"],
+        ),
+        "diagnosticReadbackSeparatedFromRuntimePath": get_path(
+            compositor_contract,
+            ["diagnosticReadbackSeparatedFromRuntimePath"],
+        ),
+        "fallbackOnlyCompositorUsed": get_path(
+            compositor_contract,
+            ["fallbackOnlyCompositorUsed"],
+        ),
+        "debugOutputBypassedForProduction": get_path(
+            compositor_contract,
+            ["debugOutputBypassedForProduction"],
+        ),
+        "visualOutputDegeneratedDetected": get_path(
+            compositor_contract,
+            ["visualOutputDegeneratedDetected"],
+        ),
+        "step96ProductionTileCompositorPreserved":
+            step96_production_preserved,
+        "step94ParallelSortPreserved": step94_parallel_sort_preserved,
+        "step93OverflowPolicyPreserved": step93_overflow_policy_preserved,
+        "step90RuntimePathPreserved": step90_runtime_preserved,
+        "step88PresentationContractPreserved":
+            step88_presentation_contract_preserved,
+        "step89RealCompositorOutputPreserved": get_path(
+            compositor_contract,
+            ["step89RealCompositorOutputPreserved"],
+        ),
+        "step91OrderedReferenceRuntimePathPreserved": get_path(
+            compositor_contract,
+            ["step91OrderedReferenceRuntimePathPreserved"],
+        ),
+        "step92BoundedSortPathPreserved": get_path(
+            compositor_contract,
+            ["gpuSidePerTileSortReady"],
+        ),
+        "step85TileCompositorPathPreserved": get_path(
+            frame_contract,
+            ["step85TileCompositorPathPreserved"],
+        ),
+        "step86BoundaryContractPreserved": get_path(
+            frame_contract,
+            ["step86BoundaryContractPreserved"],
+        ),
+        "step87DepthOrderingPreserved": get_path(
+            frame_contract,
+            ["step87DepthOrderingPreserved"],
+        ),
+        "currentTextureUsesWebGpuTileCompositorOutput": get_path(
+            frame_contract,
+            ["currentTextureUsesWebGpuTileCompositorOutput"],
+        ),
+        "currentTextureViewFreshPerPresentation": get_path(
+            frame_contract,
+            ["currentTextureViewFreshPerPresentation"],
+        ),
+        "webgpuDeviceConsistencyReady": get_path(
+            frame_contract,
+            ["webgpuDeviceConsistencyReady"],
+        ),
+        "wgslParseErrorDetected": wgsl_parse_error_detected,
+        "shaderModuleInvalidDetected": shader_module_invalid_detected,
+        "computePipelineInvalidDetected": compute_pipeline_invalid_detected,
+        "bindGroupInvalidDetected": bind_group_invalid_detected,
+        "invalidCommandBufferDetected": get_path(
+            frame_contract,
+            ["invalidCommandBufferDetected"],
+        ),
+        "queueSubmitFailureDetected": get_path(
+            frame_contract,
+            ["queueSubmitFailureDetected"],
+        ),
+        "deferredProductionItems": deferred_production_items,
+        "fullRendererSuccessClaimed": get_path(
+            frame_contract,
+            ["fullRendererSuccessClaimed"],
+        ),
+    }
+
+
 def build_step75_camera_aware_visible_summary(
     summary: Dict[str, Any],
     webgpu_camera_aware_visible_output: Dict[str, Any],
@@ -7870,6 +8196,9 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
     step96_production_tile_compositor = (
         build_step96_production_tile_compositor_summary(summary)
     )
+    step97_time_driven_production_runtime = (
+        build_step97_time_driven_production_runtime_summary(summary)
+    )
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -7931,6 +8260,8 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             step94_parallel_per_tile_sort,
         "step96ProductionTileCompositor":
             step96_production_tile_compositor,
+        "step97TimeDrivenProductionRuntime":
+            step97_time_driven_production_runtime,
         "comparisonContract": get_path(summary, ["comparisonContract"], {}),
         "comparisonTolerance": get_path(summary, ["comparisonTolerance"], {}),
         "radiusContract": get_path(summary, ["radiusContract"], {}),
@@ -13025,6 +13356,12 @@ def print_human_summary(summary: Dict[str, Any]) -> None:
         "Step96 WebGPU production tile compositor",
         summary.get("webgpuVisibleRecordDryRun", {}).get(
             "step96ProductionTileCompositor"
+        ),
+    )
+    print_section(
+        "Step97 WebGPU time-driven production runtime",
+        summary.get("webgpuVisibleRecordDryRun", {}).get(
+            "step97TimeDrivenProductionRuntime"
         ),
     )
     print_section("WebGPU visible record dry-run", summary.get("webgpuVisibleRecordDryRun"))

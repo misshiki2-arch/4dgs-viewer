@@ -4,7 +4,7 @@ export const WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION =
 export const WEBGPU_VISIBLE_RECORD_COMPUTE_MODE =
   'webgpu-storage-buffer-compute-fixed-record';
 
-export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step96';
+export const WEBGPU_VISIBLE_RECORD_PHASE_STEP = 'phase3-step97';
 
 export const WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE =
   'wgsl-valid-screen-projection-with-true-native-bounded-color-sources';
@@ -16,7 +16,7 @@ export const WEBGPU_GPU_OWNED_TILE_LIST_LAYOUT_CONTRACT_VERSION =
   'phase3-step84-webgpu-gpu-owned-tile-list-layout-v1';
 
 export const WEBGPU_TILE_LIST_COMPOSITOR_CONTRACT_VERSION =
-  'phase3-step96-production-tile-compositor-v1';
+  'phase3-step97-time-driven-production-runtime-v1';
 
 export const WEBGPU_PHASE3_BACKEND_BOUNDARY_CONTRACT_VERSION =
   'phase3-step86-webgpu-backend-boundary-and-dirty-contract-v1';
@@ -799,6 +799,20 @@ export function buildWebGpuTileListCompositorContract({
   preservedBoundedSortFallbackUsed = false,
   visualOutputDegeneratedDetected = false,
   step94ParallelSortPreserved = false,
+  timeDrivenProductionRuntimeReady = false,
+  multiFrameProductionRuntimeUsed = false,
+  runtimeFrameCount = 0,
+  timeStateAdvancedAcrossFrames = false,
+  frameStateAdvancedAcrossFrames = false,
+  productionOutputUpdatedAcrossFrames = false,
+  dirtyDependencyExecutorUsed = false,
+  updatedStageNames = [],
+  skippedStageNames = [],
+  productionCompositorUpdatedOnDirtyFrames = false,
+  cleanFrameFastPathUsed = false,
+  lastValidProductionOutputReused = false,
+  lastValidOutputPresentedOnCleanFrames = false,
+  step96ProductionTileCompositorPreserved = false,
   step93OverflowPolicyPreserved = false,
   overflowAwareOrderingReady = false,
   sortCapacityLimit = 64,
@@ -933,6 +947,26 @@ export function buildWebGpuTileListCompositorContract({
     overflowAwareReady === true &&
     gpuParallelPerTileSortReady === true &&
     visualOutputDegeneratedDetected === false;
+  const timeDrivenRuntimeReady =
+    productionReady === true &&
+    timeDrivenProductionRuntimeReady === true &&
+    multiFrameProductionRuntimeUsed === true &&
+    runtimeFrameCount >= 2 &&
+    timeStateAdvancedAcrossFrames === true &&
+    frameStateAdvancedAcrossFrames === true &&
+    productionOutputUpdatedAcrossFrames === true &&
+    dirtyDependencyExecutorUsed === true &&
+    Array.isArray(updatedStageNames) &&
+    updatedStageNames.length > 0 &&
+    Array.isArray(skippedStageNames) &&
+    productionCompositorUpdatedOnDirtyFrames === true &&
+    cleanFrameFastPathUsed === true &&
+    lastValidProductionOutputReused === true &&
+    lastValidOutputPresentedOnCleanFrames === true &&
+    diagnosticReadbackSeparatedFromRuntimePath === true &&
+    fallbackOnlyCompositorUsed === false &&
+    debugOutputBypassedForProduction === true &&
+    step96ProductionTileCompositorPreserved === true;
   return {
     contractVersion: WEBGPU_TILE_LIST_COMPOSITOR_CONTRACT_VERSION,
     status: ready ? 'ok' : status,
@@ -1111,6 +1145,20 @@ export function buildWebGpuTileListCompositorContract({
     preservedBoundedSortFallbackUsed,
     visualOutputDegeneratedDetected,
     step94ParallelSortPreserved,
+    timeDrivenProductionRuntimeReady: timeDrivenRuntimeReady,
+    multiFrameProductionRuntimeUsed,
+    runtimeFrameCount,
+    timeStateAdvancedAcrossFrames,
+    frameStateAdvancedAcrossFrames,
+    productionOutputUpdatedAcrossFrames,
+    dirtyDependencyExecutorUsed,
+    updatedStageNames,
+    skippedStageNames,
+    productionCompositorUpdatedOnDirtyFrames,
+    cleanFrameFastPathUsed,
+    lastValidProductionOutputReused,
+    lastValidOutputPresentedOnCleanFrames,
+    step96ProductionTileCompositorPreserved,
     step93OverflowPolicyPreserved,
     overflowAwareOrderingReady: overflowAwareReady,
     sortCapacityLimit,
