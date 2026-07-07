@@ -231,6 +231,16 @@ def build_webgpu_visible_record_dryrun_command(args: argparse.Namespace) -> str:
         if args.webgpu_backend_implementation
         else ""
     )
+    phase_step_line = (
+        "\n    phaseStep: 'phase3-step99',"
+        if "step99" in args.step
+        else ""
+    )
+    comparison_mode_line = (
+        "\n    comparisonMode: 'phase3-step99-interactive-camera-viewport-dirty-runtime',"
+        if "step99" in args.step
+        else ""
+    )
 
     return f"""try {{
   var webgpuVisibleRecordDryRunResult =
@@ -238,7 +248,7 @@ def build_webgpu_visible_record_dryrun_command(args: argparse.Namespace) -> str:
     ensureCurrentFrame: false,
     maxRecords: {args.webgpu_visible_record_max_count},
     epsilon: {args.webgpu_visible_record_epsilon},
-    maxMismatches: {args.max_mismatches},{backend_implementation_line}
+    maxMismatches: {args.max_mismatches},{backend_implementation_line}{phase_step_line}{comparison_mode_line}
   }});
 
   await window.gpuViewerDebug.downloadJsonDebug(
@@ -348,7 +358,18 @@ def build_preamble(args: argparse.Namespace) -> str:
     if not args.include_preamble:
         return ""
 
-    if "step98" in args.step:
+    if "step98" in args.step or "step99" in args.step:
+        camera_probe = ""
+        if "step99" in args.step:
+            camera_probe = f"""if (typeof window.gpuViewerDebug.runViewerCameraDirtySchedulerProbe === 'function') {{
+  var viewerCameraDirtySchedulerProbe =
+    await window.gpuViewerDebug.runViewerCameraDirtySchedulerProbe({{
+      waitMs: {args.render_wait_ms},
+      cameraDelta: 0.025
+    }});
+  console.log('viewerCameraDirtySchedulerProbe', viewerCameraDirtySchedulerProbe);
+}}
+"""
         return f"""if (typeof window.gpuViewerDebug.waitForViewerDebugDataReady === 'function') {{
   var viewerDebugDataReadiness =
     await window.gpuViewerDebug.waitForViewerDebugDataReady({{
@@ -369,6 +390,7 @@ if (typeof window.gpuViewerDebug.runViewerConnectedSchedulerProbe === 'function'
   window.gpuViewerDebug.scheduleRender();
   await new Promise(r => setTimeout(r, {args.render_wait_ms}));
 }}
+{camera_probe}
 """
 
     return f"""window.gpuViewerDebug.scheduleRender();

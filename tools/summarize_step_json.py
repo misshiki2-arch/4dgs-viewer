@@ -7328,6 +7328,400 @@ def build_step98_viewer_connected_interactive_scheduler_summary(
     }
 
 
+def build_step99_interactive_camera_dirty_runtime_summary(
+    summary: Dict[str, Any],
+) -> Dict[str, Any]:
+    frame_contract = get_path(
+        summary,
+        ["webgpuTileCompositorFrameImplementation"],
+        {},
+    )
+    compositor_contract = get_path(
+        summary,
+        ["webgpuTileListCompositorContract"],
+        {},
+    )
+    error_subtypes = detect_webgpu_error_subtypes(
+        frame_contract,
+        compositor_contract,
+        get_path(summary, ["captureErrorString"]),
+        get_path(summary, ["captureErrorStack"]),
+        get_path(summary, ["captureErrorMessage"]),
+        get_path(summary, ["firstValidationFailures"]),
+    )
+    phase_step = get_path(summary, ["phaseStep"])
+    wgsl_parse_error_detected = (
+        get_path(frame_contract, ["wgslParseErrorDetected"]) is True
+        or get_path(compositor_contract, ["wgslParseErrorDetected"]) is True
+        or error_subtypes["wgslParseErrorDetected"]
+    )
+    shader_module_invalid_detected = (
+        get_path(frame_contract, ["shaderModuleInvalidDetected"]) is True
+        or get_path(compositor_contract, ["shaderModuleInvalidDetected"]) is True
+        or error_subtypes["shaderModuleInvalidDetected"]
+    )
+    compute_pipeline_invalid_detected = (
+        get_path(frame_contract, ["computePipelineInvalidDetected"]) is True
+        or get_path(compositor_contract, ["computePipelineInvalidDetected"]) is True
+        or error_subtypes["computePipelineInvalidDetected"]
+    )
+    bind_group_invalid_detected = (
+        get_path(frame_contract, ["bindGroupInvalidDetected"]) is True
+        or get_path(compositor_contract, ["bindGroupInvalidDetected"]) is True
+        or error_subtypes["bindGroupInvalidDetected"]
+    )
+    deferred_production_items = get_path(
+        compositor_contract,
+        ["deferredProductionItems"],
+        [],
+    )
+    if not isinstance(deferred_production_items, list):
+        deferred_production_items = []
+    else:
+        deferred_production_items = list(deferred_production_items)
+    for item in [
+        "full-cuda-parity",
+        "final-production-compositor",
+        "full-parallel-sort-parity",
+        "complete-interactive-control-parity",
+        "camera-visual-parity",
+        "chunk-lod-streaming",
+    ]:
+        if item not in deferred_production_items:
+            deferred_production_items.append(item)
+
+    camera_delta = numeric_value(
+        get_path(compositor_contract, ["cameraConstantsMaxAbsDelta"]),
+        0,
+    )
+    camera_evidence_ready = (
+        get_path(compositor_contract, ["cameraControlEvidenceReady"]) is True
+        and camera_delta > 0
+        and get_path(
+            compositor_contract,
+            ["cameraControlEvidenceFromSchedulerProbe"],
+        )
+        is True
+        and get_path(
+            compositor_contract,
+            ["cameraControlEvidenceUsesFixedValue"],
+        )
+        is not True
+    )
+    step98_preserved = (
+        get_path(compositor_contract, ["step98ViewerTimeSchedulerPreserved"])
+        is True
+        and get_path(
+            compositor_contract,
+            ["viewerConnectedInteractiveSchedulerReady"],
+        )
+        is True
+    )
+    step97_preserved = (
+        get_path(compositor_contract, ["step97MultiFrameRuntimePreserved"])
+        is True
+        and get_path(compositor_contract, ["timeDrivenProductionRuntimeReady"])
+        is True
+    )
+    step96_preserved = (
+        get_path(compositor_contract, ["step96ProductionTileCompositorPreserved"])
+        is True
+        and get_path(compositor_contract, ["productionTileCompositorReady"]) is True
+    )
+    step94_preserved = (
+        get_path(compositor_contract, ["step94ParallelSortPreserved"]) is True
+        and get_path(compositor_contract, ["gpuParallelPerTileSortReady"]) is True
+    )
+    step88_preserved = (
+        get_path(compositor_contract, ["step88PresentationContractPreserved"]) is True
+        or get_path(
+            frame_contract,
+            ["steadyStateTileCompositorOwnsFinalPresentation"],
+        )
+        is True
+    )
+    camera_runtime_ready = (
+        phase_step == "phase3-step99"
+        and get_path(
+            compositor_contract,
+            ["interactiveCameraDirtyRuntimeReady"],
+        )
+        is True
+        and get_path(
+            compositor_contract,
+            ["phase2CameraContractAssumptionsAdopted"],
+        )
+        is True
+        and get_path(
+            compositor_contract,
+            ["fixedReferenceAndInteractiveCameraSeparated"],
+        )
+        is True
+        and get_path(compositor_contract, ["threeJsCameraAdapterOnly"]) is True
+        and get_path(
+            compositor_contract,
+            ["cudaReferenceNotInteractiveBackend"],
+        )
+        is True
+        and get_path(
+            compositor_contract,
+            ["viewerCameraStateConnectedToRuntime"],
+        )
+        is True
+        and get_path(compositor_contract, ["viewerCameraStateChangedByProbe"])
+        is True
+        and get_path(compositor_contract, ["cameraConstantsChanged"]) is True
+        and camera_evidence_ready
+        and get_path(
+            compositor_contract,
+            ["dirtyCameraConstantsTriggeredProductionUpdate"],
+        )
+        is True
+        and get_path(
+            compositor_contract,
+            ["productionRuntimeUpdatedFromViewerCameraScheduler"],
+        )
+        is True
+        and get_path(compositor_contract, ["cleanFrameReuseAfterCameraStabilized"])
+        is True
+        and get_path(
+            compositor_contract,
+            ["lastValidProductionOutputPresentedAfterCameraCleanFrame"],
+        )
+        is True
+        and step98_preserved
+        and step97_preserved
+        and step96_preserved
+        and step94_preserved
+        and step88_preserved
+        and get_path(compositor_contract, ["fallbackOnlyCompositorUsed"]) is False
+        and get_path(compositor_contract, ["debugOutputBypassedForProduction"])
+        is True
+        and get_path(
+            compositor_contract,
+            ["diagnosticReadbackSeparatedFromRuntimePath"],
+        )
+        is True
+        and get_path(compositor_contract, ["visualOutputDegeneratedDetected"])
+        is not True
+        and wgsl_parse_error_detected is False
+        and shader_module_invalid_detected is False
+        and compute_pipeline_invalid_detected is False
+        and bind_group_invalid_detected is False
+        and get_path(frame_contract, ["webgpuValidationErrorDetected"]) is False
+        and get_path(frame_contract, ["invalidCommandBufferDetected"]) is False
+        and get_path(frame_contract, ["queueSubmitFailureDetected"]) is False
+        and get_path(frame_contract, ["webgpuWebgl2SameFramePresentationMixed"])
+        is False
+        and get_path(frame_contract, ["fallbackMixingPrevented"]) is True
+        and get_path(frame_contract, ["fullRendererSuccessClaimed"]) is False
+    )
+    blocked_reason = None
+    if not camera_runtime_ready:
+        if phase_step != "phase3-step99":
+            blocked_reason = "summary-phase-step-is-not-phase3-step99"
+        elif get_path(
+            compositor_contract,
+            ["interactiveCameraDirtyRuntimeReady"],
+        ) is not True:
+            blocked_reason = "interactive-camera-dirty-runtime-not-ready"
+        elif not camera_evidence_ready:
+            blocked_reason = "camera-control-evidence-not-ready"
+        elif get_path(
+            compositor_contract,
+            ["dirtyCameraConstantsTriggeredProductionUpdate"],
+        ) is not True:
+            blocked_reason = "dirty-camera-constants-did-not-trigger-production-update"
+        elif not step98_preserved:
+            blocked_reason = "step98-viewer-time-scheduler-not-preserved"
+        elif not step97_preserved:
+            blocked_reason = "step97-multi-frame-runtime-not-preserved"
+        elif not step96_preserved:
+            blocked_reason = "step96-production-tile-compositor-not-preserved"
+        elif not step94_preserved:
+            blocked_reason = "step94-parallel-sort-not-preserved"
+        elif not step88_preserved:
+            blocked_reason = "step88-presentation-contract-not-preserved"
+        elif wgsl_parse_error_detected:
+            blocked_reason = "wgsl-parse-error-detected"
+        elif shader_module_invalid_detected:
+            blocked_reason = "shader-module-invalid-detected"
+        elif compute_pipeline_invalid_detected:
+            blocked_reason = "compute-pipeline-invalid-detected"
+        elif bind_group_invalid_detected:
+            blocked_reason = "bind-group-invalid-detected"
+        else:
+            blocked_reason = "step99-camera-dirty-runtime-validation-failed"
+    return {
+        "step99Decision": "success" if camera_runtime_ready else "blocked",
+        "step99BlockedReason": blocked_reason,
+        "step99SelectedGoal":
+            "A+B+D+E+F-interactive-camera-viewport-dirty-runtime-v1",
+        "phaseStep": phase_step,
+        "step99SummaryApplies": phase_step == "phase3-step99",
+        "phase2CameraContractAssumptionsAdopted": get_path(
+            compositor_contract,
+            ["phase2CameraContractAssumptionsAdopted"],
+        ),
+        "phase3ResponsibilityPlanReferenced": get_path(
+            compositor_contract,
+            ["phase3ResponsibilityPlanReferenced"],
+        ),
+        "phase3BackendDesignReferenced": get_path(
+            compositor_contract,
+            ["phase3BackendDesignReferenced"],
+        ),
+        "fixedReferenceAndInteractiveCameraSeparated": get_path(
+            compositor_contract,
+            ["fixedReferenceAndInteractiveCameraSeparated"],
+        ),
+        "threeJsCameraAdapterOnly": get_path(
+            compositor_contract,
+            ["threeJsCameraAdapterOnly"],
+        ),
+        "cudaReferenceNotInteractiveBackend": get_path(
+            compositor_contract,
+            ["cudaReferenceNotInteractiveBackend"],
+        ),
+        "viewerCameraStateConnectedToRuntime": get_path(
+            compositor_contract,
+            ["viewerCameraStateConnectedToRuntime"],
+        ),
+        "viewerCameraStateChangedByProbe": get_path(
+            compositor_contract,
+            ["viewerCameraStateChangedByProbe"],
+        ),
+        "cameraConstantsChanged": get_path(
+            compositor_contract,
+            ["cameraConstantsChanged"],
+        ),
+        "dirtyCameraConstantsTriggeredProductionUpdate": get_path(
+            compositor_contract,
+            ["dirtyCameraConstantsTriggeredProductionUpdate"],
+        ),
+        "viewportStateConnectedToRuntime": get_path(
+            compositor_contract,
+            ["viewportStateConnectedToRuntime"],
+        ),
+        "dirtyViewportTriggeredProductionUpdate": get_path(
+            compositor_contract,
+            ["dirtyViewportTriggeredProductionUpdate"],
+        ),
+        "dirtyViewportDeferredReason": get_path(
+            compositor_contract,
+            ["dirtyViewportDeferredReason"],
+        ),
+        "productionRuntimeUpdatedFromViewerCameraScheduler": get_path(
+            compositor_contract,
+            ["productionRuntimeUpdatedFromViewerCameraScheduler"],
+        ),
+        "cleanFrameReuseAfterCameraStabilized": get_path(
+            compositor_contract,
+            ["cleanFrameReuseAfterCameraStabilized"],
+        ),
+        "lastValidProductionOutputPresentedAfterCameraCleanFrame": get_path(
+            compositor_contract,
+            ["lastValidProductionOutputPresentedAfterCameraCleanFrame"],
+        ),
+        "cameraControlEvidenceReady": get_path(
+            compositor_contract,
+            ["cameraControlEvidenceReady"],
+        ),
+        "cameraControlEvidenceSource": get_path(
+            compositor_contract,
+            ["cameraControlEvidenceSource"],
+        ),
+        "cameraControlEvidenceFromSchedulerProbe": get_path(
+            compositor_contract,
+            ["cameraControlEvidenceFromSchedulerProbe"],
+        ),
+        "cameraControlEvidenceUsesFixedValue": get_path(
+            compositor_contract,
+            ["cameraControlEvidenceUsesFixedValue"],
+        ),
+        "cameraPositionBefore": get_path(
+            compositor_contract,
+            ["cameraPositionBefore"],
+        ),
+        "cameraPositionAfter": get_path(
+            compositor_contract,
+            ["cameraPositionAfter"],
+        ),
+        "cameraQuaternionBefore": get_path(
+            compositor_contract,
+            ["cameraQuaternionBefore"],
+        ),
+        "cameraQuaternionAfter": get_path(
+            compositor_contract,
+            ["cameraQuaternionAfter"],
+        ),
+        "cameraConstantsMaxAbsDelta": get_path(
+            compositor_contract,
+            ["cameraConstantsMaxAbsDelta"],
+        ),
+        "viewportBefore": get_path(compositor_contract, ["viewportBefore"]),
+        "viewportAfter": get_path(compositor_contract, ["viewportAfter"]),
+        "viewportChangedByProbe": get_path(
+            compositor_contract,
+            ["viewportChangedByProbe"],
+        ),
+        "step98ViewerTimeSchedulerPreserved": step98_preserved,
+        "step97MultiFrameRuntimePreserved": step97_preserved,
+        "step96ProductionTileCompositorPreserved": step96_preserved,
+        "step94ParallelSortPreserved": step94_preserved,
+        "step88PresentationContractPreserved": step88_preserved,
+        "step85TileCompositorPathPreserved": get_path(
+            frame_contract,
+            ["step85TileCompositorPathPreserved"],
+        ),
+        "step86BoundaryContractPreserved": get_path(
+            frame_contract,
+            ["step86BoundaryContractPreserved"],
+        ),
+        "step87DepthOrderingPreserved": get_path(
+            frame_contract,
+            ["step87DepthOrderingPreserved"],
+        ),
+        "fallbackOnlyCompositorUsed": get_path(
+            compositor_contract,
+            ["fallbackOnlyCompositorUsed"],
+        ),
+        "debugOutputBypassedForProduction": get_path(
+            compositor_contract,
+            ["debugOutputBypassedForProduction"],
+        ),
+        "diagnosticReadbackSeparatedFromRuntimePath": get_path(
+            compositor_contract,
+            ["diagnosticReadbackSeparatedFromRuntimePath"],
+        ),
+        "visualOutputDegeneratedDetected": get_path(
+            compositor_contract,
+            ["visualOutputDegeneratedDetected"],
+        ),
+        "wgslParseErrorDetected": wgsl_parse_error_detected,
+        "shaderModuleInvalidDetected": shader_module_invalid_detected,
+        "computePipelineInvalidDetected": compute_pipeline_invalid_detected,
+        "bindGroupInvalidDetected": bind_group_invalid_detected,
+        "webgpuValidationErrorDetected": get_path(
+            frame_contract,
+            ["webgpuValidationErrorDetected"],
+        ),
+        "invalidCommandBufferDetected": get_path(
+            frame_contract,
+            ["invalidCommandBufferDetected"],
+        ),
+        "queueSubmitFailureDetected": get_path(
+            frame_contract,
+            ["queueSubmitFailureDetected"],
+        ),
+        "deferredProductionItems": deferred_production_items,
+        "fullRendererSuccessClaimed": get_path(
+            frame_contract,
+            ["fullRendererSuccessClaimed"],
+        ),
+    }
+
+
 def build_step75_camera_aware_visible_summary(
     summary: Dict[str, Any],
     webgpu_camera_aware_visible_output: Dict[str, Any],
@@ -8548,6 +8942,9 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
     step98_viewer_connected_interactive_scheduler = (
         build_step98_viewer_connected_interactive_scheduler_summary(summary)
     )
+    step99_interactive_camera_dirty_runtime = (
+        build_step99_interactive_camera_dirty_runtime_summary(summary)
+    )
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -8613,6 +9010,8 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             step97_time_driven_production_runtime,
         "step98ViewerConnectedInteractiveScheduler":
             step98_viewer_connected_interactive_scheduler,
+        "step99InteractiveCameraDirtyRuntime":
+            step99_interactive_camera_dirty_runtime,
         "comparisonContract": get_path(summary, ["comparisonContract"], {}),
         "comparisonTolerance": get_path(summary, ["comparisonTolerance"], {}),
         "radiusContract": get_path(summary, ["radiusContract"], {}),
@@ -13719,6 +14118,12 @@ def print_human_summary(summary: Dict[str, Any]) -> None:
         "Step98 WebGPU viewer-connected interactive scheduler",
         summary.get("webgpuVisibleRecordDryRun", {}).get(
             "step98ViewerConnectedInteractiveScheduler"
+        ),
+    )
+    print_section(
+        "Step99 WebGPU interactive camera dirty runtime",
+        summary.get("webgpuVisibleRecordDryRun", {}).get(
+            "step99InteractiveCameraDirtyRuntime"
         ),
     )
     print_section("WebGPU visible record dry-run", summary.get("webgpuVisibleRecordDryRun"))

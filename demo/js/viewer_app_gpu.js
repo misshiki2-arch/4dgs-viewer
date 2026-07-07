@@ -175,8 +175,10 @@ let playback = null;
 let latestRenderResult = null;
 let latestGpuCandidateShadowCompare = null;
 let latestViewerProductionRuntimeTimeState = null;
+let latestViewerProductionRuntimeCameraState = null;
 let latestViewerConnectedSchedulerRuntimeState = null;
 let latestViewerConnectedSchedulerTimeControlEvidence = null;
+let latestViewerConnectedSchedulerCameraControlEvidence = null;
 let appliedCameraPresetName = deterministicQueryState.cameraPresetName ?? 'none';
 let lastSnapshotSummary = {
   available: true,
@@ -2172,6 +2174,126 @@ function recordViewerConnectedSchedulerTimeControlEvidence({
   return latestViewerConnectedSchedulerTimeControlEvidence;
 }
 
+function buildViewerInteractiveCameraRuntimeSnapshot(source = 'viewer-interactive-camera-state') {
+  if (typeof camera.updateProjectionMatrix === 'function') {
+    camera.updateProjectionMatrix();
+  }
+  camera.updateMatrixWorld(true);
+  return {
+    schemaVersion: 'phase3-step99-viewer-camera-state-v1',
+    source,
+    position: camera.position.toArray(),
+    quaternion: camera.quaternion.toArray(),
+    up: camera.up.toArray(),
+    fov: Number.isFinite(camera.fov) ? Number(camera.fov) : null,
+    aspect: Number.isFinite(camera.aspect) ? Number(camera.aspect) : null,
+    near: Number.isFinite(camera.near) ? Number(camera.near) : null,
+    far: Number.isFinite(camera.far) ? Number(camera.far) : null,
+    viewMatrix:
+      typeof camera.matrixWorldInverse?.toArray === 'function'
+        ? camera.matrixWorldInverse.toArray()
+        : null,
+    projectionMatrix:
+      typeof camera.projectionMatrix?.toArray === 'function'
+        ? camera.projectionMatrix.toArray()
+        : null,
+    controlsTarget: controls?.target?.toArray ? controls.target.toArray() : null
+  };
+}
+
+function buildViewerViewportRuntimeSnapshot() {
+  return {
+    x: 0,
+    y: 0,
+    width: canvas.width,
+    height: canvas.height,
+    devicePixelRatio:
+      typeof window !== 'undefined' && Number.isFinite(window.devicePixelRatio)
+        ? window.devicePixelRatio
+        : 1
+  };
+}
+
+function maxArrayAbsDelta(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b)) {
+    return 0;
+  }
+  const n = Math.min(a.length, b.length);
+  let maxDelta = 0;
+  for (let i = 0; i < n; i += 1) {
+    const av = Number(a[i]);
+    const bv = Number(b[i]);
+    if (Number.isFinite(av) && Number.isFinite(bv)) {
+      maxDelta = Math.max(maxDelta, Math.abs(av - bv));
+    }
+  }
+  return maxDelta;
+}
+
+function computeCameraConstantsMaxAbsDelta(beforeCamera, afterCamera) {
+  return Math.max(
+    maxArrayAbsDelta(beforeCamera?.position, afterCamera?.position),
+    maxArrayAbsDelta(beforeCamera?.quaternion, afterCamera?.quaternion),
+    maxArrayAbsDelta(beforeCamera?.projectionMatrix, afterCamera?.projectionMatrix),
+    maxArrayAbsDelta(beforeCamera?.viewMatrix, afterCamera?.viewMatrix),
+    maxArrayAbsDelta(beforeCamera?.controlsTarget, afterCamera?.controlsTarget)
+  );
+}
+
+function viewportSnapshotsDiffer(beforeViewport, afterViewport) {
+  return (
+    Number(beforeViewport?.width) !== Number(afterViewport?.width) ||
+    Number(beforeViewport?.height) !== Number(afterViewport?.height) ||
+    Number(beforeViewport?.devicePixelRatio) !==
+      Number(afterViewport?.devicePixelRatio)
+  );
+}
+
+function recordViewerConnectedSchedulerCameraControlEvidence({
+  beforeCamera,
+  afterCamera,
+  beforeViewport,
+  afterViewport,
+  schedulerFrameState,
+  source
+} = {}) {
+  const schedulerFrameCount = Number(schedulerFrameState?.schedulerFrameCount);
+  const cameraConstantsMaxAbsDelta =
+    computeCameraConstantsMaxAbsDelta(beforeCamera, afterCamera);
+  const schedulerFrameAdvanced =
+    schedulerFrameState?.calledFromSchedulerFrameLoop === true &&
+    schedulerFrameState?.requestAnimationFrameCallbackEntered === true &&
+    schedulerFrameState?.renderFrameInvoked === true &&
+    Number.isFinite(schedulerFrameCount) &&
+    schedulerFrameCount > 0;
+
+  if (!(cameraConstantsMaxAbsDelta > 0) || !schedulerFrameAdvanced) {
+    return null;
+  }
+
+  latestViewerConnectedSchedulerCameraControlEvidence = {
+    schemaVersion: 'phase3-step99-viewer-camera-control-evidence-v1',
+    source: source ?? 'viewer-scheduler-camera-state-change',
+    beforeCamera,
+    afterCamera,
+    beforeViewport,
+    afterViewport,
+    cameraConstantsMaxAbsDelta,
+    viewportChangedByProbe: viewportSnapshotsDiffer(beforeViewport, afterViewport),
+    schedulerFrameCount,
+    schedulerFrameIndex: Number.isFinite(
+      Number(schedulerFrameState?.schedulerFrameIndex)
+    )
+      ? Number(schedulerFrameState.schedulerFrameIndex)
+      : null,
+    schedulerFrameState: schedulerFrameState
+      ? { ...schedulerFrameState }
+      : null
+  };
+
+  return latestViewerConnectedSchedulerCameraControlEvidence;
+}
+
 function buildViewerConnectedSchedulerViewerTimeStateForDryRun() {
   const latestViewerTimeState =
     latestViewerConnectedSchedulerRuntimeState?.viewerTimeState ?? null;
@@ -2212,6 +2334,39 @@ function buildViewerConnectedSchedulerViewerTimeStateForDryRun() {
       true,
     dirtyTimeStateReason: 'viewer-time-control-change',
     viewerTimeControlEvidence: evidence
+  };
+}
+
+function buildViewerConnectedSchedulerViewerCameraStateForDryRun() {
+  const latestViewerCameraState =
+    latestViewerConnectedSchedulerRuntimeState?.viewerCameraState ?? null;
+  const evidence = latestViewerConnectedSchedulerCameraControlEvidence;
+  if (!evidence) {
+    return latestViewerCameraState;
+  }
+
+  return {
+    ...(latestViewerCameraState ?? {}),
+    source: 'viewer-interactive-camera-state',
+    cameraPosition: evidence.afterCamera?.position ?? null,
+    cameraQuaternion: evidence.afterCamera?.quaternion ?? null,
+    cameraFov: evidence.afterCamera?.fov ?? null,
+    cameraAspect: evidence.afterCamera?.aspect ?? null,
+    controlsTarget: evidence.afterCamera?.controlsTarget ?? null,
+    viewport: evidence.afterViewport ?? null,
+    viewportStateConnectedToRuntime: true,
+    cameraStateChangedByViewerControl: true,
+    cameraConstantsChanged: true,
+    cameraConstantsMaxAbsDelta: evidence.cameraConstantsMaxAbsDelta,
+    dirtyCameraConstants: true,
+    dirtyCameraConstantsReason: 'viewer-camera-control-change',
+    dirtyViewport: evidence.viewportChangedByProbe === true,
+    dirtyViewportReason:
+      evidence.viewportChangedByProbe === true
+        ? 'viewer-viewport-change'
+        : 'viewport-unchanged-for-step99-camera-probe',
+    viewportChangedByProbe: evidence.viewportChangedByProbe === true,
+    viewerCameraControlEvidence: evidence
   };
 }
 
@@ -2259,6 +2414,8 @@ async function runWebGpuVisibleRecordDryRunFromViewerState({
     null;
   const viewerTimeStateForDryRun =
     buildViewerConnectedSchedulerViewerTimeStateForDryRun();
+  const viewerCameraStateForDryRun =
+    buildViewerConnectedSchedulerViewerCameraStateForDryRun();
   // Viewer shell owns capture/query/camera/canvas adaptation only; WebGPU pass
   // construction stays in the backend modules and common contracts.
   return runWebGpuVisibleRecordDryRun({
@@ -2282,7 +2439,8 @@ async function runWebGpuVisibleRecordDryRunFromViewerState({
       allowViewerCanvasPresentation,
       webgl2FrameLifecycleSuppressed: useExclusiveWebGpuFrameLifecycle,
       schedulerFrameState: schedulerFrameStateForDryRun,
-      viewerTimeState: viewerTimeStateForDryRun
+      viewerTimeState: viewerTimeStateForDryRun,
+      viewerCameraState: viewerCameraStateForDryRun
     },
     metadata: {
       comparisonMode: options.comparisonMode ?? 'webgpu-storage-buffer-compute-fixed-record-vs-cpu-fixed-record',
@@ -2405,6 +2563,12 @@ async function captureWebGpuVisibleRecordDryRunDebug(options = {}) {
       captureSource: viewerDataReadiness.ready
         ? 'forced-rebuild-viewer-data-ready'
         : 'forced-rebuild-viewer-data-unavailable',
+      phase:
+        options.phaseStep ??
+        (typeof options.comparisonMode === 'string' &&
+        options.comparisonMode.includes('step99')
+          ? 'phase3-step99'
+          : undefined),
       selectedBackendImplementationKind: captureBackendImplementation,
       webgpuBackendImplementation: captureBackendImplementation
     }
@@ -5427,16 +5591,7 @@ async function renderCurrentFrame(options = {}) {
     }
     camera.updateMatrixWorld(true);
     const deterministicState = buildDeterministicStateSummary();
-    const viewport = {
-      x: 0,
-      y: 0,
-      width: canvas.width,
-      height: canvas.height,
-      devicePixelRatio:
-        typeof window !== 'undefined' && Number.isFinite(window.devicePixelRatio)
-          ? window.devicePixelRatio
-          : 1
-    };
+    const viewport = buildViewerViewportRuntimeSnapshot();
     const viewMatrix = typeof camera.matrixWorldInverse?.toArray === 'function'
       ? camera.matrixWorldInverse.toArray()
       : null;
@@ -5497,6 +5652,41 @@ async function renderCurrentFrame(options = {}) {
       dirtyCameraConstants: true
     };
     latestViewerProductionRuntimeTimeState = viewerTimeState;
+    const currentCameraRuntimeSnapshot =
+      buildViewerInteractiveCameraRuntimeSnapshot();
+    const previousViewerProductionRuntimeCameraState =
+      latestViewerProductionRuntimeCameraState;
+    const cameraConstantsMaxAbsDelta =
+      computeCameraConstantsMaxAbsDelta(
+        previousViewerProductionRuntimeCameraState?.cameraSnapshot,
+        currentCameraRuntimeSnapshot
+      );
+    const viewerCameraState = {
+      source: 'viewer-interactive-camera-state',
+      cameraSnapshot: currentCameraRuntimeSnapshot,
+      cameraPosition: currentCameraRuntimeSnapshot.position,
+      cameraQuaternion: currentCameraRuntimeSnapshot.quaternion,
+      cameraFov: currentCameraRuntimeSnapshot.fov,
+      cameraAspect: currentCameraRuntimeSnapshot.aspect,
+      controlsTarget: currentCameraRuntimeSnapshot.controlsTarget,
+      viewport,
+      viewportStateConnectedToRuntime: true,
+      cameraStateChangedByViewerControl:
+        cameraConstantsMaxAbsDelta > 0,
+      cameraConstantsChanged:
+        cameraConstantsMaxAbsDelta > 0,
+      cameraConstantsMaxAbsDelta,
+      dirtyCameraConstants:
+        cameraConstantsMaxAbsDelta > 0,
+      dirtyCameraConstantsReason:
+        cameraConstantsMaxAbsDelta > 0
+          ? 'viewer-camera-control-change'
+          : 'viewer-camera-clean-frame',
+      dirtyViewport: false,
+      dirtyViewportReason: 'viewport-unchanged',
+      viewportChangedByProbe: false
+    };
+    latestViewerProductionRuntimeCameraState = viewerCameraState;
     const cameraSnapshot = {
       deterministicState: buildSlimDeterministicStateSummary(deterministicState),
       frameConstants: {
@@ -5537,12 +5727,14 @@ async function renderCurrentFrame(options = {}) {
       webgl2FrameLifecycleSuppressed: true,
       viewport,
       schedulerFrameState,
-      viewerTimeState
+      viewerTimeState,
+      viewerCameraState
     };
     if (calledFromSchedulerFrameLoop) {
       latestViewerConnectedSchedulerRuntimeState = {
         schedulerFrameState: { ...schedulerFrameState },
-        viewerTimeState: { ...viewerTimeState }
+        viewerTimeState: { ...viewerTimeState },
+        viewerCameraState: { ...viewerCameraState }
       };
       recordViewerConnectedSchedulerTimeControlEvidence({
         viewerTimeState,
@@ -6254,6 +6446,7 @@ function installViewerDebugApi() {
     getLastRenderResult: () => latestRenderResult,
     getLastGpuCandidateShadowCompare: () => latestGpuCandidateShadowCompare,
     runViewerConnectedSchedulerProbe,
+    runViewerCameraDirtySchedulerProbe,
     scheduleRender: () => scheduler.scheduleRender()
   };
 }
@@ -6345,6 +6538,71 @@ async function runViewerConnectedSchedulerProbe(options = {}) {
     latestSchedulerFrameState,
     latestTimeControlEvidence:
       latestViewerConnectedSchedulerTimeControlEvidence
+  };
+}
+
+async function runViewerCameraDirtySchedulerProbe(options = {}) {
+  const waitMs = Number.isFinite(Number(options.waitMs))
+    ? Number(options.waitMs)
+    : 750;
+  const cameraDelta = Number.isFinite(Number(options.cameraDelta))
+    ? Number(options.cameraDelta)
+    : 0.025;
+  const beforeCompletedFrameCount = scheduler.state.completedFrameCount;
+  const beforeCamera =
+    buildViewerInteractiveCameraRuntimeSnapshot('viewer-camera-probe-before');
+  const beforeViewport = buildViewerViewportRuntimeSnapshot();
+
+  camera.position.x += cameraDelta;
+  if (controls?.target) {
+    controls.target.x += cameraDelta * 0.25;
+  }
+  if (typeof controls?.update === 'function') {
+    controls.update();
+  }
+  if (typeof camera.updateProjectionMatrix === 'function') {
+    camera.updateProjectionMatrix();
+  }
+  camera.updateMatrixWorld(true);
+  scheduler.scheduleRender();
+
+  const deadline = performance.now() + waitMs;
+  while (
+    scheduler.state.completedFrameCount <= beforeCompletedFrameCount &&
+    performance.now() < deadline
+  ) {
+    await waitForAnimationFrameBoundary();
+  }
+  await waitForAnimationFrameBoundary();
+
+  const afterCamera =
+    buildViewerInteractiveCameraRuntimeSnapshot('viewer-camera-probe-after');
+  const afterViewport = buildViewerViewportRuntimeSnapshot();
+  const latestSchedulerFrameState =
+    latestViewerConnectedSchedulerRuntimeState?.schedulerFrameState ?? null;
+  const evidence = recordViewerConnectedSchedulerCameraControlEvidence({
+    beforeCamera,
+    afterCamera,
+    beforeViewport,
+    afterViewport,
+    schedulerFrameState: latestSchedulerFrameState,
+    source: 'runViewerCameraDirtySchedulerProbe-orbit-controls-camera-input'
+  });
+
+  return {
+    schemaVersion: 'phase3-step99-viewer-camera-dirty-scheduler-probe-v1',
+    beforeCompletedFrameCount,
+    afterCompletedFrameCount: scheduler.state.completedFrameCount,
+    schedulerFrameAdvanced:
+      scheduler.state.completedFrameCount > beforeCompletedFrameCount,
+    cameraConstantsChanged:
+      computeCameraConstantsMaxAbsDelta(beforeCamera, afterCamera) > 0,
+    cameraConstantsMaxAbsDelta:
+      computeCameraConstantsMaxAbsDelta(beforeCamera, afterCamera),
+    viewportChangedByProbe:
+      viewportSnapshotsDiffer(beforeViewport, afterViewport),
+    latestSchedulerFrameState,
+    latestCameraControlEvidence: evidence
   };
 }
 

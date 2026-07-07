@@ -16,7 +16,7 @@ export const WEBGPU_GPU_OWNED_TILE_LIST_LAYOUT_CONTRACT_VERSION =
   'phase3-step84-webgpu-gpu-owned-tile-list-layout-v1';
 
 export const WEBGPU_TILE_LIST_COMPOSITOR_CONTRACT_VERSION =
-  'phase3-step98-viewer-connected-interactive-time-scheduler-v1';
+  'phase3-step99-interactive-camera-viewport-dirty-runtime-v1';
 
 export const WEBGPU_PHASE3_BACKEND_BOUNDARY_CONTRACT_VERSION =
   'phase3-step86-webgpu-backend-boundary-and-dirty-contract-v1';
@@ -831,6 +831,35 @@ export function buildWebGpuTileListCompositorContract({
   cleanFrameReuseUnderScheduler = false,
   lastValidProductionOutputPresentedByScheduler = false,
   step97MultiFrameRuntimePreserved = false,
+  phase2CameraContractAssumptionsAdopted = false,
+  phase3ResponsibilityPlanReferenced = false,
+  phase3BackendDesignReferenced = false,
+  fixedReferenceAndInteractiveCameraSeparated = false,
+  threeJsCameraAdapterOnly = false,
+  cudaReferenceNotInteractiveBackend = false,
+  viewerCameraStateConnectedToRuntime = false,
+  viewerCameraStateChangedByProbe = false,
+  cameraConstantsChanged = false,
+  dirtyCameraConstantsTriggeredProductionUpdate = false,
+  viewportStateConnectedToRuntime = false,
+  dirtyViewportTriggeredProductionUpdate = false,
+  dirtyViewportDeferredReason = null,
+  productionRuntimeUpdatedFromViewerCameraScheduler = false,
+  cleanFrameReuseAfterCameraStabilized = false,
+  lastValidProductionOutputPresentedAfterCameraCleanFrame = false,
+  cameraControlEvidenceReady = false,
+  cameraControlEvidenceSource = null,
+  cameraControlEvidenceFromSchedulerProbe = false,
+  cameraControlEvidenceUsesFixedValue = false,
+  cameraPositionBefore = null,
+  cameraPositionAfter = null,
+  cameraQuaternionBefore = null,
+  cameraQuaternionAfter = null,
+  cameraConstantsMaxAbsDelta = 0,
+  viewportBefore = null,
+  viewportAfter = null,
+  viewportChangedByProbe = false,
+  step98ViewerTimeSchedulerPreserved = false,
   step93OverflowPolicyPreserved = false,
   overflowAwareOrderingReady = false,
   sortCapacityLimit = 64,
@@ -1005,6 +1034,25 @@ export function buildWebGpuTileListCompositorContract({
     cleanFrameReuseUnderScheduler === true &&
     lastValidProductionOutputPresentedByScheduler === true &&
     step97MultiFrameRuntimePreserved === true;
+  const interactiveCameraDirtyRuntimeReady =
+    viewerConnectedSchedulerReady === true &&
+    phase2CameraContractAssumptionsAdopted === true &&
+    phase3ResponsibilityPlanReferenced === true &&
+    phase3BackendDesignReferenced === true &&
+    fixedReferenceAndInteractiveCameraSeparated === true &&
+    threeJsCameraAdapterOnly === true &&
+    cudaReferenceNotInteractiveBackend === true &&
+    viewerCameraStateConnectedToRuntime === true &&
+    viewerCameraStateChangedByProbe === true &&
+    cameraConstantsChanged === true &&
+    dirtyCameraConstantsTriggeredProductionUpdate === true &&
+    productionRuntimeUpdatedFromViewerCameraScheduler === true &&
+    cleanFrameReuseAfterCameraStabilized === true &&
+    lastValidProductionOutputPresentedAfterCameraCleanFrame === true &&
+    cameraControlEvidenceReady === true &&
+    cameraControlEvidenceFromSchedulerProbe === true &&
+    cameraControlEvidenceUsesFixedValue === false &&
+    step98ViewerTimeSchedulerPreserved === true;
   return {
     contractVersion: WEBGPU_TILE_LIST_COMPOSITOR_CONTRACT_VERSION,
     status: ready ? 'ok' : status,
@@ -1215,6 +1263,36 @@ export function buildWebGpuTileListCompositorContract({
     cleanFrameReuseUnderScheduler,
     lastValidProductionOutputPresentedByScheduler,
     step97MultiFrameRuntimePreserved,
+    phase2CameraContractAssumptionsAdopted,
+    phase3ResponsibilityPlanReferenced,
+    phase3BackendDesignReferenced,
+    fixedReferenceAndInteractiveCameraSeparated,
+    threeJsCameraAdapterOnly,
+    cudaReferenceNotInteractiveBackend,
+    viewerCameraStateConnectedToRuntime,
+    viewerCameraStateChangedByProbe,
+    cameraConstantsChanged,
+    dirtyCameraConstantsTriggeredProductionUpdate,
+    viewportStateConnectedToRuntime,
+    dirtyViewportTriggeredProductionUpdate,
+    dirtyViewportDeferredReason,
+    productionRuntimeUpdatedFromViewerCameraScheduler,
+    cleanFrameReuseAfterCameraStabilized,
+    lastValidProductionOutputPresentedAfterCameraCleanFrame,
+    cameraControlEvidenceReady,
+    cameraControlEvidenceSource,
+    cameraControlEvidenceFromSchedulerProbe,
+    cameraControlEvidenceUsesFixedValue,
+    cameraPositionBefore,
+    cameraPositionAfter,
+    cameraQuaternionBefore,
+    cameraQuaternionAfter,
+    cameraConstantsMaxAbsDelta,
+    viewportBefore,
+    viewportAfter,
+    viewportChangedByProbe,
+    step98ViewerTimeSchedulerPreserved,
+    interactiveCameraDirtyRuntimeReady,
     step93OverflowPolicyPreserved,
     overflowAwareOrderingReady: overflowAwareReady,
     sortCapacityLimit,

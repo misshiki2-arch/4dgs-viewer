@@ -1770,9 +1770,10 @@ function makeFallback(reason, extra = {}) {
   const webgpuConstrainedDisplayAdapterDryRunComparison =
     extra.webgpuConstrainedDisplayAdapterDryRunComparison ??
     createWebGpuConstrainedDisplayAdapterDryRunComparisonUnavailable(reason);
+  const phaseStep = extra.metadata?.phase ?? WEBGPU_VISIBLE_RECORD_PHASE_STEP;
   return {
     schemaVersion: WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION,
-    phaseStep: WEBGPU_VISIBLE_RECORD_PHASE_STEP,
+    phaseStep,
     status: 'fallback',
     reason,
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
@@ -5126,14 +5127,18 @@ export async function runWebGpuVisibleRecordDryRun({
   });
   const compareMs = nowMs() - compareStartMs;
   const mismatchClassification = classifyComparison(recordComparison);
+  const phaseStep = metadata?.phase ?? WEBGPU_VISIBLE_RECORD_PHASE_STEP;
   return {
     schemaVersion: WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION,
-    phaseStep: WEBGPU_VISIBLE_RECORD_PHASE_STEP,
+    phaseStep,
     status: 'ok',
     reason: 'ok',
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
-    scaffoldNote: 'Phase 3 Step98 connects viewer time/playback scheduling to the time-driven WebGPU production runtime while preserving tile-compositor-owned steady-state presentation.',
+    scaffoldNote:
+      phaseStep === 'phase3-step99'
+        ? 'Phase 3 Step99 connects interactive camera and viewport dirty updates to the WebGPU production runtime while preserving Step98 viewer scheduler presentation.'
+        : 'Phase 3 Step98 connects viewer time/playback scheduling to the time-driven WebGPU production runtime while preserving tile-compositor-owned steady-state presentation.',
     implementedFields: IMPLEMENTED_FIELDS,
     wgslComputedFields: WGSL_COMPUTED_FIELDS,
     wgslReferenceAssistedFields: WGSL_REFERENCE_ASSISTED_FIELDS,

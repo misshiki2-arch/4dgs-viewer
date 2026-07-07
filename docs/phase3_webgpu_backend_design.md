@@ -2072,3 +2072,64 @@ preservation.
 Deferred work remains full CUDA parity, final production compositor parity,
 full parallel sort parity, complete interactive control parity,
 chunk/LOD/streaming, and early termination v1.
+
+## Step99 Interactive Camera / Viewport Dirty Runtime Integration V1
+
+Step99 connects the interactive camera adapter boundary to the Step98/97
+production runtime dirty update path. It adopts the Phase 2 split between fixed
+reference captures and interactive camera controls: `datasetViewMatrixMode` and
+CUDA-aligned projection remain validation/reference contracts, while
+Three.js/OrbitControls provide viewer camera input and canvas/viewport state for
+the interactive runtime.
+
+The Step99 runtime path is:
+
+```text
+viewer interactive camera / viewport state
+-> scheduler frame state
+-> dirtyCameraConstants / dirtyViewport decision
+-> visible records / tile input / tile list / compositor input invalidation
+-> Step98/97 production runtime update or clean-frame reuse
+-> production output texture
+-> steady-state final presentation
+```
+
+- Viewer shell boundary: `viewer_app_gpu.js` owns the Three.js camera,
+  OrbitControls, viewport/canvas state, RAF scheduler entry, and Step99 probe.
+  It passes compact `viewerCameraState`, `viewerTimeState`, and
+  `schedulerFrameState` evidence to the WebGPU backend. It does not own visible
+  record, tile-list, sort, accumulation, output texture, or presentation math.
+- WebGPU backend boundary: the tile compositor contract records that
+  `viewerCameraState` is connected, camera constants changed through the
+  scheduler probe, `dirtyCameraConstants` triggered a production update, and
+  clean frames after camera stabilization present the last valid production
+  output.
+- Capture evidence: Step99 capture commands first run the Step98 time scheduler
+  probe, then run a camera dirty scheduler probe that changes the Three.js
+  camera through the adapter boundary and waits for real scheduler RAF evidence.
+  This keeps camera before/after constants tied to runtime state rather than
+  fixed metadata.
+- Viewport handling: Step99 connects viewport state to the runtime and records
+  whether a viewport dirty update happened. The default Step99 probe focuses on
+  camera constants, so unchanged viewport dirty updates may be reported as
+  deferred with an explicit reason.
+- Boundary enforcement: Three.js remains a camera/canvas/input adapter, CUDA
+  Reference remains a fixed reference baseline, and WebGL2 remains fallback and
+  validation oracle. Step99 does not claim camera visual parity, CUDA parity, or
+  full renderer completion.
+
+Step99 Summary success requires `phase2CameraContractAssumptionsAdopted`,
+`fixedReferenceAndInteractiveCameraSeparated`, `threeJsCameraAdapterOnly`,
+`cudaReferenceNotInteractiveBackend`, `viewerCameraStateConnectedToRuntime`,
+`viewerCameraStateChangedByProbe`, `cameraConstantsChanged`,
+`dirtyCameraConstantsTriggeredProductionUpdate`,
+`productionRuntimeUpdatedFromViewerCameraScheduler`,
+`cleanFrameReuseAfterCameraStabilized`, and
+`lastValidProductionOutputPresentedAfterCameraCleanFrame`. It also requires
+Step98 viewer time scheduler preservation, Step97 multi-frame runtime
+preservation, Step96 production compositor preservation, Step94 parallel sort
+preservation, Step88 presentation preservation, and Step85-87 preservation.
+
+Deferred work remains full CUDA parity, final production compositor parity,
+full parallel sort parity, camera visual parity, complete interactive control
+parity, chunk/LOD/streaming, and early termination v1.

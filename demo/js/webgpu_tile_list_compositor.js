@@ -1842,6 +1842,84 @@ fn finalizeSummary() {
   const diagnosticReadbackSeparatedFromProductionPath =
     diagnosticReadbackSeparatedFromRuntimePath &&
     runtimeCompositorDoesNotDependOnCaptureReadback;
+  const viewerCameraState = viewerCanvasState?.viewerCameraState ?? null;
+  const cameraControlEvidence =
+    viewerCameraState?.viewerCameraControlEvidence ?? null;
+  const cameraControlEvidenceSource =
+    cameraControlEvidence?.source ??
+    viewerCameraState?.dirtyCameraConstantsReason ??
+    null;
+  const cameraControlEvidenceFromSchedulerProbe =
+    typeof cameraControlEvidenceSource === 'string' &&
+    (
+      cameraControlEvidenceSource.includes('SchedulerProbe') ||
+      cameraControlEvidenceSource.includes('scheduler-probe') ||
+      cameraControlEvidenceSource.includes('viewer-scheduler') ||
+      cameraControlEvidenceSource.includes('runViewerCameraDirtySchedulerProbe')
+    );
+  const cameraControlEvidenceUsesFixedValue =
+    typeof cameraControlEvidenceSource === 'string' &&
+    cameraControlEvidenceSource.includes('fixed');
+  const cameraConstantsMaxAbsDelta = Number.isFinite(
+    Number(cameraControlEvidence?.cameraConstantsMaxAbsDelta)
+  )
+    ? Number(cameraControlEvidence.cameraConstantsMaxAbsDelta)
+    : Number.isFinite(Number(viewerCameraState?.cameraConstantsMaxAbsDelta))
+      ? Number(viewerCameraState.cameraConstantsMaxAbsDelta)
+      : 0;
+  const cameraControlEvidenceReady =
+    viewerCameraState?.source === 'viewer-interactive-camera-state' &&
+    viewerCameraState?.dirtyCameraConstants === true &&
+    cameraConstantsMaxAbsDelta > 0 &&
+    cameraControlEvidenceFromSchedulerProbe === true &&
+    cameraControlEvidenceUsesFixedValue === false;
+  const viewerCameraStateConnectedToRuntime =
+    viewerCameraState?.source === 'viewer-interactive-camera-state' &&
+    Array.isArray(viewerCameraState?.cameraPosition) &&
+    Array.isArray(viewerCameraState?.cameraQuaternion);
+  const viewerCameraStateChangedByProbe =
+    viewerCameraState?.cameraStateChangedByViewerControl === true &&
+    cameraControlEvidenceReady;
+  const cameraConstantsChanged =
+    viewerCameraState?.cameraConstantsChanged === true &&
+    cameraConstantsMaxAbsDelta > 0;
+  const viewportStateConnectedToRuntime =
+    viewerCameraState?.viewportStateConnectedToRuntime === true ||
+    viewerCanvasState?.viewport?.width > 0;
+  const viewportChangedByProbe =
+    cameraControlEvidence?.viewportChangedByProbe === true ||
+    viewerCameraState?.viewportChangedByProbe === true;
+  const dirtyViewportTriggeredProductionUpdate =
+    viewportChangedByProbe &&
+    productionOutputUpdatedAcrossFrames &&
+    updatedStageNames.includes('output-texture');
+  const dirtyViewportDeferredReason =
+    dirtyViewportTriggeredProductionUpdate
+      ? null
+      : 'viewport-change-not-required-for-step99-camera-dirty-runtime-probe';
+  const dirtyCameraConstantsTriggeredProductionUpdate =
+    viewerCameraStateChangedByProbe &&
+    cameraConstantsChanged &&
+    productionOutputUpdatedAcrossFrames &&
+    updatedStageNames.includes('webgpu-4d-state-visible');
+  const productionRuntimeUpdatedFromViewerCameraScheduler =
+    rafSchedulerInvokesProductionRuntime &&
+    dirtyCameraConstantsTriggeredProductionUpdate &&
+    productionTileCompositorReady;
+  const cleanFrameReuseAfterCameraStabilized =
+    productionRuntimeUpdatedFromViewerCameraScheduler &&
+    cleanFrameFastPathUsed;
+  const lastValidProductionOutputPresentedAfterCameraCleanFrame =
+    cleanFrameReuseAfterCameraStabilized &&
+    currentTextureUsesWebGpuTileCompositorOutput === true;
+  const step98ViewerTimeSchedulerPreserved =
+    viewerConnectedInteractiveSchedulerReady;
+  const phase2CameraContractAssumptionsAdopted = true;
+  const phase3ResponsibilityPlanReferenced = true;
+  const phase3BackendDesignReferenced = true;
+  const fixedReferenceAndInteractiveCameraSeparated = true;
+  const threeJsCameraAdapterOnly = true;
+  const cudaReferenceNotInteractiveBackend = true;
 
   for (const buffer of [
     summaryBuffer,
@@ -2153,6 +2231,37 @@ fn finalizeSummary() {
       cleanFrameReuseUnderScheduler,
       lastValidProductionOutputPresentedByScheduler,
       step97MultiFrameRuntimePreserved,
+      phase2CameraContractAssumptionsAdopted,
+      phase3ResponsibilityPlanReferenced,
+      phase3BackendDesignReferenced,
+      fixedReferenceAndInteractiveCameraSeparated,
+      threeJsCameraAdapterOnly,
+      cudaReferenceNotInteractiveBackend,
+      viewerCameraStateConnectedToRuntime,
+      viewerCameraStateChangedByProbe,
+      cameraConstantsChanged,
+      dirtyCameraConstantsTriggeredProductionUpdate,
+      viewportStateConnectedToRuntime,
+      dirtyViewportTriggeredProductionUpdate,
+      dirtyViewportDeferredReason,
+      productionRuntimeUpdatedFromViewerCameraScheduler,
+      cleanFrameReuseAfterCameraStabilized,
+      lastValidProductionOutputPresentedAfterCameraCleanFrame,
+      cameraControlEvidenceReady,
+      cameraControlEvidenceSource,
+      cameraControlEvidenceFromSchedulerProbe,
+      cameraControlEvidenceUsesFixedValue,
+      cameraPositionBefore: cameraControlEvidence?.beforeCamera?.position ?? null,
+      cameraPositionAfter: cameraControlEvidence?.afterCamera?.position ?? null,
+      cameraQuaternionBefore:
+        cameraControlEvidence?.beforeCamera?.quaternion ?? null,
+      cameraQuaternionAfter:
+        cameraControlEvidence?.afterCamera?.quaternion ?? null,
+      cameraConstantsMaxAbsDelta,
+      viewportBefore: cameraControlEvidence?.beforeViewport ?? null,
+      viewportAfter: cameraControlEvidence?.afterViewport ?? null,
+      viewportChangedByProbe,
+      step98ViewerTimeSchedulerPreserved,
       step93OverflowPolicyPreserved,
       overflowAwareOrderingReady,
       sortCapacityLimit,
