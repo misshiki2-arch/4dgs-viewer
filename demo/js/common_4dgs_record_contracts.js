@@ -16,7 +16,7 @@ export const WEBGPU_GPU_OWNED_TILE_LIST_LAYOUT_CONTRACT_VERSION =
   'phase3-step84-webgpu-gpu-owned-tile-list-layout-v1';
 
 export const WEBGPU_TILE_LIST_COMPOSITOR_CONTRACT_VERSION =
-  'phase3-step99-interactive-camera-viewport-dirty-runtime-v1';
+  'phase3-step100-unified-production-interaction-scheduler-runtime-v1';
 
 export const WEBGPU_PHASE3_BACKEND_BOUNDARY_CONTRACT_VERSION =
   'phase3-step86-webgpu-backend-boundary-and-dirty-contract-v1';
@@ -860,6 +860,22 @@ export function buildWebGpuTileListCompositorContract({
   viewportAfter = null,
   viewportChangedByProbe = false,
   step98ViewerTimeSchedulerPreserved = false,
+  unifiedInteractionSchedulerReady = false,
+  timeAndCameraDirtyPathsUnified = false,
+  captureProbeRuntimeBoundarySeparated = false,
+  captureProbeStimulatesViewerStateOnly = false,
+  dirtyDependencyGraphConsumedByProductionRuntime = false,
+  dirtyTimeStateTriggersUnifiedProductionUpdate = false,
+  dirtyCameraConstantsTriggersUnifiedProductionUpdate = false,
+  dirtyViewportIntegratedOrDeferredReason = null,
+  productionRuntimeUpdatedByUnifiedInteractionScheduler = false,
+  cleanFrameReuseAfterUnifiedInteractionStabilized = false,
+  lastValidProductionOutputPresentedAfterUnifiedCleanFrame = false,
+  realtimeFrameBudgetTelemetryReady = false,
+  dirtyFrameCount = 0,
+  cleanFrameReuseCount = 0,
+  productionUpdateCount = 0,
+  step99InteractiveCameraDirtyPreserved = false,
   step93OverflowPolicyPreserved = false,
   overflowAwareOrderingReady = false,
   sortCapacityLimit = 64,
@@ -1053,6 +1069,25 @@ export function buildWebGpuTileListCompositorContract({
     cameraControlEvidenceFromSchedulerProbe === true &&
     cameraControlEvidenceUsesFixedValue === false &&
     step98ViewerTimeSchedulerPreserved === true;
+  const unifiedInteractionSchedulerRuntimeReady =
+    interactiveCameraDirtyRuntimeReady === true &&
+    unifiedInteractionSchedulerReady === true &&
+    timeAndCameraDirtyPathsUnified === true &&
+    captureProbeRuntimeBoundarySeparated === true &&
+    captureProbeStimulatesViewerStateOnly === true &&
+    dirtyDependencyGraphConsumedByProductionRuntime === true &&
+    dirtyTimeStateTriggersUnifiedProductionUpdate === true &&
+    dirtyCameraConstantsTriggersUnifiedProductionUpdate === true &&
+    typeof dirtyViewportIntegratedOrDeferredReason === 'string' &&
+    dirtyViewportIntegratedOrDeferredReason.length > 0 &&
+    productionRuntimeUpdatedByUnifiedInteractionScheduler === true &&
+    cleanFrameReuseAfterUnifiedInteractionStabilized === true &&
+    lastValidProductionOutputPresentedAfterUnifiedCleanFrame === true &&
+    realtimeFrameBudgetTelemetryReady === true &&
+    dirtyFrameCount > 0 &&
+    cleanFrameReuseCount > 0 &&
+    productionUpdateCount > 0 &&
+    step99InteractiveCameraDirtyPreserved === true;
   return {
     contractVersion: WEBGPU_TILE_LIST_COMPOSITOR_CONTRACT_VERSION,
     status: ready ? 'ok' : status,
@@ -1293,6 +1328,23 @@ export function buildWebGpuTileListCompositorContract({
     viewportChangedByProbe,
     step98ViewerTimeSchedulerPreserved,
     interactiveCameraDirtyRuntimeReady,
+    unifiedInteractionSchedulerReady:
+      unifiedInteractionSchedulerRuntimeReady,
+    timeAndCameraDirtyPathsUnified,
+    captureProbeRuntimeBoundarySeparated,
+    captureProbeStimulatesViewerStateOnly,
+    dirtyDependencyGraphConsumedByProductionRuntime,
+    dirtyTimeStateTriggersUnifiedProductionUpdate,
+    dirtyCameraConstantsTriggersUnifiedProductionUpdate,
+    dirtyViewportIntegratedOrDeferredReason,
+    productionRuntimeUpdatedByUnifiedInteractionScheduler,
+    cleanFrameReuseAfterUnifiedInteractionStabilized,
+    lastValidProductionOutputPresentedAfterUnifiedCleanFrame,
+    realtimeFrameBudgetTelemetryReady,
+    dirtyFrameCount,
+    cleanFrameReuseCount,
+    productionUpdateCount,
+    step99InteractiveCameraDirtyPreserved,
     step93OverflowPolicyPreserved,
     overflowAwareOrderingReady: overflowAwareReady,
     sortCapacityLimit,

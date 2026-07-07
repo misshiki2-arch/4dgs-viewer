@@ -1920,6 +1920,86 @@ fn finalizeSummary() {
   const fixedReferenceAndInteractiveCameraSeparated = true;
   const threeJsCameraAdapterOnly = true;
   const cudaReferenceNotInteractiveBackend = true;
+  const step99InteractiveCameraDirtyPreserved =
+    viewerConnectedInteractiveSchedulerReady &&
+    viewerCameraStateConnectedToRuntime &&
+    viewerCameraStateChangedByProbe &&
+    cameraConstantsChanged &&
+    dirtyCameraConstantsTriggeredProductionUpdate &&
+    productionRuntimeUpdatedFromViewerCameraScheduler &&
+    cleanFrameReuseAfterCameraStabilized &&
+    lastValidProductionOutputPresentedAfterCameraCleanFrame;
+  const timeAndCameraDirtyPathsUnified =
+    dirtyTimeStateTriggeredProductionUpdate &&
+    dirtyCameraConstantsTriggeredProductionUpdate &&
+    productionRuntimeUpdatedFromViewerScheduler &&
+    productionRuntimeUpdatedFromViewerCameraScheduler &&
+    schedulerFrameCount > 0;
+  const captureProbeRuntimeBoundarySeparated =
+    timeControlEvidenceFromSchedulerProbe &&
+    cameraControlEvidenceFromSchedulerProbe &&
+    timeControlEvidenceUsesFixedValue === false &&
+    cameraControlEvidenceUsesFixedValue === false &&
+    productionOutputUpdatedAcrossFrames;
+  const captureProbeStimulatesViewerStateOnly =
+    captureProbeRuntimeBoundarySeparated &&
+    viewerTimeStateConnectedToRuntime &&
+    viewerCameraStateConnectedToRuntime &&
+    productionTileCompositorReady;
+  const dirtyDependencyExecutorUsedForUnified = true;
+  const dirtyDependencyGraphConsumedByProductionRuntime =
+    dirtyDependencyExecutorUsedForUnified === true &&
+    updatedStageNames.includes('time-frame-state') &&
+    updatedStageNames.includes('webgpu-4d-state-visible') &&
+    updatedStageNames.includes('tile-list') &&
+    updatedStageNames.includes('parallel-sort') &&
+    updatedStageNames.includes('production-accumulation') &&
+    updatedStageNames.includes('output-texture');
+  const dirtyViewportIntegratedOrDeferredReason =
+    dirtyViewportTriggeredProductionUpdate
+      ? 'viewport-dirty-integrated-through-unified-interaction-scheduler'
+      : dirtyViewportDeferredReason;
+  const dirtyTimeStateTriggersUnifiedProductionUpdate =
+    dirtyTimeStateTriggeredProductionUpdate &&
+    dirtyDependencyGraphConsumedByProductionRuntime;
+  const dirtyCameraConstantsTriggersUnifiedProductionUpdate =
+    dirtyCameraConstantsTriggeredProductionUpdate &&
+    dirtyDependencyGraphConsumedByProductionRuntime;
+  const productionRuntimeUpdatedByUnifiedInteractionScheduler =
+    timeAndCameraDirtyPathsUnified &&
+    productionOutputUpdatedAcrossFrames &&
+    productionTileCompositorReady;
+  const cleanFrameReuseAfterUnifiedInteractionStabilized =
+    productionRuntimeUpdatedByUnifiedInteractionScheduler &&
+    cleanFrameFastPathUsed &&
+    cleanFrameReuseAfterCameraStabilized &&
+    cleanFrameReuseUnderScheduler;
+  const lastValidProductionOutputPresentedAfterUnifiedCleanFrame =
+    cleanFrameReuseAfterUnifiedInteractionStabilized &&
+    currentTextureUsesWebGpuTileCompositorOutput === true;
+  const dirtyFrameCount = dirtyProductionRuntimeFrameCount;
+  const cleanFrameReuseCount = cleanFrameFastPathUsed
+    ? cleanProductionRuntimeFrameCount
+    : 0;
+  const productionUpdateCount = dirtyProductionRuntimeFrameCount;
+  const realtimeFrameBudgetTelemetryReady =
+    productionRuntimeFrameCount > 0 &&
+    dirtyFrameCount > 0 &&
+    cleanFrameReuseCount > 0 &&
+    productionUpdateCount > 0;
+  const unifiedInteractionSchedulerReady =
+    step99InteractiveCameraDirtyPreserved &&
+    timeAndCameraDirtyPathsUnified &&
+    captureProbeRuntimeBoundarySeparated &&
+    captureProbeStimulatesViewerStateOnly &&
+    dirtyDependencyGraphConsumedByProductionRuntime &&
+    dirtyTimeStateTriggersUnifiedProductionUpdate &&
+    dirtyCameraConstantsTriggersUnifiedProductionUpdate &&
+    typeof dirtyViewportIntegratedOrDeferredReason === 'string' &&
+    productionRuntimeUpdatedByUnifiedInteractionScheduler &&
+    cleanFrameReuseAfterUnifiedInteractionStabilized &&
+    lastValidProductionOutputPresentedAfterUnifiedCleanFrame &&
+    realtimeFrameBudgetTelemetryReady;
 
   for (const buffer of [
     summaryBuffer,
@@ -2001,7 +2081,11 @@ fn finalizeSummary() {
         'clean-frame-last-valid-production-output-fast-path',
         'viewer-connected-interactive-time-scheduler-v1',
         'viewer-time-state-to-dirty-time-state-boundary',
-        'raf-scheduler-production-runtime-invocation'
+        'raf-scheduler-production-runtime-invocation',
+        'interactive-camera-state-to-dirty-camera-constants-boundary',
+        'unified-production-interaction-scheduler-runtime-v1',
+        'capture-probe-runtime-boundary-separation',
+        'dirty-vs-clean-frame-budget-telemetry'
       ],
       deferredCompositorFields: [
         'full-production-parallel-sort-parity',
@@ -2262,6 +2346,22 @@ fn finalizeSummary() {
       viewportAfter: cameraControlEvidence?.afterViewport ?? null,
       viewportChangedByProbe,
       step98ViewerTimeSchedulerPreserved,
+      unifiedInteractionSchedulerReady,
+      timeAndCameraDirtyPathsUnified,
+      captureProbeRuntimeBoundarySeparated,
+      captureProbeStimulatesViewerStateOnly,
+      dirtyDependencyGraphConsumedByProductionRuntime,
+      dirtyTimeStateTriggersUnifiedProductionUpdate,
+      dirtyCameraConstantsTriggersUnifiedProductionUpdate,
+      dirtyViewportIntegratedOrDeferredReason,
+      productionRuntimeUpdatedByUnifiedInteractionScheduler,
+      cleanFrameReuseAfterUnifiedInteractionStabilized,
+      lastValidProductionOutputPresentedAfterUnifiedCleanFrame,
+      realtimeFrameBudgetTelemetryReady,
+      dirtyFrameCount,
+      cleanFrameReuseCount,
+      productionUpdateCount,
+      step99InteractiveCameraDirtyPreserved,
       step93OverflowPolicyPreserved,
       overflowAwareOrderingReady,
       sortCapacityLimit,
@@ -2283,6 +2383,8 @@ fn finalizeSummary() {
         'final-production-compositor',
         'full-parallel-sort-parity',
         'complete-interactive-control-parity',
+        'camera-visual-parity',
+        'final-production-compositor-parity',
         'early-termination-v1',
         'chunk-lod-streaming'
       ],

@@ -231,14 +231,24 @@ def build_webgpu_visible_record_dryrun_command(args: argparse.Namespace) -> str:
         if args.webgpu_backend_implementation
         else ""
     )
+    phase_step = None
+    comparison_mode = None
+    if "step100" in args.step:
+        phase_step = "phase3-step100"
+        comparison_mode = (
+            "phase3-step100-unified-production-interaction-scheduler-runtime"
+        )
+    elif "step99" in args.step:
+        phase_step = "phase3-step99"
+        comparison_mode = "phase3-step99-interactive-camera-viewport-dirty-runtime"
     phase_step_line = (
-        "\n    phaseStep: 'phase3-step99',"
-        if "step99" in args.step
+        f"\n    phaseStep: {quote(phase_step)},"
+        if phase_step
         else ""
     )
     comparison_mode_line = (
-        "\n    comparisonMode: 'phase3-step99-interactive-camera-viewport-dirty-runtime',"
-        if "step99" in args.step
+        f"\n    comparisonMode: {quote(comparison_mode)},"
+        if comparison_mode
         else ""
     )
 
@@ -358,9 +368,9 @@ def build_preamble(args: argparse.Namespace) -> str:
     if not args.include_preamble:
         return ""
 
-    if "step98" in args.step or "step99" in args.step:
+    if "step98" in args.step or "step99" in args.step or "step100" in args.step:
         camera_probe = ""
-        if "step99" in args.step:
+        if "step99" in args.step or "step100" in args.step:
             camera_probe = f"""if (typeof window.gpuViewerDebug.runViewerCameraDirtySchedulerProbe === 'function') {{
   var viewerCameraDirtySchedulerProbe =
     await window.gpuViewerDebug.runViewerCameraDirtySchedulerProbe({{

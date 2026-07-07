@@ -2133,3 +2133,68 @@ preservation, Step88 presentation preservation, and Step85-87 preservation.
 Deferred work remains full CUDA parity, final production compositor parity,
 full parallel sort parity, camera visual parity, complete interactive control
 parity, chunk/LOD/streaming, and early termination v1.
+
+## Step100 Unified Production Interaction Scheduler Runtime V1
+
+Step100 consolidates the Step98 time/playback dirty runtime and Step99
+interactive camera dirty runtime into a single production interaction scheduler
+contract. The selected scope is A+B+D: unify the time and camera dirty paths,
+separate capture/probe stimulation from runtime ownership, and expose
+dirty-vs-clean frame budget telemetry. Viewport dirty remains connected through
+the Step99 viewport state boundary; automatic resize stimulation is deferred
+unless a later step explicitly tests canvas/viewport changes.
+
+The Step100 runtime path is:
+
+```text
+viewer time / playback / camera / viewport state
+-> unified scheduler frame state
+-> dirtyTimeState / dirtyCameraConstants / dirtyViewport decision
+-> dirtyVisibleRecords / dirtyTileList / dirtyCompositorInput invalidation
+-> production runtime update or clean-frame reuse
+-> production output texture
+-> steady-state final presentation
+```
+
+- Viewer shell boundary: `viewer_app_gpu.js` keeps ownership of UI state,
+  Three.js/OrbitControls input adaptation, RAF scheduling, and capture/probe
+  entrypoints. Step100 probes stimulate viewer state only; they do not own
+  runtime success.
+- WebGPU backend boundary: the tile compositor contract consumes scheduler
+  frame state plus time/camera evidence, then records that the dirty dependency
+  graph drove production updates and that stabilized clean frames reused the
+  last valid production output.
+- Common contract boundary: Step100 fields extend the shared tile compositor
+  contract rather than adding backend-specific record formats. The Summary reads
+  `unifiedInteractionSchedulerReady`, dirty graph consumption, viewport
+  integration/deferred reason, and dirty/clean/update counts from the common
+  contract.
+- Tool boundary: capture commands automatically run the time scheduler probe and
+  camera dirty probe for Step100. Tools generate stimuli and summarize evidence,
+  but they are not runtime schedulers.
+- Boundary enforcement: fixed CUDA reference capture, interactive camera
+  controls, WebGL2 fallback/validation, and WebGPU production presentation remain
+  separated. Step100 does not claim CUDA parity, camera visual parity, complete
+  interactive control parity, or full renderer completion.
+
+Step100 Summary success requires `phase2CameraContractAssumptionsPreserved`,
+`fixedReferenceAndInteractiveCameraSeparated`, `threeJsCameraAdapterOnly`,
+`cudaReferenceNotInteractiveBackend`, `unifiedInteractionSchedulerReady`,
+`timeAndCameraDirtyPathsUnified`,
+`captureProbeRuntimeBoundarySeparated`,
+`captureProbeStimulatesViewerStateOnly`,
+`dirtyDependencyGraphConsumedByProductionRuntime`,
+`dirtyTimeStateTriggersUnifiedProductionUpdate`,
+`dirtyCameraConstantsTriggersUnifiedProductionUpdate`,
+`dirtyViewportIntegratedOrDeferredReason`,
+`productionRuntimeUpdatedByUnifiedInteractionScheduler`,
+`cleanFrameReuseAfterUnifiedInteractionStabilized`,
+`lastValidProductionOutputPresentedAfterUnifiedCleanFrame`,
+`realtimeFrameBudgetTelemetryReady`, `dirtyFrameCount`,
+`cleanFrameReuseCount`, and `productionUpdateCount`. It also requires Step99,
+Step98, Step97, Step96, Step94, Step88, and Step85-87 preservation.
+
+Deferred work remains full CUDA parity, final production compositor parity,
+full parallel sort parity, camera visual parity, complete interactive control
+parity, automatic viewport resize dirty probing, chunk/LOD/streaming, and early
+termination v1.
