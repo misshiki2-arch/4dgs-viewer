@@ -233,7 +233,12 @@ def build_webgpu_visible_record_dryrun_command(args: argparse.Namespace) -> str:
     )
     phase_step = None
     comparison_mode = None
-    if "step102" in args.step:
+    if "step103" in args.step:
+        phase_step = "phase3-step103"
+        comparison_mode = (
+            "phase3-step103-production-runtime-boundary-work-reduction-gate"
+        )
+    elif "step102" in args.step:
         phase_step = "phase3-step102"
         comparison_mode = (
             "phase3-step102-production-resource-lifecycle-bottleneck-gate"
@@ -384,6 +389,7 @@ def build_preamble(args: argparse.Namespace) -> str:
         or "step100" in args.step
         or "step101" in args.step
         or "step102" in args.step
+        or "step103" in args.step
     ):
         camera_probe = ""
         if (
@@ -391,6 +397,7 @@ def build_preamble(args: argparse.Namespace) -> str:
             or "step100" in args.step
             or "step101" in args.step
             or "step102" in args.step
+            or "step103" in args.step
         ):
             camera_probe = f"""if (typeof window.gpuViewerDebug.runViewerCameraDirtySchedulerProbe === 'function') {{
   var viewerCameraDirtySchedulerProbe =

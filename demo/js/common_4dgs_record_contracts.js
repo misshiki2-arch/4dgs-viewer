@@ -16,7 +16,7 @@ export const WEBGPU_GPU_OWNED_TILE_LIST_LAYOUT_CONTRACT_VERSION =
   'phase3-step84-webgpu-gpu-owned-tile-list-layout-v1';
 
 export const WEBGPU_TILE_LIST_COMPOSITOR_CONTRACT_VERSION =
-  'phase3-step102-production-resource-lifecycle-and-bottleneck-gate-v1';
+  'phase3-step103-production-runtime-boundary-work-reduction-gate-v1';
 
 export const WEBGPU_PHASE3_BACKEND_BOUNDARY_CONTRACT_VERSION =
   'phase3-step86-webgpu-backend-boundary-and-dirty-contract-v1';
@@ -924,6 +924,25 @@ export function buildWebGpuTileListCompositorContract({
   chunkLodStreamingReadiness = null,
   visualParityDiagnosticsDeferredReason = null,
   step101SelectiveDirtyDependencyPreserved = false,
+  productionRuntimeBoundaryReviewReady = false,
+  productionSteadyStateNoReadbackBoundaryReady = false,
+  readbackLeakIntoProductionRuntimeDetected = false,
+  diagnosticCaptureReadbackGateReady = false,
+  diagnosticReadbackResourcesIsolated = false,
+  runtimeBoundaryHardened = false,
+  selectedWorkReductionPath = null,
+  workReductionPathImplemented = false,
+  activeTileWorkReductionReady = false,
+  earlyTerminationCandidateReady = false,
+  earlyTerminationV1Used = false,
+  earlyTerminationEvaluatedReferenceCount = 0,
+  earlyTerminationSkippedReferenceCount = 0,
+  earlyTerminationSkipRatio = 0,
+  viewportResizeResourceReallocationIntegrated = false,
+  visualParityDiagnosticsReadiness = null,
+  updatedBottleneckClassification = null,
+  updatedNextStepRecommendedGoal = null,
+  step102ProductionResourceLifecyclePreserved = false,
   step93OverflowPolicyPreserved = false,
   overflowAwareOrderingReady = false,
   sortCapacityLimit = 64,
@@ -1182,6 +1201,33 @@ export function buildWebGpuTileListCompositorContract({
     resourceReuseCount > 0 &&
     persistentResourceCount > 0 &&
     step101SelectiveDirtyDependencyPreserved === true;
+  const productionRuntimeBoundaryWorkReductionReady =
+    productionResourceLifecycleRuntimeReady === true &&
+    productionRuntimeBoundaryReviewReady === true &&
+    productionSteadyStateNoReadbackBoundaryReady === true &&
+    readbackLeakIntoProductionRuntimeDetected === false &&
+    diagnosticCaptureReadbackGateReady === true &&
+    diagnosticReadbackResourcesIsolated === true &&
+    runtimeBoundaryHardened === true &&
+    typeof selectedWorkReductionPath === 'string' &&
+    selectedWorkReductionPath.length > 0 &&
+    workReductionPathImplemented === true &&
+    activeTileWorkReductionReady === true &&
+    activeTilePixelWorkItemCount > 0 &&
+    fullScreenPixelWorkAvoided > 0 &&
+    accumulationWorkReductionRatio > 0 &&
+    earlyTerminationCandidateReady === true &&
+    earlyTerminationV1Used === false &&
+    earlyTerminationEvaluatedReferenceCount > 0 &&
+    earlyTerminationSkippedReferenceCount >= 0 &&
+    earlyTerminationSkipRatio >= 0 &&
+    typeof visualParityDiagnosticsReadiness === 'string' &&
+    visualParityDiagnosticsReadiness.length > 0 &&
+    typeof updatedBottleneckClassification === 'string' &&
+    updatedBottleneckClassification.length > 0 &&
+    typeof updatedNextStepRecommendedGoal === 'string' &&
+    updatedNextStepRecommendedGoal.length > 0 &&
+    step102ProductionResourceLifecyclePreserved === true;
   return {
     contractVersion: WEBGPU_TILE_LIST_COMPOSITOR_CONTRACT_VERSION,
     status: ready ? 'ok' : status,
@@ -1489,6 +1535,26 @@ export function buildWebGpuTileListCompositorContract({
     chunkLodStreamingReadiness,
     visualParityDiagnosticsDeferredReason,
     step101SelectiveDirtyDependencyPreserved,
+    productionRuntimeBoundaryReviewReady:
+      productionRuntimeBoundaryWorkReductionReady,
+    productionSteadyStateNoReadbackBoundaryReady,
+    readbackLeakIntoProductionRuntimeDetected,
+    diagnosticCaptureReadbackGateReady,
+    diagnosticReadbackResourcesIsolated,
+    runtimeBoundaryHardened,
+    selectedWorkReductionPath,
+    workReductionPathImplemented,
+    activeTileWorkReductionReady,
+    earlyTerminationCandidateReady,
+    earlyTerminationV1Used,
+    earlyTerminationEvaluatedReferenceCount,
+    earlyTerminationSkippedReferenceCount,
+    earlyTerminationSkipRatio,
+    viewportResizeResourceReallocationIntegrated,
+    visualParityDiagnosticsReadiness,
+    updatedBottleneckClassification,
+    updatedNextStepRecommendedGoal,
+    step102ProductionResourceLifecyclePreserved,
     step93OverflowPolicyPreserved,
     overflowAwareOrderingReady: overflowAwareReady,
     sortCapacityLimit,

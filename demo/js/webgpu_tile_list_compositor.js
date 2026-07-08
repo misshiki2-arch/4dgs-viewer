@@ -2263,13 +2263,80 @@ fn finalizeSummary() {
     resourceReuseCount > 0 &&
     typeof bottleneckClassification === 'string';
   const earlyTerminationDeferredReason =
-    'requires-production-resource-lifecycle-gate-evidence-before-changing-accumulation-exit-policy';
+    'deferred-until-alpha-threshold-policy-and-visual-parity-diagnostics-are-ready';
   const chunkLodStreamingReadiness =
     'deferred-until-persistent-resource-cache-and-bottleneck-classification-stabilize';
   const visualParityDiagnosticsDeferredReason =
     'deferred-until-final-production-compositor-parity-and-reference-visual-comparison';
   const step101SelectiveDirtyDependencyPreserved =
     selectiveDirtyDependencyExecutionReady;
+  const readbackLeakIntoProductionRuntimeDetected =
+    !(
+      readbackFreeSteadyStateCompositorUsed &&
+      runtimeCompositorDoesNotDependOnCaptureReadback &&
+      runtimeOutputReadyWithoutTextureReadback &&
+      diagnosticReadbackSeparatedFromRuntimePath &&
+      diagnosticReadbackSeparatedFromProductionPath
+    );
+  const productionSteadyStateNoReadbackBoundaryReady =
+    productionResourceLifecycleReady &&
+    readbackLeakIntoProductionRuntimeDetected === false;
+  const diagnosticReadbackResourcesIsolated =
+    remainingTransientResourceNames.length > 0 &&
+    remainingTransientResourceNames.every((name) =>
+      typeof name === 'string' && name.includes('readback')
+    );
+  const diagnosticCaptureReadbackGateReady =
+    diagnosticSummaryReadbackUsed &&
+    diagnosticTextureReadbackUsed &&
+    diagnosticReadbackSeparatedFromRuntimePath &&
+    diagnosticReadbackSeparatedFromProductionPath &&
+    diagnosticReadbackResourcesIsolated;
+  const activeTileWorkReductionReady =
+    activeTileDispatchUsed &&
+    activeTilePixelWorkItemCount > 0 &&
+    summary.fullScreenPixelWorkAvoided > 0 &&
+    summary.accumulationWorkReductionRatio > 0;
+  const selectedWorkReductionPath =
+    'active-tile-subtile-production-work-reduction-gate-v1';
+  const workReductionPathImplemented =
+    productionResourceLifecycleReady &&
+    activeTileWorkReductionReady &&
+    productionAccumulationConsumedParallelSortedRefs;
+  const earlyTerminationCandidateReady =
+    workReductionPathImplemented &&
+    summary.tileCompositorContributionCount > 0 &&
+    summary.alphaAccumulationUsed === true &&
+    summary.depthOrderedAccumulationUsed === true;
+  const earlyTerminationV1Used = false;
+  const earlyTerminationEvaluatedReferenceCount =
+    summary.tileCompositorContributionCount;
+  const earlyTerminationSkippedReferenceCount = 0;
+  const earlyTerminationSkipRatio = 0;
+  const viewportResizeResourceReallocationIntegrated =
+    dirtyViewportTriggeredProductionUpdate === true;
+  const visualParityDiagnosticsReadiness =
+    'deferred-until-production-output-has-final-compositor-parity-baseline';
+  const updatedBottleneckClassification =
+    readbackLeakIntoProductionRuntimeDetected
+      ? 'production-readback-leak'
+      : activeTileWorkReductionReady
+        ? 'active-tile-production-work-reduction-path'
+        : bottleneckClassification;
+  const updatedNextStepRecommendedGoal =
+    readbackLeakIntoProductionRuntimeDetected
+      ? 'production-readback-boundary-hardening'
+      : 'early-termination-v1-alpha-threshold-and-visual-parity-gate';
+  const runtimeBoundaryHardened =
+    productionSteadyStateNoReadbackBoundaryReady &&
+    diagnosticCaptureReadbackGateReady &&
+    diagnosticReadbackResourcesIsolated;
+  const productionRuntimeBoundaryReviewReady =
+    runtimeBoundaryHardened &&
+    workReductionPathImplemented &&
+    earlyTerminationCandidateReady;
+  const step102ProductionResourceLifecyclePreserved =
+    productionResourceLifecycleReady;
 
   for (const buffer of [
     summaryBuffer,
@@ -2361,7 +2428,11 @@ fn finalizeSummary() {
         'production-stage-reuse-telemetry',
         'production-resource-lifecycle-cache-boundary-v1',
         'selective-executor-resource-reuse-policy',
-        'realtime-bottleneck-classification-v1'
+        'realtime-bottleneck-classification-v1',
+        'production-steady-state-no-readback-boundary-review-v1',
+        'diagnostic-capture-readback-gate-v1',
+        'active-tile-subtile-production-work-reduction-gate-v1',
+        'step102-bottleneck-next-step-selection-update-v1'
       ],
       deferredCompositorFields: [
         'full-production-parallel-sort-parity',
@@ -2369,7 +2440,7 @@ fn finalizeSummary() {
         'final-production-tile-compositor',
         'chunk-lod-streaming',
         'complete-interactive-control-parity',
-        'early-termination-v1',
+        'early-termination-v1-alpha-threshold-and-visual-parity-gate',
         'viewport-resize-resource-reallocation-probe',
         'visual-parity-diagnostics'
       ],
@@ -2689,6 +2760,25 @@ fn finalizeSummary() {
       chunkLodStreamingReadiness,
       visualParityDiagnosticsDeferredReason,
       step101SelectiveDirtyDependencyPreserved,
+      productionRuntimeBoundaryReviewReady,
+      productionSteadyStateNoReadbackBoundaryReady,
+      readbackLeakIntoProductionRuntimeDetected,
+      diagnosticCaptureReadbackGateReady,
+      diagnosticReadbackResourcesIsolated,
+      runtimeBoundaryHardened,
+      selectedWorkReductionPath,
+      workReductionPathImplemented,
+      activeTileWorkReductionReady,
+      earlyTerminationCandidateReady,
+      earlyTerminationV1Used,
+      earlyTerminationEvaluatedReferenceCount,
+      earlyTerminationSkippedReferenceCount,
+      earlyTerminationSkipRatio,
+      viewportResizeResourceReallocationIntegrated,
+      visualParityDiagnosticsReadiness,
+      updatedBottleneckClassification,
+      updatedNextStepRecommendedGoal,
+      step102ProductionResourceLifecyclePreserved,
       step93OverflowPolicyPreserved,
       overflowAwareOrderingReady,
       sortCapacityLimit,
@@ -2712,7 +2802,7 @@ fn finalizeSummary() {
         'complete-interactive-control-parity',
         'camera-visual-parity',
         'final-production-compositor-parity',
-        'early-termination-v1',
+        'early-termination-v1-alpha-threshold-and-visual-parity-gate',
         'viewport-resize-dirty-probe',
         'viewport-resize-resource-reallocation-probe',
         'visual-parity-diagnostics',

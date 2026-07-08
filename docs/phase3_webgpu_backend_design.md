@@ -2316,3 +2316,57 @@ Deferred work remains viewport resize resource reallocation probing, full CUDA
 parity, final production compositor parity, full parallel sort parity, camera
 visual parity, visual parity diagnostics, complete interactive control parity,
 early termination v1, and chunk/LOD/streaming.
+
+## Step103 Production Runtime Boundary Review and Work Reduction Gate V1
+
+Step103 reviews the Step102 production resource lifecycle boundary before
+choosing the next realtime production step. The selected scope is A+B review,
+C active-tile work reduction, and G bottleneck/next-step selection. The review
+keeps diagnostic readback resources visible as capture evidence, but separates
+that from whether production steady-state runtime depends on readback.
+
+The Step103 runtime path is:
+
+```text
+production boundary review
+-> no-readback steady-state check
+-> diagnostic/capture readback gate
+-> active-tile/subtile work reduction evidence
+-> updated bottleneck and next-step recommendation
+-> steady-state final presentation
+```
+
+- Production boundary review: the WebGPU tile compositor records that
+  `readbackFreeSteadyStateCompositorUsed`,
+  `runtimeCompositorDoesNotDependOnCaptureReadback`,
+  `runtimeOutputReadyWithoutTextureReadback`, and
+  `diagnosticReadbackSeparatedFromProductionPath` are all true before claiming
+  the production runtime boundary is hardened.
+- Diagnostic readback gate: summary and texture readbacks remain transient
+  diagnostic/capture resources. Their presence is not a production leak when
+  `readbackLeakIntoProductionRuntimeDetected` is false and
+  `diagnosticReadbackResourcesIsolated` is true.
+- Work reduction: because the review does not find a production readback leak,
+  Step103 does not stop at readback cleanup. It promotes the existing production
+  active-tile/subtile accumulation evidence into a work reduction gate using
+  `activeTilePixelWorkItemCount`, `fullScreenPixelWorkAvoided`, and
+  `accumulationWorkReductionRatio`.
+- Deferred work: early termination v1 is treated as a candidate, not as
+  completed runtime behavior. The next recommended goal is the alpha threshold
+  and visual parity gate for early termination.
+
+Step103 Summary success requires `productionRuntimeBoundaryReviewReady`,
+`productionSteadyStateNoReadbackBoundaryReady`,
+`readbackLeakIntoProductionRuntimeDetected: False`,
+`diagnosticCaptureReadbackGateReady`, `diagnosticReadbackResourcesIsolated`,
+`runtimeBoundaryHardened`, `selectedWorkReductionPath`,
+`workReductionPathImplemented`, `activeTileWorkReductionReady`,
+`updatedBottleneckClassification`, and `updatedNextStepRecommendedGoal`. It also
+requires Step102, Step101, Step100, Step99, Step98, Step97, Step96, Step94,
+Step88, and Step85-87 preservation.
+
+Deferred work remains full CUDA parity, final production compositor parity, full
+parallel sort parity, camera visual parity, viewport resize resource
+reallocation probing, visual parity diagnostics, complete interactive control
+parity, early termination alpha-threshold/visual-parity gating, and
+chunk/LOD/streaming.
