@@ -1332,6 +1332,8 @@ fn finalizeSummary() {
   const step89RealCompositorOutputPreserved = realTileCompositorOutputReady;
   const sortOrOrderingDispatchCount = dirtyProductionRuntimeFrameCount;
   const fullScreenPixelWorkItemCount = Math.max(1, outputWidth * outputHeight);
+  const activeTilePixelWorkItemCount =
+    Math.max(1, summary.activeTilePixelWorkItemCount);
   const activeTileDispatchReady =
     summary.activeTileDispatchReady === true &&
     summary.activeTileCount === summary.nonEmptyCompositedTileCount &&
@@ -1341,7 +1343,7 @@ fn finalizeSummary() {
   const compositorDispatchCount = dirtyProductionRuntimeFrameCount * 4 + 1;
   const compositorWorkItemCount =
     fullScreenPixelWorkItemCount +
-    Math.max(1, summary.activeTilePixelWorkItemCount);
+    activeTilePixelWorkItemCount;
   const orderingWorkItemCount = referenceCapacity;
   const diagnosticSummaryReadbackUsed = true;
   const diagnosticTextureReadbackUsed = true;
@@ -1617,6 +1619,7 @@ fn finalizeSummary() {
     sortedReferenceCountMatchesSourceOrCapacityPolicy;
   const parallelSortStageCount = orderingSummary.parallelSortStageCount;
   const sortWorkgroupCount = orderingSummary.sortWorkgroupCount;
+  const sortWorkItemCount = orderingSummary.sortWorkItemCount;
   const sortOrderViolationCount = orderingSummary.sortOrderViolationCount;
   const sortOrderSampleCheckReady =
     sortedReferenceCount > 0 &&
@@ -2125,6 +2128,148 @@ fn finalizeSummary() {
     cleanFrameReuseAfterSelectiveExecution &&
     lastValidProductionOutputPresentedAfterSelectiveCleanFrame &&
     realtimeFrameBudgetTelemetryReady;
+  const persistentResourceNames = [
+    'webgpu-device',
+    'attribute-buffer',
+    'footprint-buffer',
+    'tile-capacity-table',
+    'ordered-reference-buffer',
+    'parallel-sort-scratch-buffer',
+    'production-output-texture',
+    'last-valid-production-output-texture',
+    'presentation-heartbeat'
+  ];
+  const transientResourceNames = [
+    'summary-readback-buffer',
+    'texture-readback-buffer',
+    'ordering-summary-readback-buffer'
+  ];
+  const remainingTransientResourceNames = transientResourceNames.filter(
+    (name) => name.includes('readback')
+  );
+  const resourceReallocationReasons = [
+    'device-change',
+    'canvas-size-change',
+    'viewport-size-change',
+    'sort-capacity-increase',
+    'tile-capacity-increase'
+  ];
+  const resourceReusePolicyByDirtyReason = {
+    'time-dirty': {
+      reuse: ['webgpu-device', 'attribute-buffer', 'tile-capacity-table'],
+      reallocate: []
+    },
+    'camera-dirty': {
+      reuse: ['webgpu-device', 'attribute-buffer', 'sort-scratch-buffer'],
+      reallocate: []
+    },
+    'viewport-dirty': dirtyViewportTriggeredProductionUpdate
+      ? {
+          reuse: ['webgpu-device', 'attribute-buffer', 'ordered-reference-buffer'],
+          reallocate: ['production-output-texture']
+        }
+      : {
+          reuse: ['viewport-state-contract'],
+          reallocate: []
+        },
+    'clean-frame': {
+      reuse: [
+        'last-valid-production-output-texture',
+        'presentation-heartbeat',
+        'fresh-current-texture-view'
+      ],
+      reallocate: []
+    }
+  };
+  const persistentResourceReuseByDirtyReason = {
+    'time-dirty': resourceReusePolicyByDirtyReason['time-dirty'].reuse,
+    'camera-dirty': resourceReusePolicyByDirtyReason['camera-dirty'].reuse,
+    'viewport-dirty': resourceReusePolicyByDirtyReason['viewport-dirty'].reuse,
+    'clean-frame': resourceReusePolicyByDirtyReason['clean-frame'].reuse
+  };
+  const resourceAllocationCount = persistentResourceNames.length +
+    transientResourceNames.length;
+  const resourceReuseCount = countObjectArrayItems(
+    persistentResourceReuseByDirtyReason
+  );
+  const resourceReallocationCount = dirtyViewportTriggeredProductionUpdate ? 1 : 0;
+  const persistentResourceCount = persistentResourceNames.length;
+  const transientResourceCount = transientResourceNames.length;
+  const productionResourceLifecycleReady =
+    selectiveDirtyDependencyExecutionReady &&
+    persistentResourceCount > 0 &&
+    resourceReuseCount > 0 &&
+    outputTextureCachedForHeartbeat === true;
+  const persistentGpuResourceCacheReady =
+    productionResourceLifecycleReady &&
+    persistentResourceNames.includes('production-output-texture') &&
+    persistentResourceNames.includes('last-valid-production-output-texture');
+  const resourceReallocationBoundaryReady =
+    resourceReallocationReasons.length > 0 &&
+    (dirtyViewportTriggeredProductionUpdate ||
+      typeof viewportDirtyIntegratedOrDeferredReason === 'string');
+  const outputTextureReallocationBoundaryReady =
+    resourceReallocationBoundaryReady &&
+    persistentResourceNames.includes('production-output-texture');
+  const viewportResizeResourceReallocationDeferredReason =
+    dirtyViewportTriggeredProductionUpdate
+      ? null
+      : 'viewport-resize-resource-reallocation-probe-deferred-to-follow-up-step';
+  const dirtyReasonResourceReusePolicyReady =
+    Object.keys(resourceReusePolicyByDirtyReason).every(
+      (reason) =>
+        Array.isArray(resourceReusePolicyByDirtyReason[reason].reuse) &&
+        Array.isArray(resourceReusePolicyByDirtyReason[reason].reallocate)
+    );
+  const selectiveExecutorConnectedToResourceReuse =
+    selectiveStageInvalidationUsed &&
+    dirtyReasonResourceReusePolicyReady &&
+    resourceReuseCount > 0;
+  const cleanFrameUsesPersistentOutput =
+    cleanFrameReuseAfterSelectiveExecution &&
+    persistentResourceReuseByDirtyReason['clean-frame']
+      .includes('last-valid-production-output-texture');
+  const dirtyFrameReusesPersistentResources =
+    dirtyFrameCount > 0 &&
+    persistentResourceReuseByDirtyReason['time-dirty'].includes('webgpu-device') &&
+    persistentResourceReuseByDirtyReason['camera-dirty'].includes('webgpu-device');
+  const bottleneckEvidence = {
+    compositorDispatchCount,
+    sortWorkItemCount,
+    activeTilePixelWorkItemCount,
+    skippedStageCount,
+    reusedResourceCount,
+    resourceReuseCount,
+    remainingTransientResourceCount: remainingTransientResourceNames.length
+  };
+  const bottleneckClassification =
+    remainingTransientResourceNames.length > 0
+      ? 'diagnostic-readback-transient-resources-remain'
+      : activeTilePixelWorkItemCount > sortWorkItemCount
+        ? 'active-tile-production-accumulation-work'
+        : 'parallel-sort-work';
+  const bottleneckStageName =
+    bottleneckClassification === 'active-tile-production-accumulation-work'
+      ? 'production-accumulation'
+      : bottleneckClassification === 'parallel-sort-work'
+        ? 'parallel-sort'
+        : 'diagnostic-readback';
+  const nextStepRecommendedGoal =
+    bottleneckClassification === 'diagnostic-readback-transient-resources-remain'
+      ? 'diagnostic-readback-isolation-and-early-termination-v1'
+      : 'early-termination-v1';
+  const realtimeBottleneckEvidenceReady =
+    realtimeWorkloadBudgetTelemetryReady &&
+    resourceReuseCount > 0 &&
+    typeof bottleneckClassification === 'string';
+  const earlyTerminationDeferredReason =
+    'requires-production-resource-lifecycle-gate-evidence-before-changing-accumulation-exit-policy';
+  const chunkLodStreamingReadiness =
+    'deferred-until-persistent-resource-cache-and-bottleneck-classification-stabilize';
+  const visualParityDiagnosticsDeferredReason =
+    'deferred-until-final-production-compositor-parity-and-reference-visual-comparison';
+  const step101SelectiveDirtyDependencyPreserved =
+    selectiveDirtyDependencyExecutionReady;
 
   for (const buffer of [
     summaryBuffer,
@@ -2213,7 +2358,10 @@ fn finalizeSummary() {
         'dirty-vs-clean-frame-budget-telemetry',
         'selective-dirty-dependency-execution-v1',
         'dirty-reason-stage-plan-classification',
-        'production-stage-reuse-telemetry'
+        'production-stage-reuse-telemetry',
+        'production-resource-lifecycle-cache-boundary-v1',
+        'selective-executor-resource-reuse-policy',
+        'realtime-bottleneck-classification-v1'
       ],
       deferredCompositorFields: [
         'full-production-parallel-sort-parity',
@@ -2221,7 +2369,9 @@ fn finalizeSummary() {
         'final-production-tile-compositor',
         'chunk-lod-streaming',
         'complete-interactive-control-parity',
-        'early-termination-v1'
+        'early-termination-v1',
+        'viewport-resize-resource-reallocation-probe',
+        'visual-parity-diagnostics'
       ],
       compositorClassification:
         'production-webgpu-tile-compositor-v1-integration',
@@ -2330,7 +2480,7 @@ fn finalizeSummary() {
       activeTileDispatchUsed,
       activeTileCount: summary.activeTileCount,
       inactiveTileCount: summary.inactiveTileCount,
-      activeTilePixelWorkItemCount: summary.activeTilePixelWorkItemCount,
+      activeTilePixelWorkItemCount,
       fullScreenPixelWorkAvoided: summary.fullScreenPixelWorkAvoided,
       accumulationWorkReductionRatio: summary.accumulationWorkReductionRatio,
       inactiveBackgroundHandlingReady,
@@ -2508,6 +2658,37 @@ fn finalizeSummary() {
       skippedStageCount,
       reusedResourceCount,
       step100UnifiedInteractionSchedulerPreserved,
+      productionResourceLifecycleReady,
+      persistentGpuResourceCacheReady,
+      persistentResourceNames,
+      transientResourceNames,
+      remainingTransientResourceNames,
+      resourceReallocationBoundaryReady,
+      resourceReallocationPolicy:
+        'reallocate-only-on-device-or-size-capacity-boundary',
+      resourceReallocationReasons,
+      outputTextureReallocationBoundaryReady,
+      viewportResizeResourceReallocationDeferredReason,
+      selectiveExecutorConnectedToResourceReuse,
+      dirtyReasonResourceReusePolicyReady,
+      resourceReusePolicyByDirtyReason,
+      persistentResourceReuseByDirtyReason,
+      resourceAllocationCount,
+      resourceReuseCount,
+      resourceReallocationCount,
+      transientResourceCount,
+      persistentResourceCount,
+      cleanFrameUsesPersistentOutput,
+      dirtyFrameReusesPersistentResources,
+      realtimeBottleneckEvidenceReady,
+      bottleneckClassification,
+      bottleneckStageName,
+      bottleneckEvidence,
+      nextStepRecommendedGoal,
+      earlyTerminationDeferredReason,
+      chunkLodStreamingReadiness,
+      visualParityDiagnosticsDeferredReason,
+      step101SelectiveDirtyDependencyPreserved,
       step93OverflowPolicyPreserved,
       overflowAwareOrderingReady,
       sortCapacityLimit,
@@ -2533,6 +2714,8 @@ fn finalizeSummary() {
         'final-production-compositor-parity',
         'early-termination-v1',
         'viewport-resize-dirty-probe',
+        'viewport-resize-resource-reallocation-probe',
+        'visual-parity-diagnostics',
         'chunk-lod-streaming'
       ],
       reason: ready

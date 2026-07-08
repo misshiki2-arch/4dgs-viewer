@@ -16,7 +16,7 @@ export const WEBGPU_GPU_OWNED_TILE_LIST_LAYOUT_CONTRACT_VERSION =
   'phase3-step84-webgpu-gpu-owned-tile-list-layout-v1';
 
 export const WEBGPU_TILE_LIST_COMPOSITOR_CONTRACT_VERSION =
-  'phase3-step101-selective-dirty-dependency-execution-v1';
+  'phase3-step102-production-resource-lifecycle-and-bottleneck-gate-v1';
 
 export const WEBGPU_PHASE3_BACKEND_BOUNDARY_CONTRACT_VERSION =
   'phase3-step86-webgpu-backend-boundary-and-dirty-contract-v1';
@@ -894,6 +894,36 @@ export function buildWebGpuTileListCompositorContract({
   skippedStageCount = 0,
   reusedResourceCount = 0,
   step100UnifiedInteractionSchedulerPreserved = false,
+  productionResourceLifecycleReady = false,
+  persistentGpuResourceCacheReady = false,
+  persistentResourceNames = [],
+  transientResourceNames = [],
+  remainingTransientResourceNames = [],
+  resourceReallocationBoundaryReady = false,
+  resourceReallocationPolicy = null,
+  resourceReallocationReasons = [],
+  outputTextureReallocationBoundaryReady = false,
+  viewportResizeResourceReallocationDeferredReason = null,
+  selectiveExecutorConnectedToResourceReuse = false,
+  dirtyReasonResourceReusePolicyReady = false,
+  resourceReusePolicyByDirtyReason = {},
+  persistentResourceReuseByDirtyReason = {},
+  resourceAllocationCount = 0,
+  resourceReuseCount = 0,
+  resourceReallocationCount = 0,
+  transientResourceCount = 0,
+  persistentResourceCount = 0,
+  cleanFrameUsesPersistentOutput = false,
+  dirtyFrameReusesPersistentResources = false,
+  realtimeBottleneckEvidenceReady = false,
+  bottleneckClassification = null,
+  bottleneckStageName = null,
+  bottleneckEvidence = {},
+  nextStepRecommendedGoal = null,
+  earlyTerminationDeferredReason = null,
+  chunkLodStreamingReadiness = null,
+  visualParityDiagnosticsDeferredReason = null,
+  step101SelectiveDirtyDependencyPreserved = false,
   step93OverflowPolicyPreserved = false,
   overflowAwareOrderingReady = false,
   sortCapacityLimit = 64,
@@ -1130,6 +1160,28 @@ export function buildWebGpuTileListCompositorContract({
     skippedStageCount > 0 &&
     reusedResourceCount > 0 &&
     step100UnifiedInteractionSchedulerPreserved === true;
+  const productionResourceLifecycleRuntimeReady =
+    selectiveDirtyDependencyExecutionRuntimeReady === true &&
+    productionResourceLifecycleReady === true &&
+    persistentGpuResourceCacheReady === true &&
+    Array.isArray(persistentResourceNames) &&
+    persistentResourceNames.length > 0 &&
+    resourceReallocationBoundaryReady === true &&
+    typeof resourceReallocationPolicy === 'string' &&
+    resourceReallocationPolicy.length > 0 &&
+    outputTextureReallocationBoundaryReady === true &&
+    selectiveExecutorConnectedToResourceReuse === true &&
+    dirtyReasonResourceReusePolicyReady === true &&
+    cleanFrameUsesPersistentOutput === true &&
+    dirtyFrameReusesPersistentResources === true &&
+    realtimeBottleneckEvidenceReady === true &&
+    typeof bottleneckClassification === 'string' &&
+    bottleneckClassification.length > 0 &&
+    typeof nextStepRecommendedGoal === 'string' &&
+    nextStepRecommendedGoal.length > 0 &&
+    resourceReuseCount > 0 &&
+    persistentResourceCount > 0 &&
+    step101SelectiveDirtyDependencyPreserved === true;
   return {
     contractVersion: WEBGPU_TILE_LIST_COMPOSITOR_CONTRACT_VERSION,
     status: ready ? 'ok' : status,
@@ -1406,6 +1458,37 @@ export function buildWebGpuTileListCompositorContract({
     skippedStageCount,
     reusedResourceCount,
     step100UnifiedInteractionSchedulerPreserved,
+    productionResourceLifecycleReady:
+      productionResourceLifecycleRuntimeReady,
+    persistentGpuResourceCacheReady,
+    persistentResourceNames,
+    transientResourceNames,
+    remainingTransientResourceNames,
+    resourceReallocationBoundaryReady,
+    resourceReallocationPolicy,
+    resourceReallocationReasons,
+    outputTextureReallocationBoundaryReady,
+    viewportResizeResourceReallocationDeferredReason,
+    selectiveExecutorConnectedToResourceReuse,
+    dirtyReasonResourceReusePolicyReady,
+    resourceReusePolicyByDirtyReason,
+    persistentResourceReuseByDirtyReason,
+    resourceAllocationCount,
+    resourceReuseCount,
+    resourceReallocationCount,
+    transientResourceCount,
+    persistentResourceCount,
+    cleanFrameUsesPersistentOutput,
+    dirtyFrameReusesPersistentResources,
+    realtimeBottleneckEvidenceReady,
+    bottleneckClassification,
+    bottleneckStageName,
+    bottleneckEvidence,
+    nextStepRecommendedGoal,
+    earlyTerminationDeferredReason,
+    chunkLodStreamingReadiness,
+    visualParityDiagnosticsDeferredReason,
+    step101SelectiveDirtyDependencyPreserved,
     step93OverflowPolicyPreserved,
     overflowAwareOrderingReady: overflowAwareReady,
     sortCapacityLimit,

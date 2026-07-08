@@ -8526,6 +8526,437 @@ def build_step101_selective_dirty_dependency_execution_summary(
     }
 
 
+def build_step102_production_resource_lifecycle_summary(
+    summary: Dict[str, Any],
+) -> Dict[str, Any]:
+    frame_contract = get_path(
+        summary,
+        ["webgpuTileCompositorFrameImplementation"],
+        {},
+    )
+    compositor_contract = get_path(
+        summary,
+        ["webgpuTileListCompositorContract"],
+        {},
+    )
+    error_subtypes = detect_webgpu_error_subtypes(
+        frame_contract,
+        compositor_contract,
+        get_path(summary, ["captureErrorString"]),
+        get_path(summary, ["captureErrorStack"]),
+        get_path(summary, ["captureErrorMessage"]),
+        get_path(summary, ["firstValidationFailures"]),
+    )
+    phase_step = get_path(summary, ["phaseStep"])
+    wgsl_parse_error_detected = (
+        get_path(frame_contract, ["wgslParseErrorDetected"]) is True
+        or get_path(compositor_contract, ["wgslParseErrorDetected"]) is True
+        or error_subtypes["wgslParseErrorDetected"]
+    )
+    shader_module_invalid_detected = (
+        get_path(frame_contract, ["shaderModuleInvalidDetected"]) is True
+        or get_path(compositor_contract, ["shaderModuleInvalidDetected"]) is True
+        or error_subtypes["shaderModuleInvalidDetected"]
+    )
+    compute_pipeline_invalid_detected = (
+        get_path(frame_contract, ["computePipelineInvalidDetected"]) is True
+        or get_path(compositor_contract, ["computePipelineInvalidDetected"]) is True
+        or error_subtypes["computePipelineInvalidDetected"]
+    )
+    bind_group_invalid_detected = (
+        get_path(frame_contract, ["bindGroupInvalidDetected"]) is True
+        or get_path(compositor_contract, ["bindGroupInvalidDetected"]) is True
+        or error_subtypes["bindGroupInvalidDetected"]
+    )
+    deferred_production_items = get_path(
+        compositor_contract,
+        ["deferredProductionItems"],
+        [],
+    )
+    if not isinstance(deferred_production_items, list):
+        deferred_production_items = []
+    else:
+        deferred_production_items = list(deferred_production_items)
+    for item in [
+        "full-cuda-parity",
+        "final-production-compositor",
+        "final-production-compositor-parity",
+        "full-parallel-sort-parity",
+        "complete-interactive-control-parity",
+        "camera-visual-parity",
+        "viewport-resize-resource-reallocation-probe",
+        "visual-parity-diagnostics",
+        "chunk-lod-streaming",
+        "early-termination-v1",
+    ]:
+        if item not in deferred_production_items:
+            deferred_production_items.append(item)
+
+    persistent_resource_names = get_path(
+        compositor_contract,
+        ["persistentResourceNames"],
+        [],
+    )
+    if not isinstance(persistent_resource_names, list):
+        persistent_resource_names = []
+    remaining_transient_resource_names = get_path(
+        compositor_contract,
+        ["remainingTransientResourceNames"],
+        [],
+    )
+    if not isinstance(remaining_transient_resource_names, list):
+        remaining_transient_resource_names = []
+    resource_reuse_count = numeric_value(
+        get_path(compositor_contract, ["resourceReuseCount"]),
+        0,
+    )
+    persistent_resource_count = numeric_value(
+        get_path(compositor_contract, ["persistentResourceCount"]),
+        0,
+    )
+    step101_preserved = (
+        get_path(
+            compositor_contract,
+            ["step101SelectiveDirtyDependencyPreserved"],
+        )
+        is True
+        and get_path(
+            compositor_contract,
+            ["selectiveDirtyDependencyExecutionReady"],
+        )
+        is True
+    )
+    step100_preserved = (
+        get_path(
+            compositor_contract,
+            ["step100UnifiedInteractionSchedulerPreserved"],
+        )
+        is True
+        and get_path(compositor_contract, ["unifiedInteractionSchedulerReady"])
+        is True
+    )
+    step99_preserved = (
+        get_path(compositor_contract, ["step99InteractiveCameraDirtyPreserved"])
+        is True
+        and get_path(
+            compositor_contract,
+            ["interactiveCameraDirtyRuntimeReady"],
+        )
+        is True
+    )
+    step98_preserved = (
+        get_path(compositor_contract, ["step98ViewerTimeSchedulerPreserved"])
+        is True
+        and get_path(
+            compositor_contract,
+            ["viewerConnectedInteractiveSchedulerReady"],
+        )
+        is True
+    )
+    step97_preserved = (
+        get_path(compositor_contract, ["step97MultiFrameRuntimePreserved"])
+        is True
+        and get_path(compositor_contract, ["timeDrivenProductionRuntimeReady"])
+        is True
+    )
+    step96_preserved = (
+        get_path(compositor_contract, ["step96ProductionTileCompositorPreserved"])
+        is True
+        and get_path(compositor_contract, ["productionTileCompositorReady"]) is True
+    )
+    step94_preserved = (
+        get_path(compositor_contract, ["step94ParallelSortPreserved"]) is True
+        and get_path(compositor_contract, ["gpuParallelPerTileSortReady"]) is True
+    )
+    step88_preserved = (
+        get_path(compositor_contract, ["step88PresentationContractPreserved"]) is True
+        or get_path(
+            frame_contract,
+            ["steadyStateTileCompositorOwnsFinalPresentation"],
+        )
+        is True
+    )
+    lifecycle_ready = (
+        phase_step == "phase3-step102"
+        and get_path(compositor_contract, ["productionResourceLifecycleReady"])
+        is True
+        and get_path(compositor_contract, ["persistentGpuResourceCacheReady"])
+        is True
+        and len(persistent_resource_names) > 0
+        and get_path(compositor_contract, ["resourceReallocationBoundaryReady"])
+        is True
+        and isinstance(
+            get_path(compositor_contract, ["resourceReallocationPolicy"]),
+            str,
+        )
+        and get_path(
+            compositor_contract,
+            ["outputTextureReallocationBoundaryReady"],
+        )
+        is True
+        and get_path(
+            compositor_contract,
+            ["selectiveExecutorConnectedToResourceReuse"],
+        )
+        is True
+        and get_path(
+            compositor_contract,
+            ["dirtyReasonResourceReusePolicyReady"],
+        )
+        is True
+        and get_path(compositor_contract, ["cleanFrameUsesPersistentOutput"])
+        is True
+        and get_path(compositor_contract, ["dirtyFrameReusesPersistentResources"])
+        is True
+        and get_path(compositor_contract, ["realtimeBottleneckEvidenceReady"])
+        is True
+        and isinstance(
+            get_path(compositor_contract, ["bottleneckClassification"]),
+            str,
+        )
+        and isinstance(
+            get_path(compositor_contract, ["nextStepRecommendedGoal"]),
+            str,
+        )
+        and resource_reuse_count > 0
+        and persistent_resource_count > 0
+        and step101_preserved
+        and step100_preserved
+        and step99_preserved
+        and step98_preserved
+        and step97_preserved
+        and step96_preserved
+        and step94_preserved
+        and step88_preserved
+        and get_path(compositor_contract, ["fallbackOnlyCompositorUsed"]) is False
+        and get_path(compositor_contract, ["debugOutputBypassedForProduction"])
+        is True
+        and get_path(
+            compositor_contract,
+            ["diagnosticReadbackSeparatedFromRuntimePath"],
+        )
+        is True
+        and get_path(compositor_contract, ["visualOutputDegeneratedDetected"])
+        is not True
+        and wgsl_parse_error_detected is False
+        and shader_module_invalid_detected is False
+        and compute_pipeline_invalid_detected is False
+        and bind_group_invalid_detected is False
+        and get_path(frame_contract, ["webgpuValidationErrorDetected"]) is False
+        and get_path(frame_contract, ["invalidCommandBufferDetected"]) is False
+        and get_path(frame_contract, ["queueSubmitFailureDetected"]) is False
+        and get_path(frame_contract, ["webgpuWebgl2SameFramePresentationMixed"])
+        is False
+        and get_path(frame_contract, ["fallbackMixingPrevented"]) is True
+        and get_path(frame_contract, ["fullRendererSuccessClaimed"]) is False
+    )
+    blocked_reason = None
+    if not lifecycle_ready:
+        if phase_step != "phase3-step102":
+            blocked_reason = "summary-phase-step-is-not-phase3-step102"
+        elif get_path(compositor_contract, ["productionResourceLifecycleReady"]) is not True:
+            blocked_reason = "production-resource-lifecycle-not-ready"
+        elif get_path(compositor_contract, ["persistentGpuResourceCacheReady"]) is not True:
+            blocked_reason = "persistent-gpu-resource-cache-not-ready"
+        elif get_path(
+            compositor_contract,
+            ["selectiveExecutorConnectedToResourceReuse"],
+        ) is not True:
+            blocked_reason = "selective-executor-resource-reuse-not-connected"
+        elif get_path(compositor_contract, ["realtimeBottleneckEvidenceReady"]) is not True:
+            blocked_reason = "realtime-bottleneck-evidence-not-ready"
+        elif not step101_preserved:
+            blocked_reason = "step101-selective-dirty-not-preserved"
+        elif not step100_preserved:
+            blocked_reason = "step100-unified-scheduler-not-preserved"
+        elif wgsl_parse_error_detected:
+            blocked_reason = "wgsl-parse-error-detected"
+        elif shader_module_invalid_detected:
+            blocked_reason = "shader-module-invalid-detected"
+        elif compute_pipeline_invalid_detected:
+            blocked_reason = "compute-pipeline-invalid-detected"
+        elif bind_group_invalid_detected:
+            blocked_reason = "bind-group-invalid-detected"
+        else:
+            blocked_reason = "step102-resource-lifecycle-validation-failed"
+
+    return {
+        "step102Decision": "success" if lifecycle_ready else "blocked",
+        "step102BlockedReason": blocked_reason,
+        "step102SelectedGoal":
+            "A+B+C+D-production-resource-lifecycle-bottleneck-gate-v1",
+        "phaseStep": phase_step,
+        "step102SummaryApplies": phase_step == "phase3-step102",
+        "productionResourceLifecycleReady": get_path(
+            compositor_contract,
+            ["productionResourceLifecycleReady"],
+        ),
+        "persistentGpuResourceCacheReady": get_path(
+            compositor_contract,
+            ["persistentGpuResourceCacheReady"],
+        ),
+        "persistentResourceNames": persistent_resource_names,
+        "transientResourceNames": get_path(
+            compositor_contract,
+            ["transientResourceNames"],
+        ),
+        "remainingTransientResourceNames": remaining_transient_resource_names,
+        "resourceReallocationBoundaryReady": get_path(
+            compositor_contract,
+            ["resourceReallocationBoundaryReady"],
+        ),
+        "resourceReallocationPolicy": get_path(
+            compositor_contract,
+            ["resourceReallocationPolicy"],
+        ),
+        "resourceReallocationReasons": get_path(
+            compositor_contract,
+            ["resourceReallocationReasons"],
+        ),
+        "outputTextureReallocationBoundaryReady": get_path(
+            compositor_contract,
+            ["outputTextureReallocationBoundaryReady"],
+        ),
+        "viewportResizeResourceReallocationDeferredReason": get_path(
+            compositor_contract,
+            ["viewportResizeResourceReallocationDeferredReason"],
+        ),
+        "selectiveExecutorConnectedToResourceReuse": get_path(
+            compositor_contract,
+            ["selectiveExecutorConnectedToResourceReuse"],
+        ),
+        "dirtyReasonResourceReusePolicyReady": get_path(
+            compositor_contract,
+            ["dirtyReasonResourceReusePolicyReady"],
+        ),
+        "resourceReusePolicyByDirtyReason": get_path(
+            compositor_contract,
+            ["resourceReusePolicyByDirtyReason"],
+        ),
+        "persistentResourceReuseByDirtyReason": get_path(
+            compositor_contract,
+            ["persistentResourceReuseByDirtyReason"],
+        ),
+        "resourceAllocationCount": get_path(
+            compositor_contract,
+            ["resourceAllocationCount"],
+        ),
+        "resourceReuseCount": get_path(
+            compositor_contract,
+            ["resourceReuseCount"],
+        ),
+        "resourceReallocationCount": get_path(
+            compositor_contract,
+            ["resourceReallocationCount"],
+        ),
+        "transientResourceCount": get_path(
+            compositor_contract,
+            ["transientResourceCount"],
+        ),
+        "persistentResourceCount": get_path(
+            compositor_contract,
+            ["persistentResourceCount"],
+        ),
+        "cleanFrameUsesPersistentOutput": get_path(
+            compositor_contract,
+            ["cleanFrameUsesPersistentOutput"],
+        ),
+        "dirtyFrameReusesPersistentResources": get_path(
+            compositor_contract,
+            ["dirtyFrameReusesPersistentResources"],
+        ),
+        "realtimeBottleneckEvidenceReady": get_path(
+            compositor_contract,
+            ["realtimeBottleneckEvidenceReady"],
+        ),
+        "bottleneckClassification": get_path(
+            compositor_contract,
+            ["bottleneckClassification"],
+        ),
+        "bottleneckStageName": get_path(
+            compositor_contract,
+            ["bottleneckStageName"],
+        ),
+        "bottleneckEvidence": get_path(
+            compositor_contract,
+            ["bottleneckEvidence"],
+        ),
+        "nextStepRecommendedGoal": get_path(
+            compositor_contract,
+            ["nextStepRecommendedGoal"],
+        ),
+        "earlyTerminationDeferredReason": get_path(
+            compositor_contract,
+            ["earlyTerminationDeferredReason"],
+        ),
+        "chunkLodStreamingReadiness": get_path(
+            compositor_contract,
+            ["chunkLodStreamingReadiness"],
+        ),
+        "visualParityDiagnosticsDeferredReason": get_path(
+            compositor_contract,
+            ["visualParityDiagnosticsDeferredReason"],
+        ),
+        "step101SelectiveDirtyDependencyPreserved": step101_preserved,
+        "step100UnifiedInteractionSchedulerPreserved": step100_preserved,
+        "step99InteractiveCameraDirtyPreserved": step99_preserved,
+        "step98ViewerTimeSchedulerPreserved": step98_preserved,
+        "step97MultiFrameRuntimePreserved": step97_preserved,
+        "step96ProductionTileCompositorPreserved": step96_preserved,
+        "step94ParallelSortPreserved": step94_preserved,
+        "step88PresentationContractPreserved": step88_preserved,
+        "step85TileCompositorPathPreserved": get_path(
+            frame_contract,
+            ["step85TileCompositorPathPreserved"],
+        ),
+        "step86BoundaryContractPreserved": get_path(
+            frame_contract,
+            ["step86BoundaryContractPreserved"],
+        ),
+        "step87DepthOrderingPreserved": get_path(
+            frame_contract,
+            ["step87DepthOrderingPreserved"],
+        ),
+        "fallbackOnlyCompositorUsed": get_path(
+            compositor_contract,
+            ["fallbackOnlyCompositorUsed"],
+        ),
+        "debugOutputBypassedForProduction": get_path(
+            compositor_contract,
+            ["debugOutputBypassedForProduction"],
+        ),
+        "diagnosticReadbackSeparatedFromRuntimePath": get_path(
+            compositor_contract,
+            ["diagnosticReadbackSeparatedFromRuntimePath"],
+        ),
+        "visualOutputDegeneratedDetected": get_path(
+            compositor_contract,
+            ["visualOutputDegeneratedDetected"],
+        ),
+        "wgslParseErrorDetected": wgsl_parse_error_detected,
+        "shaderModuleInvalidDetected": shader_module_invalid_detected,
+        "computePipelineInvalidDetected": compute_pipeline_invalid_detected,
+        "bindGroupInvalidDetected": bind_group_invalid_detected,
+        "webgpuValidationErrorDetected": get_path(
+            frame_contract,
+            ["webgpuValidationErrorDetected"],
+        ),
+        "invalidCommandBufferDetected": get_path(
+            frame_contract,
+            ["invalidCommandBufferDetected"],
+        ),
+        "queueSubmitFailureDetected": get_path(
+            frame_contract,
+            ["queueSubmitFailureDetected"],
+        ),
+        "deferredProductionItems": deferred_production_items,
+        "fullRendererSuccessClaimed": get_path(
+            frame_contract,
+            ["fullRendererSuccessClaimed"],
+        ),
+    }
+
+
 def build_step75_camera_aware_visible_summary(
     summary: Dict[str, Any],
     webgpu_camera_aware_visible_output: Dict[str, Any],
@@ -9755,6 +10186,9 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
     step101_selective_dirty_dependency_execution = (
         build_step101_selective_dirty_dependency_execution_summary(summary)
     )
+    step102_production_resource_lifecycle = (
+        build_step102_production_resource_lifecycle_summary(summary)
+    )
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -9826,6 +10260,8 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             step100_unified_interaction_scheduler_runtime,
         "step101SelectiveDirtyDependencyExecution":
             step101_selective_dirty_dependency_execution,
+        "step102ProductionResourceLifecycle":
+            step102_production_resource_lifecycle,
         "comparisonContract": get_path(summary, ["comparisonContract"], {}),
         "comparisonTolerance": get_path(summary, ["comparisonTolerance"], {}),
         "radiusContract": get_path(summary, ["radiusContract"], {}),
@@ -14950,6 +15386,12 @@ def print_human_summary(summary: Dict[str, Any]) -> None:
         "Step101 WebGPU selective dirty dependency execution",
         summary.get("webgpuVisibleRecordDryRun", {}).get(
             "step101SelectiveDirtyDependencyExecution"
+        ),
+    )
+    print_section(
+        "Step102 WebGPU production resource lifecycle",
+        summary.get("webgpuVisibleRecordDryRun", {}).get(
+            "step102ProductionResourceLifecycle"
         ),
     )
     print_section("WebGPU visible record dry-run", summary.get("webgpuVisibleRecordDryRun"))

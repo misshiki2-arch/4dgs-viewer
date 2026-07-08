@@ -2256,3 +2256,63 @@ Deferred work remains full CUDA parity, final production compositor parity,
 full parallel sort parity, camera visual parity, complete interactive control
 parity, viewport resize dirty probing, early termination v1,
 chunk/LOD/streaming, and final visual parity diagnostics.
+
+## Step102 Production Resource Lifecycle and Realtime Bottleneck Gate V1
+
+Step102 advances Step101 from selective stage planning to production resource
+lifecycle evidence. The selected scope is A+B+C+D: keep persistent WebGPU
+production resources explicit, connect the selective executor to resource reuse
+policy, report dirty/clean frame budget evidence, and classify the current
+runtime bottleneck for the next production step. Viewport resize reallocation is
+kept behind a small boundary and remains deferred unless a resize probe actually
+changes the viewport.
+
+The Step102 runtime path is:
+
+```text
+selective dirty executor
+-> dirty reason resource reuse policy
+-> persistent GPU resource cache / transient diagnostics
+-> resource reallocation boundary
+-> realtime bottleneck classification
+-> steady-state final presentation
+```
+
+- Persistent lifecycle: the compositor records reusable production resources
+  such as the WebGPU device, attribute and footprint buffers, tile capacity
+  table, ordered reference buffer, parallel sort scratch buffer, production
+  output texture, last valid production output texture, and presentation
+  heartbeat.
+- Transient diagnostics: summary and texture readback buffers remain listed as
+  transient diagnostic resources so the runtime path does not pretend readback
+  is part of steady-state production.
+- Dirty reason reuse policy: time, camera, viewport, and clean-frame reasons
+  each expose reuse and reallocation plans. Clean frames reuse the last valid
+  production output and presentation heartbeat; dirty frames reuse persistent
+  device/buffer/cache resources while updating only required stages.
+- Reallocation boundary: output texture reallocation is limited to device,
+  canvas/viewport size, sort capacity, or tile capacity changes. The viewport
+  resize probe is deferred when the Step99/Step101 camera dirty probe does not
+  actually resize the viewport.
+- Bottleneck gate: the compositor reports a bottleneck classification, stage
+  name, supporting counts, and a recommended next goal. Remaining diagnostic
+  readback resources currently point the next step toward readback isolation and
+  early termination preparation rather than chunk/LOD/streaming.
+
+Step102 Summary success requires `productionResourceLifecycleReady`,
+`persistentGpuResourceCacheReady`, `persistentResourceNames`,
+`remainingTransientResourceNames`, `resourceReallocationBoundaryReady`,
+`resourceReallocationPolicy`, `outputTextureReallocationBoundaryReady`,
+`selectiveExecutorConnectedToResourceReuse`,
+`dirtyReasonResourceReusePolicyReady`, `resourceReusePolicyByDirtyReason`,
+`persistentResourceReuseByDirtyReason`, `resourceReuseCount`,
+`persistentResourceCount`, `cleanFrameUsesPersistentOutput`,
+`dirtyFrameReusesPersistentResources`, `realtimeBottleneckEvidenceReady`,
+`bottleneckClassification`, `bottleneckEvidence`, and
+`nextStepRecommendedGoal`. It also requires Step101, Step100, Step99, Step98,
+Step97, Step96, Step94, Step88, and Step85-87 preservation.
+
+Deferred work remains viewport resize resource reallocation probing, full CUDA
+parity, final production compositor parity, full parallel sort parity, camera
+visual parity, visual parity diagnostics, complete interactive control parity,
+early termination v1, and chunk/LOD/streaming.

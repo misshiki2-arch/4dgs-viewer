@@ -5136,7 +5136,9 @@ export async function runWebGpuVisibleRecordDryRun({
     computeMode: WEBGPU_VISIBLE_RECORD_COMPUTE_MODE,
     scaffoldMode: WEBGPU_VISIBLE_RECORD_SCAFFOLD_MODE,
     scaffoldNote:
-      phaseStep === 'phase3-step101'
+      phaseStep === 'phase3-step102'
+        ? 'Phase 3 Step102 connects selective dirty execution to persistent WebGPU production resource lifecycle, reuse policy, and realtime bottleneck evidence.'
+        : phaseStep === 'phase3-step101'
         ? 'Phase 3 Step101 classifies time, camera, viewport, and clean dirty reasons for selective WebGPU production stage update and resource reuse.'
         : phaseStep === 'phase3-step100'
         ? 'Phase 3 Step100 unifies time, camera, viewport, and playback dirty paths into the WebGPU production interaction scheduler while preserving Step99 and Step98 runtime evidence.'
