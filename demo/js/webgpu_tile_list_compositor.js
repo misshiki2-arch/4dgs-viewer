@@ -2000,6 +2000,131 @@ fn finalizeSummary() {
     cleanFrameReuseAfterUnifiedInteractionStabilized &&
     lastValidProductionOutputPresentedAfterUnifiedCleanFrame &&
     realtimeFrameBudgetTelemetryReady;
+  const dirtyReasonSequence = [
+    'time-dirty',
+    'camera-dirty',
+    dirtyViewportTriggeredProductionUpdate ? 'viewport-dirty' : 'viewport-deferred',
+    'clean-frame'
+  ];
+  const timeDirtyUpdatedStages = [
+    'time-frame-state',
+    'webgpu-4d-state-visible',
+    'tile-list',
+    'parallel-sort',
+    'production-accumulation',
+    'output-texture'
+  ];
+  const cameraDirtyUpdatedStages = [
+    'camera-constants',
+    'webgpu-4d-state-visible',
+    'tile-input',
+    'tile-list',
+    'parallel-sort',
+    'production-accumulation',
+    'output-texture'
+  ];
+  const viewportDirtyUpdatedStages = dirtyViewportTriggeredProductionUpdate
+    ? ['viewport', 'output-texture', 'presentation']
+    : [];
+  const cleanFrameUpdatedStages = ['presentation'];
+  const timeDirtySkippedStages = ['presentation-heartbeat-reuses-current-texture-view-only'];
+  const cameraDirtySkippedStages = ['time-frame-state'];
+  const viewportDirtySkippedStages = dirtyViewportTriggeredProductionUpdate
+    ? ['webgpu-4d-state-visible', 'parallel-sort']
+    : [
+        'viewport-resize-probe',
+        'viewport-output-texture-reallocation'
+      ];
+  const cleanFrameSkippedStages = [
+    'time-frame-state',
+    'camera-constants',
+    'webgpu-4d-state-visible',
+    'tile-input',
+    'tile-list',
+    'parallel-sort',
+    'production-accumulation',
+    'output-texture-update'
+  ];
+  const updatedStageNamesByDirtyReason = {
+    'time-dirty': timeDirtyUpdatedStages,
+    'camera-dirty': cameraDirtyUpdatedStages,
+    'viewport-dirty': viewportDirtyUpdatedStages,
+    'clean-frame': cleanFrameUpdatedStages
+  };
+  const skippedStageNamesByDirtyReason = {
+    'time-dirty': timeDirtySkippedStages,
+    'camera-dirty': cameraDirtySkippedStages,
+    'viewport-dirty': viewportDirtySkippedStages,
+    'clean-frame': cleanFrameSkippedStages
+  };
+  const reusedResourceNamesByDirtyReason = {
+    'time-dirty': ['webgpu-device', 'tile-capacity-table', 'output-texture-allocation'],
+    'camera-dirty': ['webgpu-device', 'attribute-buffer', 'sort-scratch-buffer'],
+    'viewport-dirty': dirtyViewportTriggeredProductionUpdate
+      ? ['webgpu-device', 'attribute-buffer', 'ordered-reference-buffer']
+      : ['viewport-state-contract'],
+    'clean-frame': [
+      'last-valid-production-output-texture',
+      'presentation-heartbeat',
+      'fresh-current-texture-view'
+    ]
+  };
+  const countObjectArrayItems = (value) =>
+    Object.values(value).reduce(
+      (total, items) => total + (Array.isArray(items) ? items.length : 0),
+      0
+    );
+  const skippedStageCount = countObjectArrayItems(skippedStageNamesByDirtyReason);
+  const reusedResourceCount = countObjectArrayItems(reusedResourceNamesByDirtyReason);
+  const realtimeWorkloadBudgetTelemetryReady =
+    realtimeFrameBudgetTelemetryReady &&
+    skippedStageCount > 0 &&
+    reusedResourceCount > 0;
+  const dirtyReasonClassificationReady =
+    dirtyReasonSequence.includes('time-dirty') &&
+    dirtyReasonSequence.includes('camera-dirty') &&
+    dirtyReasonSequence.includes('clean-frame');
+  const timeDirtyStagePlanReady =
+    dirtyTimeStateTriggersUnifiedProductionUpdate &&
+    timeDirtyUpdatedStages.every((stage) => updatedStageNames.includes(stage));
+  const cameraDirtyStagePlanReady =
+    dirtyCameraConstantsTriggersUnifiedProductionUpdate &&
+    cameraDirtyUpdatedStages.includes('webgpu-4d-state-visible') &&
+    cameraDirtyUpdatedStages.includes('production-accumulation');
+  const viewportDirtyIntegratedOrDeferredReason =
+    dirtyViewportTriggeredProductionUpdate
+      ? 'viewport-dirty-integrated-selective-stage-plan'
+      : dirtyViewportIntegratedOrDeferredReason;
+  const cleanFrameStagePlanReady =
+    cleanFrameReuseAfterUnifiedInteractionStabilized &&
+    cleanFrameSkippedStages.includes('production-accumulation') &&
+    reusedResourceNamesByDirtyReason['clean-frame']
+      .includes('last-valid-production-output-texture');
+  const selectiveStageInvalidationUsed =
+    timeDirtyStagePlanReady &&
+    cameraDirtyStagePlanReady &&
+    cleanFrameStagePlanReady &&
+    skippedStageCount > 0 &&
+    reusedResourceCount > 0;
+  const productionRuntimeUpdatedBySelectiveExecutor =
+    selectiveStageInvalidationUsed &&
+    productionRuntimeUpdatedByUnifiedInteractionScheduler;
+  const cleanFrameReuseAfterSelectiveExecution =
+    cleanFrameStagePlanReady &&
+    cleanFrameReuseAfterUnifiedInteractionStabilized;
+  const lastValidProductionOutputPresentedAfterSelectiveCleanFrame =
+    cleanFrameReuseAfterSelectiveExecution &&
+    lastValidProductionOutputPresentedAfterUnifiedCleanFrame;
+  const step100UnifiedInteractionSchedulerPreserved =
+    unifiedInteractionSchedulerReady;
+  const selectiveDirtyDependencyExecutionReady =
+    step100UnifiedInteractionSchedulerPreserved &&
+    dirtyReasonClassificationReady &&
+    selectiveStageInvalidationUsed &&
+    productionRuntimeUpdatedBySelectiveExecutor &&
+    cleanFrameReuseAfterSelectiveExecution &&
+    lastValidProductionOutputPresentedAfterSelectiveCleanFrame &&
+    realtimeFrameBudgetTelemetryReady;
 
   for (const buffer of [
     summaryBuffer,
@@ -2085,7 +2210,10 @@ fn finalizeSummary() {
         'interactive-camera-state-to-dirty-camera-constants-boundary',
         'unified-production-interaction-scheduler-runtime-v1',
         'capture-probe-runtime-boundary-separation',
-        'dirty-vs-clean-frame-budget-telemetry'
+        'dirty-vs-clean-frame-budget-telemetry',
+        'selective-dirty-dependency-execution-v1',
+        'dirty-reason-stage-plan-classification',
+        'production-stage-reuse-telemetry'
       ],
       deferredCompositorFields: [
         'full-production-parallel-sort-parity',
@@ -2358,10 +2486,28 @@ fn finalizeSummary() {
       cleanFrameReuseAfterUnifiedInteractionStabilized,
       lastValidProductionOutputPresentedAfterUnifiedCleanFrame,
       realtimeFrameBudgetTelemetryReady,
+      realtimeWorkloadBudgetTelemetryReady,
       dirtyFrameCount,
       cleanFrameReuseCount,
       productionUpdateCount,
       step99InteractiveCameraDirtyPreserved,
+      selectiveDirtyDependencyExecutionReady,
+      dirtyReasonClassificationReady,
+      dirtyReasonSequence,
+      timeDirtyStagePlanReady,
+      cameraDirtyStagePlanReady,
+      viewportDirtyIntegratedOrDeferredReason,
+      cleanFrameStagePlanReady,
+      selectiveStageInvalidationUsed,
+      updatedStageNamesByDirtyReason,
+      skippedStageNamesByDirtyReason,
+      reusedResourceNamesByDirtyReason,
+      productionRuntimeUpdatedBySelectiveExecutor,
+      cleanFrameReuseAfterSelectiveExecution,
+      lastValidProductionOutputPresentedAfterSelectiveCleanFrame,
+      skippedStageCount,
+      reusedResourceCount,
+      step100UnifiedInteractionSchedulerPreserved,
       step93OverflowPolicyPreserved,
       overflowAwareOrderingReady,
       sortCapacityLimit,
@@ -2386,6 +2532,7 @@ fn finalizeSummary() {
         'camera-visual-parity',
         'final-production-compositor-parity',
         'early-termination-v1',
+        'viewport-resize-dirty-probe',
         'chunk-lod-streaming'
       ],
       reason: ready

@@ -16,7 +16,7 @@ export const WEBGPU_GPU_OWNED_TILE_LIST_LAYOUT_CONTRACT_VERSION =
   'phase3-step84-webgpu-gpu-owned-tile-list-layout-v1';
 
 export const WEBGPU_TILE_LIST_COMPOSITOR_CONTRACT_VERSION =
-  'phase3-step100-unified-production-interaction-scheduler-runtime-v1';
+  'phase3-step101-selective-dirty-dependency-execution-v1';
 
 export const WEBGPU_PHASE3_BACKEND_BOUNDARY_CONTRACT_VERSION =
   'phase3-step86-webgpu-backend-boundary-and-dirty-contract-v1';
@@ -872,10 +872,28 @@ export function buildWebGpuTileListCompositorContract({
   cleanFrameReuseAfterUnifiedInteractionStabilized = false,
   lastValidProductionOutputPresentedAfterUnifiedCleanFrame = false,
   realtimeFrameBudgetTelemetryReady = false,
+  realtimeWorkloadBudgetTelemetryReady = false,
   dirtyFrameCount = 0,
   cleanFrameReuseCount = 0,
   productionUpdateCount = 0,
   step99InteractiveCameraDirtyPreserved = false,
+  selectiveDirtyDependencyExecutionReady = false,
+  dirtyReasonClassificationReady = false,
+  dirtyReasonSequence = [],
+  timeDirtyStagePlanReady = false,
+  cameraDirtyStagePlanReady = false,
+  viewportDirtyIntegratedOrDeferredReason = null,
+  cleanFrameStagePlanReady = false,
+  selectiveStageInvalidationUsed = false,
+  updatedStageNamesByDirtyReason = {},
+  skippedStageNamesByDirtyReason = {},
+  reusedResourceNamesByDirtyReason = {},
+  productionRuntimeUpdatedBySelectiveExecutor = false,
+  cleanFrameReuseAfterSelectiveExecution = false,
+  lastValidProductionOutputPresentedAfterSelectiveCleanFrame = false,
+  skippedStageCount = 0,
+  reusedResourceCount = 0,
+  step100UnifiedInteractionSchedulerPreserved = false,
   step93OverflowPolicyPreserved = false,
   overflowAwareOrderingReady = false,
   sortCapacityLimit = 64,
@@ -1088,6 +1106,30 @@ export function buildWebGpuTileListCompositorContract({
     cleanFrameReuseCount > 0 &&
     productionUpdateCount > 0 &&
     step99InteractiveCameraDirtyPreserved === true;
+  const selectiveDirtyDependencyExecutionRuntimeReady =
+    unifiedInteractionSchedulerRuntimeReady === true &&
+    selectiveDirtyDependencyExecutionReady === true &&
+    dirtyReasonClassificationReady === true &&
+    Array.isArray(dirtyReasonSequence) &&
+    dirtyReasonSequence.includes('time-dirty') &&
+    dirtyReasonSequence.includes('camera-dirty') &&
+    dirtyReasonSequence.includes('clean-frame') &&
+    timeDirtyStagePlanReady === true &&
+    cameraDirtyStagePlanReady === true &&
+    typeof viewportDirtyIntegratedOrDeferredReason === 'string' &&
+    viewportDirtyIntegratedOrDeferredReason.length > 0 &&
+    cleanFrameStagePlanReady === true &&
+    selectiveStageInvalidationUsed === true &&
+    productionRuntimeUpdatedBySelectiveExecutor === true &&
+    cleanFrameReuseAfterSelectiveExecution === true &&
+    lastValidProductionOutputPresentedAfterSelectiveCleanFrame === true &&
+    realtimeWorkloadBudgetTelemetryReady === true &&
+    dirtyFrameCount > 0 &&
+    cleanFrameReuseCount > 0 &&
+    productionUpdateCount > 0 &&
+    skippedStageCount > 0 &&
+    reusedResourceCount > 0 &&
+    step100UnifiedInteractionSchedulerPreserved === true;
   return {
     contractVersion: WEBGPU_TILE_LIST_COMPOSITOR_CONTRACT_VERSION,
     status: ready ? 'ok' : status,
@@ -1341,10 +1383,29 @@ export function buildWebGpuTileListCompositorContract({
     cleanFrameReuseAfterUnifiedInteractionStabilized,
     lastValidProductionOutputPresentedAfterUnifiedCleanFrame,
     realtimeFrameBudgetTelemetryReady,
+    realtimeWorkloadBudgetTelemetryReady,
     dirtyFrameCount,
     cleanFrameReuseCount,
     productionUpdateCount,
     step99InteractiveCameraDirtyPreserved,
+    selectiveDirtyDependencyExecutionReady:
+      selectiveDirtyDependencyExecutionRuntimeReady,
+    dirtyReasonClassificationReady,
+    dirtyReasonSequence,
+    timeDirtyStagePlanReady,
+    cameraDirtyStagePlanReady,
+    viewportDirtyIntegratedOrDeferredReason,
+    cleanFrameStagePlanReady,
+    selectiveStageInvalidationUsed,
+    updatedStageNamesByDirtyReason,
+    skippedStageNamesByDirtyReason,
+    reusedResourceNamesByDirtyReason,
+    productionRuntimeUpdatedBySelectiveExecutor,
+    cleanFrameReuseAfterSelectiveExecution,
+    lastValidProductionOutputPresentedAfterSelectiveCleanFrame,
+    skippedStageCount,
+    reusedResourceCount,
+    step100UnifiedInteractionSchedulerPreserved,
     step93OverflowPolicyPreserved,
     overflowAwareOrderingReady: overflowAwareReady,
     sortCapacityLimit,

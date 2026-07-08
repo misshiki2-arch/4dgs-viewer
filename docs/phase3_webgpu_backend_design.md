@@ -2198,3 +2198,61 @@ Deferred work remains full CUDA parity, final production compositor parity,
 full parallel sort parity, camera visual parity, complete interactive control
 parity, automatic viewport resize dirty probing, chunk/LOD/streaming, and early
 termination v1.
+
+## Step101 Selective Dirty Dependency Execution / Realtime Workload Budget V1
+
+Step101 advances Step100 from a unified interaction scheduler contract to
+selective dirty dependency execution. The selected scope is A+B+C+D: classify
+dirty reasons, map each reason to stage update/skip/reuse plans, preserve
+production GPU resources when a stage is clean, and expose realtime workload
+budget telemetry. Viewport resize stimulation, early termination, chunk/LOD,
+streaming, visual parity, and final compositor parity remain deferred.
+
+The Step101 runtime path is:
+
+```text
+unified interaction scheduler
+-> dirty reason classification
+-> selective stage invalidation
+-> required WebGPU production stages update
+-> reusable GPU resources / last valid output reuse
+-> steady-state final presentation
+```
+
+- Dirty reason classification: `time-dirty`, `camera-dirty`,
+  `viewport-dirty` or `viewport-deferred`, and `clean-frame` are recorded as a
+  single scheduler-facing sequence rather than separate ad hoc probe results.
+- Selective stage plans: time dirty updates time/frame state through production
+  output; camera dirty updates camera constants, visible/tile/sort, and
+  accumulation; viewport dirty is either integrated through output/presentation
+  or reported with a deferred reason; clean frames skip expensive production
+  stages and present the last valid output.
+- WebGPU backend boundary: the compositor consumes the classified dirty reason
+  plan and records updated stages, skipped stages, and reused resources by dirty
+  reason. It does not move rendering-core decisions into the viewer shell.
+- Runtime budget telemetry: Summary exposes dirty frame count, clean frame reuse
+  count, production update count, skipped stage count, and reused resource count.
+- Boundary enforcement: Step101 preserves Step100 unified scheduler, Step99
+  camera dirty runtime, Step98 time scheduler, Step97 multi-frame runtime,
+  Step96 production compositor, Step94 parallel sort, and Step88 presentation
+  ownership. WebGL2 remains fallback/validation only, and CUDA Reference remains
+  a fixed baseline rather than an interactive runtime owner.
+
+Step101 Summary success requires `selectiveDirtyDependencyExecutionReady`,
+`dirtyReasonClassificationReady`, `dirtyReasonSequence`,
+`timeDirtyStagePlanReady`, `cameraDirtyStagePlanReady`,
+`viewportDirtyIntegratedOrDeferredReason`, `cleanFrameStagePlanReady`,
+`selectiveStageInvalidationUsed`, `updatedStageNamesByDirtyReason`,
+`skippedStageNamesByDirtyReason`, `reusedResourceNamesByDirtyReason`,
+`productionRuntimeUpdatedBySelectiveExecutor`,
+`cleanFrameReuseAfterSelectiveExecution`,
+`lastValidProductionOutputPresentedAfterSelectiveCleanFrame`,
+`realtimeWorkloadBudgetTelemetryReady`, `dirtyFrameCount`,
+`cleanFrameReuseCount`, `productionUpdateCount`, `skippedStageCount`, and
+`reusedResourceCount`. It also requires Step100, Step99, Step98, Step97, Step96,
+Step94, Step88, and Step85-87 preservation.
+
+Deferred work remains full CUDA parity, final production compositor parity,
+full parallel sort parity, camera visual parity, complete interactive control
+parity, viewport resize dirty probing, early termination v1,
+chunk/LOD/streaming, and final visual parity diagnostics.
