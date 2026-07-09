@@ -1734,6 +1734,7 @@ fn finalizeSummary() {
     productionTileCompositorReady &&
     outputTextureCachedForHeartbeat === true &&
     currentTextureUsesWebGpuTileCompositorOutput === true;
+  const lastValidOutputPresentedOnCleanFrames = cleanFrameFastPathUsed;
   const timeStateAdvancedAcrossFrames = productionRuntimeFrameCount > 1;
   const frameStateAdvancedAcrossFrames = productionRuntimeFrameCount > 1;
   const productionOutputUpdatedAcrossFrames =
@@ -2337,6 +2338,71 @@ fn finalizeSummary() {
     earlyTerminationCandidateReady;
   const step102ProductionResourceLifecyclePreserved =
     productionResourceLifecycleReady;
+  const workReductionReadinessReviewReady =
+    productionRuntimeBoundaryReviewReady &&
+    activeTileWorkReductionReady &&
+    summary.fullScreenPixelWorkAvoided > 0;
+  const earlyTerminationPolicyReady =
+    earlyTerminationCandidateReady &&
+    summary.alphaAccumulationUsed === true &&
+    summary.depthOrderedAccumulationUsed === true;
+  const earlyTerminationEnablePolicy =
+    'disabled-until-on-off-output-delta-and-alpha-threshold-visual-safety-pass';
+  const earlyTerminationEnabled = false;
+  const earlyTerminationDisabledBySafetyGate = true;
+  const earlyTerminationDisableReason =
+    'visual-safety-gate-requires-on-path-output-delta-before-runtime-enable';
+  const visualSafetyGateReady =
+    realTileCompositorOutputReady &&
+    visualOutputDegeneratedDetected === false &&
+    textureStats.nonzeroPixelRatio > 0 &&
+    debugOutputBypassedForProduction === true &&
+    fallbackOnlyCompositorUsed === false;
+  const visualQualityRiskGateReady =
+    visualSafetyGateReady &&
+    earlyTerminationPolicyReady &&
+    earlyTerminationDisabledBySafetyGate;
+  const visualQualityRiskLevel =
+    'unsafe-to-enable-early-termination-without-on-path-output-delta';
+  const visualSafetyEvidence = {
+    nonzeroOutputRatio: textureStats.nonzeroPixelRatio,
+    tileCompositorContributionCount: summary.tileCompositorContributionCount,
+    activeTilePixelWorkItemCount,
+    fullScreenPixelWorkAvoided: summary.fullScreenPixelWorkAvoided,
+    accumulationWorkReductionRatio: summary.accumulationWorkReductionRatio,
+    visualOutputDegeneratedDetected,
+    debugOutputBypassedForProduction,
+    fallbackOnlyCompositorUsed
+  };
+  const earlyTerminationOnOffComparisonReady =
+    workReductionReadinessReviewReady &&
+    visualSafetyGateReady &&
+    earlyTerminationPolicyReady;
+  const earlyTerminationOnOffComparisonMode =
+    'off-path-production-baseline-plus-policy-gated-on-candidate';
+  const earlyTerminationOffPathReferenceReady =
+    outputTextureProducedByProductionCompositor &&
+    lastValidOutputPresentedOnCleanFrames;
+  const earlyTerminationOnPathExecuted = false;
+  const earlyTerminationOnPathDisabledBySafetyGate = true;
+  const earlyTerminationOnOffOutputDeltaReady = false;
+  const safeThresholdPolicy =
+    'alpha-threshold-disabled-until-visual-delta-bound-and-parity-baseline';
+  const safeThresholdPolicyReady =
+    earlyTerminationPolicyReady &&
+    earlyTerminationOnPathDisabledBySafetyGate;
+  const safeThresholdValue = null;
+  const safeMinimalEarlyTerminationV1Used = false;
+  const safeMinimalEarlyTerminationDeferredReason =
+    'deferred-until-on-off-output-delta-and-final-compositor-visual-parity-diagnostics';
+  const finalCompositorVisualParityDiagnosticsReadiness =
+    'deferred-until-final-production-compositor-parity-baseline-is-available';
+  const step104BottleneckClassification =
+    'visual-safety-gated-work-reduction-ready';
+  const step104NextStepRecommendedGoal =
+    'early-termination-on-off-output-delta-probe-v1';
+  const step103ProductionRuntimeBoundaryReviewPreserved =
+    productionRuntimeBoundaryReviewReady;
 
   for (const buffer of [
     summaryBuffer,
@@ -2432,7 +2498,12 @@ fn finalizeSummary() {
         'production-steady-state-no-readback-boundary-review-v1',
         'diagnostic-capture-readback-gate-v1',
         'active-tile-subtile-production-work-reduction-gate-v1',
-        'step102-bottleneck-next-step-selection-update-v1'
+        'step102-bottleneck-next-step-selection-update-v1',
+        'compositor-work-reduction-readiness-review-v1',
+        'early-termination-enable-disable-policy-v1',
+        'visual-safety-quality-risk-gate-v1',
+        'early-termination-on-off-comparison-readiness-v1',
+        'step104-bottleneck-next-step-selection-v1'
       ],
       deferredCompositorFields: [
         'full-production-parallel-sort-parity',
@@ -2441,6 +2512,7 @@ fn finalizeSummary() {
         'chunk-lod-streaming',
         'complete-interactive-control-parity',
         'early-termination-v1-alpha-threshold-and-visual-parity-gate',
+        'early-termination-on-path-output-delta-probe',
         'viewport-resize-resource-reallocation-probe',
         'visual-parity-diagnostics'
       ],
@@ -2779,6 +2851,31 @@ fn finalizeSummary() {
       updatedBottleneckClassification,
       updatedNextStepRecommendedGoal,
       step102ProductionResourceLifecyclePreserved,
+      workReductionReadinessReviewReady,
+      earlyTerminationPolicyReady,
+      earlyTerminationEnablePolicy,
+      earlyTerminationEnabled,
+      earlyTerminationDisabledBySafetyGate,
+      earlyTerminationDisableReason,
+      visualSafetyGateReady,
+      visualQualityRiskGateReady,
+      visualQualityRiskLevel,
+      visualSafetyEvidence,
+      earlyTerminationOnOffComparisonReady,
+      earlyTerminationOnOffComparisonMode,
+      earlyTerminationOffPathReferenceReady,
+      earlyTerminationOnPathExecuted,
+      earlyTerminationOnPathDisabledBySafetyGate,
+      earlyTerminationOnOffOutputDeltaReady,
+      safeThresholdPolicy,
+      safeThresholdPolicyReady,
+      safeThresholdValue,
+      safeMinimalEarlyTerminationV1Used,
+      safeMinimalEarlyTerminationDeferredReason,
+      finalCompositorVisualParityDiagnosticsReadiness,
+      step104BottleneckClassification,
+      step104NextStepRecommendedGoal,
+      step103ProductionRuntimeBoundaryReviewPreserved,
       step93OverflowPolicyPreserved,
       overflowAwareOrderingReady,
       sortCapacityLimit,
@@ -2803,6 +2900,7 @@ fn finalizeSummary() {
         'camera-visual-parity',
         'final-production-compositor-parity',
         'early-termination-v1-alpha-threshold-and-visual-parity-gate',
+        'early-termination-on-path-output-delta-probe',
         'viewport-resize-dirty-probe',
         'viewport-resize-resource-reallocation-probe',
         'visual-parity-diagnostics',

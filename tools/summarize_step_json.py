@@ -9387,6 +9387,506 @@ def build_step103_runtime_boundary_work_reduction_summary(
     }
 
 
+def build_step104_compositor_work_reduction_visual_safety_summary(
+    summary: Dict[str, Any],
+) -> Dict[str, Any]:
+    frame_contract = get_path(
+        summary,
+        ["webgpuTileCompositorFrameImplementation"],
+        {},
+    )
+    compositor_contract = get_path(
+        summary,
+        ["webgpuTileListCompositorContract"],
+        {},
+    )
+    error_subtypes = detect_webgpu_error_subtypes(
+        frame_contract,
+        compositor_contract,
+        get_path(summary, ["captureErrorString"]),
+        get_path(summary, ["captureErrorStack"]),
+        get_path(summary, ["captureErrorMessage"]),
+        get_path(summary, ["firstValidationFailures"]),
+    )
+    phase_step = get_path(summary, ["phaseStep"])
+    wgsl_parse_error_detected = (
+        get_path(frame_contract, ["wgslParseErrorDetected"]) is True
+        or get_path(compositor_contract, ["wgslParseErrorDetected"]) is True
+        or error_subtypes["wgslParseErrorDetected"]
+    )
+    shader_module_invalid_detected = (
+        get_path(frame_contract, ["shaderModuleInvalidDetected"]) is True
+        or get_path(compositor_contract, ["shaderModuleInvalidDetected"]) is True
+        or error_subtypes["shaderModuleInvalidDetected"]
+    )
+    compute_pipeline_invalid_detected = (
+        get_path(frame_contract, ["computePipelineInvalidDetected"]) is True
+        or get_path(compositor_contract, ["computePipelineInvalidDetected"]) is True
+        or error_subtypes["computePipelineInvalidDetected"]
+    )
+    bind_group_invalid_detected = (
+        get_path(frame_contract, ["bindGroupInvalidDetected"]) is True
+        or get_path(compositor_contract, ["bindGroupInvalidDetected"]) is True
+        or error_subtypes["bindGroupInvalidDetected"]
+    )
+    deferred_production_items = get_path(
+        compositor_contract,
+        ["deferredProductionItems"],
+        [],
+    )
+    if not isinstance(deferred_production_items, list):
+        deferred_production_items = []
+    else:
+        deferred_production_items = list(deferred_production_items)
+    for item in [
+        "full-cuda-parity",
+        "final-production-compositor",
+        "final-production-compositor-parity",
+        "full-parallel-sort-parity",
+        "complete-interactive-control-parity",
+        "camera-visual-parity",
+        "viewport-resize-resource-reallocation-probe",
+        "visual-parity-diagnostics",
+        "chunk-lod-streaming",
+        "early-termination-v1-alpha-threshold-and-visual-parity-gate",
+        "early-termination-on-path-output-delta-probe",
+    ]:
+        if item not in deferred_production_items:
+            deferred_production_items.append(item)
+
+    step103_preserved = (
+        get_path(
+            compositor_contract,
+            ["step103ProductionRuntimeBoundaryReviewPreserved"],
+        )
+        is True
+        and get_path(
+            compositor_contract,
+            ["productionRuntimeBoundaryReviewReady"],
+        )
+        is True
+    )
+    step102_preserved = (
+        get_path(
+            compositor_contract,
+            ["step102ProductionResourceLifecyclePreserved"],
+        )
+        is True
+        and get_path(compositor_contract, ["productionResourceLifecycleReady"])
+        is True
+    )
+    step101_preserved = (
+        get_path(
+            compositor_contract,
+            ["step101SelectiveDirtyDependencyPreserved"],
+        )
+        is True
+        and get_path(
+            compositor_contract,
+            ["selectiveDirtyDependencyExecutionReady"],
+        )
+        is True
+    )
+    step100_preserved = (
+        get_path(
+            compositor_contract,
+            ["step100UnifiedInteractionSchedulerPreserved"],
+        )
+        is True
+        and get_path(compositor_contract, ["unifiedInteractionSchedulerReady"])
+        is True
+    )
+    step99_preserved = (
+        get_path(compositor_contract, ["step99InteractiveCameraDirtyPreserved"])
+        is True
+        and get_path(
+            compositor_contract,
+            ["interactiveCameraDirtyRuntimeReady"],
+        )
+        is True
+    )
+    step98_preserved = (
+        get_path(compositor_contract, ["step98ViewerTimeSchedulerPreserved"])
+        is True
+        and get_path(
+            compositor_contract,
+            ["viewerConnectedInteractiveSchedulerReady"],
+        )
+        is True
+    )
+    step97_preserved = (
+        get_path(compositor_contract, ["step97MultiFrameRuntimePreserved"])
+        is True
+        and get_path(compositor_contract, ["timeDrivenProductionRuntimeReady"])
+        is True
+    )
+    step96_preserved = (
+        get_path(compositor_contract, ["step96ProductionTileCompositorPreserved"])
+        is True
+        and get_path(compositor_contract, ["productionTileCompositorReady"]) is True
+    )
+    step94_preserved = (
+        get_path(compositor_contract, ["step94ParallelSortPreserved"]) is True
+        and get_path(compositor_contract, ["gpuParallelPerTileSortReady"]) is True
+    )
+    step88_preserved = (
+        get_path(compositor_contract, ["step88PresentationContractPreserved"]) is True
+        or get_path(
+            frame_contract,
+            ["steadyStateTileCompositorOwnsFinalPresentation"],
+        )
+        is True
+    )
+    safety_ready = (
+        phase_step == "phase3-step104"
+        and get_path(compositor_contract, ["workReductionReadinessReviewReady"])
+        is True
+        and get_path(compositor_contract, ["earlyTerminationPolicyReady"])
+        is True
+        and isinstance(
+            get_path(compositor_contract, ["earlyTerminationEnablePolicy"]),
+            str,
+        )
+        and get_path(compositor_contract, ["earlyTerminationEnabled"]) is False
+        and get_path(
+            compositor_contract,
+            ["earlyTerminationDisabledBySafetyGate"],
+        )
+        is True
+        and isinstance(
+            get_path(compositor_contract, ["earlyTerminationDisableReason"]),
+            str,
+        )
+        and get_path(compositor_contract, ["visualSafetyGateReady"]) is True
+        and get_path(compositor_contract, ["visualQualityRiskGateReady"]) is True
+        and isinstance(
+            get_path(compositor_contract, ["visualQualityRiskLevel"]),
+            str,
+        )
+        and get_path(
+            compositor_contract,
+            ["earlyTerminationOnOffComparisonReady"],
+        )
+        is True
+        and isinstance(
+            get_path(
+                compositor_contract,
+                ["earlyTerminationOnOffComparisonMode"],
+            ),
+            str,
+        )
+        and get_path(
+            compositor_contract,
+            ["earlyTerminationOffPathReferenceReady"],
+        )
+        is True
+        and get_path(compositor_contract, ["earlyTerminationOnPathExecuted"])
+        is False
+        and get_path(
+            compositor_contract,
+            ["earlyTerminationOnPathDisabledBySafetyGate"],
+        )
+        is True
+        and get_path(
+            compositor_contract,
+            ["earlyTerminationOnOffOutputDeltaReady"],
+        )
+        is False
+        and get_path(compositor_contract, ["safeThresholdPolicyReady"]) is True
+        and isinstance(
+            get_path(compositor_contract, ["safeThresholdPolicy"]),
+            str,
+        )
+        and get_path(
+            compositor_contract,
+            ["safeMinimalEarlyTerminationV1Used"],
+        )
+        is False
+        and isinstance(
+            get_path(
+                compositor_contract,
+                ["safeMinimalEarlyTerminationDeferredReason"],
+            ),
+            str,
+        )
+        and isinstance(
+            get_path(
+                compositor_contract,
+                ["finalCompositorVisualParityDiagnosticsReadiness"],
+            ),
+            str,
+        )
+        and isinstance(
+            get_path(compositor_contract, ["step104BottleneckClassification"]),
+            str,
+        )
+        and isinstance(
+            get_path(compositor_contract, ["step104NextStepRecommendedGoal"]),
+            str,
+        )
+        and step103_preserved
+        and step102_preserved
+        and step101_preserved
+        and step100_preserved
+        and step99_preserved
+        and step98_preserved
+        and step97_preserved
+        and step96_preserved
+        and step94_preserved
+        and step88_preserved
+        and get_path(compositor_contract, ["fallbackOnlyCompositorUsed"]) is False
+        and get_path(compositor_contract, ["debugOutputBypassedForProduction"])
+        is True
+        and get_path(
+            compositor_contract,
+            ["diagnosticReadbackSeparatedFromRuntimePath"],
+        )
+        is True
+        and get_path(compositor_contract, ["visualOutputDegeneratedDetected"])
+        is not True
+        and wgsl_parse_error_detected is False
+        and shader_module_invalid_detected is False
+        and compute_pipeline_invalid_detected is False
+        and bind_group_invalid_detected is False
+        and get_path(frame_contract, ["webgpuValidationErrorDetected"]) is False
+        and get_path(frame_contract, ["invalidCommandBufferDetected"]) is False
+        and get_path(frame_contract, ["queueSubmitFailureDetected"]) is False
+        and get_path(frame_contract, ["webgpuWebgl2SameFramePresentationMixed"])
+        is False
+        and get_path(frame_contract, ["fallbackMixingPrevented"]) is True
+        and get_path(frame_contract, ["fullRendererSuccessClaimed"]) is False
+    )
+    blocked_reason = None
+    if not safety_ready:
+        if phase_step != "phase3-step104":
+            blocked_reason = "summary-phase-step-is-not-phase3-step104"
+        elif get_path(compositor_contract, ["visualSafetyGateReady"]) is not True:
+            blocked_reason = "visual-safety-gate-not-ready"
+        elif get_path(
+            compositor_contract,
+            ["earlyTerminationDisabledBySafetyGate"],
+        ) is not True:
+            blocked_reason = "early-termination-policy-not-gated"
+        elif get_path(
+            compositor_contract,
+            ["earlyTerminationOnOffComparisonReady"],
+        ) is not True:
+            blocked_reason = "early-termination-on-off-comparison-not-ready"
+        elif not step103_preserved:
+            blocked_reason = "step103-boundary-review-not-preserved"
+        elif wgsl_parse_error_detected:
+            blocked_reason = "wgsl-parse-error-detected"
+        elif shader_module_invalid_detected:
+            blocked_reason = "shader-module-invalid-detected"
+        elif compute_pipeline_invalid_detected:
+            blocked_reason = "compute-pipeline-invalid-detected"
+        elif bind_group_invalid_detected:
+            blocked_reason = "bind-group-invalid-detected"
+        else:
+            blocked_reason = "step104-visual-safety-validation-failed"
+
+    return {
+        "step104Decision": "success" if safety_ready else "blocked",
+        "step104BlockedReason": blocked_reason,
+        "step104SelectedGoal":
+            "A+B+C+D-work-reduction-readiness-visual-safety-gate-plus-H-next-step-selection",
+        "phaseStep": phase_step,
+        "step104SummaryApplies": phase_step == "phase3-step104",
+        "workReductionReadinessReviewReady": get_path(
+            compositor_contract,
+            ["workReductionReadinessReviewReady"],
+        ),
+        "selectedWorkReductionPath": get_path(
+            compositor_contract,
+            ["selectedWorkReductionPath"],
+        ),
+        "workReductionPathImplemented": get_path(
+            compositor_contract,
+            ["workReductionPathImplemented"],
+        ),
+        "activeTileWorkReductionReady": get_path(
+            compositor_contract,
+            ["activeTileWorkReductionReady"],
+        ),
+        "activeTilePixelWorkItemCount": get_path(
+            compositor_contract,
+            ["activeTilePixelWorkItemCount"],
+        ),
+        "fullScreenPixelWorkAvoided": get_path(
+            compositor_contract,
+            ["fullScreenPixelWorkAvoided"],
+        ),
+        "accumulationWorkReductionRatio": get_path(
+            compositor_contract,
+            ["accumulationWorkReductionRatio"],
+        ),
+        "earlyTerminationPolicyReady": get_path(
+            compositor_contract,
+            ["earlyTerminationPolicyReady"],
+        ),
+        "earlyTerminationEnablePolicy": get_path(
+            compositor_contract,
+            ["earlyTerminationEnablePolicy"],
+        ),
+        "earlyTerminationEnabled": get_path(
+            compositor_contract,
+            ["earlyTerminationEnabled"],
+        ),
+        "earlyTerminationDisabledBySafetyGate": get_path(
+            compositor_contract,
+            ["earlyTerminationDisabledBySafetyGate"],
+        ),
+        "earlyTerminationDisableReason": get_path(
+            compositor_contract,
+            ["earlyTerminationDisableReason"],
+        ),
+        "visualSafetyGateReady": get_path(
+            compositor_contract,
+            ["visualSafetyGateReady"],
+        ),
+        "visualQualityRiskGateReady": get_path(
+            compositor_contract,
+            ["visualQualityRiskGateReady"],
+        ),
+        "visualQualityRiskLevel": get_path(
+            compositor_contract,
+            ["visualQualityRiskLevel"],
+        ),
+        "visualSafetyEvidence": get_path(
+            compositor_contract,
+            ["visualSafetyEvidence"],
+        ),
+        "earlyTerminationOnOffComparisonReady": get_path(
+            compositor_contract,
+            ["earlyTerminationOnOffComparisonReady"],
+        ),
+        "earlyTerminationOnOffComparisonMode": get_path(
+            compositor_contract,
+            ["earlyTerminationOnOffComparisonMode"],
+        ),
+        "earlyTerminationOffPathReferenceReady": get_path(
+            compositor_contract,
+            ["earlyTerminationOffPathReferenceReady"],
+        ),
+        "earlyTerminationOnPathExecuted": get_path(
+            compositor_contract,
+            ["earlyTerminationOnPathExecuted"],
+        ),
+        "earlyTerminationOnPathDisabledBySafetyGate": get_path(
+            compositor_contract,
+            ["earlyTerminationOnPathDisabledBySafetyGate"],
+        ),
+        "earlyTerminationOnOffOutputDeltaReady": get_path(
+            compositor_contract,
+            ["earlyTerminationOnOffOutputDeltaReady"],
+        ),
+        "safeThresholdPolicyReady": get_path(
+            compositor_contract,
+            ["safeThresholdPolicyReady"],
+        ),
+        "safeThresholdPolicy": get_path(
+            compositor_contract,
+            ["safeThresholdPolicy"],
+        ),
+        "safeThresholdValue": get_path(
+            compositor_contract,
+            ["safeThresholdValue"],
+        ),
+        "safeMinimalEarlyTerminationV1Used": get_path(
+            compositor_contract,
+            ["safeMinimalEarlyTerminationV1Used"],
+        ),
+        "safeMinimalEarlyTerminationDeferredReason": get_path(
+            compositor_contract,
+            ["safeMinimalEarlyTerminationDeferredReason"],
+        ),
+        "finalCompositorVisualParityDiagnosticsReadiness": get_path(
+            compositor_contract,
+            ["finalCompositorVisualParityDiagnosticsReadiness"],
+        ),
+        "step104BottleneckClassification": get_path(
+            compositor_contract,
+            ["step104BottleneckClassification"],
+        ),
+        "step104NextStepRecommendedGoal": get_path(
+            compositor_contract,
+            ["step104NextStepRecommendedGoal"],
+        ),
+        "updatedBottleneckClassification": get_path(
+            compositor_contract,
+            ["step104BottleneckClassification"],
+        ),
+        "updatedNextStepRecommendedGoal": get_path(
+            compositor_contract,
+            ["step104NextStepRecommendedGoal"],
+        ),
+        "nextStepRecommendedGoal": get_path(
+            compositor_contract,
+            ["step104NextStepRecommendedGoal"],
+        ),
+        "step103ProductionRuntimeBoundaryReviewPreserved": step103_preserved,
+        "step102ProductionResourceLifecyclePreserved": step102_preserved,
+        "step101SelectiveDirtyDependencyPreserved": step101_preserved,
+        "step101SelectiveDirtyExecutionPreserved": step101_preserved,
+        "step100UnifiedInteractionSchedulerPreserved": step100_preserved,
+        "step99InteractiveCameraDirtyPreserved": step99_preserved,
+        "step98ViewerTimeSchedulerPreserved": step98_preserved,
+        "step97MultiFrameRuntimePreserved": step97_preserved,
+        "step96ProductionTileCompositorPreserved": step96_preserved,
+        "step94ParallelSortPreserved": step94_preserved,
+        "step88PresentationContractPreserved": step88_preserved,
+        "step85TileCompositorPathPreserved": get_path(
+            frame_contract,
+            ["step85TileCompositorPathPreserved"],
+        ),
+        "step86BoundaryContractPreserved": get_path(
+            frame_contract,
+            ["step86BoundaryContractPreserved"],
+        ),
+        "step87DepthOrderingPreserved": get_path(
+            frame_contract,
+            ["step87DepthOrderingPreserved"],
+        ),
+        "fallbackOnlyCompositorUsed": get_path(
+            compositor_contract,
+            ["fallbackOnlyCompositorUsed"],
+        ),
+        "debugOutputBypassedForProduction": get_path(
+            compositor_contract,
+            ["debugOutputBypassedForProduction"],
+        ),
+        "diagnosticReadbackSeparatedFromRuntimePath": get_path(
+            compositor_contract,
+            ["diagnosticReadbackSeparatedFromRuntimePath"],
+        ),
+        "visualOutputDegeneratedDetected": get_path(
+            compositor_contract,
+            ["visualOutputDegeneratedDetected"],
+        ),
+        "wgslParseErrorDetected": wgsl_parse_error_detected,
+        "shaderModuleInvalidDetected": shader_module_invalid_detected,
+        "computePipelineInvalidDetected": compute_pipeline_invalid_detected,
+        "bindGroupInvalidDetected": bind_group_invalid_detected,
+        "webgpuValidationErrorDetected": get_path(
+            frame_contract,
+            ["webgpuValidationErrorDetected"],
+        ),
+        "invalidCommandBufferDetected": get_path(
+            frame_contract,
+            ["invalidCommandBufferDetected"],
+        ),
+        "queueSubmitFailureDetected": get_path(
+            frame_contract,
+            ["queueSubmitFailureDetected"],
+        ),
+        "deferredProductionItems": deferred_production_items,
+        "fullRendererSuccessClaimed": get_path(
+            frame_contract,
+            ["fullRendererSuccessClaimed"],
+        ),
+    }
+
+
 def build_step75_camera_aware_visible_summary(
     summary: Dict[str, Any],
     webgpu_camera_aware_visible_output: Dict[str, Any],
@@ -10622,6 +11122,9 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
     step103_production_runtime_boundary_review = (
         build_step103_runtime_boundary_work_reduction_summary(summary)
     )
+    step104_compositor_work_reduction_visual_safety = (
+        build_step104_compositor_work_reduction_visual_safety_summary(summary)
+    )
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -10697,6 +11200,8 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             step102_production_resource_lifecycle,
         "step103ProductionRuntimeBoundaryReview":
             step103_production_runtime_boundary_review,
+        "step104CompositorWorkReductionVisualSafety":
+            step104_compositor_work_reduction_visual_safety,
         "comparisonContract": get_path(summary, ["comparisonContract"], {}),
         "comparisonTolerance": get_path(summary, ["comparisonTolerance"], {}),
         "radiusContract": get_path(summary, ["radiusContract"], {}),
@@ -15833,6 +16338,12 @@ def print_human_summary(summary: Dict[str, Any]) -> None:
         "Step103 WebGPU production runtime boundary review",
         summary.get("webgpuVisibleRecordDryRun", {}).get(
             "step103ProductionRuntimeBoundaryReview"
+        ),
+    )
+    print_section(
+        "Step104 WebGPU compositor work reduction visual safety",
+        summary.get("webgpuVisibleRecordDryRun", {}).get(
+            "step104CompositorWorkReductionVisualSafety"
         ),
     )
     print_section("WebGPU visible record dry-run", summary.get("webgpuVisibleRecordDryRun"))

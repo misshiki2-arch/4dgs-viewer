@@ -2370,3 +2370,60 @@ parallel sort parity, camera visual parity, viewport resize resource
 reallocation probing, visual parity diagnostics, complete interactive control
 parity, early termination alpha-threshold/visual-parity gating, and
 chunk/LOD/streaming.
+
+## Step104 Compositor Work Reduction Readiness and Visual Safety Gate V1
+
+Step104 takes the Step103 early-termination candidate and gates it before any
+runtime enablement. The selected scope is A+B+C+D with H: review compositor work
+reduction readiness, define the early-termination enable/disable policy, expose
+visual safety and quality-risk evidence, require on/off comparison readiness,
+and update the bottleneck/next-step recommendation. Safe minimal early
+termination remains disabled until its on-path output delta and visual parity
+evidence are available.
+
+The Step104 runtime path is:
+
+```text
+active-tile work reduction evidence
+-> early-termination enable/disable policy
+-> off-path production baseline
+-> policy-gated on candidate
+-> visual safety / quality-risk evidence
+-> updated bottleneck and next-step recommendation
+-> steady-state final presentation
+```
+
+- Work reduction readiness: Step104 preserves the Step103 active-tile/subtile
+  work reduction evidence and requires measured `activeTilePixelWorkItemCount`,
+  `fullScreenPixelWorkAvoided`, and `accumulationWorkReductionRatio` before any
+  work-reduction claim.
+- Early termination policy: early termination is explicitly disabled by the
+  safety gate. The policy requires an on/off output delta probe and an alpha
+  threshold visual safety pass before the runtime can enable early exits.
+- Visual safety gate: the off-path production baseline must remain non-zero,
+  non-degenerated, non-fallback, and non-debug. These checks are safety evidence
+  for readiness only; they do not claim CUDA parity or final compositor parity.
+- On/off comparison: Step104 records that the off-path production baseline is
+  ready and the on-path early-termination candidate is policy-gated. Because the
+  on-path candidate is not executed yet, output delta remains deferred.
+- Bottleneck update: the next recommended goal is the early-termination on/off
+  output delta probe, not chunk/LOD/streaming or a final renderer claim.
+
+Step104 Summary success requires `workReductionReadinessReviewReady`,
+`earlyTerminationPolicyReady`, `earlyTerminationDisabledBySafetyGate`,
+`visualSafetyGateReady`, `visualQualityRiskGateReady`,
+`earlyTerminationOnOffComparisonReady`, `earlyTerminationOffPathReferenceReady`,
+`earlyTerminationOnPathExecuted: False`,
+`earlyTerminationOnPathDisabledBySafetyGate: True`,
+`earlyTerminationOnOffOutputDeltaReady: False`,
+`safeThresholdPolicyReady`, `safeMinimalEarlyTerminationV1Used: False`,
+`safeMinimalEarlyTerminationDeferredReason`,
+`updatedBottleneckClassification`, and `updatedNextStepRecommendedGoal`. It also
+requires Step103, Step102, Step101, Step100, Step99, Step98, Step97, Step96,
+Step94, Step88, and Step85-87 preservation.
+
+Deferred work remains early-termination on-path output delta probing, alpha
+threshold visual safety, final production compositor parity, visual parity
+diagnostics, camera visual parity, full CUDA parity, full parallel sort parity,
+viewport resize resource reallocation probing, complete interactive control
+parity, and chunk/LOD/streaming.

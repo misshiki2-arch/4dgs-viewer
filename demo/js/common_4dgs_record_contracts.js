@@ -16,7 +16,7 @@ export const WEBGPU_GPU_OWNED_TILE_LIST_LAYOUT_CONTRACT_VERSION =
   'phase3-step84-webgpu-gpu-owned-tile-list-layout-v1';
 
 export const WEBGPU_TILE_LIST_COMPOSITOR_CONTRACT_VERSION =
-  'phase3-step103-production-runtime-boundary-work-reduction-gate-v1';
+  'phase3-step104-compositor-work-reduction-visual-safety-gate-v1';
 
 export const WEBGPU_PHASE3_BACKEND_BOUNDARY_CONTRACT_VERSION =
   'phase3-step86-webgpu-backend-boundary-and-dirty-contract-v1';
@@ -943,6 +943,31 @@ export function buildWebGpuTileListCompositorContract({
   updatedBottleneckClassification = null,
   updatedNextStepRecommendedGoal = null,
   step102ProductionResourceLifecyclePreserved = false,
+  workReductionReadinessReviewReady = false,
+  earlyTerminationPolicyReady = false,
+  earlyTerminationEnablePolicy = null,
+  earlyTerminationEnabled = false,
+  earlyTerminationDisabledBySafetyGate = false,
+  earlyTerminationDisableReason = null,
+  visualSafetyGateReady = false,
+  visualQualityRiskGateReady = false,
+  visualQualityRiskLevel = null,
+  visualSafetyEvidence = {},
+  earlyTerminationOnOffComparisonReady = false,
+  earlyTerminationOnOffComparisonMode = null,
+  earlyTerminationOffPathReferenceReady = false,
+  earlyTerminationOnPathExecuted = false,
+  earlyTerminationOnPathDisabledBySafetyGate = false,
+  earlyTerminationOnOffOutputDeltaReady = false,
+  safeThresholdPolicy = null,
+  safeThresholdPolicyReady = false,
+  safeThresholdValue = null,
+  safeMinimalEarlyTerminationV1Used = false,
+  safeMinimalEarlyTerminationDeferredReason = null,
+  finalCompositorVisualParityDiagnosticsReadiness = null,
+  step104BottleneckClassification = null,
+  step104NextStepRecommendedGoal = null,
+  step103ProductionRuntimeBoundaryReviewPreserved = false,
   step93OverflowPolicyPreserved = false,
   overflowAwareOrderingReady = false,
   sortCapacityLimit = 64,
@@ -1228,6 +1253,40 @@ export function buildWebGpuTileListCompositorContract({
     typeof updatedNextStepRecommendedGoal === 'string' &&
     updatedNextStepRecommendedGoal.length > 0 &&
     step102ProductionResourceLifecyclePreserved === true;
+  const compositorWorkReductionVisualSafetyReady =
+    productionRuntimeBoundaryWorkReductionReady === true &&
+    workReductionReadinessReviewReady === true &&
+    earlyTerminationPolicyReady === true &&
+    typeof earlyTerminationEnablePolicy === 'string' &&
+    earlyTerminationEnablePolicy.length > 0 &&
+    earlyTerminationEnabled === false &&
+    earlyTerminationDisabledBySafetyGate === true &&
+    typeof earlyTerminationDisableReason === 'string' &&
+    earlyTerminationDisableReason.length > 0 &&
+    visualSafetyGateReady === true &&
+    visualQualityRiskGateReady === true &&
+    typeof visualQualityRiskLevel === 'string' &&
+    visualQualityRiskLevel.length > 0 &&
+    earlyTerminationOnOffComparisonReady === true &&
+    typeof earlyTerminationOnOffComparisonMode === 'string' &&
+    earlyTerminationOnOffComparisonMode.length > 0 &&
+    earlyTerminationOffPathReferenceReady === true &&
+    earlyTerminationOnPathExecuted === false &&
+    earlyTerminationOnPathDisabledBySafetyGate === true &&
+    earlyTerminationOnOffOutputDeltaReady === false &&
+    safeThresholdPolicyReady === true &&
+    typeof safeThresholdPolicy === 'string' &&
+    safeThresholdPolicy.length > 0 &&
+    safeMinimalEarlyTerminationV1Used === false &&
+    typeof safeMinimalEarlyTerminationDeferredReason === 'string' &&
+    safeMinimalEarlyTerminationDeferredReason.length > 0 &&
+    typeof finalCompositorVisualParityDiagnosticsReadiness === 'string' &&
+    finalCompositorVisualParityDiagnosticsReadiness.length > 0 &&
+    typeof step104BottleneckClassification === 'string' &&
+    step104BottleneckClassification.length > 0 &&
+    typeof step104NextStepRecommendedGoal === 'string' &&
+    step104NextStepRecommendedGoal.length > 0 &&
+    step103ProductionRuntimeBoundaryReviewPreserved === true;
   return {
     contractVersion: WEBGPU_TILE_LIST_COMPOSITOR_CONTRACT_VERSION,
     status: ready ? 'ok' : status,
@@ -1555,6 +1614,32 @@ export function buildWebGpuTileListCompositorContract({
     updatedBottleneckClassification,
     updatedNextStepRecommendedGoal,
     step102ProductionResourceLifecyclePreserved,
+    workReductionReadinessReviewReady:
+      compositorWorkReductionVisualSafetyReady,
+    earlyTerminationPolicyReady,
+    earlyTerminationEnablePolicy,
+    earlyTerminationEnabled,
+    earlyTerminationDisabledBySafetyGate,
+    earlyTerminationDisableReason,
+    visualSafetyGateReady,
+    visualQualityRiskGateReady,
+    visualQualityRiskLevel,
+    visualSafetyEvidence,
+    earlyTerminationOnOffComparisonReady,
+    earlyTerminationOnOffComparisonMode,
+    earlyTerminationOffPathReferenceReady,
+    earlyTerminationOnPathExecuted,
+    earlyTerminationOnPathDisabledBySafetyGate,
+    earlyTerminationOnOffOutputDeltaReady,
+    safeThresholdPolicy,
+    safeThresholdPolicyReady,
+    safeThresholdValue,
+    safeMinimalEarlyTerminationV1Used,
+    safeMinimalEarlyTerminationDeferredReason,
+    finalCompositorVisualParityDiagnosticsReadiness,
+    step104BottleneckClassification,
+    step104NextStepRecommendedGoal,
+    step103ProductionRuntimeBoundaryReviewPreserved,
     step93OverflowPolicyPreserved,
     overflowAwareOrderingReady: overflowAwareReady,
     sortCapacityLimit,
