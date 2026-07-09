@@ -2504,3 +2504,74 @@ parity, camera visual parity, early termination alpha-threshold/visual-parity
 gating, early termination on-path output delta probing, complete interactive
 control parity, full parallel sort parity, viewport resize resource
 reallocation probing, and chunk/LOD/streaming.
+
+## Step106 Capability-Based Preservation / Regression Gate Redesign V1
+
+Step106 replaces Step-number preservation booleans as the primary regression
+gate with capability-based gates that match the current WebGPU production
+viewer responsibilities. Legacy Step flags remain useful diagnostics and
+backward-compatible evidence, but they are no longer the hard blocker for new
+Step106+ decisions when the relevant production capability is demonstrably
+intact.
+
+The Step106 regression path is:
+
+```text
+presentation capability
+-> scheduler / dirty update capability
+-> resource lifecycle capability
+-> camera / reference comparison capability
+-> visual safety and diagnostic readback capabilities
+-> legacy Step flag diagnostic mapping
+-> next-step recommendation
+```
+
+- Presentation capability: the gate checks currentTexture ownership,
+  fresh-per-presentation TextureView lifecycle, last-valid production output on
+  clean frames, compositor-owned sampled presentation, device consistency, and
+  absence of validation/submit failures. This is the production replacement for
+  hard-coding `step88PresentationContractPreserved` into every future decision.
+- Scheduler and dirty update capability: the gate checks unified interaction
+  scheduler evidence, time and camera dirty update propagation, selective stage
+  execution, and clean-frame reuse under the viewer scheduler.
+- Resource lifecycle capability: persistent GPU resource cache, selective
+  executor reuse, clean-frame persistent output reuse, dirty-frame persistent
+  resource reuse, and nonzero resource reuse counts are the regression surface.
+- Camera/reference comparison capability: fixed reference camera gate,
+  projection, viewport, background, pixel-coordinate, and screen-space
+  conditions remain required. If the interactive camera is active, Step106 keeps
+  Step105's `camera-contract-mismatch` classification and keeps visual parity
+  comparison disabled.
+- Visual safety and diagnostics: Step104's visual safety gate remains active,
+  early termination stays disabled, and diagnostic/capture readback remains
+  separated from steady-state production runtime.
+- Legacy mapping: Step flags such as Step88, Step94, Step96, Step100, and
+  Step104 are recorded in `legacyStepFlagMapping` with their replacement
+  capability, canonical evidence source, and missing-evidence policy. They can
+  explain regressions, but Step106's success decision follows the capability
+  gates only when `legacyFlagToCapabilityCoverageReady` is true. This keeps the
+  old flags from being ignored: if the evidence that used to support a Step flag
+  is missing from its canonical capability source, `missingEvidenceDetected` or
+  `contractSourceMismatchDetected` blocks the capability gate.
+
+Step106 Summary success requires `capabilityBasedRegressionGateReady`,
+`presentationCapabilityReady`, `schedulerDirtyUpdateCapabilityReady`,
+`resourceLifecycleCapabilityReady`,
+`cameraReferenceComparisonCapabilityReady`, `visualSafetyCapabilityReady`,
+`diagnosticsReadbackSeparationCapabilityReady`, empty
+`capabilityGateFailureReasons`, `missingEvidenceDetected: False`, empty
+`missingEvidenceReasons`, `contractSourceMismatchDetected: False`, empty
+`contractSourceMismatchReasons`, `legacyStepFlagMappingReady`,
+`legacyFlagToCapabilityCoverageReady`, `legacyStepFlagsHardBlocker: False`,
+`legacyStepFlagsDiagnosticOnly: True`, and Step105 camera gate preservation. It
+also requires early termination and LOD/streaming to remain disabled, no
+fallback/debug/readback-only success, no visual degeneration, no
+WGSL/WebGPU/CommandBuffer/queue submit errors, and no full renderer success
+claim.
+
+Deferred work remains runtime pixel diff against the reference image, reference
+camera alignment or mismatch classification follow-up, CUDA Reference execution
+refresh, full CUDA parity, final production compositor parity, camera visual
+parity, early termination alpha-threshold/visual-parity gating, viewport resize
+resource reallocation probing, complete interactive control parity, full
+parallel sort parity, and chunk/LOD/streaming.

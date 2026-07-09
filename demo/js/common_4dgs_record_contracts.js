@@ -16,7 +16,7 @@ export const WEBGPU_GPU_OWNED_TILE_LIST_LAYOUT_CONTRACT_VERSION =
   'phase3-step84-webgpu-gpu-owned-tile-list-layout-v1';
 
 export const WEBGPU_TILE_LIST_COMPOSITOR_CONTRACT_VERSION =
-  'phase3-step105-cuda-reference-visual-parity-baseline-v1';
+  'phase3-step106-capability-based-regression-gate-v1';
 
 export const WEBGPU_PHASE3_BACKEND_BOUNDARY_CONTRACT_VERSION =
   'phase3-step86-webgpu-backend-boundary-and-dirty-contract-v1';
@@ -1364,6 +1364,291 @@ export function buildWebGpuTileListCompositorContract({
     step104VisualSafetyGatePreserved === true &&
     earlyTerminationRemainsDisabled === true &&
     lodStreamingRemainsDisabled === true;
+  const capabilityEvidenceSources = {
+    presentation: {
+      currentTextureUsesWebGpuTileCompositorOutput,
+      currentTextureViewFreshPerPresentation,
+      currentTextureViewReusedAcrossFrames,
+      staleTextureViewReuseDetected,
+      crossDeviceTextureViewUseDetected,
+      webgpuDeviceConsistencyReady,
+      cleanFrameFastPathUsed,
+      lastValidOutputPresentedOnCleanFrames,
+      compositorOutputPresentedEverySampledFrame,
+      webgpuValidationErrorDetected,
+      invalidCommandBufferDetected,
+      queueSubmitFailureDetected,
+      fallbackOnlyCompositorUsed
+    },
+    schedulerDirtyUpdate: {
+      unifiedInteractionSchedulerRuntimeReady,
+      selectiveDirtyDependencyExecutionRuntimeReady,
+      dirtyTimeStateTriggersUnifiedProductionUpdate,
+      dirtyCameraConstantsTriggersUnifiedProductionUpdate,
+      productionRuntimeUpdatedByUnifiedInteractionScheduler,
+      cleanFrameReuseAfterSelectiveExecution
+    },
+    resourceLifecycle: {
+      productionResourceLifecycleRuntimeReady,
+      persistentGpuResourceCacheReady,
+      selectiveExecutorConnectedToResourceReuse,
+      cleanFrameUsesPersistentOutput,
+      dirtyFrameReusesPersistentResources,
+      resourceReuseCount
+    },
+    cameraReferenceComparison: {
+      fixedReferenceCameraGateReady,
+      interactiveCameraExcludedFromReferenceComparison,
+      cameraProjectionContractReady,
+      viewportComparisonContractReady,
+      backgroundComparisonContractReady,
+      pixelCoordinateComparisonContractReady,
+      screenSpaceConventionReady,
+      visualParityComparisonAllowed,
+      cameraContractMismatchDetected,
+      visualMismatchClassification,
+      cameraContractMismatchReason
+    },
+    visualSafety: {
+      compositorWorkReductionVisualSafetyReady,
+      visualSafetyGateReady,
+      visualQualityRiskGateReady,
+      earlyTerminationDisabledBySafetyGate,
+      earlyTerminationEnabled,
+      safeMinimalEarlyTerminationV1Used
+    },
+    diagnosticsReadbackSeparation: {
+      diagnosticReadbackSeparatedFromRuntimePath,
+      diagnosticReadbackSeparatedFromProductionPath,
+      productionSteadyStateNoReadbackBoundaryReady,
+      readbackLeakIntoProductionRuntimeDetected,
+      diagnosticCaptureReadbackGateReady
+    }
+  };
+  const requiredEvidenceByCapability = {
+    presentation: Object.keys(capabilityEvidenceSources.presentation),
+    schedulerDirtyUpdate: Object.keys(capabilityEvidenceSources.schedulerDirtyUpdate),
+    resourceLifecycle: Object.keys(capabilityEvidenceSources.resourceLifecycle),
+    cameraReferenceComparison:
+      Object.keys(capabilityEvidenceSources.cameraReferenceComparison),
+    visualSafety: Object.keys(capabilityEvidenceSources.visualSafety),
+    diagnosticsReadbackSeparation:
+      Object.keys(capabilityEvidenceSources.diagnosticsReadbackSeparation)
+  };
+  const missingEvidenceReasons = Object.entries(requiredEvidenceByCapability)
+    .flatMap(([capability, evidenceNames]) =>
+      evidenceNames
+        .filter(
+          (evidenceName) =>
+            capabilityEvidenceSources[capability][evidenceName] == null
+        )
+        .map((evidenceName) => `${capability}.${evidenceName}`)
+    );
+  const missingEvidenceDetected = missingEvidenceReasons.length > 0;
+  const presentationCapabilityReady =
+    missingEvidenceDetected === false &&
+    currentTextureUsesWebGpuTileCompositorOutput === true &&
+    currentTextureViewFreshPerPresentation === true &&
+    currentTextureViewReusedAcrossFrames === false &&
+    staleTextureViewReuseDetected === false &&
+    crossDeviceTextureViewUseDetected === false &&
+    webgpuDeviceConsistencyReady === true &&
+    cleanFrameFastPathUsed === true &&
+    lastValidOutputPresentedOnCleanFrames === true &&
+    compositorOutputPresentedEverySampledFrame === true &&
+    webgpuValidationErrorDetected === false &&
+    invalidCommandBufferDetected === false &&
+    queueSubmitFailureDetected === false &&
+    fallbackOnlyCompositorUsed === false;
+  const schedulerDirtyUpdateCapabilityReady =
+    missingEvidenceDetected === false &&
+    unifiedInteractionSchedulerRuntimeReady === true &&
+    selectiveDirtyDependencyExecutionRuntimeReady === true &&
+    dirtyTimeStateTriggersUnifiedProductionUpdate === true &&
+    dirtyCameraConstantsTriggersUnifiedProductionUpdate === true &&
+    productionRuntimeUpdatedByUnifiedInteractionScheduler === true &&
+    cleanFrameReuseAfterSelectiveExecution === true;
+  const resourceLifecycleCapabilityReady =
+    missingEvidenceDetected === false &&
+    productionResourceLifecycleRuntimeReady === true &&
+    persistentGpuResourceCacheReady === true &&
+    selectiveExecutorConnectedToResourceReuse === true &&
+    cleanFrameUsesPersistentOutput === true &&
+    dirtyFrameReusesPersistentResources === true &&
+    resourceReuseCount > 0;
+  const cameraReferenceComparisonCapabilityReady =
+    missingEvidenceDetected === false &&
+    fixedReferenceCameraGateReady === true &&
+    interactiveCameraExcludedFromReferenceComparison === true &&
+    cameraProjectionContractReady === true &&
+    viewportComparisonContractReady === true &&
+    backgroundComparisonContractReady === true &&
+    pixelCoordinateComparisonContractReady === true &&
+    screenSpaceConventionReady === true &&
+    (
+      visualParityComparisonAllowed === true ||
+      (
+        cameraContractMismatchDetected === true &&
+        visualMismatchClassification === 'camera-contract-mismatch' &&
+        typeof cameraContractMismatchReason === 'string' &&
+        cameraContractMismatchReason.length > 0
+      )
+    );
+  const visualSafetyCapabilityReady =
+    missingEvidenceDetected === false &&
+    compositorWorkReductionVisualSafetyReady === true &&
+    visualSafetyGateReady === true &&
+    visualQualityRiskGateReady === true &&
+    earlyTerminationDisabledBySafetyGate === true &&
+    earlyTerminationEnabled === false &&
+    safeMinimalEarlyTerminationV1Used === false;
+  const diagnosticsReadbackSeparationCapabilityReady =
+    missingEvidenceDetected === false &&
+    diagnosticReadbackSeparatedFromRuntimePath === true &&
+    diagnosticReadbackSeparatedFromProductionPath === true &&
+    productionSteadyStateNoReadbackBoundaryReady === true &&
+    readbackLeakIntoProductionRuntimeDetected === false &&
+    diagnosticCaptureReadbackGateReady === true;
+  const canonicalEvidenceSourcesByCapability = {
+    presentation: [
+      'webgpuTileCompositorFrameImplementation',
+      'webgpuTileListCompositorContract'
+    ],
+    schedulerDirtyUpdate: ['webgpuTileListCompositorContract.viewer-scheduler'],
+    resourceLifecycle: ['webgpuTileListCompositorContract.resource-lifecycle'],
+    cameraReferenceComparison: [
+      'webgpuTileListCompositorContract.fixed-reference-camera-gate'
+    ],
+    visualSafety: ['webgpuTileListCompositorContract.visual-safety-gate'],
+    diagnosticsReadbackSeparation: [
+      'webgpuTileListCompositorContract.diagnostic-readback-gate'
+    ]
+  };
+  const contractSourceMismatchReasons = Object.entries(
+    canonicalEvidenceSourcesByCapability
+  )
+    .filter(([, sources]) => !Array.isArray(sources) || sources.length === 0)
+    .map(([capability]) => `${capability}.canonical-source-missing`);
+  const contractSourceMismatchDetected =
+    contractSourceMismatchReasons.length > 0;
+  const capabilityGateFailureReasons = [
+    missingEvidenceDetected ? 'canonical-capability-evidence-missing' : null,
+    contractSourceMismatchDetected
+      ? 'canonical-capability-source-mismatch'
+      : null,
+    presentationCapabilityReady ? null : 'presentation-capability-not-ready',
+    schedulerDirtyUpdateCapabilityReady
+      ? null
+      : 'scheduler-dirty-update-capability-not-ready',
+    resourceLifecycleCapabilityReady
+      ? null
+      : 'resource-lifecycle-capability-not-ready',
+    cameraReferenceComparisonCapabilityReady
+      ? null
+      : 'camera-reference-comparison-capability-not-ready',
+    visualSafetyCapabilityReady
+      ? null
+      : 'visual-safety-capability-not-ready',
+    diagnosticsReadbackSeparationCapabilityReady
+      ? null
+      : 'diagnostics-readback-separation-capability-not-ready'
+  ].filter(Boolean);
+  const legacyStepFlagMapping = {
+    step88PresentationContractPreserved: {
+      value: step88PresentationContractPreserved,
+      capability: 'presentation',
+      canonicalEvidenceSource:
+        'webgpuTileCompositorFrameImplementation.steady-state-final-presentation',
+      missingPolicy: 'block-capability-gate-on-missing-evidence'
+    },
+    step94ParallelSortPreserved: {
+      value: step94ParallelSortPreserved,
+      capability: 'resourceLifecycle',
+      canonicalEvidenceSource:
+        'webgpuTileListCompositorContract.parallel-sort-and-ordered-ref-consumption',
+      missingPolicy: 'block-capability-gate-on-missing-evidence'
+    },
+    step96ProductionTileCompositorPreserved: {
+      value: step96ProductionTileCompositorPreserved,
+      capability: 'presentation',
+      canonicalEvidenceSource:
+        'webgpuTileListCompositorContract.production-compositor-output',
+      missingPolicy: 'block-capability-gate-on-missing-evidence'
+    },
+    step97MultiFrameRuntimePreserved: {
+      value: step97MultiFrameRuntimePreserved,
+      capability: 'schedulerDirtyUpdate',
+      canonicalEvidenceSource:
+        'webgpuTileListCompositorContract.time-driven-production-runtime',
+      missingPolicy: 'block-capability-gate-on-missing-evidence'
+    },
+    step98ViewerTimeSchedulerPreserved: {
+      value: step98ViewerTimeSchedulerPreserved,
+      capability: 'schedulerDirtyUpdate',
+      canonicalEvidenceSource:
+        'webgpuTileListCompositorContract.viewer-time-scheduler',
+      missingPolicy: 'block-capability-gate-on-missing-evidence'
+    },
+    step99InteractiveCameraDirtyPreserved: {
+      value: step99InteractiveCameraDirtyPreserved,
+      capability: 'schedulerDirtyUpdate',
+      canonicalEvidenceSource:
+        'webgpuTileListCompositorContract.viewer-camera-dirty-scheduler',
+      missingPolicy: 'block-capability-gate-on-missing-evidence'
+    },
+    step100UnifiedInteractionSchedulerPreserved: {
+      value: step100UnifiedInteractionSchedulerPreserved,
+      capability: 'schedulerDirtyUpdate',
+      canonicalEvidenceSource:
+        'webgpuTileListCompositorContract.unified-interaction-scheduler',
+      missingPolicy: 'block-capability-gate-on-missing-evidence'
+    },
+    step101SelectiveDirtyDependencyPreserved: {
+      value: step101SelectiveDirtyDependencyPreserved,
+      capability: 'schedulerDirtyUpdate',
+      canonicalEvidenceSource:
+        'webgpuTileListCompositorContract.selective-dirty-dependency-executor',
+      missingPolicy: 'block-capability-gate-on-missing-evidence'
+    },
+    step102ProductionResourceLifecyclePreserved: {
+      value: step102ProductionResourceLifecyclePreserved,
+      capability: 'resourceLifecycle',
+      canonicalEvidenceSource:
+        'webgpuTileListCompositorContract.persistent-resource-lifecycle',
+      missingPolicy: 'block-capability-gate-on-missing-evidence'
+    },
+    step103ProductionRuntimeBoundaryReviewPreserved: {
+      value: step103ProductionRuntimeBoundaryReviewPreserved,
+      capability: 'diagnosticsReadbackSeparation',
+      canonicalEvidenceSource:
+        'webgpuTileListCompositorContract.production-boundary-readback-gate',
+      missingPolicy: 'block-capability-gate-on-missing-evidence'
+    },
+    step104VisualSafetyGatePreserved: {
+      value: step104VisualSafetyGatePreserved,
+      capability: 'visualSafety',
+      canonicalEvidenceSource:
+        'webgpuTileListCompositorContract.visual-safety-gate',
+      missingPolicy: 'block-capability-gate-on-missing-evidence'
+    }
+  };
+  const legacyFlagToCapabilityCoverageReady =
+    Object.values(legacyStepFlagMapping).every(
+      (mapping) =>
+        typeof mapping.capability === 'string' &&
+        typeof mapping.canonicalEvidenceSource === 'string' &&
+        mapping.missingPolicy === 'block-capability-gate-on-missing-evidence'
+    );
+  const legacyStepFlagMappingReady =
+    Object.keys(legacyStepFlagMapping).length > 0 &&
+    legacyFlagToCapabilityCoverageReady;
+  const legacyStepFlagMappingPolicy =
+    'legacy-step-flags-diagnostic-only-capabilities-are-hard-gates';
+  const legacyStepFlagsHardBlocker = false;
+  const capabilityBasedRegressionGateReady =
+    capabilityGateFailureReasons.length === 0 &&
+    legacyStepFlagMappingReady === true &&
+    legacyStepFlagsHardBlocker === false;
   return {
     contractVersion: WEBGPU_TILE_LIST_COMPOSITOR_CONTRACT_VERSION,
     status: ready ? 'ok' : status,
@@ -1747,6 +2032,28 @@ export function buildWebGpuTileListCompositorContract({
     finalCompositorParityDiagnosticsReady,
     finalCompositorParityDiagnosticsMode,
     step105NextStepRecommendedGoal,
+    capabilityBasedRegressionGateReady,
+    capabilityBasedGateReviewReady: capabilityBasedRegressionGateReady,
+    presentationCapabilityReady,
+    schedulerDirtyUpdateCapabilityReady,
+    resourceLifecycleCapabilityReady,
+    cameraReferenceComparisonCapabilityReady,
+    visualSafetyCapabilityReady,
+    diagnosticsReadbackSeparationCapabilityReady,
+    canonicalEvidenceSourcesByCapability,
+    missingEvidenceDetected,
+    missingEvidenceReasons,
+    contractSourceMismatchDetected,
+    contractSourceMismatchReasons,
+    capabilityGateFailureReasons,
+    legacyStepFlagMappingReady,
+    legacyFlagToCapabilityCoverageReady,
+    legacyStepFlagMapping,
+    legacyStepFlagMappingPolicy,
+    legacyStepFlagsHardBlocker,
+    legacyStepFlagsDiagnosticOnly: true,
+    step106NextStepRecommendedGoal:
+      'reference-camera-alignment-or-runtime-pixel-diff-classification-v1',
     step104VisualSafetyGatePreserved,
     earlyTerminationRemainsDisabled,
     lodStreamingRemainsDisabled,

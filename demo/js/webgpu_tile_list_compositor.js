@@ -2776,7 +2776,9 @@ fn finalizeSummary() {
         'cuda-reference-image-input-baseline-v1',
         'visual-parity-comparison-conditions-v1',
         'visual-mismatch-classification-baseline-v1',
-        'step105-reference-visual-parity-next-step-selection-v1'
+        'step105-reference-visual-parity-next-step-selection-v1',
+        'capability-based-regression-gate-v1',
+        'legacy-step-preservation-diagnostic-mapping-v1'
       ],
       deferredCompositorFields: [
         'full-production-parallel-sort-parity',

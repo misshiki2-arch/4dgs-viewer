@@ -10380,6 +10380,343 @@ def build_step105_cuda_reference_visual_parity_baseline_summary(
     }
 
 
+def build_step106_capability_based_regression_gate_summary(
+    summary: Dict[str, Any],
+) -> Dict[str, Any]:
+    frame_contract = get_path(
+        summary,
+        ["webgpuTileCompositorFrameImplementation"],
+        {},
+    )
+    compositor_contract = get_path(
+        summary,
+        ["webgpuTileListCompositorContract"],
+        {},
+    )
+    error_subtypes = detect_webgpu_error_subtypes(
+        frame_contract,
+        compositor_contract,
+        get_path(summary, ["captureErrorString"]),
+        get_path(summary, ["captureErrorStack"]),
+        get_path(summary, ["captureErrorMessage"]),
+        get_path(summary, ["firstValidationFailures"]),
+    )
+    phase_step = get_path(summary, ["phaseStep"])
+    wgsl_parse_error_detected = (
+        get_path(frame_contract, ["wgslParseErrorDetected"]) is True
+        or get_path(compositor_contract, ["wgslParseErrorDetected"]) is True
+        or error_subtypes["wgslParseErrorDetected"]
+    )
+    shader_module_invalid_detected = (
+        get_path(frame_contract, ["shaderModuleInvalidDetected"]) is True
+        or get_path(compositor_contract, ["shaderModuleInvalidDetected"]) is True
+        or error_subtypes["shaderModuleInvalidDetected"]
+    )
+    compute_pipeline_invalid_detected = (
+        get_path(frame_contract, ["computePipelineInvalidDetected"]) is True
+        or get_path(compositor_contract, ["computePipelineInvalidDetected"]) is True
+        or error_subtypes["computePipelineInvalidDetected"]
+    )
+    bind_group_invalid_detected = (
+        get_path(frame_contract, ["bindGroupInvalidDetected"]) is True
+        or get_path(compositor_contract, ["bindGroupInvalidDetected"]) is True
+        or error_subtypes["bindGroupInvalidDetected"]
+    )
+    camera_mismatch_classified = (
+        get_path(compositor_contract, ["fixedReferenceCameraGateReady"]) is True
+        and get_path(compositor_contract, ["cameraContractMismatchDetected"])
+        is True
+        and get_path(compositor_contract, ["visualParityComparisonAllowed"])
+        is False
+        and get_path(compositor_contract, ["visualMismatchClassification"])
+        == "camera-contract-mismatch"
+    )
+    capability_gate_failure_reasons = get_path(
+        compositor_contract,
+        ["capabilityGateFailureReasons"],
+        [],
+    )
+    if not isinstance(capability_gate_failure_reasons, list):
+        capability_gate_failure_reasons = ["capability-failure-reasons-invalid"]
+    missing_evidence_detected = (
+        get_path(compositor_contract, ["missingEvidenceDetected"]) is True
+    )
+    missing_evidence_reasons = get_path(
+        compositor_contract,
+        ["missingEvidenceReasons"],
+        [],
+    )
+    if not isinstance(missing_evidence_reasons, list):
+        missing_evidence_reasons = ["missing-evidence-reasons-invalid"]
+    contract_source_mismatch_detected = (
+        get_path(compositor_contract, ["contractSourceMismatchDetected"]) is True
+    )
+    contract_source_mismatch_reasons = get_path(
+        compositor_contract,
+        ["contractSourceMismatchReasons"],
+        [],
+    )
+    if not isinstance(contract_source_mismatch_reasons, list):
+        contract_source_mismatch_reasons = [
+            "contract-source-mismatch-reasons-invalid"
+        ]
+    capability_ready = (
+        get_path(compositor_contract, ["capabilityBasedRegressionGateReady"])
+        is True
+        and get_path(compositor_contract, ["presentationCapabilityReady"]) is True
+        and get_path(
+            compositor_contract,
+            ["schedulerDirtyUpdateCapabilityReady"],
+        )
+        is True
+        and get_path(compositor_contract, ["resourceLifecycleCapabilityReady"])
+        is True
+        and get_path(
+            compositor_contract,
+            ["cameraReferenceComparisonCapabilityReady"],
+        )
+        is True
+        and get_path(compositor_contract, ["visualSafetyCapabilityReady"]) is True
+        and get_path(
+            compositor_contract,
+            ["diagnosticsReadbackSeparationCapabilityReady"],
+        )
+        is True
+        and capability_gate_failure_reasons == []
+        and missing_evidence_detected is False
+        and missing_evidence_reasons == []
+        and contract_source_mismatch_detected is False
+        and contract_source_mismatch_reasons == []
+    )
+    legacy_mapping_ready = (
+        get_path(compositor_contract, ["legacyStepFlagMappingReady"]) is True
+        and get_path(compositor_contract, ["legacyFlagToCapabilityCoverageReady"])
+        is True
+        and get_path(compositor_contract, ["legacyStepFlagsHardBlocker"]) is False
+        and get_path(compositor_contract, ["legacyStepFlagsDiagnosticOnly"]) is True
+        and isinstance(
+            get_path(compositor_contract, ["legacyStepFlagMappingPolicy"]),
+            str,
+        )
+    )
+    step105_camera_gate_preserved = (
+        get_path(compositor_contract, ["fixedReferenceCameraGateReady"]) is True
+        and get_path(
+            compositor_contract,
+            ["interactiveCameraExcludedFromReferenceComparison"],
+        )
+        is True
+        and (
+            get_path(compositor_contract, ["visualParityComparisonAllowed"])
+            is True
+            or camera_mismatch_classified
+        )
+    )
+    regression_gate_ready = (
+        phase_step == "phase3-step106"
+        and capability_ready
+        and legacy_mapping_ready
+        and step105_camera_gate_preserved
+        and get_path(compositor_contract, ["earlyTerminationRemainsDisabled"])
+        is True
+        and get_path(compositor_contract, ["lodStreamingRemainsDisabled"]) is True
+        and get_path(compositor_contract, ["fallbackOnlyCompositorUsed"]) is False
+        and get_path(compositor_contract, ["debugOutputBypassedForProduction"])
+        is True
+        and get_path(
+            compositor_contract,
+            ["diagnosticReadbackSeparatedFromRuntimePath"],
+        )
+        is True
+        and get_path(compositor_contract, ["visualOutputDegeneratedDetected"])
+        is not True
+        and wgsl_parse_error_detected is False
+        and shader_module_invalid_detected is False
+        and compute_pipeline_invalid_detected is False
+        and bind_group_invalid_detected is False
+        and get_path(frame_contract, ["invalidCommandBufferDetected"]) is False
+        and get_path(frame_contract, ["queueSubmitFailureDetected"]) is False
+        and get_path(frame_contract, ["webgpuWebgl2SameFramePresentationMixed"])
+        is False
+        and get_path(frame_contract, ["fallbackMixingPrevented"]) is True
+        and get_path(frame_contract, ["fullRendererSuccessClaimed"]) is False
+    )
+    blocked_reason = None
+    if not regression_gate_ready:
+        if phase_step != "phase3-step106":
+            blocked_reason = "summary-phase-step-is-not-phase3-step106"
+        elif not capability_ready:
+            blocked_reason = "capability-regression-gate-not-ready"
+        elif not legacy_mapping_ready:
+            blocked_reason = "legacy-step-flag-mapping-not-diagnostic-only"
+        elif not step105_camera_gate_preserved:
+            blocked_reason = "step105-camera-gate-not-preserved"
+        elif wgsl_parse_error_detected:
+            blocked_reason = "wgsl-parse-error-detected"
+        elif shader_module_invalid_detected:
+            blocked_reason = "shader-module-invalid-detected"
+        elif compute_pipeline_invalid_detected:
+            blocked_reason = "compute-pipeline-invalid-detected"
+        elif bind_group_invalid_detected:
+            blocked_reason = "bind-group-invalid-detected"
+        else:
+            blocked_reason = "capability-regression-gate-validation-failed"
+
+    deferred_production_items = get_path(
+        compositor_contract,
+        ["deferredProductionItems"],
+        [],
+    )
+    if not isinstance(deferred_production_items, list):
+        deferred_production_items = []
+    return {
+        "step106Decision": "success" if regression_gate_ready else "blocked",
+        "step106BlockedReason": blocked_reason,
+        "step106SelectedGoal":
+            "A+B+C+D-capability-based-regression-gate-with-E/F/G/H-support",
+        "phaseStep": phase_step,
+        "step106SummaryApplies": phase_step == "phase3-step106",
+        "capabilityBasedGateReviewReady": get_path(
+            compositor_contract,
+            ["capabilityBasedGateReviewReady"],
+        ),
+        "capabilityBasedRegressionGateReady": get_path(
+            compositor_contract,
+            ["capabilityBasedRegressionGateReady"],
+        ),
+        "presentationCapabilityReady": get_path(
+            compositor_contract,
+            ["presentationCapabilityReady"],
+        ),
+        "schedulerDirtyUpdateCapabilityReady": get_path(
+            compositor_contract,
+            ["schedulerDirtyUpdateCapabilityReady"],
+        ),
+        "resourceLifecycleCapabilityReady": get_path(
+            compositor_contract,
+            ["resourceLifecycleCapabilityReady"],
+        ),
+        "cameraReferenceComparisonCapabilityReady": get_path(
+            compositor_contract,
+            ["cameraReferenceComparisonCapabilityReady"],
+        ),
+        "visualSafetyCapabilityReady": get_path(
+            compositor_contract,
+            ["visualSafetyCapabilityReady"],
+        ),
+        "diagnosticsReadbackSeparationCapabilityReady": get_path(
+            compositor_contract,
+            ["diagnosticsReadbackSeparationCapabilityReady"],
+        ),
+        "canonicalEvidenceSourcesByCapability": get_path(
+            compositor_contract,
+            ["canonicalEvidenceSourcesByCapability"],
+            {},
+        ),
+        "missingEvidenceDetected": missing_evidence_detected,
+        "missingEvidenceReasons": missing_evidence_reasons,
+        "contractSourceMismatchDetected": contract_source_mismatch_detected,
+        "contractSourceMismatchReasons": contract_source_mismatch_reasons,
+        "capabilityGateFailureReasons": capability_gate_failure_reasons,
+        "legacyStepFlagMappingReady": get_path(
+            compositor_contract,
+            ["legacyStepFlagMappingReady"],
+        ),
+        "legacyFlagToCapabilityCoverageReady": get_path(
+            compositor_contract,
+            ["legacyFlagToCapabilityCoverageReady"],
+        ),
+        "legacyStepFlagMappingPolicy": get_path(
+            compositor_contract,
+            ["legacyStepFlagMappingPolicy"],
+        ),
+        "legacyStepFlagsHardBlocker": get_path(
+            compositor_contract,
+            ["legacyStepFlagsHardBlocker"],
+        ),
+        "legacyStepFlagsDiagnosticOnly": get_path(
+            compositor_contract,
+            ["legacyStepFlagsDiagnosticOnly"],
+        ),
+        "legacyStepFlagMapping": get_path(
+            compositor_contract,
+            ["legacyStepFlagMapping"],
+            {},
+        ),
+        "step105CameraGatePreserved": step105_camera_gate_preserved,
+        "fixedReferenceCameraGateReady": get_path(
+            compositor_contract,
+            ["fixedReferenceCameraGateReady"],
+        ),
+        "visualParityComparisonAllowed": get_path(
+            compositor_contract,
+            ["visualParityComparisonAllowed"],
+        ),
+        "visualMismatchClassification": get_path(
+            compositor_contract,
+            ["visualMismatchClassification"],
+        ),
+        "cameraContractMismatchDetected": get_path(
+            compositor_contract,
+            ["cameraContractMismatchDetected"],
+        ),
+        "cameraContractMismatchReason": get_path(
+            compositor_contract,
+            ["cameraContractMismatchReason"],
+        ),
+        "nextStepRecommendedGoal": get_path(
+            compositor_contract,
+            ["step106NextStepRecommendedGoal"],
+            get_path(compositor_contract, ["step105NextStepRecommendedGoal"]),
+        ),
+        "earlyTerminationRemainsDisabled": get_path(
+            compositor_contract,
+            ["earlyTerminationRemainsDisabled"],
+        ),
+        "lodStreamingRemainsDisabled": get_path(
+            compositor_contract,
+            ["lodStreamingRemainsDisabled"],
+        ),
+        "fallbackOnlyCompositorUsed": get_path(
+            compositor_contract,
+            ["fallbackOnlyCompositorUsed"],
+        ),
+        "debugOutputBypassedForProduction": get_path(
+            compositor_contract,
+            ["debugOutputBypassedForProduction"],
+        ),
+        "diagnosticReadbackSeparatedFromRuntimePath": get_path(
+            compositor_contract,
+            ["diagnosticReadbackSeparatedFromRuntimePath"],
+        ),
+        "visualOutputDegeneratedDetected": get_path(
+            compositor_contract,
+            ["visualOutputDegeneratedDetected"],
+        ),
+        "wgslParseErrorDetected": wgsl_parse_error_detected,
+        "shaderModuleInvalidDetected": shader_module_invalid_detected,
+        "computePipelineInvalidDetected": compute_pipeline_invalid_detected,
+        "bindGroupInvalidDetected": bind_group_invalid_detected,
+        "webgpuValidationErrorDetected": get_path(
+            frame_contract,
+            ["webgpuValidationErrorDetected"],
+        ),
+        "invalidCommandBufferDetected": get_path(
+            frame_contract,
+            ["invalidCommandBufferDetected"],
+        ),
+        "queueSubmitFailureDetected": get_path(
+            frame_contract,
+            ["queueSubmitFailureDetected"],
+        ),
+        "deferredProductionItems": deferred_production_items,
+        "fullRendererSuccessClaimed": get_path(
+            frame_contract,
+            ["fullRendererSuccessClaimed"],
+        ),
+    }
+
+
 def build_step75_camera_aware_visible_summary(
     summary: Dict[str, Any],
     webgpu_camera_aware_visible_output: Dict[str, Any],
@@ -11621,6 +11958,9 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
     step105_cuda_reference_visual_parity_baseline = (
         build_step105_cuda_reference_visual_parity_baseline_summary(summary)
     )
+    step106_capability_based_regression_gate = (
+        build_step106_capability_based_regression_gate_summary(summary)
+    )
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -11700,6 +12040,8 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             step104_compositor_work_reduction_visual_safety,
         "step105CudaReferenceVisualParityBaseline":
             step105_cuda_reference_visual_parity_baseline,
+        "step106CapabilityBasedRegressionGate":
+            step106_capability_based_regression_gate,
         "comparisonContract": get_path(summary, ["comparisonContract"], {}),
         "comparisonTolerance": get_path(summary, ["comparisonTolerance"], {}),
         "radiusContract": get_path(summary, ["radiusContract"], {}),
@@ -16848,6 +17190,12 @@ def print_human_summary(summary: Dict[str, Any]) -> None:
         "Step105 WebGPU CUDA reference visual parity baseline",
         summary.get("webgpuVisibleRecordDryRun", {}).get(
             "step105CudaReferenceVisualParityBaseline"
+        ),
+    )
+    print_section(
+        "Step106 WebGPU capability-based regression gate",
+        summary.get("webgpuVisibleRecordDryRun", {}).get(
+            "step106CapabilityBasedRegressionGate"
         ),
     )
     print_section("WebGPU visible record dry-run", summary.get("webgpuVisibleRecordDryRun"))
