@@ -28,6 +28,14 @@ The important boundary is that WebGPU display experiments must advance toward a
 real viewer backend without quietly relying on WebGL2 drawing, fallback samples,
 or summary-only success.
 
+The production roadmap order is:
+
+1. Keep the WebGPU production runtime stable.
+2. Make real rendering output comparable against a reference.
+3. Move the output toward CUDA Reference / visual parity.
+4. Optimize only inside the boundary that preserves parity.
+5. Then advance early termination, LOD, and streaming.
+
 ## 2. Backend Responsibilities
 
 ### WebGPU Normal Backend
@@ -2427,3 +2435,72 @@ threshold visual safety, final production compositor parity, visual parity
 diagnostics, camera visual parity, full CUDA parity, full parallel sort parity,
 viewport resize resource reallocation probing, complete interactive control
 parity, and chunk/LOD/streaming.
+
+## Step105 CUDA Reference / Visual Parity Baseline for WebGPU Production Compositor V1
+
+Step105 follows the Step104 visual safety gate by making WebGPU production
+output comparable against a fixed reference image. The selected scope is
+A+B+C+D+F with G preservation: capture the WebGPU production output, identify
+the CUDA/fixed reference image input, record camera/viewport/background/color
+space conditions, expose a visual parity metric baseline, classify mismatch
+readiness, and choose the next correction step. This step does not enable early
+termination, LOD, streaming, or any other speed path.
+
+The Step105 comparison path is:
+
+```text
+WebGPU production output texture
+-> current canvas PNG capture
+-> fixed CUDA/reference image input
+-> fixed reference camera / projection / viewport / pixel-coordinate gate
+-> camera / viewport / background / color-space condition record
+-> image-diff metric tool baseline
+-> mismatch classification and next-step recommendation
+```
+
+- Production output capture: Step105 requires the production compositor output
+  to be non-degenerated, non-fallback, non-debug, and capturable as the viewer
+  canvas output.
+- Reference input: the reference is the fixed CUDA/dataset image identified by
+  the deterministic capture label, for example
+  `/home/demo/work/data/4dgs_sph_scene/images/000151_v13.png`. CUDA Reference
+  remains a fixed baseline and is not an interactive runtime backend.
+- Comparison conditions: camera label, frame/view id, dataset time, output
+  size, viewport, background policy, and color-space policy are recorded so that
+  visual deltas are attributable instead of guessed.
+- Fixed reference camera gate: visual parity comparison is only allowed when the
+  WebGPU production output uses the CUDA-aligned fixed reference camera path and
+  the projection, viewport, background, screen-space convention, and pixel
+  coordinate contracts are readable. Interactive camera output is excluded from
+  CUDA/reference visual parity comparison. If the viewer output appears with a
+  different orientation or placement from the reference image, Step105 classifies
+  the result as `camera-contract-mismatch` and does not attribute the mismatch to
+  compositor, color, or sort behavior.
+- Visual metric baseline: runtime records the production output statistics and
+  the exact reference input to compare. Pixel MAE/RMSE/max-abs comparison is
+  performed by `tools/compare_png.py` after the Step105 canvas PNG is captured.
+- Mismatch classification: Step105 can say the baseline is ready and which
+  follow-up should compute or act on the image diff. It must not claim CUDA
+  parity, final production compositor parity, camera visual parity, or full
+  renderer completion.
+
+Step105 Summary success requires `productionOutputCaptureReady`,
+`webgpuProductionOutputCaptureReady`, `referenceImageInputReady`,
+`cudaReferenceInputReady`, `visualComparisonConditionsReady`,
+`cameraViewportBackgroundColorSpaceRecorded`, `fixedReferenceCameraGateReady`,
+`referenceCameraMode`, `usesCudaAlignedFixedReferenceCamera` or an explicit
+`camera-contract-mismatch`, `interactiveCameraExcludedFromReferenceComparison`,
+`cameraProjectionContractReady`, `viewportComparisonContractReady`,
+`backgroundComparisonContractReady`, `pixelCoordinateComparisonContractReady`,
+`screenSpaceConventionReady`, `visualParityMetricReady`,
+`visualParityMetricMode`, `visualParityDifferenceSummary`,
+`visualMismatchClassification`, and `nextStepRecommendedGoal`. It also requires
+Step104, Step103, Step102, Step101, Step100, Step99, Step98, Step97, Step96,
+Step94, Step88, and Step85-87 preservation.
+
+Deferred work remains runtime pixel diff against the reference image, CUDA
+Reference execution refresh, full CUDA parity, final production compositor
+parity, camera visual parity, early termination alpha-threshold/visual-parity
+gating, early termination on-path output delta probing, complete interactive
+control parity, full parallel sort parity, viewport resize resource
+reallocation probing, and chunk/LOD/streaming.

@@ -16,7 +16,7 @@ export const WEBGPU_GPU_OWNED_TILE_LIST_LAYOUT_CONTRACT_VERSION =
   'phase3-step84-webgpu-gpu-owned-tile-list-layout-v1';
 
 export const WEBGPU_TILE_LIST_COMPOSITOR_CONTRACT_VERSION =
-  'phase3-step104-compositor-work-reduction-visual-safety-gate-v1';
+  'phase3-step105-cuda-reference-visual-parity-baseline-v1';
 
 export const WEBGPU_PHASE3_BACKEND_BOUNDARY_CONTRACT_VERSION =
   'phase3-step86-webgpu-backend-boundary-and-dirty-contract-v1';
@@ -968,6 +968,39 @@ export function buildWebGpuTileListCompositorContract({
   step104BottleneckClassification = null,
   step104NextStepRecommendedGoal = null,
   step103ProductionRuntimeBoundaryReviewPreserved = false,
+  productionOutputCaptureReady = false,
+  webgpuProductionOutputCaptureReady = false,
+  referenceImageInputReady = false,
+  cudaReferenceInputReady = false,
+  referenceImageSource = null,
+  referenceImagePath = null,
+  referenceImageLabel = null,
+  fixedReferenceCameraGateReady = false,
+  referenceCameraMode = null,
+  usesCudaAlignedFixedReferenceCamera = false,
+  interactiveCameraExcludedFromReferenceComparison = false,
+  cameraMetadataName = null,
+  cameraProjectionContractReady = false,
+  viewportComparisonContractReady = false,
+  backgroundComparisonContractReady = false,
+  pixelCoordinateComparisonContractReady = false,
+  screenSpaceConventionReady = false,
+  cameraContractMismatchDetected = false,
+  cameraContractMismatchReason = null,
+  visualParityComparisonAllowed = false,
+  visualComparisonConditionsReady = false,
+  visualComparisonConditions = {},
+  cameraViewportBackgroundColorSpaceRecorded = false,
+  visualParityMetricReady = false,
+  visualParityMetricMode = null,
+  visualParityDifferenceSummary = {},
+  visualMismatchClassification = null,
+  finalCompositorParityDiagnosticsReady = false,
+  finalCompositorParityDiagnosticsMode = null,
+  step105NextStepRecommendedGoal = null,
+  step104VisualSafetyGatePreserved = false,
+  earlyTerminationRemainsDisabled = false,
+  lodStreamingRemainsDisabled = false,
   step93OverflowPolicyPreserved = false,
   overflowAwareOrderingReady = false,
   sortCapacityLimit = 64,
@@ -1287,6 +1320,50 @@ export function buildWebGpuTileListCompositorContract({
     typeof step104NextStepRecommendedGoal === 'string' &&
     step104NextStepRecommendedGoal.length > 0 &&
     step103ProductionRuntimeBoundaryReviewPreserved === true;
+  const visualParityBaselineReady =
+    compositorWorkReductionVisualSafetyReady === true &&
+    productionOutputCaptureReady === true &&
+    webgpuProductionOutputCaptureReady === true &&
+    referenceImageInputReady === true &&
+    cudaReferenceInputReady === true &&
+    typeof referenceImageSource === 'string' &&
+    referenceImageSource.length > 0 &&
+    typeof referenceImagePath === 'string' &&
+    referenceImagePath.length > 0 &&
+    typeof referenceImageLabel === 'string' &&
+    referenceImageLabel.length > 0 &&
+    fixedReferenceCameraGateReady === true &&
+    typeof referenceCameraMode === 'string' &&
+    referenceCameraMode.length > 0 &&
+    typeof cameraMetadataName === 'string' &&
+    cameraMetadataName.length > 0 &&
+    interactiveCameraExcludedFromReferenceComparison === true &&
+    cameraProjectionContractReady === true &&
+    viewportComparisonContractReady === true &&
+    backgroundComparisonContractReady === true &&
+    pixelCoordinateComparisonContractReady === true &&
+    screenSpaceConventionReady === true &&
+    (
+      visualParityComparisonAllowed === true ||
+      (
+        cameraContractMismatchDetected === true &&
+        visualMismatchClassification === 'camera-contract-mismatch' &&
+        typeof cameraContractMismatchReason === 'string' &&
+        cameraContractMismatchReason.length > 0
+      )
+    ) &&
+    visualComparisonConditionsReady === true &&
+    cameraViewportBackgroundColorSpaceRecorded === true &&
+    visualParityMetricReady === true &&
+    typeof visualParityMetricMode === 'string' &&
+    visualParityMetricMode.length > 0 &&
+    typeof visualMismatchClassification === 'string' &&
+    visualMismatchClassification.length > 0 &&
+    typeof step105NextStepRecommendedGoal === 'string' &&
+    step105NextStepRecommendedGoal.length > 0 &&
+    step104VisualSafetyGatePreserved === true &&
+    earlyTerminationRemainsDisabled === true &&
+    lodStreamingRemainsDisabled === true;
   return {
     contractVersion: WEBGPU_TILE_LIST_COMPOSITOR_CONTRACT_VERSION,
     status: ready ? 'ok' : status,
@@ -1640,6 +1717,39 @@ export function buildWebGpuTileListCompositorContract({
     step104BottleneckClassification,
     step104NextStepRecommendedGoal,
     step103ProductionRuntimeBoundaryReviewPreserved,
+    productionOutputCaptureReady: visualParityBaselineReady,
+    webgpuProductionOutputCaptureReady,
+    referenceImageInputReady,
+    cudaReferenceInputReady,
+    referenceImageSource,
+    referenceImagePath,
+    referenceImageLabel,
+    fixedReferenceCameraGateReady,
+    referenceCameraMode,
+    usesCudaAlignedFixedReferenceCamera,
+    interactiveCameraExcludedFromReferenceComparison,
+    cameraMetadataName,
+    cameraProjectionContractReady,
+    viewportComparisonContractReady,
+    backgroundComparisonContractReady,
+    pixelCoordinateComparisonContractReady,
+    screenSpaceConventionReady,
+    cameraContractMismatchDetected,
+    cameraContractMismatchReason,
+    visualParityComparisonAllowed,
+    visualComparisonConditionsReady,
+    visualComparisonConditions,
+    cameraViewportBackgroundColorSpaceRecorded,
+    visualParityMetricReady,
+    visualParityMetricMode,
+    visualParityDifferenceSummary,
+    visualMismatchClassification,
+    finalCompositorParityDiagnosticsReady,
+    finalCompositorParityDiagnosticsMode,
+    step105NextStepRecommendedGoal,
+    step104VisualSafetyGatePreserved,
+    earlyTerminationRemainsDisabled,
+    lodStreamingRemainsDisabled,
     step93OverflowPolicyPreserved,
     overflowAwareOrderingReady: overflowAwareReady,
     sortCapacityLimit,

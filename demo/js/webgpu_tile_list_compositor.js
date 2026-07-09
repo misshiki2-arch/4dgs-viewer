@@ -19,6 +19,23 @@ function finiteNumberOr(value, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function finiteVector3OrNull(value) {
+  if (!Array.isArray(value) || value.length < 3) return null;
+  const vector = value.slice(0, 3).map((component) => Number(component));
+  return vector.every((component) => Number.isFinite(component)) ? vector : null;
+}
+
+function vector3MaxAbsDelta(a, b) {
+  const left = finiteVector3OrNull(a);
+  const right = finiteVector3OrNull(b);
+  if (!left || !right) return null;
+  return Math.max(
+    Math.abs(left[0] - right[0]),
+    Math.abs(left[1] - right[1]),
+    Math.abs(left[2] - right[2])
+  );
+}
+
 function createBuffer(device, data, usage) {
   const buffer = device.createBuffer({
     size: Math.max(4, Math.ceil(data.byteLength / 4) * 4),
@@ -653,7 +670,8 @@ export async function buildWebGpuTileListCompositor({
   gpuOwnedTileListLayout,
   canvasWidth,
   canvasHeight,
-  viewerCanvasState = null
+  viewerCanvasState = null,
+  metadata = null
 } = {}) {
   const resources = gpuOwnedTileListLayout?.gpuResources;
   const sourceContract = gpuOwnedTileListLayout?.contract;
@@ -1735,6 +1753,27 @@ fn finalizeSummary() {
     outputTextureCachedForHeartbeat === true &&
     currentTextureUsesWebGpuTileCompositorOutput === true;
   const lastValidOutputPresentedOnCleanFrames = cleanFrameFastPathUsed;
+  const step88PresentationContractPreserved =
+    cleanFrameFastPathUsed &&
+    compositorOutputPresentedToCurrentTexture === true &&
+    compositorCurrentTextureRenderPassSubmitted === true &&
+    presentationFrameSamples.length > 0 &&
+    presentationFrameSamples.every(
+      (sample) =>
+        sample.nonzeroPixelCount > 0 &&
+        sample.currentTextureUsesWebGpuTileCompositorOutput === true
+    ) &&
+    currentTextureViewFreshPerPresentation === true &&
+    currentTextureViewReusedAcrossFrames === false &&
+    staleTextureViewReuseDetected === false &&
+    crossDeviceTextureViewUseDetected === false &&
+    webgpuDeviceConsistencyReady === true &&
+    webgpuValidationErrorDetected === false &&
+    invalidCommandBufferDetected === false &&
+    queueSubmitFailureDetected === false &&
+    tileDepthOrderingContract.step85TileCompositorPathPreserved === true &&
+    tileDepthOrderingContract.step86BoundaryContractPreserved === true &&
+    tileDepthOrderingContract.step87DepthOrderingPreserved === true;
   const timeStateAdvancedAcrossFrames = productionRuntimeFrameCount > 1;
   const frameStateAdvancedAcrossFrames = productionRuntimeFrameCount > 1;
   const productionOutputUpdatedAcrossFrames =
@@ -2403,6 +2442,235 @@ fn finalizeSummary() {
     'early-termination-on-off-output-delta-probe-v1';
   const step103ProductionRuntimeBoundaryReviewPreserved =
     productionRuntimeBoundaryReviewReady;
+  const deterministicState = metadata?.deterministicState ?? null;
+  const referenceImageLabel =
+    deterministicState?.cudaReferenceLabel ??
+    deterministicState?.imageName ??
+    '000151_v13';
+  const referenceImagePath =
+    deterministicState?.cudaReferencePath ??
+    `/home/demo/work/data/4dgs_sph_scene/images/${referenceImageLabel}.png`;
+  const referenceImageSource =
+    deterministicState?.cudaReferencePath
+      ? 'deterministic-cuda-reference-path'
+      : 'fixed-dataset-reference-image-path';
+  const webgpuProductionOutputCaptureReady =
+    outputTextureProducedByProductionCompositor &&
+    textureStats.nonzeroPixelRatio > 0 &&
+    outputWidth > 0 &&
+    outputHeight > 0;
+  const referenceImageInputReady =
+    typeof referenceImageLabel === 'string' &&
+    referenceImageLabel.length > 0 &&
+    typeof referenceImagePath === 'string' &&
+    referenceImagePath.length > 0;
+  const cudaReferenceInputReady =
+    referenceImageInputReady &&
+    cudaReferenceNotInteractiveBackend === true &&
+    fixedReferenceAndInteractiveCameraSeparated === true;
+  const fixedReferenceScreenSpaceCamera =
+    deterministicState?.fixedReferenceScreenSpaceCamera ?? null;
+  const runtimeScreenSpaceCamera =
+    deterministicState?.cudaAlignedScreenSpaceCamera ?? null;
+  const referenceCameraPose = deterministicState?.referenceCameraPose ?? null;
+  const actualCameraPosition =
+    finiteVector3OrNull(viewerCameraState?.cameraPosition) ??
+    finiteVector3OrNull(deterministicState?.actualCameraPosition);
+  const actualCameraUp =
+    finiteVector3OrNull(viewerCameraState?.cameraSnapshot?.up) ??
+    finiteVector3OrNull(deterministicState?.actualCameraUp);
+  const actualCameraTarget =
+    finiteVector3OrNull(viewerCameraState?.controlsTarget) ??
+    finiteVector3OrNull(deterministicState?.actualControlsTarget);
+  const referencePositionDelta =
+    vector3MaxAbsDelta(actualCameraPosition, referenceCameraPose?.position);
+  const referenceUpDelta =
+    vector3MaxAbsDelta(actualCameraUp, referenceCameraPose?.up);
+  const referenceTargetDelta =
+    vector3MaxAbsDelta(actualCameraTarget, referenceCameraPose?.target);
+  const fixedReferenceCameraTolerance = 1e-4;
+  const cameraMetadataName =
+    deterministicState?.datasetCameraLabel ??
+    deterministicState?.cameraPresetName ??
+    referenceImageLabel;
+  const cameraProjectionContractReady =
+    fixedReferenceScreenSpaceCamera?.enabled === true &&
+    fixedReferenceScreenSpaceCamera?.projectionContract ===
+      'cuda-plus-z-forward-fx-fy-cx-cy' &&
+    Number.isFinite(Number(fixedReferenceScreenSpaceCamera?.intrinsics?.fx)) &&
+    Number.isFinite(Number(fixedReferenceScreenSpaceCamera?.intrinsics?.fy)) &&
+    Number.isFinite(Number(fixedReferenceScreenSpaceCamera?.intrinsics?.cx)) &&
+    Number.isFinite(Number(fixedReferenceScreenSpaceCamera?.intrinsics?.cy));
+  const viewportForComparison = viewerCanvasState?.viewport ?? {
+    x: 0,
+    y: 0,
+    width: outputWidth,
+    height: outputHeight,
+    devicePixelRatio: null
+  };
+  const viewportComparisonContractReady =
+    Number.isFinite(Number(viewportForComparison?.width)) &&
+    Number.isFinite(Number(viewportForComparison?.height)) &&
+    Number(viewportForComparison.width) > 0 &&
+    Number(viewportForComparison.height) > 0 &&
+    outputWidth > 0 &&
+    outputHeight > 0;
+  const backgroundComparisonContractReady =
+    Number.isFinite(Number(deterministicState?.bgGray)) ||
+    deterministicState?.bgGray == null;
+  const pixelCoordinateComparisonContractReady =
+    [-1, 1].includes(Number(fixedReferenceScreenSpaceCamera?.pixelXSign)) &&
+    Number(fixedReferenceScreenSpaceCamera?.screenYSign) === 1;
+  const screenSpaceConventionReady =
+    cameraProjectionContractReady &&
+    pixelCoordinateComparisonContractReady &&
+    fixedReferenceScreenSpaceCamera?.viewMatrixSource ===
+      'dataset-transform-cuda-reader-c2w-inverse';
+  const referenceCameraMode =
+    deterministicState?.datasetViewMatrixMode === 'cuda-aligned' &&
+    deterministicState?.cameraControlContract !== 'interactive-from-reference'
+      ? 'cuda-aligned-fixed-reference-camera'
+      : 'interactive-camera-excluded-from-fixed-reference-comparison';
+  const poseMatchesFixedReference =
+    referencePositionDelta != null &&
+    referenceUpDelta != null &&
+    referenceTargetDelta != null &&
+    referencePositionDelta <= fixedReferenceCameraTolerance &&
+    referenceUpDelta <= fixedReferenceCameraTolerance &&
+    referenceTargetDelta <= fixedReferenceCameraTolerance;
+  const usesCudaAlignedFixedReferenceCamera =
+    referenceCameraMode === 'cuda-aligned-fixed-reference-camera' &&
+    runtimeScreenSpaceCamera?.enabled === true &&
+    fixedReferenceScreenSpaceCamera?.enabled === true &&
+    poseMatchesFixedReference;
+  const interactiveCameraExcludedFromReferenceComparison = true;
+  const fixedReferenceCameraGateReady =
+    cudaReferenceInputReady &&
+    typeof cameraMetadataName === 'string' &&
+    cameraMetadataName.length > 0 &&
+    cameraProjectionContractReady &&
+    viewportComparisonContractReady &&
+    backgroundComparisonContractReady &&
+    pixelCoordinateComparisonContractReady &&
+    screenSpaceConventionReady;
+  const cameraContractMismatchDetected =
+    fixedReferenceCameraGateReady &&
+    usesCudaAlignedFixedReferenceCamera !== true;
+  const cameraContractMismatchReason =
+    fixedReferenceCameraGateReady
+      ? (
+          cameraContractMismatchDetected
+            ? (
+                deterministicState?.cameraControlContract ===
+                  'interactive-from-reference'
+                  ? 'interactive-camera-active-fixed-reference-camera-required'
+                  : runtimeScreenSpaceCamera?.enabled !== true
+                    ? 'runtime-camera-not-cuda-aligned-fixed-reference'
+                    : !poseMatchesFixedReference
+                      ? 'runtime-camera-pose-does-not-match-fixed-reference'
+                      : 'fixed-reference-camera-contract-mismatch'
+              )
+            : null
+        )
+      : 'fixed-reference-camera-contract-incomplete';
+  const visualParityComparisonAllowed =
+    fixedReferenceCameraGateReady &&
+    usesCudaAlignedFixedReferenceCamera === true &&
+    cameraContractMismatchDetected === false;
+  const visualComparisonConditions = {
+    cameraLabel: deterministicState?.datasetCameraLabel ?? referenceImageLabel,
+    cameraMetadataName,
+    referenceCameraMode,
+    usesCudaAlignedFixedReferenceCamera,
+    interactiveCameraExcludedFromReferenceComparison,
+    cameraProjectionContractReady,
+    viewportComparisonContractReady,
+    backgroundComparisonContractReady,
+    pixelCoordinateComparisonContractReady,
+    screenSpaceConventionReady,
+    cameraContractMismatchDetected,
+    cameraContractMismatchReason,
+    visualParityComparisonAllowed,
+    fixedReferenceCameraTolerance,
+    referencePositionDelta,
+    referenceUpDelta,
+    referenceTargetDelta,
+    cameraControlContract: deterministicState?.cameraControlContract ?? null,
+    datasetViewMatrixMode: deterministicState?.datasetViewMatrixMode ?? null,
+    fixedReferenceScreenSpaceCamera,
+    runtimeScreenSpaceCamera,
+    imageName: deterministicState?.imageName ?? referenceImageLabel,
+    frameNumber: deterministicState?.frameNumber ?? null,
+    viewId: deterministicState?.viewId ?? null,
+    datasetTime: deterministicState?.datasetTime ?? null,
+    outputWidth,
+    outputHeight,
+    viewport: viewportForComparison,
+    backgroundPolicy: 'production-background-clear-pass-bgGray0',
+    colorSpacePolicy: 'rgba8unorm-production-output-vs-reference-rgba',
+    referenceImageLabel,
+    referenceImagePath
+  };
+  const visualComparisonConditionsReady =
+    webgpuProductionOutputCaptureReady &&
+    referenceImageInputReady &&
+    fixedReferenceCameraGateReady &&
+    outputWidth > 0 &&
+    outputHeight > 0;
+  const cameraViewportBackgroundColorSpaceRecorded =
+    visualComparisonConditionsReady &&
+    visualComparisonConditions.viewport != null &&
+    typeof visualComparisonConditions.backgroundPolicy === 'string' &&
+    typeof visualComparisonConditions.colorSpacePolicy === 'string';
+  const visualParityMetricMode =
+    'production-output-capture-vs-fixed-reference-image-baseline';
+  const visualParityMetricReady =
+    visualComparisonConditionsReady &&
+    cameraViewportBackgroundColorSpaceRecorded;
+  const visualParityDifferenceSummary = {
+    comparisonReady: visualParityMetricReady,
+    metricMode: visualParityMetricMode,
+    productionNonzeroOutputRatio: textureStats.nonzeroPixelRatio,
+    productionNonzeroPixelCount: textureStats.nonzeroPixelCount,
+    productionOutputWidth: outputWidth,
+    productionOutputHeight: outputHeight,
+    referenceImageLabel,
+    referenceImagePath,
+    fixedReferenceCameraGateReady,
+    visualParityComparisonAllowed,
+    cameraContractMismatchDetected,
+    cameraContractMismatchReason,
+    referencePositionDelta,
+    referenceUpDelta,
+    referenceTargetDelta,
+    pixelDiffComputedInRuntime: false,
+    pixelDiffTool: 'tools/compare_png.py',
+    pixelDiffDeferredReason:
+      'run compare_png.py after Step105 canvas PNG capture to compute MAE/RMSE/maxAbsError'
+  };
+  const visualMismatchClassification =
+    cameraContractMismatchDetected
+      ? 'camera-contract-mismatch'
+      : visualParityComparisonAllowed && visualParityMetricReady
+      ? 'visual-parity-baseline-ready-diff-tool-required'
+      : 'visual-parity-baseline-input-incomplete';
+  const finalCompositorParityDiagnosticsReady =
+    visualParityMetricReady &&
+    finalCompositorVisualParityDiagnosticsReadiness != null;
+  const finalCompositorParityDiagnosticsMode =
+    'reference-image-diff-baseline-before-final-compositor-parity-claim';
+  const step105NextStepRecommendedGoal =
+    'run-reference-image-diff-and-classify-production-compositor-mismatch-v1';
+  const step104VisualSafetyGatePreserved =
+    workReductionReadinessReviewReady &&
+    visualSafetyGateReady &&
+    earlyTerminationDisabledBySafetyGate &&
+    safeMinimalEarlyTerminationV1Used === false;
+  const earlyTerminationRemainsDisabled =
+    earlyTerminationEnabled === false &&
+    safeMinimalEarlyTerminationV1Used === false &&
+    earlyTerminationOnPathExecuted === false;
+  const lodStreamingRemainsDisabled = true;
 
   for (const buffer of [
     summaryBuffer,
@@ -2503,7 +2771,12 @@ fn finalizeSummary() {
         'early-termination-enable-disable-policy-v1',
         'visual-safety-quality-risk-gate-v1',
         'early-termination-on-off-comparison-readiness-v1',
-        'step104-bottleneck-next-step-selection-v1'
+        'step104-bottleneck-next-step-selection-v1',
+        'webgpu-production-output-capture-baseline-v1',
+        'cuda-reference-image-input-baseline-v1',
+        'visual-parity-comparison-conditions-v1',
+        'visual-mismatch-classification-baseline-v1',
+        'step105-reference-visual-parity-next-step-selection-v1'
       ],
       deferredCompositorFields: [
         'full-production-parallel-sort-parity',
@@ -2514,7 +2787,11 @@ fn finalizeSummary() {
         'early-termination-v1-alpha-threshold-and-visual-parity-gate',
         'early-termination-on-path-output-delta-probe',
         'viewport-resize-resource-reallocation-probe',
-        'visual-parity-diagnostics'
+        'visual-parity-diagnostics',
+        'runtime-pixel-diff-against-reference-image',
+        'cuda-reference-execution-refresh',
+        'early-termination-v1',
+        'lod-streaming'
       ],
       compositorClassification:
         'production-webgpu-tile-compositor-v1-integration',
@@ -2610,6 +2887,7 @@ fn finalizeSummary() {
         textureStats.nonzeroPixelRatio,
       tileCompositorOutputChangedFromDebugPattern:
         realTileCompositorOutputReady,
+      step88PresentationContractPreserved,
       realTimeRuntimePathReady,
       readbackFreeSteadyStateCompositorUsed,
       runtimeCompositorDoesNotDependOnCaptureReadback,
@@ -2876,6 +3154,39 @@ fn finalizeSummary() {
       step104BottleneckClassification,
       step104NextStepRecommendedGoal,
       step103ProductionRuntimeBoundaryReviewPreserved,
+      productionOutputCaptureReady: webgpuProductionOutputCaptureReady,
+      webgpuProductionOutputCaptureReady,
+      referenceImageInputReady,
+      cudaReferenceInputReady,
+      referenceImageSource,
+      referenceImagePath,
+      referenceImageLabel,
+      fixedReferenceCameraGateReady,
+      referenceCameraMode,
+      usesCudaAlignedFixedReferenceCamera,
+      interactiveCameraExcludedFromReferenceComparison,
+      cameraMetadataName,
+      cameraProjectionContractReady,
+      viewportComparisonContractReady,
+      backgroundComparisonContractReady,
+      pixelCoordinateComparisonContractReady,
+      screenSpaceConventionReady,
+      cameraContractMismatchDetected,
+      cameraContractMismatchReason,
+      visualParityComparisonAllowed,
+      visualComparisonConditionsReady,
+      visualComparisonConditions,
+      cameraViewportBackgroundColorSpaceRecorded,
+      visualParityMetricReady,
+      visualParityMetricMode,
+      visualParityDifferenceSummary,
+      visualMismatchClassification,
+      finalCompositorParityDiagnosticsReady,
+      finalCompositorParityDiagnosticsMode,
+      step105NextStepRecommendedGoal,
+      step104VisualSafetyGatePreserved,
+      earlyTerminationRemainsDisabled,
+      lodStreamingRemainsDisabled,
       step93OverflowPolicyPreserved,
       overflowAwareOrderingReady,
       sortCapacityLimit,
@@ -2904,7 +3215,9 @@ fn finalizeSummary() {
         'viewport-resize-dirty-probe',
         'viewport-resize-resource-reallocation-probe',
         'visual-parity-diagnostics',
-        'chunk-lod-streaming'
+        'chunk-lod-streaming',
+        'runtime-pixel-diff-against-reference-image',
+        'cuda-reference-execution-refresh'
       ],
       reason: ready
         ? null

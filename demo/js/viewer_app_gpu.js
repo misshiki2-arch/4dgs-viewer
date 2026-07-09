@@ -2566,6 +2566,9 @@ async function captureWebGpuVisibleRecordDryRunDebug(options = {}) {
       phase:
         options.phaseStep ??
         (typeof options.comparisonMode === 'string' &&
+        options.comparisonMode.includes('step105')
+          ? 'phase3-step105'
+          : typeof options.comparisonMode === 'string' &&
         options.comparisonMode.includes('step104')
           ? 'phase3-step104'
           : typeof options.comparisonMode === 'string' &&
