@@ -2654,6 +2654,91 @@ fn finalizeSummary() {
       : visualParityComparisonAllowed && visualParityMetricReady
       ? 'visual-parity-baseline-ready-diff-tool-required'
       : 'visual-parity-baseline-input-incomplete';
+  const viewMatrixEvidence = {
+    ready:
+      fixedReferenceScreenSpaceCamera?.enabled === true &&
+      Array.isArray(fixedReferenceScreenSpaceCamera?.cudaAlignedViewMatrix),
+    source: fixedReferenceScreenSpaceCamera?.viewMatrixSource ?? null,
+    mode: fixedReferenceScreenSpaceCamera?.mode ?? null,
+    hasCudaAlignedViewMatrix:
+      Array.isArray(fixedReferenceScreenSpaceCamera?.cudaAlignedViewMatrix),
+    hasThreeJsToCudaViewMatrix:
+      Array.isArray(fixedReferenceScreenSpaceCamera?.threeJsToCudaViewMatrix)
+  };
+  const projectionMatrixEvidence = {
+    ready: cameraProjectionContractReady,
+    source: fixedReferenceScreenSpaceCamera?.projectionContract ?? null,
+    intrinsics: fixedReferenceScreenSpaceCamera?.intrinsics ?? null,
+    covarianceFocalContract:
+      fixedReferenceScreenSpaceCamera?.covarianceFocalContract ?? null
+  };
+  const viewportEvidence = {
+    ready: viewportComparisonContractReady,
+    viewport: viewportForComparison,
+    outputWidth,
+    outputHeight
+  };
+  const screenSpaceConventionEvidence = {
+    ready: screenSpaceConventionReady,
+    pixelXSign: fixedReferenceScreenSpaceCamera?.pixelXSign ?? null,
+    screenYSign: fixedReferenceScreenSpaceCamera?.screenYSign ?? null,
+    depthSign: fixedReferenceScreenSpaceCamera?.depthSign ?? null,
+    viewMatrixSource:
+      fixedReferenceScreenSpaceCamera?.viewMatrixSource ?? null,
+    pixelSignContract:
+      fixedReferenceScreenSpaceCamera?.pixelSignContract ?? null
+  };
+  const backgroundPolicyEvidence = {
+    ready: backgroundComparisonContractReady,
+    backgroundPolicy: visualComparisonConditions.backgroundPolicy,
+    bgGray: deterministicState?.bgGray ?? null,
+    colorSpacePolicy: visualComparisonConditions.colorSpacePolicy
+  };
+  const cudaReferenceCameraEvidenceSources = {
+    cameraMetadata: cameraMetadataName,
+    viewMatrix: viewMatrixEvidence.source,
+    projection: projectionMatrixEvidence.source,
+    viewport: 'viewer-canvas-output-viewport',
+    screenSpaceConvention:
+      fixedReferenceScreenSpaceCamera?.viewMatrixSource ?? null,
+    background: backgroundPolicyEvidence.backgroundPolicy,
+    referenceImage: referenceImagePath
+  };
+  const missingCameraEvidenceReasons = [];
+  if (!cudaReferenceInputReady) {
+    missingCameraEvidenceReasons.push('cuda-reference-input-not-ready');
+  }
+  if (typeof cameraMetadataName !== 'string' || cameraMetadataName.length === 0) {
+    missingCameraEvidenceReasons.push('camera-metadata-name-missing');
+  }
+  if (viewMatrixEvidence.ready !== true) {
+    missingCameraEvidenceReasons.push('view-matrix-evidence-missing');
+  }
+  if (projectionMatrixEvidence.ready !== true) {
+    missingCameraEvidenceReasons.push('projection-matrix-evidence-missing');
+  }
+  if (viewportEvidence.ready !== true) {
+    missingCameraEvidenceReasons.push('viewport-evidence-missing');
+  }
+  if (screenSpaceConventionEvidence.ready !== true) {
+    missingCameraEvidenceReasons.push(
+      'screen-space-convention-evidence-missing'
+    );
+  }
+  if (backgroundPolicyEvidence.ready !== true) {
+    missingCameraEvidenceReasons.push('background-policy-evidence-missing');
+  }
+  const cudaReferenceCameraEvidenceReady =
+    missingCameraEvidenceReasons.length === 0;
+  const fixedReferenceCameraActivationReady =
+    usesCudaAlignedFixedReferenceCamera === true;
+  const fixedReferenceCameraActivationBlockedReason =
+    fixedReferenceCameraActivationReady
+      ? null
+      : (
+          cameraContractMismatchReason ??
+          'fixed-reference-camera-activation-not-ready'
+        );
   const finalCompositorParityDiagnosticsReady =
     visualParityMetricReady &&
     finalCompositorVisualParityDiagnosticsReadiness != null;
@@ -3186,6 +3271,27 @@ fn finalizeSummary() {
       finalCompositorParityDiagnosticsReady,
       finalCompositorParityDiagnosticsMode,
       step105NextStepRecommendedGoal,
+      cudaReferenceCameraEvidenceReady,
+      cudaReferenceCameraEvidenceSources,
+      fixedReferenceCameraActivationReady,
+      fixedReferenceCameraActivationBlockedReason,
+      viewMatrixEvidence,
+      projectionMatrixEvidence,
+      viewportEvidence,
+      screenSpaceConventionEvidence,
+      backgroundPolicyEvidence,
+      webgpuCameraConstantsSource:
+        'fixed-reference-camera-contract-for-reference-comparison-or-viewer-camera-for-interactive-runtime',
+      interactiveCameraSeparatedFromFixedReference:
+        fixedReferenceAndInteractiveCameraSeparated,
+      missingCameraEvidenceDetected:
+        missingCameraEvidenceReasons.length > 0,
+      missingCameraEvidenceReasons,
+      step107DesignGatePreserved: fixedReferenceCameraGateReady,
+      step108NextStepRecommendedGoal:
+        fixedReferenceCameraActivationReady
+          ? 'run-fixed-reference-camera-visual-parity-comparison-v1'
+          : 'activate-fixed-reference-camera-mode-from-cuda-evidence-v1',
       step104VisualSafetyGatePreserved,
       earlyTerminationRemainsDisabled,
       lodStreamingRemainsDisabled,

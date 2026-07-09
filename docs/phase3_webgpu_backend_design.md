@@ -2651,3 +2651,35 @@ runtime pixel diff against the reference image, camera visual parity, CUDA
 Reference execution refresh, final compositor parity, early termination
 alpha-threshold/visual-parity gating, viewport resize probing, complete
 interactive control parity, and chunk/LOD/streaming.
+
+## Step108 CUDA Reference Camera Evidence and Fixed Reference Activation Gate V1
+
+Step108 advances the Step107 design gate into a camera-evidence and activation
+gate. It does not tune `cameraUp`, axis signs, Y flip, or projection by trial
+and error. Instead, it records whether CUDA Reference comparison has canonical
+camera evidence available:
+
+- camera metadata name and reference image label;
+- fixed-reference view matrix source and CUDA-aligned view matrix presence;
+- projection/intrinsics contract;
+- viewport dimensions;
+- screen-space convention, pixel sign, Y convention, and depth sign;
+- background and color-space policy.
+
+The Summary separates three outcomes:
+
+- `cudaReferenceCameraEvidenceReady`: all required CUDA Reference camera
+  evidence is present. Missing evidence is reported through
+  `missingCameraEvidenceDetected` and `missingCameraEvidenceReasons`.
+- `fixedReferenceCameraActivationReady`: the WebGPU runtime is actually using
+  the CUDA-aligned fixed reference camera. If false, the Summary keeps the
+  reason in `fixedReferenceCameraActivationBlockedReason`; this can be a
+  legitimate next-step activation item when the evidence itself is ready.
+- `visualParityComparisonAllowed`: the comparison may run only after the fixed
+  reference camera is active. If false, `visualParityComparisonBlockedReason`
+  prevents camera mismatch from being misclassified as compositor, color, or
+  sort error.
+
+Step108 preserves the Step107 design gate, Step106 capability gate, and Step105
+camera gate. It keeps early termination, LOD, and streaming disabled and does
+not claim CUDA Reference parity or full renderer success.

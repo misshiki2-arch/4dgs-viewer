@@ -16,7 +16,7 @@ export const WEBGPU_GPU_OWNED_TILE_LIST_LAYOUT_CONTRACT_VERSION =
   'phase3-step84-webgpu-gpu-owned-tile-list-layout-v1';
 
 export const WEBGPU_TILE_LIST_COMPOSITOR_CONTRACT_VERSION =
-  'phase3-step107-fixed-reference-camera-contract-v1';
+  'phase3-step108-cuda-reference-camera-evidence-v1';
 
 export const WEBGPU_PHASE3_BACKEND_BOUNDARY_CONTRACT_VERSION =
   'phase3-step86-webgpu-backend-boundary-and-dirty-contract-v1';
@@ -1012,6 +1012,21 @@ export function buildWebGpuTileListCompositorContract({
   cameraMismatchClassificationRefined = false,
   cameraMismatchClassification = null,
   step107NextStepRecommendedGoal = null,
+  cudaReferenceCameraEvidenceReady = false,
+  cudaReferenceCameraEvidenceSources = {},
+  fixedReferenceCameraActivationReady = false,
+  fixedReferenceCameraActivationBlockedReason = null,
+  viewMatrixEvidence = {},
+  projectionMatrixEvidence = {},
+  viewportEvidence = {},
+  screenSpaceConventionEvidence = {},
+  backgroundPolicyEvidence = {},
+  webgpuCameraConstantsSource = null,
+  interactiveCameraSeparatedFromFixedReference = false,
+  missingCameraEvidenceDetected = false,
+  missingCameraEvidenceReasons = [],
+  step107DesignGatePreserved = false,
+  step108NextStepRecommendedGoal = null,
   step104VisualSafetyGatePreserved = false,
   earlyTerminationRemainsDisabled = false,
   lodStreamingRemainsDisabled = false,
@@ -1803,6 +1818,45 @@ export function buildWebGpuTileListCompositorContract({
     earlyTerminationRemainsDisabled === true &&
     lodStreamingRemainsDisabled === true &&
     visualOutputDegeneratedDetected === false;
+  const effectiveCudaReferenceCameraEvidenceReady =
+    cudaReferenceCameraEvidenceReady === true ||
+    (
+      fixedReferenceCameraGateReady === true &&
+      cameraProjectionContractReady === true &&
+      viewportComparisonContractReady === true &&
+      backgroundComparisonContractReady === true &&
+      pixelCoordinateComparisonContractReady === true &&
+      screenSpaceConventionReady === true &&
+      typeof cameraMetadataName === 'string' &&
+      cameraMetadataName.length > 0
+    );
+  const effectiveFixedReferenceCameraActivationReady =
+    fixedReferenceCameraActivationReady === true ||
+    usesCudaAlignedFixedReferenceCamera === true;
+  const effectiveFixedReferenceCameraActivationBlockedReason =
+    effectiveFixedReferenceCameraActivationReady
+      ? null
+      : (
+          fixedReferenceCameraActivationBlockedReason ??
+          cameraContractMismatchReason ??
+          'fixed-reference-camera-activation-not-ready'
+        );
+  const effectiveMissingCameraEvidenceReasons = [
+    ...(Array.isArray(missingCameraEvidenceReasons)
+      ? missingCameraEvidenceReasons
+      : []),
+    ...(
+      effectiveCudaReferenceCameraEvidenceReady
+        ? []
+        : ['cuda-reference-camera-evidence-incomplete']
+    )
+  ];
+  const effectiveMissingCameraEvidenceDetected =
+    missingCameraEvidenceDetected === true ||
+    effectiveMissingCameraEvidenceReasons.length > 0;
+  const effectiveStep107DesignGatePreserved =
+    step107DesignGatePreserved === true ||
+    fixedReferenceCameraContractGateReady === true;
   return {
     contractVersion: WEBGPU_TILE_LIST_COMPOSITOR_CONTRACT_VERSION,
     status: ready ? 'ok' : status,
@@ -2242,6 +2296,36 @@ export function buildWebGpuTileListCompositorContract({
     step107NextStepRecommendedGoal:
       step107NextStepRecommendedGoal ??
       'fixed-reference-camera-contract-capture-probe-v1',
+    cudaReferenceCameraEvidenceReady:
+      effectiveCudaReferenceCameraEvidenceReady,
+    cudaReferenceCameraEvidenceSources,
+    fixedReferenceCameraActivationReady:
+      effectiveFixedReferenceCameraActivationReady,
+    fixedReferenceCameraActivationBlockedReason:
+      effectiveFixedReferenceCameraActivationBlockedReason,
+    viewMatrixEvidence,
+    projectionMatrixEvidence,
+    viewportEvidence,
+    screenSpaceConventionEvidence,
+    backgroundPolicyEvidence,
+    webgpuCameraConstantsSource:
+      webgpuCameraConstantsSource ??
+      effectiveWebgpuCameraConstantsContract.source,
+    interactiveCameraSeparatedFromFixedReference:
+      interactiveCameraSeparatedFromFixedReference === true ||
+      interactiveFixedCameraBoundaryReady,
+    missingCameraEvidenceDetected:
+      effectiveMissingCameraEvidenceDetected,
+    missingCameraEvidenceReasons:
+      effectiveMissingCameraEvidenceReasons,
+    step107DesignGatePreserved: effectiveStep107DesignGatePreserved,
+    step108NextStepRecommendedGoal:
+      step108NextStepRecommendedGoal ??
+      (
+        effectiveFixedReferenceCameraActivationReady
+          ? 'run-fixed-reference-camera-visual-parity-comparison-v1'
+          : 'activate-fixed-reference-camera-mode-from-cuda-evidence-v1'
+      ),
     step104VisualSafetyGatePreserved,
     earlyTerminationRemainsDisabled,
     lodStreamingRemainsDisabled,
