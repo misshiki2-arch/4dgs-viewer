@@ -10717,6 +10717,558 @@ def build_step106_capability_based_regression_gate_summary(
     }
 
 
+def build_step107_fixed_reference_camera_contract_summary(
+    summary: Dict[str, Any],
+) -> Dict[str, Any]:
+    frame_contract = get_path(
+        summary,
+        ["webgpuTileCompositorFrameImplementation"],
+        {},
+    )
+    compositor_contract = get_path(
+        summary,
+        ["webgpuTileListCompositorContract"],
+        {},
+    )
+    error_subtypes = detect_webgpu_error_subtypes(
+        frame_contract,
+        compositor_contract,
+        get_path(summary, ["captureErrorString"]),
+        get_path(summary, ["captureErrorStack"]),
+        get_path(summary, ["captureErrorMessage"]),
+        get_path(summary, ["firstValidationFailures"]),
+    )
+    phase_step = get_path(summary, ["phaseStep"])
+    wgsl_parse_error_detected = (
+        get_path(frame_contract, ["wgslParseErrorDetected"]) is True
+        or get_path(compositor_contract, ["wgslParseErrorDetected"]) is True
+        or error_subtypes["wgslParseErrorDetected"]
+    )
+    shader_module_invalid_detected = (
+        get_path(frame_contract, ["shaderModuleInvalidDetected"]) is True
+        or get_path(compositor_contract, ["shaderModuleInvalidDetected"]) is True
+        or error_subtypes["shaderModuleInvalidDetected"]
+    )
+    compute_pipeline_invalid_detected = (
+        get_path(frame_contract, ["computePipelineInvalidDetected"]) is True
+        or get_path(compositor_contract, ["computePipelineInvalidDetected"]) is True
+        or error_subtypes["computePipelineInvalidDetected"]
+    )
+    bind_group_invalid_detected = (
+        get_path(frame_contract, ["bindGroupInvalidDetected"]) is True
+        or get_path(compositor_contract, ["bindGroupInvalidDetected"]) is True
+        or error_subtypes["bindGroupInvalidDetected"]
+    )
+    camera_mismatch_classified = (
+        get_path(compositor_contract, ["cameraContractMismatchDetected"]) is True
+        and get_path(compositor_contract, ["visualParityComparisonAllowed"])
+        is False
+        and get_path(compositor_contract, ["visualMismatchClassification"])
+        == "camera-contract-mismatch"
+    )
+    responsibility_ready = (
+        get_path(compositor_contract, ["cameraResponsibilityBoundaryReady"])
+        is True
+        and isinstance(
+            get_path(
+                compositor_contract,
+                ["threeJsInteractiveCameraResponsibility"],
+            ),
+            str,
+        )
+        and isinstance(
+            get_path(
+                compositor_contract,
+                ["fixedReferenceCameraResponsibility"],
+            ),
+            str,
+        )
+        and isinstance(
+            get_path(
+                compositor_contract,
+                ["webgpuBackendCameraResponsibility"],
+            ),
+            str,
+        )
+        and isinstance(
+            get_path(compositor_contract, ["toolsCameraResponsibility"]),
+            str,
+        )
+    )
+    canonical_sources = get_path(
+        compositor_contract,
+        ["cameraCanonicalSources"],
+        {},
+    )
+    canonical_sources_ready = (
+        get_path(compositor_contract, ["cameraCanonicalSourcesReady"]) is True
+        and isinstance(canonical_sources, dict)
+        and isinstance(canonical_sources.get("cameraMetadata"), str)
+        and isinstance(canonical_sources.get("viewMatrix"), str)
+        and isinstance(canonical_sources.get("projectionMatrix"), str)
+        and isinstance(canonical_sources.get("viewport"), str)
+        and isinstance(canonical_sources.get("pixelCoordinates"), str)
+    )
+    coordinate_convention_summary = get_path(
+        compositor_contract,
+        ["coordinateConventionSummary"],
+        {},
+    )
+    coordinate_convention_ready = (
+        get_path(compositor_contract, ["coordinateConventionReady"]) is True
+        and isinstance(coordinate_convention_summary, dict)
+        and isinstance(coordinate_convention_summary.get("axisConvention"), str)
+        and isinstance(coordinate_convention_summary.get("handedness"), str)
+        and isinstance(coordinate_convention_summary.get("yFlipPolicy"), str)
+        and isinstance(
+            coordinate_convention_summary.get("pixelCoordinateOrigin"),
+            str,
+        )
+    )
+    webgpu_camera_constants_contract = get_path(
+        compositor_contract,
+        ["webgpuCameraConstantsContract"],
+        {},
+    )
+    webgpu_camera_constants_ready = (
+        get_path(compositor_contract, ["webgpuCameraConstantsContractReady"])
+        is True
+        and isinstance(webgpu_camera_constants_contract, dict)
+        and isinstance(webgpu_camera_constants_contract.get("consumer"), str)
+        and isinstance(webgpu_camera_constants_contract.get("source"), str)
+    )
+    fixed_reference_contract_ready = (
+        get_path(compositor_contract, ["fixedReferenceCameraContractReady"])
+        is True
+        and get_path(
+            compositor_contract,
+            ["fixedReferenceCameraContractReviewReady"],
+        )
+        is True
+        and get_path(compositor_contract, ["fixedReferenceCameraGateReady"])
+        is True
+        and get_path(
+            compositor_contract,
+            ["interactiveAndFixedCameraSeparated"],
+        )
+        is True
+        and responsibility_ready
+        and canonical_sources_ready
+        and coordinate_convention_ready
+        and webgpu_camera_constants_ready
+        and (
+            get_path(compositor_contract, ["visualParityComparisonAllowed"])
+            is True
+            or camera_mismatch_classified
+        )
+    )
+    fixed_reference_camera_activation_ready = (
+        get_path(
+            compositor_contract,
+            ["usesCudaAlignedFixedReferenceCamera"],
+        )
+        is True
+    )
+    visual_parity_comparison_gate_ready = (
+        get_path(compositor_contract, ["visualParityComparisonAllowed"]) is True
+        or camera_mismatch_classified
+    )
+    visual_parity_comparison_blocked_reason = None
+    if get_path(compositor_contract, ["visualParityComparisonAllowed"]) is not True:
+        if camera_mismatch_classified:
+            visual_parity_comparison_blocked_reason = get_path(
+                compositor_contract,
+                ["cameraContractMismatchReason"],
+                "camera-contract-mismatch",
+            )
+        else:
+            visual_parity_comparison_blocked_reason = (
+                "visual-parity-comparison-not-allowed-and-unclassified"
+            )
+    preservation_ready = (
+        get_path(compositor_contract, ["capabilityBasedRegressionGateReady"])
+        is True
+        and get_path(compositor_contract, ["step105CameraGatePreserved"]) is True
+        and get_path(compositor_contract, ["earlyTerminationRemainsDisabled"])
+        is True
+        and get_path(compositor_contract, ["lodStreamingRemainsDisabled"]) is True
+    )
+    full_renderer_success_claimed = (
+        get_path(frame_contract, ["fullRendererSuccessClaimed"]) is True
+        or get_path(compositor_contract, ["fullRendererSuccessClaimed"]) is True
+    )
+    step107_decision_policy = (
+        "design-gate-success-requires-fixed-reference-camera-contract-"
+        "responsibility-canonical-sources-coordinate-convention-preservation-"
+        "and-error-free-runtime; fixed-camera-activation-and-visual-parity-"
+        "comparison-allowed-are-reported-gates-not-required-for-design-success"
+    )
+    step107_validation_predicates = [
+        {
+            "name": "phase-step-is-step107",
+            "gate": "design",
+            "ready": phase_step == "phase3-step107",
+            "requiredForDecision": True,
+            "reason": "summary must be generated for phase3-step107",
+        },
+        {
+            "name": "step107-camera-contract-evidence-ready",
+            "gate": "design",
+            "ready": (
+                get_path(
+                    compositor_contract,
+                    ["step107CameraContractReady"],
+                )
+                is True
+                or fixed_reference_contract_ready
+            ),
+            "requiredForDecision": True,
+            "reason": "Step107 camera contract evidence must be available from the common aggregate flag or decomposed fixed-reference design gate",
+        },
+        {
+            "name": "fixed-reference-camera-design-gate-ready",
+            "gate": "design",
+            "ready": fixed_reference_contract_ready,
+            "requiredForDecision": True,
+            "reason": "canonical camera sources, coordinate convention, and backend constants must be readable",
+        },
+        {
+            "name": "fixed-reference-camera-activation-ready",
+            "gate": "activation",
+            "ready": fixed_reference_camera_activation_ready,
+            "requiredForDecision": False,
+            "reason": "usesCudaAlignedFixedReferenceCamera is a follow-up activation gate for reference comparison",
+        },
+        {
+            "name": "visual-parity-comparison-gate-classified",
+            "gate": "visual-parity-comparison",
+            "ready": visual_parity_comparison_gate_ready,
+            "requiredForDecision": True,
+            "reason": "comparison must either be allowed or blocked with a camera mismatch classification",
+        },
+        {
+            "name": "step106-and-step105-preserved",
+            "gate": "preservation",
+            "ready": preservation_ready,
+            "requiredForDecision": True,
+            "reason": "Step106 capability gate and Step105 camera gate must remain intact",
+        },
+        {
+            "name": "fallback-only-compositor-not-used",
+            "gate": "runtime-boundary",
+            "ready": get_path(compositor_contract, ["fallbackOnlyCompositorUsed"])
+            is False,
+            "requiredForDecision": True,
+            "reason": "design evidence must not come from fallback-only compositor success",
+        },
+        {
+            "name": "debug-output-bypassed-for-production",
+            "gate": "runtime-boundary",
+            "ready": get_path(
+                compositor_contract,
+                ["debugOutputBypassedForProduction"],
+            )
+            is True,
+            "requiredForDecision": True,
+            "reason": "production path must remain separated from debug output",
+        },
+        {
+            "name": "diagnostic-readback-separated",
+            "gate": "runtime-boundary",
+            "ready": get_path(
+                compositor_contract,
+                ["diagnosticReadbackSeparatedFromRuntimePath"],
+            )
+            is True,
+            "requiredForDecision": True,
+            "reason": "diagnostic readback must stay outside the runtime path",
+        },
+        {
+            "name": "visual-output-not-degenerated",
+            "gate": "runtime-boundary",
+            "ready": get_path(
+                compositor_contract,
+                ["visualOutputDegeneratedDetected"],
+            )
+            is not True,
+            "requiredForDecision": True,
+            "reason": "Step107 must not accept degenerated visual output",
+        },
+        {
+            "name": "wgsl-parse-error-not-detected",
+            "gate": "error",
+            "ready": wgsl_parse_error_detected is False,
+            "requiredForDecision": True,
+            "reason": "WGSL parse errors block the design gate",
+        },
+        {
+            "name": "shader-module-invalid-not-detected",
+            "gate": "error",
+            "ready": shader_module_invalid_detected is False,
+            "requiredForDecision": True,
+            "reason": "invalid shader modules block the design gate",
+        },
+        {
+            "name": "compute-pipeline-invalid-not-detected",
+            "gate": "error",
+            "ready": compute_pipeline_invalid_detected is False,
+            "requiredForDecision": True,
+            "reason": "invalid compute pipelines block the design gate",
+        },
+        {
+            "name": "bind-group-invalid-not-detected",
+            "gate": "error",
+            "ready": bind_group_invalid_detected is False,
+            "requiredForDecision": True,
+            "reason": "invalid bind groups block the design gate",
+        },
+        {
+            "name": "invalid-command-buffer-not-detected",
+            "gate": "error",
+            "ready": get_path(
+                frame_contract,
+                ["invalidCommandBufferDetected"],
+            )
+            is False,
+            "requiredForDecision": True,
+            "reason": "invalid command buffers block the design gate",
+        },
+        {
+            "name": "queue-submit-failure-not-detected",
+            "gate": "error",
+            "ready": get_path(frame_contract, ["queueSubmitFailureDetected"])
+            is False,
+            "requiredForDecision": True,
+            "reason": "queue submit failures block the design gate",
+        },
+        {
+            "name": "webgpu-webgl2-same-frame-not-mixed",
+            "gate": "runtime-boundary",
+            "ready": get_path(
+                frame_contract,
+                ["webgpuWebgl2SameFramePresentationMixed"],
+            )
+            is not True,
+            "requiredForDecision": True,
+            "reason": "WebGPU and WebGL2 must not be mixed in the same frame",
+        },
+        {
+            "name": "fallback-mixing-prevented-or-not-detected",
+            "gate": "runtime-boundary",
+            "ready": get_path(frame_contract, ["fallbackMixingPrevented"]) is True
+            or get_path(
+                frame_contract,
+                ["webgpuWebgl2SameFramePresentationMixed"],
+            )
+            is not True,
+            "requiredForDecision": True,
+            "reason": "fallback mixing must be prevented or absent from evidence",
+        },
+        {
+            "name": "full-renderer-success-not-claimed",
+            "gate": "scope",
+            "ready": full_renderer_success_claimed is False,
+            "requiredForDecision": True,
+            "reason": "Step107 must not claim full renderer success",
+        },
+    ]
+    step107_failed_predicates = [
+        predicate
+        for predicate in step107_validation_predicates
+        if predicate["requiredForDecision"] is True
+        and predicate["ready"] is not True
+    ]
+    step107_ready = len(step107_failed_predicates) == 0
+    blocked_reason = None
+    if not step107_ready:
+        blocked_reason = step107_failed_predicates[0]["name"]
+    blocked_reason_detailed = None
+    if step107_failed_predicates:
+        first_failed = step107_failed_predicates[0]
+        blocked_reason_detailed = (
+            f"{first_failed['name']}: {first_failed['reason']}"
+        )
+
+    deferred_production_items = get_path(
+        compositor_contract,
+        ["deferredProductionItems"],
+        [],
+    )
+    if not isinstance(deferred_production_items, list):
+        deferred_production_items = []
+    return {
+        "step107Decision": "success" if step107_ready else "blocked",
+        "step107BlockedReason": blocked_reason,
+        "step107BlockedReasonDetailed": blocked_reason_detailed,
+        "step107DecisionPolicy": step107_decision_policy,
+        "step107ValidationPredicates": step107_validation_predicates,
+        "step107FailedPredicates": step107_failed_predicates,
+        "step107SelectedGoal":
+            "A+B+C+D-fixed-reference-camera-coordinate-responsibility-design-gate",
+        "phaseStep": phase_step,
+        "step107SummaryApplies": phase_step == "phase3-step107",
+        "fixedReferenceCameraDesignGateReady": fixed_reference_contract_ready,
+        "fixedReferenceCameraActivationReady":
+            fixed_reference_camera_activation_ready,
+        "visualParityComparisonGateReady":
+            visual_parity_comparison_gate_ready,
+        "visualParityComparisonBlockedReason":
+            visual_parity_comparison_blocked_reason,
+        "fixedReferenceCameraContractReviewReady": get_path(
+            compositor_contract,
+            ["fixedReferenceCameraContractReviewReady"],
+        ),
+        "fixedReferenceCameraContractReady": get_path(
+            compositor_contract,
+            ["fixedReferenceCameraContractReady"],
+        ),
+        "cameraResponsibilityBoundaryReady": get_path(
+            compositor_contract,
+            ["cameraResponsibilityBoundaryReady"],
+        ),
+        "threeJsInteractiveCameraResponsibility": get_path(
+            compositor_contract,
+            ["threeJsInteractiveCameraResponsibility"],
+        ),
+        "fixedReferenceCameraResponsibility": get_path(
+            compositor_contract,
+            ["fixedReferenceCameraResponsibility"],
+        ),
+        "webgpuBackendCameraResponsibility": get_path(
+            compositor_contract,
+            ["webgpuBackendCameraResponsibility"],
+        ),
+        "toolsCameraResponsibility": get_path(
+            compositor_contract,
+            ["toolsCameraResponsibility"],
+        ),
+        "interactiveAndFixedCameraSeparated": get_path(
+            compositor_contract,
+            ["interactiveAndFixedCameraSeparated"],
+        ),
+        "cameraCanonicalSourcesReady": get_path(
+            compositor_contract,
+            ["cameraCanonicalSourcesReady"],
+        ),
+        "cameraCanonicalSources": canonical_sources,
+        "coordinateConventionReady": get_path(
+            compositor_contract,
+            ["coordinateConventionReady"],
+        ),
+        "coordinateConventionSummary": coordinate_convention_summary,
+        "webgpuCameraConstantsContractReady": get_path(
+            compositor_contract,
+            ["webgpuCameraConstantsContractReady"],
+        ),
+        "webgpuCameraConstantsContract": webgpu_camera_constants_contract,
+        "fixedReferenceCaptureEvidenceReady": get_path(
+            compositor_contract,
+            ["fixedReferenceCaptureEvidenceReady"],
+        ),
+        "fixedReferenceCameraGateReady": get_path(
+            compositor_contract,
+            ["fixedReferenceCameraGateReady"],
+        ),
+        "referenceCameraMode": get_path(
+            compositor_contract,
+            ["referenceCameraMode"],
+        ),
+        "usesCudaAlignedFixedReferenceCamera": get_path(
+            compositor_contract,
+            ["usesCudaAlignedFixedReferenceCamera"],
+        ),
+        "interactiveCameraExcludedFromReferenceComparison": get_path(
+            compositor_contract,
+            ["interactiveCameraExcludedFromReferenceComparison"],
+        ),
+        "cameraMetadataName": get_path(
+            compositor_contract,
+            ["cameraMetadataName"],
+        ),
+        "visualParityComparisonAllowed": get_path(
+            compositor_contract,
+            ["visualParityComparisonAllowed"],
+        ),
+        "cameraMismatchClassificationRefined": get_path(
+            compositor_contract,
+            ["cameraMismatchClassificationRefined"],
+        ),
+        "cameraMismatchClassification": get_path(
+            compositor_contract,
+            ["cameraMismatchClassification"],
+        ),
+        "visualMismatchClassification": get_path(
+            compositor_contract,
+            ["visualMismatchClassification"],
+        ),
+        "cameraContractMismatchDetected": get_path(
+            compositor_contract,
+            ["cameraContractMismatchDetected"],
+        ),
+        "cameraContractMismatchReason": get_path(
+            compositor_contract,
+            ["cameraContractMismatchReason"],
+        ),
+        "step106CapabilityGatePreserved": get_path(
+            compositor_contract,
+            ["capabilityBasedRegressionGateReady"],
+        ),
+        "step105CameraGatePreserved": get_path(
+            compositor_contract,
+            ["step105CameraGatePreserved"],
+        ),
+        "nextStepRecommendedGoal": get_path(
+            compositor_contract,
+            ["step107NextStepRecommendedGoal"],
+        ),
+        "earlyTerminationRemainsDisabled": get_path(
+            compositor_contract,
+            ["earlyTerminationRemainsDisabled"],
+        ),
+        "lodStreamingRemainsDisabled": get_path(
+            compositor_contract,
+            ["lodStreamingRemainsDisabled"],
+        ),
+        "fallbackOnlyCompositorUsed": get_path(
+            compositor_contract,
+            ["fallbackOnlyCompositorUsed"],
+        ),
+        "debugOutputBypassedForProduction": get_path(
+            compositor_contract,
+            ["debugOutputBypassedForProduction"],
+        ),
+        "diagnosticReadbackSeparatedFromRuntimePath": get_path(
+            compositor_contract,
+            ["diagnosticReadbackSeparatedFromRuntimePath"],
+        ),
+        "visualOutputDegeneratedDetected": get_path(
+            compositor_contract,
+            ["visualOutputDegeneratedDetected"],
+        ),
+        "wgslParseErrorDetected": wgsl_parse_error_detected,
+        "shaderModuleInvalidDetected": shader_module_invalid_detected,
+        "computePipelineInvalidDetected": compute_pipeline_invalid_detected,
+        "bindGroupInvalidDetected": bind_group_invalid_detected,
+        "webgpuValidationErrorDetected": get_path(
+            frame_contract,
+            ["webgpuValidationErrorDetected"],
+        ),
+        "invalidCommandBufferDetected": get_path(
+            frame_contract,
+            ["invalidCommandBufferDetected"],
+        ),
+        "queueSubmitFailureDetected": get_path(
+            frame_contract,
+            ["queueSubmitFailureDetected"],
+        ),
+        "deferredProductionItems": deferred_production_items,
+        "fullRendererSuccessClaimed": get_path(
+            frame_contract,
+            ["fullRendererSuccessClaimed"],
+        ),
+    }
+
+
 def build_step75_camera_aware_visible_summary(
     summary: Dict[str, Any],
     webgpu_camera_aware_visible_output: Dict[str, Any],
@@ -11961,6 +12513,9 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
     step106_capability_based_regression_gate = (
         build_step106_capability_based_regression_gate_summary(summary)
     )
+    step107_fixed_reference_camera_contract = (
+        build_step107_fixed_reference_camera_contract_summary(summary)
+    )
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -12042,6 +12597,8 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             step105_cuda_reference_visual_parity_baseline,
         "step106CapabilityBasedRegressionGate":
             step106_capability_based_regression_gate,
+        "step107FixedReferenceCameraContract":
+            step107_fixed_reference_camera_contract,
         "comparisonContract": get_path(summary, ["comparisonContract"], {}),
         "comparisonTolerance": get_path(summary, ["comparisonTolerance"], {}),
         "radiusContract": get_path(summary, ["radiusContract"], {}),
@@ -17196,6 +17753,12 @@ def print_human_summary(summary: Dict[str, Any]) -> None:
         "Step106 WebGPU capability-based regression gate",
         summary.get("webgpuVisibleRecordDryRun", {}).get(
             "step106CapabilityBasedRegressionGate"
+        ),
+    )
+    print_section(
+        "Step107 WebGPU fixed reference camera contract",
+        summary.get("webgpuVisibleRecordDryRun", {}).get(
+            "step107FixedReferenceCameraContract"
         ),
     )
     print_section("WebGPU visible record dry-run", summary.get("webgpuVisibleRecordDryRun"))

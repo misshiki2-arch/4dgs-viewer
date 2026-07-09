@@ -2575,3 +2575,79 @@ refresh, full CUDA parity, final production compositor parity, camera visual
 parity, early termination alpha-threshold/visual-parity gating, viewport resize
 resource reallocation probing, complete interactive control parity, full
 parallel sort parity, and chunk/LOD/streaming.
+
+## Step107 Fixed Reference Camera Contract and Coordinate Responsibility Design Gate V1
+
+Step107 fixes the responsibility boundary for camera, projection, viewport, and
+screen-space coordinates before any CUDA Reference visual parity claim. The
+selected scope is A+B+C+D with E/F/G support: define the fixed reference camera
+contract, keep it separated from the Three.js interactive camera, record
+canonical sources for view/projection/viewport/pixel coordinates, and refine
+camera mismatch classification without trial camera-axis changes.
+
+The Step107 camera contract path is:
+
+```text
+fixed reference camera metadata
+-> canonical view / projection / viewport / pixel-coordinate sources
+-> coordinate convention record
+-> WebGPU backend camera constants contract
+-> visual parity comparison permission or camera-contract-mismatch
+-> next-step recommendation
+```
+
+- Three.js / OrbitControls: own viewer interaction, camera input, RAF state, and
+  capture/probe entrypoints. They may drive the interactive runtime, but they are
+  not the CUDA Reference camera owner.
+- Fixed reference camera path: owns the CUDA-aligned comparison camera metadata,
+  view/projection/viewport/background/pixel-coordinate conditions, and the
+  decision to allow or block reference comparison.
+- WebGPU backend/compositor: consumes camera constants for projection,
+  screen-space conversion, visible/tile input, production accumulation, and
+  presentation. It does not mutate viewer controls to chase reference parity.
+- Common contracts: record `fixedReferenceCameraContractReady`,
+  `cameraCanonicalSources`, `coordinateConventionSummary`,
+  `webgpuCameraConstantsContract`, `cameraMismatchClassification`, and the
+  comparison permission.
+- Tools: summarize the contract and run image/metric comparisons only when the
+  fixed reference camera gate allows them.
+
+Step107 keeps Step105's current `camera-contract-mismatch` behavior when the
+interactive camera is active. In that case `visualParityComparisonAllowed`
+remains false, and the mismatch is not classified as compositor, color, sort,
+axis, or Y-flip parity until the fixed reference camera contract is the active
+comparison source.
+
+Step107 Summary success is a design-gate decision, not a visual parity success
+claim. `step107DecisionPolicy` records that success requires the fixed reference
+camera contract, responsibility boundary, canonical sources, coordinate
+convention, WebGPU camera constants contract, Step106 capability gate, Step105
+camera gate, and error-free production runtime evidence. The Summary also emits
+`step107ValidationPredicates`, `step107FailedPredicates`, and
+`step107BlockedReasonDetailed` so a blocked result can be diagnosed without
+reading raw JSON.
+
+Step107 deliberately separates three gates:
+
+- Design gate: `fixedReferenceCameraDesignGateReady` covers contract,
+  canonical-source, coordinate-convention, and backend-constants evidence.
+- Activation gate: `fixedReferenceCameraActivationReady` says whether the
+  CUDA-aligned fixed reference camera is the active comparison source. If it is
+  false while the design gate is true, that is a next-step activation target,
+  not a Step107 design failure.
+- Visual parity comparison gate: `visualParityComparisonGateReady` says whether
+  comparison is either allowed or deliberately blocked with a classified reason.
+  When the interactive camera is active, `visualParityComparisonAllowed` remains
+  false and `visualParityComparisonBlockedReason` / `camera-contract-mismatch`
+  explain why.
+
+Step107 still requires early termination and LOD/streaming to remain disabled,
+no fallback/debug/readback-only success, no visual degeneration, no
+WGSL/WebGPU/CommandBuffer/queue submit errors, no WebGPU/WebGL2 same-frame
+mixing, and no full renderer success claim.
+
+Deferred work remains fixed-reference camera activation for comparison,
+runtime pixel diff against the reference image, camera visual parity, CUDA
+Reference execution refresh, final compositor parity, early termination
+alpha-threshold/visual-parity gating, viewport resize probing, complete
+interactive control parity, and chunk/LOD/streaming.

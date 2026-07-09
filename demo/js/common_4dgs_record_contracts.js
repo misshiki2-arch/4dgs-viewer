@@ -16,7 +16,7 @@ export const WEBGPU_GPU_OWNED_TILE_LIST_LAYOUT_CONTRACT_VERSION =
   'phase3-step84-webgpu-gpu-owned-tile-list-layout-v1';
 
 export const WEBGPU_TILE_LIST_COMPOSITOR_CONTRACT_VERSION =
-  'phase3-step106-capability-based-regression-gate-v1';
+  'phase3-step107-fixed-reference-camera-contract-v1';
 
 export const WEBGPU_PHASE3_BACKEND_BOUNDARY_CONTRACT_VERSION =
   'phase3-step86-webgpu-backend-boundary-and-dirty-contract-v1';
@@ -998,6 +998,20 @@ export function buildWebGpuTileListCompositorContract({
   finalCompositorParityDiagnosticsReady = false,
   finalCompositorParityDiagnosticsMode = null,
   step105NextStepRecommendedGoal = null,
+  fixedReferenceCameraContractReviewReady = false,
+  fixedReferenceCameraContractReady = false,
+  cameraResponsibilityBoundaryReady = false,
+  interactiveAndFixedCameraSeparated = false,
+  cameraCanonicalSourcesReady = false,
+  cameraCanonicalSources = {},
+  coordinateConventionReady = false,
+  coordinateConventionSummary = {},
+  webgpuCameraConstantsContractReady = false,
+  webgpuCameraConstantsContract = {},
+  fixedReferenceCaptureEvidenceReady = false,
+  cameraMismatchClassificationRefined = false,
+  cameraMismatchClassification = null,
+  step107NextStepRecommendedGoal = null,
   step104VisualSafetyGatePreserved = false,
   earlyTerminationRemainsDisabled = false,
   lodStreamingRemainsDisabled = false,
@@ -1494,6 +1508,16 @@ export function buildWebGpuTileListCompositorContract({
         cameraContractMismatchReason.length > 0
       )
     );
+  const step105CameraGatePreserved =
+    fixedReferenceCameraGateReady === true &&
+    interactiveCameraExcludedFromReferenceComparison === true &&
+    (
+      visualParityComparisonAllowed === true ||
+      (
+        cameraContractMismatchDetected === true &&
+        visualMismatchClassification === 'camera-contract-mismatch'
+      )
+    );
   const visualSafetyCapabilityReady =
     missingEvidenceDetected === false &&
     compositorWorkReductionVisualSafetyReady === true &&
@@ -1649,6 +1673,136 @@ export function buildWebGpuTileListCompositorContract({
     capabilityGateFailureReasons.length === 0 &&
     legacyStepFlagMappingReady === true &&
     legacyStepFlagsHardBlocker === false;
+  const defaultCameraCanonicalSources = {
+    cameraMetadata: cameraMetadataName ?? referenceImageLabel,
+    viewMatrix:
+      'fixed-reference-camera.cuda-aligned-view-matrix-for-reference-comparison',
+    projectionMatrix:
+      'fixed-reference-camera.intrinsics-and-projection-contract',
+    viewport: 'viewer-canvas-output-viewport-recorded-for-comparison',
+    background: 'production-background-policy-recorded-for-comparison',
+    pixelCoordinates:
+      'fixed-reference-screen-space-coordinate-contract'
+  };
+  const effectiveCameraCanonicalSources = {
+    ...defaultCameraCanonicalSources,
+    ...(cameraCanonicalSources ?? {})
+  };
+  const defaultCoordinateConventionSummary = {
+    axisConvention:
+      'cuda-reference-fixed-camera-basis-recorded-before-parity-comparison',
+    handedness:
+      'threejs-interactive-camera-adapter-separated-from-cuda-fixed-reference',
+    yFlipPolicy:
+      'screen-space-convention-recorded-no-trial-flip-applied-in-step107',
+    pixelCoordinateOrigin:
+      'viewport-pixel-coordinate-contract-recorded-for-comparison',
+    backgroundPolicy:
+      visualComparisonConditions?.backgroundPolicy ??
+      'production-background-policy-recorded'
+  };
+  const effectiveCoordinateConventionSummary = {
+    ...defaultCoordinateConventionSummary,
+    ...(coordinateConventionSummary ?? {})
+  };
+  const defaultWebgpuCameraConstantsContract = {
+    consumer: 'webgpu-backend-compositor-camera-constants',
+    source:
+      'fixed-reference-camera-contract-for-reference-comparison-or-viewer-camera-for-interactive-runtime',
+    interactiveCameraAllowedForReferenceComparison: false,
+    projectionContractReady: cameraProjectionContractReady,
+    viewportContractReady: viewportComparisonContractReady,
+    screenSpaceConventionReady
+  };
+  const effectiveWebgpuCameraConstantsContract = {
+    ...defaultWebgpuCameraConstantsContract,
+    ...(webgpuCameraConstantsContract ?? {})
+  };
+  const fixedReferenceCameraContractReview =
+    fixedReferenceCameraContractReviewReady === true ||
+    (
+      fixedReferenceCameraGateReady === true &&
+      visualComparisonConditionsReady === true &&
+      cameraViewportBackgroundColorSpaceRecorded === true
+    );
+  const interactiveFixedCameraBoundaryReady =
+    interactiveAndFixedCameraSeparated === true ||
+    (
+      interactiveCameraExcludedFromReferenceComparison === true &&
+      fixedReferenceAndInteractiveCameraSeparated === true &&
+      threeJsCameraAdapterOnly === true &&
+      cudaReferenceNotInteractiveBackend === true
+    );
+  const cameraCanonicalSourceGateReady =
+    cameraCanonicalSourcesReady === true ||
+    (
+      typeof effectiveCameraCanonicalSources.cameraMetadata === 'string' &&
+      effectiveCameraCanonicalSources.cameraMetadata.length > 0 &&
+      typeof effectiveCameraCanonicalSources.viewMatrix === 'string' &&
+      effectiveCameraCanonicalSources.viewMatrix.length > 0 &&
+      typeof effectiveCameraCanonicalSources.projectionMatrix === 'string' &&
+      effectiveCameraCanonicalSources.projectionMatrix.length > 0 &&
+      typeof effectiveCameraCanonicalSources.viewport === 'string' &&
+      effectiveCameraCanonicalSources.viewport.length > 0 &&
+      typeof effectiveCameraCanonicalSources.pixelCoordinates === 'string' &&
+      effectiveCameraCanonicalSources.pixelCoordinates.length > 0
+    );
+  const coordinateConventionGateReady =
+    coordinateConventionReady === true ||
+    (
+      screenSpaceConventionReady === true &&
+      pixelCoordinateComparisonContractReady === true &&
+      backgroundComparisonContractReady === true
+    );
+  const webgpuCameraConstantsGateReady =
+    webgpuCameraConstantsContractReady === true ||
+    (
+      cameraProjectionContractReady === true &&
+      viewportComparisonContractReady === true &&
+      screenSpaceConventionReady === true
+    );
+  const refinedCameraMismatchClassification =
+    cameraMismatchClassification ??
+    (
+      cameraContractMismatchDetected === true
+        ? 'camera-contract-mismatch'
+        : (
+          visualParityComparisonAllowed === true
+            ? 'camera-contract-ready-for-reference-comparison'
+            : 'camera-contract-unclassified'
+        )
+    );
+  const fixedReferenceCameraContractGateReady =
+    fixedReferenceCameraContractReady === true ||
+    (
+      fixedReferenceCameraContractReview === true &&
+      fixedReferenceCameraGateReady === true &&
+      interactiveFixedCameraBoundaryReady === true &&
+      cameraCanonicalSourceGateReady === true &&
+      coordinateConventionGateReady === true &&
+      webgpuCameraConstantsGateReady === true &&
+      (
+        visualParityComparisonAllowed === true ||
+        refinedCameraMismatchClassification === 'camera-contract-mismatch'
+      )
+    );
+  const fixedReferenceCaptureEvidenceGateReady =
+    fixedReferenceCaptureEvidenceReady === true ||
+    (
+      productionOutputCaptureReady === true &&
+      referenceImageInputReady === true &&
+      cudaReferenceInputReady === true &&
+      typeof referenceImageLabel === 'string' &&
+      referenceImageLabel.length > 0
+    );
+  const step107CameraContractReady =
+    fixedReferenceCameraContractGateReady === true &&
+    capabilityBasedRegressionGateReady === true &&
+    fixedReferenceCaptureEvidenceGateReady === true &&
+    cameraMismatchClassificationRefined !== false &&
+    earlyTerminationRemainsDisabled === true &&
+    lodStreamingRemainsDisabled === true &&
+    visualOutputDegeneratedDetected === false;
   return {
     contractVersion: WEBGPU_TILE_LIST_COMPOSITOR_CONTRACT_VERSION,
     status: ready ? 'ok' : status,
@@ -2052,8 +2206,42 @@ export function buildWebGpuTileListCompositorContract({
     legacyStepFlagMappingPolicy,
     legacyStepFlagsHardBlocker,
     legacyStepFlagsDiagnosticOnly: true,
+    step105CameraGatePreserved,
     step106NextStepRecommendedGoal:
       'reference-camera-alignment-or-runtime-pixel-diff-classification-v1',
+    fixedReferenceCameraContractReviewReady:
+      fixedReferenceCameraContractReview,
+    fixedReferenceCameraContractReady: fixedReferenceCameraContractGateReady,
+    cameraResponsibilityBoundaryReady:
+      cameraResponsibilityBoundaryReady === true ||
+      interactiveFixedCameraBoundaryReady,
+    threeJsInteractiveCameraResponsibility:
+      'viewer-input-orbit-controls-camera-state-and-probes',
+    fixedReferenceCameraResponsibility:
+      'cuda-reference-comparison-camera-metadata-view-projection-viewport',
+    webgpuBackendCameraResponsibility:
+      'consume-camera-constants-for-projection-screen-space-and-compositor-input',
+    toolsCameraResponsibility:
+      'summarize-camera-contract-and-compare-reference-output',
+    interactiveAndFixedCameraSeparated: interactiveFixedCameraBoundaryReady,
+    cameraCanonicalSourcesReady: cameraCanonicalSourceGateReady,
+    cameraCanonicalSources: effectiveCameraCanonicalSources,
+    coordinateConventionReady: coordinateConventionGateReady,
+    coordinateConventionSummary: effectiveCoordinateConventionSummary,
+    webgpuCameraConstantsContractReady: webgpuCameraConstantsGateReady,
+    webgpuCameraConstantsContract: effectiveWebgpuCameraConstantsContract,
+    fixedReferenceCaptureEvidenceReady:
+      fixedReferenceCaptureEvidenceGateReady,
+    cameraMismatchClassificationRefined:
+      cameraMismatchClassificationRefined === true ||
+      refinedCameraMismatchClassification === 'camera-contract-mismatch' ||
+      refinedCameraMismatchClassification ===
+        'camera-contract-ready-for-reference-comparison',
+    cameraMismatchClassification: refinedCameraMismatchClassification,
+    step107CameraContractReady,
+    step107NextStepRecommendedGoal:
+      step107NextStepRecommendedGoal ??
+      'fixed-reference-camera-contract-capture-probe-v1',
     step104VisualSafetyGatePreserved,
     earlyTerminationRemainsDisabled,
     lodStreamingRemainsDisabled,
