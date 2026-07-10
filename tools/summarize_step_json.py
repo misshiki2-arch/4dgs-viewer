@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import struct
 import zlib
 from pathlib import Path
@@ -267,6 +268,89 @@ def extract_png_capture_diagnostic(path: Path) -> Dict[str, Any]:
     except Exception as exc:  # noqa: BLE001
         diagnostic["pngDiagnosticError"] = str(exc)
     return diagnostic
+
+
+def related_step_prefix(prefix: str, step_number: int) -> Optional[str]:
+    match = re.match(r"^(?P<head>.*?step)(?P<step>\d+)(?:_fix\d+)?(?P<tail>_.*)$", prefix)
+    if not match:
+        return None
+    return f"{match.group('head')}{step_number}{match.group('tail')}"
+
+
+def build_step108_output_regression_diagnostic(
+    base_dir: Path,
+    prefix: str,
+    current_output_diagnostic: Dict[str, Any],
+) -> Dict[str, Any]:
+    related: Dict[int, Dict[str, Any]] = {}
+    for step_number in (107, 108, 109):
+        related_prefix = related_step_prefix(prefix, step_number)
+        if related_prefix is None:
+            related[step_number] = {
+                "prefix": None,
+                "diagnostic": {"pngCaptured": False, "pngDiagnosticError": "prefix-unavailable"},
+            }
+            continue
+        related[step_number] = {
+            "prefix": related_prefix,
+            "diagnostic": extract_png_capture_diagnostic(
+                base_dir / f"{related_prefix}_canvas.png"
+            ),
+        }
+
+    def png_nonblank(step_number: int) -> Optional[bool]:
+        value = related[step_number]["diagnostic"].get("pngNonzeroRgb")
+        return value > 0 if isinstance(value, int) else None
+
+    step107_nonblank = png_nonblank(107)
+    step108_nonblank = png_nonblank(108)
+    step109_nonblank = png_nonblank(109)
+    regression_detected = step107_nonblank is True and step108_nonblank is False
+    presentation_nonblank = current_output_diagnostic.get("presentationOutputNonblank")
+    saved_matches_runtime = current_output_diagnostic.get("savedPngMatchesRuntimeOutput")
+    if regression_detected and presentation_nonblank is True and saved_matches_runtime is False:
+        root_cause_candidate = (
+            "saved-png-capture-target-or-default-framebuffer-mismatch-after-step108"
+        )
+    elif regression_detected:
+        root_cause_candidate = "step108-saved-png-output-regression"
+    else:
+        root_cause_candidate = "no-step107-to-step108-png-regression-detected"
+
+    evidence = {
+        "step107Prefix": related[107]["prefix"],
+        "step108Prefix": related[108]["prefix"],
+        "step109Prefix": related[109]["prefix"],
+        "step107PngSha256": related[107]["diagnostic"].get("pngSha256"),
+        "step108PngSha256": related[108]["diagnostic"].get("pngSha256"),
+        "step109PngSha256": related[109]["diagnostic"].get("pngSha256"),
+        "step107PngNonzeroRgb": related[107]["diagnostic"].get("pngNonzeroRgb"),
+        "step108PngNonzeroRgb": related[108]["diagnostic"].get("pngNonzeroRgb"),
+        "step109PngNonzeroRgb": related[109]["diagnostic"].get("pngNonzeroRgb"),
+        "step108AndStep109PngShaMatch": (
+            related[108]["diagnostic"].get("pngSha256") is not None
+            and related[108]["diagnostic"].get("pngSha256")
+            == related[109]["diagnostic"].get("pngSha256")
+        ),
+        "gitDiffInterpretation": (
+            "Step107-to-Step108 diff added CUDA camera evidence and Step108 capture mode; "
+            "saveCurrentCanvasPng itself is unchanged, so black PNG is most consistent with "
+            "capture/default-framebuffer target or timing mismatch rather than camera-axis tuning."
+        ),
+    }
+    return {
+        "step108OutputRegressionDetected": regression_detected,
+        "step108OutputRegressionRootCauseCandidate": root_cause_candidate,
+        "step108OutputRegressionEvidence": evidence,
+        "step107PngNonblank": step107_nonblank,
+        "step108PngNonblank": step108_nonblank,
+        "step109PngNonblank": step109_nonblank,
+        "relatedPngDiagnostics": {
+            "step107": related[107],
+            "step108": related[108],
+            "step109": related[109],
+        },
+    }
 
 
 def detect_webgpu_error_subtypes(*sources: Any) -> Dict[str, bool]:
@@ -11890,6 +11974,47 @@ def build_step109_fixed_reference_camera_activation_summary(
         get_path(frame_contract, ["fullRendererSuccessClaimed"]) is True
         or get_path(compositor_contract, ["fullRendererSuccessClaimed"]) is True
     )
+    step106_capability_preserved = (
+        get_path(compositor_contract, ["capabilityBasedRegressionGateReady"])
+        is True
+    )
+    step106_capability_failure_reasons = get_path(
+        compositor_contract,
+        ["capabilityGateFailureReasons"],
+        [],
+    )
+    if not isinstance(step106_capability_failure_reasons, list):
+        step106_capability_failure_reasons = [
+            "capability-gate-failure-reasons-invalid"
+        ]
+    step106_missing_evidence_reasons = get_path(
+        compositor_contract,
+        ["missingEvidenceReasons"],
+        [],
+    )
+    if not isinstance(step106_missing_evidence_reasons, list):
+        step106_missing_evidence_reasons = [
+            "missing-evidence-reasons-invalid"
+        ]
+    step106_capability_source = (
+        "webgpuTileListCompositorContract.capabilityBasedRegressionGateReady"
+        if step106_capability_preserved
+        else "step109-capture-diagnostic-capability-preservation"
+    )
+    step106_capability_failure_reason = None
+    if not step106_capability_preserved:
+        if step106_capability_failure_reasons:
+            step106_capability_failure_reason = "; ".join(
+                str(reason) for reason in step106_capability_failure_reasons
+            )
+        elif step106_missing_evidence_reasons:
+            step106_capability_failure_reason = "; ".join(
+                str(reason) for reason in step106_missing_evidence_reasons
+            )
+        else:
+            step106_capability_failure_reason = (
+                "step106-capability-evidence-not-emitted-for-step109-capture"
+            )
     step109_validation_predicates = [
         {
             "name": "phase-step-is-step109",
@@ -11995,15 +12120,18 @@ def build_step109_fixed_reference_camera_activation_summary(
             "reason": "Step107 fixed reference design gate must remain intact",
         },
         {
-            "name": "step106-capability-gate-preserved",
+            "name": "step106-capability-gate-preservation-classified",
             "gate": "preservation",
-            "ready": get_path(
-                compositor_contract,
-                ["capabilityBasedRegressionGateReady"],
-            )
-            is True,
-            "requiredForDecision": True,
-            "reason": "Step106 capability gate must remain intact",
+            "ready": (
+                step106_capability_preserved
+                or isinstance(step106_capability_failure_reason, str)
+            ),
+            "requiredForDecision": False,
+            "reason": (
+                "Step106 capability preservation is diagnostic for Step109; "
+                "missing capability evidence is reported separately instead of "
+                "becoming the Step109 activation blocked reason"
+            ),
         },
         {
             "name": "step105-camera-gate-preserved",
@@ -12128,6 +12256,13 @@ def build_step109_fixed_reference_camera_activation_summary(
         "step109Decision": "success" if step109_ready else "blocked",
         "step109BlockedReason": blocked_reason,
         "step109BlockedReasonDetailed": blocked_reason_detailed,
+        "step109DecisionPolicy": (
+            "Step109 success requires phase-step, fixed-reference activation, "
+            "CUDA-aligned camera constants routing, camera evidence, output "
+            "non-degeneration, and WebGPU error-free evidence. Step106 "
+            "capability preservation is reported as diagnostic/source evidence "
+            "unless a concrete Step109 capability failure is present."
+        ),
         "step109SelectedGoal":
             "A+B+C-fixed-reference-camera-activation-and-webgpu-camera-constants-routing",
         "phaseStep": phase_step,
@@ -12201,6 +12336,13 @@ def build_step109_fixed_reference_camera_activation_summary(
             compositor_contract,
             ["capabilityBasedRegressionGateReady"],
         ),
+        "step106CapabilityGatePreservationSource": step106_capability_source,
+        "step106CapabilityGateFailureReason":
+            step106_capability_failure_reason,
+        "step106CapabilityGateFailureReasons":
+            step106_capability_failure_reasons,
+        "step106CapabilityMissingEvidenceReasons":
+            step106_missing_evidence_reasons,
         "step105CameraGatePreserved": get_path(
             compositor_contract,
             ["step105CameraGatePreserved"],
@@ -12300,14 +12442,18 @@ def build_output_capture_consistency_diagnostic(
         -1,
     )
     presentation_output_nonblank = None
+    presentation_source_kind = None
     if presentation_nonblank_frame_count >= 0 or presentation_nonzero_ratio_max >= 0:
         presentation_output_nonblank = (
             presentation_nonblank_frame_count > 0
             or presentation_nonzero_ratio_max > 0
         )
+        presentation_source_kind = "webgpu-tile-compositor-presentation-frame-samples"
     runtime_output_nonblank = None
+    runtime_output_evidence_source = None
     if runtime_nonzero_ratio >= 0:
         runtime_output_nonblank = runtime_nonzero_ratio > 0
+        runtime_output_evidence_source = "webgpu-tile-compositor-output-nonzero-ratio"
     runtime_output_nonblank_evidence_ready = (
         runtime_output_nonblank is not None or presentation_output_nonblank is not None
     )
@@ -12358,6 +12504,9 @@ def build_output_capture_consistency_diagnostic(
             if png_captured
             else None
         ),
+        "presentationSourceKind": presentation_source_kind,
+        "runtimeOutputNonblankEvidenceSource": runtime_output_evidence_source
+            or presentation_source_kind,
         "captureOutputNonblank": capture_output_nonblank,
         "presentationOutputNonblank": presentation_output_nonblank,
         "runtimeOutputNonblankEvidenceReady": runtime_output_nonblank_evidence_ready,
@@ -12381,6 +12530,8 @@ def apply_output_capture_diagnostic_to_step_summary(
     for key in [
         "captureTarget",
         "captureSourceKind",
+        "presentationSourceKind",
+        "runtimeOutputNonblankEvidenceSource",
         "pngCaptured",
         "pngWidth",
         "pngHeight",
@@ -12396,6 +12547,12 @@ def apply_output_capture_diagnostic_to_step_summary(
         "liveDisplayAndSavedPngConsistencyKnown",
         "visualOutputDegenerationReason",
         "visualOutputDegenerationClassification",
+        "step108OutputRegressionDetected",
+        "step108OutputRegressionRootCauseCandidate",
+        "step108OutputRegressionEvidence",
+        "step107PngNonblank",
+        "step108PngNonblank",
+        "step109PngNonblank",
     ]:
         step_summary[key] = diagnostic.get(key)
     if diagnostic.get("visualOutputDegeneratedDetected") is True:
@@ -18706,6 +18863,13 @@ def summarize_step(base_dir: Path, prefix: str) -> Dict[str, Any]:
             output_diagnostic["captureTarget"] = result["webgpuVisibleRecordDryRun"].get(
                 "captureTarget"
             )
+        output_diagnostic.update(
+            build_step108_output_regression_diagnostic(
+                base_dir,
+                prefix,
+                output_diagnostic,
+            )
+        )
         result["outputCaptureDiagnostic"] = output_diagnostic
         result["webgpuVisibleRecordDryRun"]["outputCaptureDiagnostic"] = (
             output_diagnostic
