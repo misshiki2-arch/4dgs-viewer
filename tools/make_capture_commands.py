@@ -233,7 +233,19 @@ def build_webgpu_visible_record_dryrun_command(args: argparse.Namespace) -> str:
     )
     phase_step = None
     comparison_mode = None
-    if "step108" in args.step:
+    fixed_reference_camera_mode_line = ""
+    if "step109" in args.step:
+        phase_step = "phase3-step109"
+        comparison_mode = (
+            "phase3-step109-fixed-reference-camera-activation-routing"
+        )
+        fixed_reference_camera_mode_line = (
+            "\n    fixedReferenceCameraMode: true,"
+            "\n    fixedReferenceCameraActivationMode: "
+            "'cuda-aligned-fixed-reference-camera',"
+            "\n    referenceCameraMode: 'cuda-aligned-fixed-reference-camera',"
+        )
+    elif "step108" in args.step:
         phase_step = "phase3-step108"
         comparison_mode = (
             "phase3-step108-cuda-reference-camera-evidence-activation-gate"
@@ -298,7 +310,7 @@ def build_webgpu_visible_record_dryrun_command(args: argparse.Namespace) -> str:
     ensureCurrentFrame: false,
     maxRecords: {args.webgpu_visible_record_max_count},
     epsilon: {args.webgpu_visible_record_epsilon},
-    maxMismatches: {args.max_mismatches},{backend_implementation_line}{phase_step_line}{comparison_mode_line}
+    maxMismatches: {args.max_mismatches},{backend_implementation_line}{phase_step_line}{comparison_mode_line}{fixed_reference_camera_mode_line}
   }});
 
   await window.gpuViewerDebug.downloadJsonDebug(
@@ -420,6 +432,7 @@ def build_preamble(args: argparse.Namespace) -> str:
         or "step106" in args.step
         or "step107" in args.step
         or "step108" in args.step
+        or "step109" in args.step
     ):
         camera_probe = ""
         if (
@@ -433,6 +446,7 @@ def build_preamble(args: argparse.Namespace) -> str:
             or "step106" in args.step
             or "step107" in args.step
             or "step108" in args.step
+            or "step109" in args.step
         ):
             camera_probe = f"""if (typeof window.gpuViewerDebug.runViewerCameraDirtySchedulerProbe === 'function') {{
   var viewerCameraDirtySchedulerProbe =

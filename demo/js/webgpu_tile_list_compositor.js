@@ -2732,6 +2732,10 @@ fn finalizeSummary() {
     missingCameraEvidenceReasons.length === 0;
   const fixedReferenceCameraActivationReady =
     usesCudaAlignedFixedReferenceCamera === true;
+  const fixedReferenceCameraActivationMode =
+    fixedReferenceCameraActivationReady
+      ? 'cuda-aligned-fixed-reference-camera'
+      : referenceCameraMode;
   const fixedReferenceCameraActivationBlockedReason =
     fixedReferenceCameraActivationReady
       ? null
@@ -2739,6 +2743,27 @@ fn finalizeSummary() {
           cameraContractMismatchReason ??
           'fixed-reference-camera-activation-not-ready'
         );
+  const webgpuCameraConstantsSource =
+    fixedReferenceCameraActivationReady
+      ? 'cuda-reference-camera-evidence-fixed-reference-mode'
+      : 'fixed-reference-camera-contract-for-reference-comparison-or-viewer-camera-for-interactive-runtime';
+  const viewMatrixSource = viewMatrixEvidence.source ?? null;
+  const projectionMatrixSource = projectionMatrixEvidence.source ?? null;
+  const viewportSource = cudaReferenceCameraEvidenceSources.viewport ?? null;
+  const screenSpaceConventionSource =
+    screenSpaceConventionEvidence.viewMatrixSource ?? null;
+  const backgroundPolicySource =
+    backgroundPolicyEvidence.backgroundPolicy ?? null;
+  const cameraConstantsRoutingReady =
+    fixedReferenceCameraActivationReady &&
+    cudaReferenceCameraEvidenceReady &&
+    webgpuCameraConstantsSource ===
+      'cuda-reference-camera-evidence-fixed-reference-mode' &&
+    typeof viewMatrixSource === 'string' &&
+    typeof projectionMatrixSource === 'string' &&
+    typeof viewportSource === 'string' &&
+    typeof screenSpaceConventionSource === 'string' &&
+    typeof backgroundPolicySource === 'string';
   const finalCompositorParityDiagnosticsReady =
     visualParityMetricReady &&
     finalCompositorVisualParityDiagnosticsReadiness != null;
@@ -3274,20 +3299,33 @@ fn finalizeSummary() {
       cudaReferenceCameraEvidenceReady,
       cudaReferenceCameraEvidenceSources,
       fixedReferenceCameraActivationReady,
+      fixedReferenceCameraActivationMode,
       fixedReferenceCameraActivationBlockedReason,
       viewMatrixEvidence,
       projectionMatrixEvidence,
       viewportEvidence,
       screenSpaceConventionEvidence,
       backgroundPolicyEvidence,
-      webgpuCameraConstantsSource:
-        'fixed-reference-camera-contract-for-reference-comparison-or-viewer-camera-for-interactive-runtime',
+      webgpuCameraConstantsSource,
+      cameraConstantsRoutingReady,
+      viewMatrixSource,
+      projectionMatrixSource,
+      viewportSource,
+      screenSpaceConventionSource,
+      backgroundPolicySource,
       interactiveCameraSeparatedFromFixedReference:
         fixedReferenceAndInteractiveCameraSeparated,
       missingCameraEvidenceDetected:
         missingCameraEvidenceReasons.length > 0,
       missingCameraEvidenceReasons,
       step107DesignGatePreserved: fixedReferenceCameraGateReady,
+      step108CameraEvidencePreserved:
+        cudaReferenceCameraEvidenceReady &&
+        missingCameraEvidenceReasons.length === 0,
+      step109NextStepRecommendedGoal:
+        cameraConstantsRoutingReady && visualParityComparisonAllowed
+          ? 'run-fixed-reference-camera-visual-parity-diff-v1'
+          : 'resolve-fixed-reference-camera-routing-or-comparison-blocker-v1',
       step108NextStepRecommendedGoal:
         fixedReferenceCameraActivationReady
           ? 'run-fixed-reference-camera-visual-parity-comparison-v1'

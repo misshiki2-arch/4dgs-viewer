@@ -2683,3 +2683,41 @@ The Summary separates three outcomes:
 Step108 preserves the Step107 design gate, Step106 capability gate, and Step105
 camera gate. It keeps early termination, LOD, and streaming disabled and does
 not claim CUDA Reference parity or full renderer success.
+
+## Step109 Fixed Reference Camera Activation and WebGPU Camera Constants Routing V1
+
+Step109 turns the Step108 evidence into an explicit fixed-reference camera
+activation path for validation/capture. It still does not tune camera axes,
+`cameraUp`, Y flip, or projection by trial and error. The canonical source is
+the CUDA Reference camera evidence already recorded by Step108.
+
+The activation path is scoped to fixed-reference comparison/capture mode:
+
+- viewer shell: accepts the fixed-reference camera mode request and supplies a
+  deterministic camera state derived from CUDA Reference evidence;
+- fixed reference camera path: converts the CUDA evidence into the
+  `cudaAlignedScreenSpaceCamera` used by WebGPU projection/camera constants;
+- three.js interactive camera: remains the interactive viewer source and is
+  excluded from fixed-reference comparison;
+- WebGPU backend/compositor: consumes the supplied camera constants and records
+  `webgpuCameraConstantsSource`, source fields, and routing readiness;
+- tools: generate the Step109 capture mode and summarize activation/routing
+  without owning runtime behavior.
+
+Step109 Summary distinguishes activation from parity:
+
+- `fixedReferenceCameraActivationReady` and
+  `fixedReferenceCameraActivationMode` show whether the CUDA-aligned fixed
+  reference mode is active.
+- `cameraConstantsRoutingReady`, `webgpuCameraConstantsSource`,
+  `viewMatrixSource`, `projectionMatrixSource`, `viewportSource`,
+  `screenSpaceConventionSource`, and `backgroundPolicySource` show whether the
+  WebGPU backend is consuming CUDA evidence-derived camera constants.
+- `visualParityComparisonAllowed` may become true only after the camera
+  conditions are aligned. This is permission to compare, not a CUDA parity or
+  full renderer success claim.
+
+If evidence is missing, Step109 must keep activation blocked and list
+`missingCameraEvidenceReasons`. It preserves the Step108 camera evidence gate,
+Step107 design gate, Step106 capability gate, and Step105 camera gate, and keeps
+early termination, LOD, and streaming disabled.

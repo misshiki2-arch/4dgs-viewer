@@ -25,7 +25,10 @@ Purpose:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import struct
+import zlib
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -110,6 +113,160 @@ def numeric_value(value: Any, default: float = 0) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _png_channels_for_color_type(color_type: int) -> int:
+    return {
+        0: 1,  # grayscale
+        2: 3,  # truecolor
+        4: 2,  # grayscale + alpha
+        6: 4,  # truecolor + alpha
+    }.get(color_type, 0)
+
+
+def _unfilter_png_scanlines(
+    raw: bytes,
+    *,
+    width: int,
+    height: int,
+    channels: int,
+    bit_depth: int,
+) -> List[bytes]:
+    if bit_depth != 8 or width <= 0 or height <= 0 or channels <= 0:
+        raise ValueError("unsupported PNG format for pixel diagnostics")
+    stride = width * channels
+    bpp = channels
+    rows: List[bytes] = []
+    offset = 0
+    previous = bytearray(stride)
+    for _ in range(height):
+        if offset >= len(raw):
+            raise ValueError("truncated PNG scanline data")
+        filter_type = raw[offset]
+        offset += 1
+        scanline = bytearray(raw[offset : offset + stride])
+        offset += stride
+        if len(scanline) != stride:
+            raise ValueError("truncated PNG scanline")
+        for i, value in enumerate(scanline):
+            left = scanline[i - bpp] if i >= bpp else 0
+            up = previous[i]
+            up_left = previous[i - bpp] if i >= bpp else 0
+            if filter_type == 0:
+                restored = value
+            elif filter_type == 1:
+                restored = value + left
+            elif filter_type == 2:
+                restored = value + up
+            elif filter_type == 3:
+                restored = value + ((left + up) // 2)
+            elif filter_type == 4:
+                p = left + up - up_left
+                pa = abs(p - left)
+                pb = abs(p - up)
+                pc = abs(p - up_left)
+                predictor = left if pa <= pb and pa <= pc else up if pb <= pc else up_left
+                restored = value + predictor
+            else:
+                raise ValueError(f"unsupported PNG filter type {filter_type}")
+            scanline[i] = restored & 0xFF
+        rows.append(bytes(scanline))
+        previous = scanline
+    return rows
+
+
+def extract_png_capture_diagnostic(path: Path) -> Dict[str, Any]:
+    diagnostic: Dict[str, Any] = {
+        "pngCaptured": path.exists(),
+        "pngPath": str(path),
+        "pngWidth": None,
+        "pngHeight": None,
+        "pngNonzeroRgb": None,
+        "pngNonblackRatio": None,
+        "pngNonblackBBox": None,
+        "pngMaxRgb": None,
+        "pngSha256": None,
+        "pngDiagnosticError": None,
+    }
+    if not path.exists():
+        diagnostic["pngDiagnosticError"] = "missing-png"
+        return diagnostic
+    data = path.read_bytes()
+    diagnostic["pngSha256"] = hashlib.sha256(data).hexdigest()
+    try:
+        if not data.startswith(b"\x89PNG\r\n\x1a\n"):
+            raise ValueError("not a PNG file")
+        offset = 8
+        width = height = bit_depth = color_type = None
+        idat_chunks: List[bytes] = []
+        while offset + 8 <= len(data):
+            length = struct.unpack(">I", data[offset : offset + 4])[0]
+            chunk_type = data[offset + 4 : offset + 8]
+            chunk_data = data[offset + 8 : offset + 8 + length]
+            offset += 12 + length
+            if chunk_type == b"IHDR":
+                width, height, bit_depth, color_type = struct.unpack(
+                    ">IIBB", chunk_data[:10]
+                )
+            elif chunk_type == b"IDAT":
+                idat_chunks.append(chunk_data)
+            elif chunk_type == b"IEND":
+                break
+        if width is None or height is None or bit_depth is None or color_type is None:
+            raise ValueError("missing PNG IHDR")
+        channels = _png_channels_for_color_type(color_type)
+        if channels <= 0:
+            raise ValueError(f"unsupported PNG color type {color_type}")
+        rows = _unfilter_png_scanlines(
+            zlib.decompress(b"".join(idat_chunks)),
+            width=width,
+            height=height,
+            channels=channels,
+            bit_depth=bit_depth,
+        )
+        nonzero_rgb = 0
+        max_rgb = 0
+        min_x = min_y = None
+        max_x = max_y = None
+        for y, row in enumerate(rows):
+            for x in range(width):
+                base = x * channels
+                if color_type == 0:
+                    r = g = b = row[base]
+                    a = 255
+                elif color_type == 2:
+                    r, g, b = row[base : base + 3]
+                    a = 255
+                elif color_type == 4:
+                    r = g = b = row[base]
+                    a = row[base + 1]
+                else:
+                    r, g, b, a = row[base : base + 4]
+                pixel_max = max(r, g, b)
+                max_rgb = max(max_rgb, pixel_max)
+                if a != 0 and pixel_max > 0:
+                    nonzero_rgb += 1
+                    min_x = x if min_x is None else min(min_x, x)
+                    min_y = y if min_y is None else min(min_y, y)
+                    max_x = x if max_x is None else max(max_x, x)
+                    max_y = y if max_y is None else max(max_y, y)
+        diagnostic.update(
+            {
+                "pngWidth": width,
+                "pngHeight": height,
+                "pngNonzeroRgb": nonzero_rgb,
+                "pngNonblackRatio": (
+                    nonzero_rgb / (width * height) if width and height else None
+                ),
+                "pngNonblackBBox": (
+                    [min_x, min_y, max_x, max_y] if nonzero_rgb > 0 else None
+                ),
+                "pngMaxRgb": max_rgb,
+            }
+        )
+    except Exception as exc:  # noqa: BLE001
+        diagnostic["pngDiagnosticError"] = str(exc)
+    return diagnostic
 
 
 def detect_webgpu_error_subtypes(*sources: Any) -> Dict[str, bool]:
@@ -11685,6 +11842,600 @@ def build_step108_cuda_reference_camera_evidence_summary(
     }
 
 
+def build_step109_fixed_reference_camera_activation_summary(
+    summary: dict,
+) -> dict:
+    compositor_contract = get_path(
+        summary,
+        ["webgpuTileListCompositorContract"],
+        {},
+    )
+    frame_contract = get_path(
+        summary,
+        ["webgpuTileCompositorFrameImplementation"],
+        {},
+    )
+    error_subtypes = detect_webgpu_error_subtypes(
+        frame_contract,
+        compositor_contract,
+        get_path(summary, ["captureErrorString"]),
+        get_path(summary, ["captureErrorStack"]),
+        get_path(summary, ["captureErrorMessage"]),
+        get_path(summary, ["firstValidationFailures"]),
+    )
+    phase_step = get_path(summary, ["phaseStep"])
+    missing_camera_evidence_reasons = get_path(
+        compositor_contract,
+        ["missingCameraEvidenceReasons"],
+        [],
+    )
+    if not isinstance(missing_camera_evidence_reasons, list):
+        missing_camera_evidence_reasons = []
+    activation_blocked_reason = get_path(
+        compositor_contract,
+        ["fixedReferenceCameraActivationBlockedReason"],
+    )
+    visual_parity_allowed = get_path(
+        compositor_contract,
+        ["visualParityComparisonAllowed"],
+    )
+    visual_parity_blocked_reason = None
+    if visual_parity_allowed is not True:
+        visual_parity_blocked_reason = (
+            get_path(compositor_contract, ["cameraContractMismatchReason"])
+            or activation_blocked_reason
+            or "visual-parity-comparison-not-allowed"
+        )
+    full_renderer_success_claimed = (
+        get_path(frame_contract, ["fullRendererSuccessClaimed"]) is True
+        or get_path(compositor_contract, ["fullRendererSuccessClaimed"]) is True
+    )
+    step109_validation_predicates = [
+        {
+            "name": "phase-step-is-step109",
+            "gate": "capture",
+            "ready": phase_step == "phase3-step109",
+            "requiredForDecision": True,
+            "reason": "summary must be generated for phase3-step109",
+        },
+        {
+            "name": "step108-camera-evidence-preserved",
+            "gate": "camera-evidence",
+            "ready": get_path(
+                compositor_contract,
+                ["step108CameraEvidencePreserved"],
+            )
+            is True,
+            "requiredForDecision": True,
+            "reason": "Step108 CUDA camera evidence must remain complete",
+        },
+        {
+            "name": "fixed-reference-camera-activation-ready",
+            "gate": "activation",
+            "ready": get_path(
+                compositor_contract,
+                ["fixedReferenceCameraActivationReady"],
+            )
+            is True,
+            "requiredForDecision": True,
+            "reason": "fixed reference camera mode must be explicitly activated",
+        },
+        {
+            "name": "uses-cuda-aligned-fixed-reference-camera",
+            "gate": "activation",
+            "ready": get_path(
+                compositor_contract,
+                ["usesCudaAlignedFixedReferenceCamera"],
+            )
+            is True,
+            "requiredForDecision": True,
+            "reason": "WebGPU camera constants must come from CUDA-aligned fixed reference camera evidence",
+        },
+        {
+            "name": "interactive-camera-excluded-from-reference-comparison",
+            "gate": "responsibility-boundary",
+            "ready": get_path(
+                compositor_contract,
+                ["interactiveCameraExcludedFromReferenceComparison"],
+            )
+            is True
+            and get_path(
+                compositor_contract,
+                ["interactiveCameraSeparatedFromFixedReference"],
+            )
+            is True,
+            "requiredForDecision": True,
+            "reason": "interactive camera must not be the fixed reference comparison source",
+        },
+        {
+            "name": "camera-constants-routing-ready",
+            "gate": "backend-camera-constants",
+            "ready": get_path(
+                compositor_contract,
+                ["cameraConstantsRoutingReady"],
+            )
+            is True,
+            "requiredForDecision": True,
+            "reason": "CUDA reference camera evidence must be routed to WebGPU camera constants",
+        },
+        {
+            "name": "no-missing-camera-evidence",
+            "gate": "camera-evidence",
+            "ready": (
+                get_path(
+                    compositor_contract,
+                    ["missingCameraEvidenceDetected"],
+                )
+                is False
+                and len(missing_camera_evidence_reasons) == 0
+            ),
+            "requiredForDecision": True,
+            "reason": "activation must not ignore missing camera evidence",
+        },
+        {
+            "name": "visual-parity-comparison-gate-classified",
+            "gate": "visual-parity-comparison",
+            "ready": (
+                visual_parity_allowed is True
+                or (
+                    isinstance(visual_parity_blocked_reason, str)
+                    and visual_parity_blocked_reason
+                    != "interactive-camera-active-fixed-reference-camera-required"
+                )
+            ),
+            "requiredForDecision": True,
+            "reason": "visual parity comparison must be allowed or blocked by a non-interactive-camera reason after activation",
+        },
+        {
+            "name": "step107-design-gate-preserved",
+            "gate": "preservation",
+            "ready": get_path(compositor_contract, ["step107DesignGatePreserved"])
+            is True,
+            "requiredForDecision": True,
+            "reason": "Step107 fixed reference design gate must remain intact",
+        },
+        {
+            "name": "step106-capability-gate-preserved",
+            "gate": "preservation",
+            "ready": get_path(
+                compositor_contract,
+                ["capabilityBasedRegressionGateReady"],
+            )
+            is True,
+            "requiredForDecision": True,
+            "reason": "Step106 capability gate must remain intact",
+        },
+        {
+            "name": "step105-camera-gate-preserved",
+            "gate": "preservation",
+            "ready": get_path(compositor_contract, ["step105CameraGatePreserved"])
+            is True,
+            "requiredForDecision": True,
+            "reason": "Step105 camera gate must remain intact",
+        },
+        {
+            "name": "early-termination-remains-disabled",
+            "gate": "scope",
+            "ready": get_path(
+                compositor_contract,
+                ["earlyTerminationRemainsDisabled"],
+            )
+            is True,
+            "requiredForDecision": True,
+            "reason": "Step109 must not enable early termination",
+        },
+        {
+            "name": "lod-streaming-remains-disabled",
+            "gate": "scope",
+            "ready": get_path(compositor_contract, ["lodStreamingRemainsDisabled"])
+            is True,
+            "requiredForDecision": True,
+            "reason": "Step109 must not enable LOD or streaming",
+        },
+        {
+            "name": "visual-output-not-degenerated",
+            "gate": "runtime-boundary",
+            "ready": get_path(
+                compositor_contract,
+                ["visualOutputDegeneratedDetected"],
+            )
+            is False,
+            "requiredForDecision": True,
+            "reason": "Step109 must not accept degenerated visual output",
+        },
+        {
+            "name": "wgsl-parse-error-not-detected",
+            "gate": "error",
+            "ready": (
+                get_path(compositor_contract, ["wgslParseErrorDetected"]) is not True
+                and error_subtypes["wgslParseErrorDetected"] is False
+            ),
+            "requiredForDecision": True,
+            "reason": "WGSL parse errors block Step109",
+        },
+        {
+            "name": "shader-module-invalid-not-detected",
+            "gate": "error",
+            "ready": (
+                get_path(compositor_contract, ["shaderModuleInvalidDetected"])
+                is not True
+                and error_subtypes["shaderModuleInvalidDetected"] is False
+            ),
+            "requiredForDecision": True,
+            "reason": "invalid shader modules block Step109",
+        },
+        {
+            "name": "compute-pipeline-invalid-not-detected",
+            "gate": "error",
+            "ready": (
+                get_path(compositor_contract, ["computePipelineInvalidDetected"])
+                is not True
+                and error_subtypes["computePipelineInvalidDetected"] is False
+            ),
+            "requiredForDecision": True,
+            "reason": "invalid compute pipelines block Step109",
+        },
+        {
+            "name": "bind-group-invalid-not-detected",
+            "gate": "error",
+            "ready": (
+                get_path(compositor_contract, ["bindGroupInvalidDetected"])
+                is not True
+                and error_subtypes["bindGroupInvalidDetected"] is False
+            ),
+            "requiredForDecision": True,
+            "reason": "invalid bind groups block Step109",
+        },
+        {
+            "name": "invalid-command-buffer-not-detected",
+            "gate": "error",
+            "ready": get_path(compositor_contract, ["invalidCommandBufferDetected"])
+            is False,
+            "requiredForDecision": True,
+            "reason": "invalid command buffers block Step109",
+        },
+        {
+            "name": "queue-submit-failure-not-detected",
+            "gate": "error",
+            "ready": get_path(compositor_contract, ["queueSubmitFailureDetected"])
+            is False,
+            "requiredForDecision": True,
+            "reason": "queue submit failures block Step109",
+        },
+        {
+            "name": "full-renderer-success-not-claimed",
+            "gate": "scope",
+            "ready": full_renderer_success_claimed is False,
+            "requiredForDecision": True,
+            "reason": "Step109 must not claim full renderer success",
+        },
+    ]
+    failed_predicates = [
+        predicate
+        for predicate in step109_validation_predicates
+        if predicate.get("requiredForDecision") is True
+        and predicate.get("ready") is not True
+    ]
+    blocked_reason = failed_predicates[0]["name"] if failed_predicates else None
+    blocked_reason_detailed = None
+    if failed_predicates:
+        first_failed = failed_predicates[0]
+        blocked_reason_detailed = (
+            f"{first_failed['name']}: {first_failed['reason']}"
+        )
+    step109_ready = len(failed_predicates) == 0
+    return {
+        "step109Decision": "success" if step109_ready else "blocked",
+        "step109BlockedReason": blocked_reason,
+        "step109BlockedReasonDetailed": blocked_reason_detailed,
+        "step109SelectedGoal":
+            "A+B+C-fixed-reference-camera-activation-and-webgpu-camera-constants-routing",
+        "phaseStep": phase_step,
+        "step109ValidationPredicates": step109_validation_predicates,
+        "step109FailedPredicates": failed_predicates,
+        "fixedReferenceCameraActivationReady": get_path(
+            compositor_contract,
+            ["fixedReferenceCameraActivationReady"],
+        ),
+        "fixedReferenceCameraActivationMode": get_path(
+            compositor_contract,
+            ["fixedReferenceCameraActivationMode"],
+        ),
+        "fixedReferenceCameraActivationBlockedReason":
+            activation_blocked_reason,
+        "usesCudaAlignedFixedReferenceCamera": get_path(
+            compositor_contract,
+            ["usesCudaAlignedFixedReferenceCamera"],
+        ),
+        "interactiveCameraExcludedFromReferenceComparison": get_path(
+            compositor_contract,
+            ["interactiveCameraExcludedFromReferenceComparison"],
+        ),
+        "webgpuCameraConstantsSource": get_path(
+            compositor_contract,
+            ["webgpuCameraConstantsSource"],
+        ),
+        "cameraConstantsRoutingReady": get_path(
+            compositor_contract,
+            ["cameraConstantsRoutingReady"],
+        ),
+        "cameraMetadataName": get_path(
+            compositor_contract,
+            ["cameraMetadataName"],
+        ),
+        "viewMatrixSource": get_path(compositor_contract, ["viewMatrixSource"]),
+        "projectionMatrixSource": get_path(
+            compositor_contract,
+            ["projectionMatrixSource"],
+        ),
+        "viewportSource": get_path(compositor_contract, ["viewportSource"]),
+        "screenSpaceConventionSource": get_path(
+            compositor_contract,
+            ["screenSpaceConventionSource"],
+        ),
+        "backgroundPolicySource": get_path(
+            compositor_contract,
+            ["backgroundPolicySource"],
+        ),
+        "visualParityComparisonAllowed": visual_parity_allowed,
+        "visualParityComparisonBlockedReason":
+            visual_parity_blocked_reason,
+        "cameraMismatchClassification": get_path(
+            compositor_contract,
+            ["visualMismatchClassification"],
+        ),
+        "missingCameraEvidenceDetected": get_path(
+            compositor_contract,
+            ["missingCameraEvidenceDetected"],
+        ),
+        "missingCameraEvidenceReasons": missing_camera_evidence_reasons,
+        "step108CameraEvidencePreserved": get_path(
+            compositor_contract,
+            ["step108CameraEvidencePreserved"],
+        ),
+        "step107DesignGatePreserved": get_path(
+            compositor_contract,
+            ["step107DesignGatePreserved"],
+        ),
+        "step106CapabilityGatePreserved": get_path(
+            compositor_contract,
+            ["capabilityBasedRegressionGateReady"],
+        ),
+        "step105CameraGatePreserved": get_path(
+            compositor_contract,
+            ["step105CameraGatePreserved"],
+        ),
+        "nextStepRecommendedGoal": get_path(
+            compositor_contract,
+            ["step109NextStepRecommendedGoal"],
+        ),
+        "earlyTerminationRemainsDisabled": get_path(
+            compositor_contract,
+            ["earlyTerminationRemainsDisabled"],
+        ),
+        "lodStreamingRemainsDisabled": get_path(
+            compositor_contract,
+            ["lodStreamingRemainsDisabled"],
+        ),
+        "visualOutputDegeneratedDetected": get_path(
+            compositor_contract,
+            ["visualOutputDegeneratedDetected"],
+        ),
+        "wgslParseErrorDetected": get_path(
+            compositor_contract,
+            ["wgslParseErrorDetected"],
+            error_subtypes["wgslParseErrorDetected"],
+        )
+        is True
+        or error_subtypes["wgslParseErrorDetected"],
+        "shaderModuleInvalidDetected": get_path(
+            compositor_contract,
+            ["shaderModuleInvalidDetected"],
+            error_subtypes["shaderModuleInvalidDetected"],
+        )
+        is True
+        or error_subtypes["shaderModuleInvalidDetected"],
+        "computePipelineInvalidDetected": get_path(
+            compositor_contract,
+            ["computePipelineInvalidDetected"],
+            error_subtypes["computePipelineInvalidDetected"],
+        )
+        is True
+        or error_subtypes["computePipelineInvalidDetected"],
+        "bindGroupInvalidDetected": get_path(
+            compositor_contract,
+            ["bindGroupInvalidDetected"],
+            error_subtypes["bindGroupInvalidDetected"],
+        )
+        is True
+        or error_subtypes["bindGroupInvalidDetected"],
+        "webgpuValidationErrorDetected": get_path(
+            compositor_contract,
+            ["webgpuValidationErrorDetected"],
+        ),
+        "invalidCommandBufferDetected": get_path(
+            compositor_contract,
+            ["invalidCommandBufferDetected"],
+        ),
+        "queueSubmitFailureDetected": get_path(
+            compositor_contract,
+            ["queueSubmitFailureDetected"],
+        ),
+        "deferredProductionItems": get_path(
+            compositor_contract,
+            ["deferredProductionItems"],
+            [],
+        ),
+        "fullRendererSuccessClaimed": full_renderer_success_claimed,
+    }
+
+
+def build_output_capture_consistency_diagnostic(
+    webgpu_summary: Dict[str, Any],
+    png_diagnostic: Dict[str, Any],
+) -> Dict[str, Any]:
+    compositor_contract = get_path(
+        webgpu_summary,
+        ["webgpuTileListCompositorContract"],
+        {},
+    )
+    png_captured = png_diagnostic.get("pngCaptured") is True
+    png_nonzero_rgb = png_diagnostic.get("pngNonzeroRgb")
+    capture_output_nonblank = (
+        png_nonzero_rgb > 0 if isinstance(png_nonzero_rgb, int) else None
+    )
+    presentation_nonblank_frame_count = numeric_value(
+        get_path(compositor_contract, ["presentationNonBlankFrameCount"]),
+        -1,
+    )
+    presentation_nonzero_ratio_max = numeric_value(
+        get_path(compositor_contract, ["presentationNonzeroPixelRatioMax"]),
+        -1,
+    )
+    runtime_nonzero_ratio = numeric_value(
+        get_path(
+            compositor_contract,
+            ["nonzeroOutputRatio", "tileCompositorNonzeroOutputRatio"],
+        ),
+        -1,
+    )
+    presentation_output_nonblank = None
+    if presentation_nonblank_frame_count >= 0 or presentation_nonzero_ratio_max >= 0:
+        presentation_output_nonblank = (
+            presentation_nonblank_frame_count > 0
+            or presentation_nonzero_ratio_max > 0
+        )
+    runtime_output_nonblank = None
+    if runtime_nonzero_ratio >= 0:
+        runtime_output_nonblank = runtime_nonzero_ratio > 0
+    runtime_output_nonblank_evidence_ready = (
+        runtime_output_nonblank is not None or presentation_output_nonblank is not None
+    )
+    effective_runtime_nonblank = (
+        runtime_output_nonblank
+        if runtime_output_nonblank is not None
+        else presentation_output_nonblank
+    )
+    saved_png_matches_runtime_output = None
+    if capture_output_nonblank is not None and effective_runtime_nonblank is not None:
+        saved_png_matches_runtime_output = capture_output_nonblank == effective_runtime_nonblank
+    live_display_and_saved_png_consistency_known = (
+        saved_png_matches_runtime_output is not None
+    )
+    visual_degenerated = get_path(
+        compositor_contract,
+        ["visualOutputDegeneratedDetected"],
+    )
+    reason = None
+    classification = None
+    if png_captured and capture_output_nonblank is False:
+        visual_degenerated = True
+        if effective_runtime_nonblank is True:
+            reason = "runtime-output-nonblank-but-saved-png-blank"
+            classification = "capture-output-blank-runtime-presentation-mismatch"
+        elif effective_runtime_nonblank is False:
+            reason = "capture-and-runtime-output-blank"
+            classification = "visual-output-blank"
+        else:
+            reason = "capture-output-blank-runtime-output-evidence-missing"
+            classification = "capture-output-blank-runtime-output-evidence-missing"
+    elif png_captured and capture_output_nonblank is True:
+        reason = "saved-png-nonblank"
+        classification = "capture-output-nonblank"
+        if visual_degenerated is None:
+            visual_degenerated = False
+    elif not png_captured:
+        reason = "saved-png-missing"
+        classification = "capture-output-evidence-missing"
+    else:
+        reason = "saved-png-diagnostic-unavailable"
+        classification = "capture-output-evidence-missing"
+    return {
+        **png_diagnostic,
+        "captureTarget": get_path(webgpu_summary, ["captureTarget"]),
+        "captureSourceKind": (
+            "saved-png-current-viewer-canvas-via-saveCurrentCanvasPng"
+            if png_captured
+            else None
+        ),
+        "captureOutputNonblank": capture_output_nonblank,
+        "presentationOutputNonblank": presentation_output_nonblank,
+        "runtimeOutputNonblankEvidenceReady": runtime_output_nonblank_evidence_ready,
+        "savedPngMatchesRuntimeOutput": saved_png_matches_runtime_output,
+        "liveDisplayAndSavedPngConsistencyKnown":
+            live_display_and_saved_png_consistency_known,
+        "visualOutputDegeneratedDetected": visual_degenerated,
+        "visualOutputDegenerationReason": reason,
+        "visualOutputDegenerationClassification": classification,
+    }
+
+
+def apply_output_capture_diagnostic_to_step_summary(
+    step_summary: Optional[Dict[str, Any]],
+    diagnostic: Dict[str, Any],
+    *,
+    step_name: str,
+) -> None:
+    if not isinstance(step_summary, dict) or not diagnostic:
+        return
+    for key in [
+        "captureTarget",
+        "captureSourceKind",
+        "pngCaptured",
+        "pngWidth",
+        "pngHeight",
+        "pngNonzeroRgb",
+        "pngNonblackRatio",
+        "pngNonblackBBox",
+        "pngMaxRgb",
+        "pngSha256",
+        "captureOutputNonblank",
+        "presentationOutputNonblank",
+        "runtimeOutputNonblankEvidenceReady",
+        "savedPngMatchesRuntimeOutput",
+        "liveDisplayAndSavedPngConsistencyKnown",
+        "visualOutputDegenerationReason",
+        "visualOutputDegenerationClassification",
+    ]:
+        step_summary[key] = diagnostic.get(key)
+    if diagnostic.get("visualOutputDegeneratedDetected") is True:
+        step_summary["visualOutputDegeneratedDetected"] = True
+    if step_name != "step109":
+        return
+    if diagnostic.get("visualOutputDegeneratedDetected") is not True:
+        return
+    predicates = step_summary.get("step109ValidationPredicates")
+    if not isinstance(predicates, list):
+        predicates = []
+    output_predicate = {
+        "name": diagnostic.get("visualOutputDegenerationReason")
+        or "visual-output-degenerated",
+        "gate": "output-capture-consistency",
+        "ready": False,
+        "requiredForDecision": True,
+        "reason": "saved PNG and runtime/presentation output evidence must be nonblank and consistent before Step109 can pass",
+    }
+    predicates = [
+        predicate
+        for predicate in predicates
+        if predicate.get("gate") != "output-capture-consistency"
+    ]
+    predicates.insert(1 if predicates else 0, output_predicate)
+    failed_predicates = [
+        predicate
+        for predicate in predicates
+        if predicate.get("requiredForDecision") is True
+        and predicate.get("ready") is not True
+    ]
+    step_summary["step109ValidationPredicates"] = predicates
+    step_summary["step109FailedPredicates"] = failed_predicates
+    step_summary["step109Decision"] = "blocked"
+    step_summary["step109BlockedReason"] = output_predicate["name"]
+    step_summary["step109BlockedReasonDetailed"] = (
+        f"{output_predicate['name']}: {output_predicate['reason']}"
+    )
+
+
 def build_step75_camera_aware_visible_summary(
     summary: Dict[str, Any],
     webgpu_camera_aware_visible_output: Dict[str, Any],
@@ -12935,6 +13686,9 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
     step108_cuda_reference_camera_evidence = (
         build_step108_cuda_reference_camera_evidence_summary(summary)
     )
+    step109_fixed_reference_camera_activation = (
+        build_step109_fixed_reference_camera_activation_summary(summary)
+    )
     return {
         "status": get_path(summary, ["status"]),
         "reason": get_path(summary, ["reason"]),
@@ -13020,6 +13774,8 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
             step107_fixed_reference_camera_contract,
         "step108CudaReferenceCameraEvidence":
             step108_cuda_reference_camera_evidence,
+        "step109FixedReferenceCameraActivation":
+            step109_fixed_reference_camera_activation,
         "comparisonContract": get_path(summary, ["comparisonContract"], {}),
         "comparisonTolerance": get_path(summary, ["comparisonTolerance"], {}),
         "radiusContract": get_path(summary, ["radiusContract"], {}),
@@ -17844,6 +18600,7 @@ def summarize_step(base_dir: Path, prefix: str) -> Dict[str, Any]:
         "gpuVisibleRecordDryRun": None,
         "gpuRawVisibleRecordDryRun": None,
         "webgpuVisibleRecordDryRun": None,
+        "outputCaptureDiagnostic": None,
         "association": None,
         "renderSummary": None,
         "loadErrors": {},
@@ -17934,6 +18691,36 @@ def summarize_step(base_dir: Path, prefix: str) -> Dict[str, Any]:
             **webgpu_visible_capture_status,
         }
 
+    png_diagnostic = extract_png_capture_diagnostic(base_dir / f"{prefix}_canvas.png")
+    result["outputCaptureDiagnostic"] = png_diagnostic
+    if isinstance(result.get("webgpuVisibleRecordDryRun"), dict):
+        output_diagnostic_source = loaded.get(
+            "webgpu_visible_record_dryrun_compare",
+            result["webgpuVisibleRecordDryRun"],
+        )
+        output_diagnostic = build_output_capture_consistency_diagnostic(
+            output_diagnostic_source,
+            png_diagnostic,
+        )
+        if output_diagnostic.get("captureTarget") is None:
+            output_diagnostic["captureTarget"] = result["webgpuVisibleRecordDryRun"].get(
+                "captureTarget"
+            )
+        result["outputCaptureDiagnostic"] = output_diagnostic
+        result["webgpuVisibleRecordDryRun"]["outputCaptureDiagnostic"] = (
+            output_diagnostic
+        )
+        for step_key, step_name in [
+            ("step107FixedReferenceCameraContract", "step107"),
+            ("step108CudaReferenceCameraEvidence", "step108"),
+            ("step109FixedReferenceCameraActivation", "step109"),
+        ]:
+            apply_output_capture_diagnostic_to_step_summary(
+                result["webgpuVisibleRecordDryRun"].get(step_key),
+                output_diagnostic,
+                step_name=step_name,
+            )
+
     if "association" in loaded:
         result["association"] = extract_association(loaded["association"])
 
@@ -17990,6 +18777,7 @@ def print_human_summary(summary: Dict[str, Any]) -> None:
     print_section("Step111 timing", summary.get("step111Timing"))
     print_section("GPU visible record dry-run", summary.get("gpuVisibleRecordDryRun"))
     print_section("GPU raw visible record dry-run", summary.get("gpuRawVisibleRecordDryRun"))
+    print_section("Output capture diagnostic", summary.get("outputCaptureDiagnostic"))
     print_section(
         "Step75 camera-aware visible output",
         summary.get("webgpuVisibleRecordDryRun", {}).get(
@@ -18186,6 +18974,12 @@ def print_human_summary(summary: Dict[str, Any]) -> None:
         "Step108 WebGPU CUDA reference camera evidence",
         summary.get("webgpuVisibleRecordDryRun", {}).get(
             "step108CudaReferenceCameraEvidence"
+        ),
+    )
+    print_section(
+        "Step109 WebGPU fixed reference camera activation",
+        summary.get("webgpuVisibleRecordDryRun", {}).get(
+            "step109FixedReferenceCameraActivation"
         ),
     )
     print_section("WebGPU visible record dry-run", summary.get("webgpuVisibleRecordDryRun"))

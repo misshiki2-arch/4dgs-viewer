@@ -2370,6 +2370,100 @@ function buildViewerConnectedSchedulerViewerCameraStateForDryRun() {
   };
 }
 
+function isFixedReferenceCameraActivationRequested(options = {}) {
+  return options.fixedReferenceCameraMode === true ||
+    options.fixedReferenceCameraActivationMode === 'cuda-aligned-fixed-reference-camera' ||
+    options.referenceCameraMode === 'cuda-aligned-fixed-reference-camera';
+}
+
+function buildFixedReferenceCameraDeterministicStateSummary(summary) {
+  const referencePose = summary?.referenceCameraPose ?? null;
+  const fixedReferenceScreenSpaceCamera =
+    summary?.fixedReferenceScreenSpaceCamera ?? null;
+  if (
+    !referencePose ||
+    fixedReferenceScreenSpaceCamera?.enabled !== true ||
+    !Array.isArray(fixedReferenceScreenSpaceCamera?.cudaAlignedViewMatrix)
+  ) {
+    return {
+      ...summary,
+      fixedReferenceCameraActivationMode:
+        'fixed-reference-camera-evidence-missing'
+    };
+  }
+
+  return {
+    ...summary,
+    cameraSource: 'cuda-reference-fixed-camera',
+    datasetViewMatrixMode: 'cuda-aligned',
+    cameraControlContract: 'fixed-reference-camera-from-cuda-evidence',
+    fixedReferenceCameraActivationMode: 'cuda-aligned-fixed-reference-camera',
+    convertedCameraPose: referencePose,
+    cameraPosition: Array.isArray(referencePose.position)
+      ? [...referencePose.position]
+      : null,
+    cameraTarget: Array.isArray(referencePose.target)
+      ? [...referencePose.target]
+      : null,
+    cameraUp: Array.isArray(referencePose.up) ? [...referencePose.up] : null,
+    actualCameraPosition: Array.isArray(referencePose.position)
+      ? [...referencePose.position]
+      : null,
+    actualControlsTarget: Array.isArray(referencePose.target)
+      ? [...referencePose.target]
+      : null,
+    actualCameraUp: Array.isArray(referencePose.up) ? [...referencePose.up] : null,
+    cudaAlignedScreenSpaceCamera: fixedReferenceScreenSpaceCamera,
+    fixedReferenceScreenSpaceCamera
+  };
+}
+
+function buildFixedReferenceCameraStateForDryRun(deterministicState, fallbackState) {
+  const referencePose = deterministicState?.referenceCameraPose ?? null;
+  if (!referencePose) {
+    return fallbackState;
+  }
+  const position = Array.isArray(referencePose.position)
+    ? [...referencePose.position]
+    : null;
+  const target = Array.isArray(referencePose.target)
+    ? [...referencePose.target]
+    : null;
+  const up = Array.isArray(referencePose.up) ? [...referencePose.up] : null;
+  return {
+    ...(fallbackState ?? {}),
+    source: 'cuda-reference-fixed-camera-state',
+    fixedReferenceCameraMode: true,
+    cameraPosition: position,
+    cameraQuaternion: null,
+    cameraFov: deterministicState?.cameraFoVyDeg ?? deterministicState?.cameraFoVy ?? null,
+    cameraAspect:
+      Number.isFinite(canvas?.width) && Number.isFinite(canvas?.height) &&
+      Number(canvas.height) > 0
+        ? Number(canvas.width) / Number(canvas.height)
+        : null,
+    controlsTarget: target,
+    cameraSnapshot: {
+      ...(fallbackState?.cameraSnapshot ?? {}),
+      source: 'cuda-reference-camera-evidence',
+      position,
+      target,
+      up
+    },
+    viewport: fallbackState?.viewport ?? buildViewerViewportRuntimeSnapshot(),
+    viewportStateConnectedToRuntime: true,
+    cameraStateChangedByViewerControl: false,
+    cameraConstantsChanged: true,
+    cameraConstantsMaxAbsDelta: 0,
+    dirtyCameraConstants: true,
+    dirtyCameraConstantsReason:
+      'fixed-reference-camera-activation-from-cuda-evidence',
+    dirtyViewport: false,
+    dirtyViewportReason: 'viewport-unchanged-for-fixed-reference-camera',
+    viewportChangedByProbe: false
+  };
+}
+
 async function runWebGpuVisibleRecordDryRunFromViewerState({
   options = {},
   requestedWebGpuBackendMode = 'webgl2-fallback',
@@ -2380,7 +2474,12 @@ async function runWebGpuVisibleRecordDryRunFromViewerState({
   metadataOverrides = {}
 } = {}) {
   camera.updateMatrixWorld(true);
-  const deterministicState = buildDeterministicStateSummary();
+  const baseDeterministicState = buildDeterministicStateSummary();
+  const fixedReferenceCameraModeRequested =
+    isFixedReferenceCameraActivationRequested(options);
+  const deterministicState = fixedReferenceCameraModeRequested
+    ? buildFixedReferenceCameraDeterministicStateSummary(baseDeterministicState)
+    : baseDeterministicState;
   const buildConfig = getVisibleBuildConfig(ui, buildRenderOverrides());
   const tileGrid = computeTileGrid(canvas.width, canvas.height, 32);
   const screenSpaceCamera = buildScreenSpaceCameraProxy(camera, deterministicState);
@@ -2414,8 +2513,14 @@ async function runWebGpuVisibleRecordDryRunFromViewerState({
     null;
   const viewerTimeStateForDryRun =
     buildViewerConnectedSchedulerViewerTimeStateForDryRun();
-  const viewerCameraStateForDryRun =
+  const viewerCameraStateForDryRunBase =
     buildViewerConnectedSchedulerViewerCameraStateForDryRun();
+  const viewerCameraStateForDryRun = fixedReferenceCameraModeRequested
+    ? buildFixedReferenceCameraStateForDryRun(
+        deterministicState,
+        viewerCameraStateForDryRunBase
+      )
+    : viewerCameraStateForDryRunBase;
   // Viewer shell owns capture/query/camera/canvas adaptation only; WebGPU pass
   // construction stays in the backend modules and common contracts.
   return runWebGpuVisibleRecordDryRun({
@@ -3881,6 +3986,8 @@ function buildSlimDeterministicStateSummary(summary) {
     datasetViewMatrixMode: summary?.datasetViewMatrixMode ?? 'threejs',
     cameraControlContract: summary?.cameraControlContract ?? null,
     cameraOrientationPolicy: summary?.cameraOrientationPolicy ?? null,
+    fixedReferenceCameraActivationMode:
+      summary?.fixedReferenceCameraActivationMode ?? null,
     datasetPixelXSign: [-1, 1].includes(summary?.datasetPixelXSign) ? Number(summary.datasetPixelXSign) : 1,
     datasetCameraLabel: summary?.datasetCameraLabel ?? null,
     imageName: summary?.imageName ?? null,
