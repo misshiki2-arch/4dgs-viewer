@@ -2765,3 +2765,36 @@ Step110 preserves Step109 fixed reference activation/routing, Step108 camera
 evidence, Step107 design gate, Step106 capability diagnostics, and Step105
 camera gate. It does not enable early termination, LOD, streaming, camera-axis
 tuning, color tuning, or CUDA parity claims.
+
+## Step111 CUDA/WebGPU Rendering Pipeline Parity Review and First Structural Gap Closure V1
+
+Step111 starts from the Step110 fixed-condition comparison baseline and closes
+one rendering-stage gap in the production runtime rather than expanding the
+comparison infrastructure.
+
+The concise CUDA/WebGPU stage mapping is:
+
+- 4D state evaluation: partial WebGPU time-state evaluation; full conditional
+  4D covariance remains deferred.
+- covariance / conic / screen-space footprint: moved from isotropic
+  radius-derived conic approximation to scale-aware raw `scale_xyz` footprint
+  consumption in production accumulation; rotation-aware covariance and camera
+  Jacobian parity remain deferred.
+- SH / color / opacity / temporal weighting: partial `f_dc` L0 color, opacity,
+  and temporal weight path; full SH parity remains deferred.
+- projection / visibility: fixed-reference camera constants are routed from
+  CUDA evidence; full visibility parity remains measured by Step110 comparison.
+- tile list / depth ordering: GPU-owned tile list plus workgroup per-tile sort
+  v1; full CUDA parallel sort parity remains deferred.
+- front-to-back alpha accumulation: production tile compositor alpha/color
+  accumulation path; final CUDA compositor semantics remain deferred.
+- background / final output: production output texture, presentation, and PNG
+  capture remain the Step110 comparison boundary.
+
+The first selected gap is Candidate A in a bounded form. `scale_xyz` now feeds a
+scale-aware anisotropic conic and conservative radius in the WebGPU
+4D/footprint evaluator. That payload is consumed by the production tile
+compositor's Gaussian weight and output texture path. Step111 does not claim
+full covariance, camera-Jacobian, SH, final compositor, or visual parity; those
+remain follow-up structural gaps validated through the Step110 comparison
+infrastructure.

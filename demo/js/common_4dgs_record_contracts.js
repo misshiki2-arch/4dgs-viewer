@@ -1056,6 +1056,23 @@ export function buildWebGpuTileListCompositorContract({
   comparisonChannelMode = 'rgba',
   comparisonTool = 'tools/compare_png.py',
   step110NextStepRecommendedGoal = null,
+  cudaWebgpuPipelineParityStageMap = [],
+  step111SelectedGoal = null,
+  step111SelectedGap = null,
+  step111GapBeforeClassification = null,
+  step111GapAfterClassification = null,
+  step111ProductionRuntimeGapClosureUsed = false,
+  step111ProductionConsumptionEvidence = {},
+  step111ApproximationReplaced = null,
+  step111RemainingApproximations = [],
+  step111DeferredStructuralGaps = [],
+  scaleAwareConicPayloadConsumed = false,
+  anisotropicFootprintReferenceCount = 0,
+  anisotropicFootprintRatio = 0,
+  conicFallbackReferenceCount = 0,
+  presentationCaptureOrientationEvidence = {},
+  captureFreshnessEvidence = {},
+  step111NextStepRecommendedGoal = null,
   step104VisualSafetyGatePreserved = false,
   earlyTerminationRemainsDisabled = false,
   lodStreamingRemainsDisabled = false,
@@ -2607,6 +2624,27 @@ export function buildWebGpuTileListCompositorContract({
     step110NextStepRecommendedGoal:
       step110NextStepRecommendedGoal ??
       'run-fixed-condition-visual-comparison-after-browser-capture-v1',
+    cudaWebgpuPipelineParityStageMap,
+    step111SelectedGoal:
+      step111SelectedGoal ??
+      'scale-aware-gaussian-footprint-conic-production-path-v1',
+    step111SelectedGap,
+    step111GapBeforeClassification,
+    step111GapAfterClassification,
+    step111ProductionRuntimeGapClosureUsed,
+    step111ProductionConsumptionEvidence,
+    step111ApproximationReplaced,
+    step111RemainingApproximations,
+    step111DeferredStructuralGaps,
+    scaleAwareConicPayloadConsumed,
+    anisotropicFootprintReferenceCount,
+    anisotropicFootprintRatio,
+    conicFallbackReferenceCount,
+    presentationCaptureOrientationEvidence,
+    captureFreshnessEvidence,
+    step111NextStepRecommendedGoal:
+      step111NextStepRecommendedGoal ??
+      'rotation-and-camera-jacobian-screen-space-conic-parity-v1',
     step108NextStepRecommendedGoal:
       step108NextStepRecommendedGoal ??
       (

@@ -45,7 +45,7 @@ function buildCandidateTimeScale(raw, candidateIndices) {
 }
 
 function buildCandidateAttributeInput(raw, candidateIndices) {
-  const out = new Float32Array(candidateIndices.length * 4);
+  const out = new Float32Array(candidateIndices.length * 8);
   for (let row = 0; row < candidateIndices.length; row += 1) {
     const srcIndex = candidateIndices[row] | 0;
     const fdcBase = srcIndex * (raw.fdcDim ?? 0);
@@ -53,11 +53,15 @@ function buildCandidateAttributeInput(raw, candidateIndices) {
     const sx = toFiniteNumber(raw.scale_xyz?.[scaleBase + 0], 0.01);
     const sy = toFiniteNumber(raw.scale_xyz?.[scaleBase + 1], sx);
     const sz = toFiniteNumber(raw.scale_xyz?.[scaleBase + 2], sx);
-    const o = row * 4;
+    const o = row * 8;
     out[o + 0] = toFiniteNumber(raw.f_dc?.[fdcBase + 0], 0);
     out[o + 1] = toFiniteNumber(raw.f_dc?.[fdcBase + 1], 0);
     out[o + 2] = toFiniteNumber(raw.f_dc?.[fdcBase + 2], 0);
     out[o + 3] = Math.max(1e-6, (sx + sy + sz) / 3);
+    out[o + 4] = Math.max(1e-6, sx);
+    out[o + 5] = Math.max(1e-6, sy);
+    out[o + 6] = Math.max(1e-6, sz);
+    out[o + 7] = raw.scaleXYZDim >= 3 ? 111 : 0;
   }
   return out;
 }
@@ -122,7 +126,7 @@ function summarizeComputedFootprintPayload(footprintPayload) {
     const radius = Number(footprintPayload[o + 6]);
     const sourceCode = Number(footprintPayload[o + 8]);
     const area = Number(footprintPayload[o + 10]);
-    if (conicX > 0 && radius > 0 && sourceCode === 82) {
+    if (conicX > 0 && radius > 0 && (sourceCode === 82 || sourceCode === 111)) {
       computedFootprintPayloadCount += 1;
       conicXSum += conicX;
       areaSum += Number.isFinite(area) ? area : 0;
@@ -216,7 +220,9 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let pos = raw0.xyz + vec3f(0.015 * temporal, -0.010 * temporal, 0.005 * temporal);
   statePositions[row] = vec4f(pos, 0.9);
 
-  let attrs = attributeInput[row];
+  let attrBaseInput = row * 2u;
+  let attrs = attributeInput[attrBaseInput + 0u];
+  let scaleInfo = attributeInput[attrBaseInput + 1u];
   let temporalWeight = exp(-0.5 * temporal * temporal);
   let alpha = clamp(sigmoid(raw0.w) * temporalWeight, 0.05, 0.99);
   let rgb = clamp(attrs.rgb + vec3f(0.5), vec3f(0.0), vec3f(1.0));
@@ -225,14 +231,25 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   renderAttributes[attrBase + 0u] = vec4f(radiusPx, alpha, rgb.r, rgb.g);
   renderAttributes[attrBase + 1u] = vec4f(rgb.b, temporalWeight, 81.0, 0.0);
 
-  let sigmaPx = max(radiusPx / 3.0, 0.5);
-  let variance = sigmaPx * sigmaPx;
-  let invVariance = 1.0 / variance;
-  let footprintAreaPx = 3.14159265 * radiusPx * radiusPx;
+  let meanScale = max(attrs.w, 1e-6);
+  let scaleX = max(scaleInfo.x, 1e-6);
+  let scaleY = max(scaleInfo.y, 1e-6);
+  let anisotropyX = clamp(scaleX / meanScale, 0.35, 2.75);
+  let anisotropyY = clamp(scaleY / meanScale, 0.35, 2.75);
+  let radiusX = max(radiusPx * anisotropyX, 1.0);
+  let radiusY = max(radiusPx * anisotropyY, 1.0);
+  let conservativeRadiusPx = max(radiusPx, max(radiusX, radiusY));
+  let sigmaX = max(radiusX / 3.0, 0.5);
+  let sigmaY = max(radiusY / 3.0, 0.5);
+  let varianceX = sigmaX * sigmaX;
+  let varianceY = sigmaY * sigmaY;
+  let conicX = 1.0 / varianceX;
+  let conicZ = 1.0 / varianceY;
+  let footprintAreaPx = 3.14159265 * radiusX * radiusY;
   let footprintBase = row * 3u;
-  footprintPayload[footprintBase + 0u] = vec4f(invVariance, 0.0, invVariance, variance);
-  footprintPayload[footprintBase + 1u] = vec4f(0.0, variance, radiusPx, raw0.z);
-  footprintPayload[footprintBase + 2u] = vec4f(82.0, abs(raw0.z), footprintAreaPx, 0.0);
+  footprintPayload[footprintBase + 0u] = vec4f(conicX, 0.0, conicZ, varianceX);
+  footprintPayload[footprintBase + 1u] = vec4f(0.0, varianceY, conservativeRadiusPx, raw0.z);
+  footprintPayload[footprintBase + 2u] = vec4f(111.0, abs(raw0.z), footprintAreaPx, 0.0);
 }`
   });
   const pipeline = device.createComputePipeline({
@@ -414,15 +431,16 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
           'sortKey'
         ],
         partialFootprintFields: [
-          'conic-isotropic-from-computed-radius',
-          'covariance2D-isotropic-from-computed-radius',
+          'conic-scale-anisotropic-from-raw-scale-xy',
+          'covariance2D-scale-anisotropic-from-raw-scale-xy',
           'sortKey-from-state-depth'
         ],
         baselineFootprintFields: [],
         fallbackFootprintFields: [],
         deferredFootprintFields: [
           'full-4d-covariance-projection',
-          'anisotropic-conic-parity',
+          'rotation-aware-anisotropic-conic-parity',
+          'camera-jacobian-screen-space-conic-parity',
           'gpu-aabb-from-projected-center',
           'gpu-tileRange-from-aabb',
           'depth-sort-dispatch'

@@ -43,6 +43,7 @@ KNOWN_SUFFIXES = [
     "webgpu_visible_record_dryrun_compare",
     "webgpu_visible_record_dryrun_capture_status",
     "fixed_condition_visual_comparison",
+    "png_capture_status",
     "gpu_candidate_source_compare",
     "gpu_candidate_coverage",
     "gpu_candidate_runtime_summary",
@@ -115,6 +116,32 @@ def numeric_value(value: Any, default: float = 0) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def compare_frame_identity(
+    left: Any,
+    right: Any,
+    *,
+    required_keys: Iterable[str],
+) -> Dict[str, Any]:
+    left = left if isinstance(left, dict) else {}
+    right = right if isinstance(right, dict) else {}
+    keys = list(required_keys)
+    mismatched_keys = []
+    missing_keys = []
+    for key in keys:
+        left_value = left.get(key)
+        right_value = right.get(key)
+        if left_value is None or right_value is None:
+            missing_keys.append(key)
+        elif left_value != right_value:
+            mismatched_keys.append(key)
+    return {
+        "matches": not mismatched_keys and not missing_keys,
+        "mismatchedKeys": mismatched_keys,
+        "missingKeys": missing_keys,
+        "requiredKeys": keys,
+    }
 
 
 def _png_channels_for_color_type(color_type: int) -> int:
@@ -295,6 +322,7 @@ def extract_fixed_condition_visual_comparison(data: Dict[str, Any]) -> Dict[str,
         "referenceImageStats": get_path(data, ["referenceImageStats"]),
         "webgpuImageStats": get_path(data, ["webgpuImageStats"]),
         "comparisonConditions": get_path(data, ["comparisonConditions"], {}),
+        "orientationDiagnostic": get_path(data, ["orientationDiagnostic"], {}),
         "visualMismatchClassification": get_path(data, ["visualMismatchClassification"]),
         "absDiffImage": get_path(data, ["absDiffImage"]),
         "error": get_path(data, ["error"]),
@@ -430,6 +458,49 @@ def detect_webgpu_error_subtypes(*sources: Any) -> Dict[str, bool]:
             "invalid bindgroup" in lower_text
             or "bindgroup invalid" in lower_text
         ),
+        "invalidCommandBufferDetected": (
+            "invalid commandbuffer" in lower_text
+            or "invalid command buffer" in lower_text
+        ),
+        "queueSubmitFailureDetected": (
+            "queue.submit" in lower_text
+            or "queue submit" in lower_text
+            or "submit failed" in lower_text
+        ),
+        "runtimeFatalErrorDetected": (
+            "runtime fatal" in lower_text
+            or "fatal error" in lower_text
+            or "uncaught" in lower_text
+        ),
+    }
+
+
+def comparison_metric_delta(
+    comparison_result: Optional[Dict[str, Any]],
+    baseline_result: Optional[Dict[str, Any]],
+    key: str,
+) -> Optional[Dict[str, Any]]:
+    current = get_path(comparison_result, [key])
+    baseline = get_path(baseline_result, [key])
+    if current is None or baseline is None:
+        return None
+    try:
+        current_value = float(current)
+        baseline_value = float(baseline)
+    except (TypeError, ValueError):
+        return None
+    delta = current_value - baseline_value
+    if abs(delta) <= 1e-12:
+        direction = "unchanged"
+    elif delta < 0:
+        direction = "decreased"
+    else:
+        direction = "increased"
+    return {
+        "current": current_value,
+        "baseline": baseline_value,
+        "delta": delta,
+        "direction": direction,
     }
 
 
@@ -12852,9 +12923,597 @@ def build_step110_fixed_condition_visual_comparison_summary(
     }
 
 
+def build_step111_pipeline_parity_gap_closure_summary(
+    summary: Dict[str, Any],
+    comparison_result: Optional[Dict[str, Any]] = None,
+    step110_comparison_result: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    compositor_contract = get_path(summary, ["webgpuTileListCompositorContract"], {})
+    phase_step = get_path(summary, ["phaseStep"])
+    production_used = (
+        get_path(compositor_contract, ["step111ProductionRuntimeGapClosureUsed"])
+        is True
+    )
+    consumption_evidence = get_path(
+        compositor_contract,
+        ["step111ProductionConsumptionEvidence"],
+        {},
+    )
+    step110_preserved = (
+        get_path(compositor_contract, ["fixedConditionVisualComparisonContractReady"])
+        is True
+        and get_path(compositor_contract, ["fixedConditionVisualComparisonInputsReady"])
+        is True
+        and get_path(compositor_contract, ["fixedReferenceCameraActivationReady"]) is True
+        and get_path(compositor_contract, ["cameraConstantsRoutingReady"]) is True
+        and get_path(compositor_contract, ["usesCudaAlignedFixedReferenceCamera"]) is True
+    )
+    error_subtypes = detect_webgpu_error_subtypes(
+        get_path(summary, ["webgpuTileCompositorFrameImplementation"], {}),
+        compositor_contract,
+        comparison_result,
+        get_path(summary, ["captureErrorString"]),
+        get_path(summary, ["captureErrorStack"]),
+        get_path(summary, ["captureErrorMessage"]),
+        get_path(summary, ["firstValidationFailures"]),
+    )
+    no_webgpu_errors = not any(error_subtypes.values())
+    output_diagnostic = get_path(summary, ["outputCaptureDiagnostic"], {})
+    comparison_executed = comparison_result is not None
+    capture_output_nonblank = get_path(output_diagnostic, ["captureOutputNonblank"])
+    presentation_output_nonblank = get_path(
+        output_diagnostic,
+        ["presentationOutputNonblank"],
+    )
+    saved_png_matches_runtime = get_path(
+        output_diagnostic,
+        ["savedPngMatchesRuntimeOutput"],
+    )
+    saved_png_matches_presented = get_path(
+        output_diagnostic,
+        ["savedPngMatchesPresentedOutput"],
+    )
+    orientation_evidence = get_path(
+        output_diagnostic,
+        ["orientationEvidence"],
+        get_path(compositor_contract, ["presentationCaptureOrientationEvidence"], {}),
+    )
+    freshness_evidence = get_path(
+        output_diagnostic,
+        ["captureFreshnessEvidence"],
+        get_path(compositor_contract, ["captureFreshnessEvidence"], {}),
+    )
+    orientation_consistency_known = get_path(
+        orientation_evidence,
+        ["orientationConsistencyKnown"],
+    )
+    orientation_mismatch_detected = get_path(
+        orientation_evidence,
+        ["orientationMismatchDetected"],
+    )
+    capture_freshness_known = get_path(
+        freshness_evidence,
+        ["captureFreshnessKnown"],
+    )
+    capture_matches_presented_frame = get_path(
+        freshness_evidence,
+        ["captureMatchesPresentedFrame"],
+    )
+    stale_capture_detected = get_path(
+        freshness_evidence,
+        ["staleCaptureDetected"],
+    )
+    visual_output_degenerated = get_path(
+        output_diagnostic,
+        ["visualOutputDegeneratedDetected"],
+        get_path(compositor_contract, ["visualOutputDegeneratedDetected"]),
+    )
+    comparison_predicate_specs = [
+        (
+            "comparison-executed",
+            comparison_executed,
+            "Step111 fixed-condition comparison JSON must be available after browser capture",
+        ),
+        (
+            "comparison-image-size-match",
+            (not comparison_executed)
+            or get_path(comparison_result, ["imageSizeMatch"]) is True,
+            "Reference and WebGPU PNG image sizes must match",
+        ),
+        (
+            "capture-output-nonblank",
+            capture_output_nonblank is True,
+            "saved PNG must be nonblank before comparison metrics can describe rendering output",
+        ),
+        (
+            "presentation-output-nonblank",
+            presentation_output_nonblank is True,
+            "presentation output must be nonblank",
+        ),
+        (
+            "saved-png-matches-runtime-output",
+            saved_png_matches_runtime is True,
+            "saved PNG must match runtime/presentation output evidence",
+        ),
+        (
+            "visual-output-not-degenerated",
+            visual_output_degenerated is not True,
+            "capture/presentation output degeneration must not be detected",
+        ),
+    ]
+    comparison_failed_predicates = [
+        {"name": name, "reason": reason}
+        for name, ready, reason in comparison_predicate_specs
+        if ready is not True
+    ]
+    comparison_blocked_reasons = [
+        item["name"] for item in comparison_failed_predicates
+    ]
+    metric_change = {
+        "pixelMae": comparison_metric_delta(
+            comparison_result,
+            step110_comparison_result,
+            "pixelMae",
+        ),
+        "pixelRmse": comparison_metric_delta(
+            comparison_result,
+            step110_comparison_result,
+            "pixelRmse",
+        ),
+        "maxAbsDifference": comparison_metric_delta(
+            comparison_result,
+            step110_comparison_result,
+            "maxAbsDifference",
+        ),
+        "differingPixelCount": comparison_metric_delta(
+            comparison_result,
+            step110_comparison_result,
+            "differingPixelCount",
+        ),
+        "differingPixelRatio": comparison_metric_delta(
+            comparison_result,
+            step110_comparison_result,
+            "differingPixelRatio",
+        ),
+    }
+    predicate_specs = [
+        (
+            "phase-step-is-step111",
+            phase_step in {None, "phase3-step111"},
+            "summary must be generated for phase3-step111 or an implementation dry run",
+        ),
+        (
+            "pipeline-parity-stage-map-readable",
+            isinstance(
+                get_path(compositor_contract, ["cudaWebgpuPipelineParityStageMap"]),
+                list,
+            )
+            and len(get_path(compositor_contract, ["cudaWebgpuPipelineParityStageMap"], [])) > 0,
+            "CUDA/WebGPU pipeline stage mapping must be readable",
+        ),
+        (
+            "selected-gap-readable",
+            isinstance(get_path(compositor_contract, ["step111SelectedGap"]), str),
+            "selected structural gap must be readable",
+        ),
+        (
+            "gap-before-after-classification-readable",
+            isinstance(
+                get_path(compositor_contract, ["step111GapBeforeClassification"]),
+                str,
+            )
+            and isinstance(
+                get_path(compositor_contract, ["step111GapAfterClassification"]),
+                str,
+            ),
+            "before/after gap classification must be readable",
+        ),
+        (
+            "production-runtime-gap-closure-consumed",
+            production_used,
+            "new structural gap closure must be consumed by production runtime",
+        ),
+        (
+            "scale-aware-conic-consumed",
+            get_path(compositor_contract, ["scaleAwareConicPayloadConsumed"]) is True
+            and numeric_value(
+                get_path(compositor_contract, ["anisotropicFootprintReferenceCount"]),
+                0,
+            )
+            > 0,
+            "scale-aware anisotropic footprint payload must be consumed",
+        ),
+        (
+            "step110-fixed-condition-comparison-preserved",
+            step110_preserved,
+            "Step110 fixed reference comparison infrastructure must remain readable",
+        ),
+        (
+            "visual-parity-not-claimed-without-new-capture",
+            get_path(compositor_contract, ["fullCudaParity"]) is not True
+            and get_path(compositor_contract, ["fullRendererSuccessClaimed"]) is not True,
+            "visual/CUDA parity must not be claimed by Step111 implementation alone",
+        ),
+        (
+            "webgpu-error-free",
+            no_webgpu_errors,
+            "WGSL/WebGPU/command/queue errors must be absent",
+        ),
+    ]
+    failed_predicates = [
+        {"name": name, "reason": reason}
+        for name, ready, reason in predicate_specs
+        if ready is not True
+    ]
+    blocked_reasons = [item["name"] for item in failed_predicates]
+    fix2_predicate_specs = [
+        (
+            "orientation-consistency-known",
+            orientation_consistency_known is True,
+            "presentation/capture orientation contract must prove saved PNG matches canonical Viewer presentation orientation",
+        ),
+        (
+            "saved-png-matches-presented-output",
+            saved_png_matches_presented is True,
+            "saved PNG must match presented output, not only raw production texture",
+        ),
+        (
+            "no-orientation-mismatch",
+            orientation_mismatch_detected is False,
+            "capture and presentation Y transforms must not diverge",
+        ),
+        (
+            "capture-freshness-known",
+            capture_freshness_known is True,
+            "capture must identify the current presented camera/time/frame output generation",
+        ),
+        (
+            "capture-matches-presented-frame",
+            capture_matches_presented_frame is True,
+            "captured output generation must match the presented output generation",
+        ),
+        (
+            "stale-capture-not-detected",
+            stale_capture_detected is False,
+            "last-valid output capture must not be stale",
+        ),
+        (
+            "step111-gap-closure-preserved",
+            len(blocked_reasons) == 0,
+            "Step111 structural gap closure must remain successful",
+        ),
+    ]
+    fix2_failed_predicates = [
+        {"name": name, "reason": reason}
+        for name, ready, reason in fix2_predicate_specs
+        if ready is not True
+    ]
+    fix2_blocked_reasons = [item["name"] for item in fix2_failed_predicates]
+    return {
+        "step111Decision": "success" if not blocked_reasons else "blocked",
+        "step111FailedPredicates": failed_predicates,
+        "step111BlockedReason": blocked_reasons[0] if blocked_reasons else None,
+        "step111BlockedReasons": blocked_reasons,
+        "step111Fix2Decision": "success" if not fix2_blocked_reasons else "blocked",
+        "step111Fix2FailedPredicates": fix2_failed_predicates,
+        "step111Fix2BlockedReasons": fix2_blocked_reasons,
+        "step111SelectedGoal": get_path(
+            compositor_contract,
+            ["step111SelectedGoal"],
+        ),
+        "cudaWebgpuPipelineParityStageMap": get_path(
+            compositor_contract,
+            ["cudaWebgpuPipelineParityStageMap"],
+            [],
+        ),
+        "step111SelectedGap": get_path(compositor_contract, ["step111SelectedGap"]),
+        "step111GapBeforeClassification": get_path(
+            compositor_contract,
+            ["step111GapBeforeClassification"],
+        ),
+        "step111GapAfterClassification": get_path(
+            compositor_contract,
+            ["step111GapAfterClassification"],
+        ),
+        "step111ProductionRuntimeGapClosureUsed": production_used,
+        "step111ProductionConsumptionEvidence": consumption_evidence,
+        "step111ApproximationReplaced": get_path(
+            compositor_contract,
+            ["step111ApproximationReplaced"],
+        ),
+        "step111RemainingApproximations": get_path(
+            compositor_contract,
+            ["step111RemainingApproximations"],
+            [],
+        ),
+        "step111DeferredStructuralGaps": get_path(
+            compositor_contract,
+            ["step111DeferredStructuralGaps"],
+            [],
+        ),
+        "scaleAwareConicPayloadConsumed": get_path(
+            compositor_contract,
+            ["scaleAwareConicPayloadConsumed"],
+        ),
+        "anisotropicFootprintReferenceCount": get_path(
+            compositor_contract,
+            ["anisotropicFootprintReferenceCount"],
+        ),
+        "anisotropicFootprintRatio": get_path(
+            compositor_contract,
+            ["anisotropicFootprintRatio"],
+        ),
+        "conicFallbackReferenceCount": get_path(
+            compositor_contract,
+            ["conicFallbackReferenceCount"],
+        ),
+        "step110FixedConditionComparisonPreserved": step110_preserved,
+        "fixedReferenceCameraActivationReady": get_path(
+            compositor_contract,
+            ["fixedReferenceCameraActivationReady"],
+        ),
+        "usesCudaAlignedFixedReferenceCamera": get_path(
+            compositor_contract,
+            ["usesCudaAlignedFixedReferenceCamera"],
+        ),
+        "cameraConstantsRoutingReady": get_path(
+            compositor_contract,
+            ["cameraConstantsRoutingReady"],
+        ),
+        "step111ComparisonExecuted": comparison_executed,
+        "step111ComparisonFailedPredicates": comparison_failed_predicates,
+        "step111ComparisonBlockedReason": (
+            comparison_blocked_reasons[0] if comparison_blocked_reasons else None
+        ),
+        "step111ComparisonBlockedReasons": comparison_blocked_reasons,
+        "comparisonImageSizeMatch": get_path(
+            comparison_result,
+            ["imageSizeMatch"],
+        ),
+        "comparisonChannelMode": get_path(
+            comparison_result,
+            ["comparisonChannelMode"],
+            get_path(compositor_contract, ["comparisonChannelMode"]),
+        ),
+        "pixelMae": get_path(comparison_result, ["pixelMae"]),
+        "pixelRmse": get_path(comparison_result, ["pixelRmse"]),
+        "maxAbsDifference": get_path(comparison_result, ["maxAbsDifference"]),
+        "differingPixelCount": get_path(
+            comparison_result,
+            ["differingPixelCount"],
+        ),
+        "differingPixelRatio": get_path(
+            comparison_result,
+            ["differingPixelRatio"],
+        ),
+        "step110ComparisonMetricBaseline": {
+            "pixelMae": get_path(step110_comparison_result, ["pixelMae"]),
+            "pixelRmse": get_path(step110_comparison_result, ["pixelRmse"]),
+            "maxAbsDifference": get_path(
+                step110_comparison_result,
+                ["maxAbsDifference"],
+            ),
+            "differingPixelCount": get_path(
+                step110_comparison_result,
+                ["differingPixelCount"],
+            ),
+            "differingPixelRatio": get_path(
+                step110_comparison_result,
+                ["differingPixelRatio"],
+            ),
+        },
+        "step110ToStep111MetricChange": metric_change,
+        "mismatchClassification": get_path(
+            comparison_result,
+            ["visualMismatchClassification"],
+            get_path(
+                output_diagnostic,
+                ["visualOutputDegenerationReason"],
+                "awaiting-comparison-result",
+            ),
+        ),
+        "captureSourceKind": get_path(output_diagnostic, ["captureSourceKind"]),
+        "pngCaptureStatus": get_path(output_diagnostic, ["pngCaptureStatus"], {}),
+        "captureOutputNonblank": capture_output_nonblank,
+        "presentationOutputNonblank": presentation_output_nonblank,
+        "savedPngMatchesRuntimeOutput": saved_png_matches_runtime,
+        "savedPngMatchesRawProductionOutput": get_path(
+            output_diagnostic,
+            ["savedPngMatchesRawProductionOutput"],
+        ),
+        "savedPngMatchesPresentedOutput": saved_png_matches_presented,
+        "orientationEvidence": orientation_evidence,
+        "rawProductionOrientation": {
+            "productionTextureOrigin": get_path(
+                orientation_evidence,
+                ["productionTextureOrigin"],
+            ),
+            "productionTextureYAxisDirection": get_path(
+                orientation_evidence,
+                ["productionTextureYAxisDirection"],
+            ),
+        },
+        "presentationOrientation": {
+            "presentationUvTransform": get_path(
+                orientation_evidence,
+                ["presentationUvTransform"],
+            ),
+            "presentationVerticalFlipApplied": get_path(
+                orientation_evidence,
+                ["presentationVerticalFlipApplied"],
+            ),
+            "canonicalPresentationOrientation": get_path(
+                orientation_evidence,
+                ["canonicalPresentationOrientation"],
+            ),
+        },
+        "savedPngOrientation": get_path(
+            orientation_evidence,
+            ["savedPngOrientation"],
+        ),
+        "captureReadbackRowOrder": get_path(
+            orientation_evidence,
+            ["captureReadbackRowOrder"],
+        ),
+        "pngEncoderRowOrder": get_path(
+            orientation_evidence,
+            ["pngEncoderRowOrder"],
+        ),
+        "captureVerticalFlipApplied": get_path(
+            orientation_evidence,
+            ["captureVerticalFlipApplied"],
+        ),
+        "captureMatchesCanonicalPresentationOrientation": get_path(
+            orientation_evidence,
+            ["captureMatchesCanonicalPresentationOrientation"],
+        ),
+        "orientationConsistencyKnown": orientation_consistency_known,
+        "orientationMismatchDetected": orientation_mismatch_detected,
+        "orientationMismatchClassification": get_path(
+            orientation_evidence,
+            ["orientationMismatchClassification"],
+        ),
+        "captureFreshnessEvidence": freshness_evidence,
+        "captureFreshnessKnown": capture_freshness_known,
+        "requestedStateIdentity": get_path(
+            freshness_evidence,
+            ["requestedStateIdentity"],
+        ),
+        "presentedFrameIdentity": get_path(
+            freshness_evidence,
+            ["presentedFrameIdentity"],
+        ),
+        "capturedFrameIdentity": get_path(
+            freshness_evidence,
+            ["capturedFrameIdentity"],
+        ),
+        "captureMatchesPresentedFrame": capture_matches_presented_frame,
+        "captureMatchesRequestedState": get_path(
+            freshness_evidence,
+            ["captureMatchesRequestedState"],
+        ),
+        "captureVsPresentedFrameIdentity": get_path(
+            freshness_evidence,
+            ["captureVsPresentedFrameIdentity"],
+        ),
+        "captureVsRequestedStateIdentity": get_path(
+            freshness_evidence,
+            ["captureVsRequestedStateIdentity"],
+        ),
+        "capturePresentedFrameMismatchedFields": get_path(
+            freshness_evidence,
+            ["capturePresentedFrameMismatchedFields"],
+            [],
+        ),
+        "capturePresentedFrameMissingFields": get_path(
+            freshness_evidence,
+            ["capturePresentedFrameMissingFields"],
+            [],
+        ),
+        "captureRequestedStateMismatchedFields": get_path(
+            freshness_evidence,
+            ["captureRequestedStateMismatchedFields"],
+            [],
+        ),
+        "captureRequestedStateMissingFields": get_path(
+            freshness_evidence,
+            ["captureRequestedStateMissingFields"],
+            [],
+        ),
+        "staleCaptureDetected": stale_capture_detected,
+        "productionOutputGeneration": get_path(
+            freshness_evidence,
+            ["productionOutputGeneration"],
+        ),
+        "presentedOutputGeneration": get_path(
+            freshness_evidence,
+            ["presentedOutputGeneration"],
+        ),
+        "capturedOutputGeneration": get_path(
+            freshness_evidence,
+            ["capturedOutputGeneration"],
+        ),
+        "captureFreshnessClassification": get_path(
+            freshness_evidence,
+            ["captureFreshnessClassification"],
+        ),
+        "orientationDiagnostic": get_path(
+            comparison_result,
+            ["orientationDiagnostic"],
+            {},
+        ),
+        "normalOrientationMae": get_path(
+            comparison_result,
+            ["orientationDiagnostic.normal.mae"],
+        ),
+        "normalOrientationRmse": get_path(
+            comparison_result,
+            ["orientationDiagnostic.normal.rmse"],
+        ),
+        "normalOrientationDifferingRatio": get_path(
+            comparison_result,
+            ["orientationDiagnostic.normal.differentPixelRatioAnyChannel"],
+        ),
+        "verticalFlipOrientationMae": get_path(
+            comparison_result,
+            ["orientationDiagnostic.verticalFlip.mae"],
+        ),
+        "verticalFlipOrientationRmse": get_path(
+            comparison_result,
+            ["orientationDiagnostic.verticalFlip.rmse"],
+        ),
+        "verticalFlipOrientationDifferingRatio": get_path(
+            comparison_result,
+            ["orientationDiagnostic.verticalFlip.differentPixelRatioAnyChannel"],
+        ),
+        "lowerErrorOrientation": get_path(
+            comparison_result,
+            ["orientationDiagnostic.lowerErrorOrientation"],
+        ),
+        "orientationDiagnosticClassification": get_path(
+            comparison_result,
+            ["orientationDiagnostic.classification"],
+        ),
+        "visualOutputDegeneratedDetected": visual_output_degenerated,
+        "visualOutputDegenerationReason": get_path(
+            output_diagnostic,
+            ["visualOutputDegenerationReason"],
+        ),
+        "visualOutputDegenerationClassification": get_path(
+            output_diagnostic,
+            ["visualOutputDegenerationClassification"],
+        ),
+        "visualParityClaimed": get_path(compositor_contract, ["fullCudaParity"]) is True,
+        "visualParityAchieved": (
+            comparison_executed
+            and get_path(comparison_result, ["sameSha256"]) is True
+            and get_path(comparison_result, ["visualMismatchClassification"])
+            == "parity-candidate"
+        ),
+        "fullRendererSuccessClaimed": get_path(
+            compositor_contract,
+            ["fullRendererSuccessClaimed"],
+        ),
+        "earlyTerminationRemainsDisabled": get_path(
+            compositor_contract,
+            ["earlyTerminationRemainsDisabled"],
+        ),
+        "lodStreamingRemainsDisabled": get_path(
+            compositor_contract,
+            ["lodStreamingRemainsDisabled"],
+        ),
+        "nextStepRecommendedGoal": get_path(
+            compositor_contract,
+            ["step111NextStepRecommendedGoal"],
+        ),
+        **error_subtypes,
+    }
+
+
 def build_output_capture_consistency_diagnostic(
     webgpu_summary: Dict[str, Any],
     png_diagnostic: Dict[str, Any],
+    png_capture_status: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     compositor_contract = get_path(
         webgpu_summary,
@@ -12905,8 +13564,118 @@ def build_output_capture_consistency_diagnostic(
     saved_png_matches_runtime_output = None
     if capture_output_nonblank is not None and effective_runtime_nonblank is not None:
         saved_png_matches_runtime_output = capture_output_nonblank == effective_runtime_nonblank
+    orientation_evidence = get_path(png_capture_status, ["orientationEvidence"], {})
+    requested_state_identity = get_path(
+        png_capture_status, ["requestedStateIdentity"]
+    )
+    presented_frame_identity = get_path(
+        png_capture_status, ["presentedFrameIdentity"]
+    )
+    captured_frame_identity = get_path(
+        png_capture_status, ["capturedFrameIdentity"]
+    )
+    presented_identity_required_keys = [
+        "generation",
+        "datasetCameraLabel",
+        "datasetFrameNumber",
+        "datasetTime",
+        "referenceCameraLabel",
+        "outputWidth",
+        "outputHeight",
+    ]
+    requested_identity_required_keys = [
+        "datasetCameraLabel",
+        "datasetFrameNumber",
+        "datasetTime",
+        "referenceCameraLabel",
+        "outputWidth",
+        "outputHeight",
+    ]
+    capture_vs_presented_identity = get_path(
+        png_capture_status, ["captureVsPresentedFrameIdentity"]
+    )
+    if not isinstance(capture_vs_presented_identity, dict):
+        capture_vs_presented_identity = compare_frame_identity(
+            captured_frame_identity,
+            presented_frame_identity,
+            required_keys=presented_identity_required_keys,
+        )
+    capture_vs_requested_identity = get_path(
+        png_capture_status, ["captureVsRequestedStateIdentity"]
+    )
+    if not isinstance(capture_vs_requested_identity, dict):
+        capture_vs_requested_identity = compare_frame_identity(
+            captured_frame_identity,
+            requested_state_identity,
+            required_keys=requested_identity_required_keys,
+        )
+    capture_matches_presented_frame = (
+        presented_frame_identity is not None
+        and get_path(capture_vs_presented_identity, ["matches"]) is True
+    )
+    capture_matches_requested_state = (
+        requested_state_identity is not None
+        and get_path(capture_vs_requested_identity, ["matches"]) is True
+    )
+    stale_capture_detected = (
+        presented_frame_identity is not None
+        and len(get_path(capture_vs_presented_identity, ["mismatchedKeys"], [])) > 0
+    )
+    capture_freshness_known = (
+        capture_matches_presented_frame
+        and capture_matches_requested_state
+        and stale_capture_detected is False
+    )
+    capture_freshness_classification = (
+        "captured-current-presented-fixed-reference-frame"
+        if capture_freshness_known
+        else "stale-last-valid-output-detected"
+        if stale_capture_detected
+        else "capture-requested-state-mismatch"
+        if requested_state_identity is not None
+        and capture_matches_requested_state is not True
+        else "capture-freshness-evidence-missing-or-incomplete"
+    )
+    freshness_evidence = {
+        "productionOutputGeneration": get_path(
+            png_capture_status, ["productionOutputGeneration"]
+        ),
+        "presentedOutputGeneration": get_path(
+            png_capture_status, ["presentedOutputGeneration"]
+        ),
+        "capturedOutputGeneration": get_path(
+            png_capture_status, ["capturedOutputGeneration"]
+        ),
+        "requestedStateIdentity": requested_state_identity,
+        "presentedFrameIdentity": presented_frame_identity,
+        "capturedFrameIdentity": captured_frame_identity,
+        "captureVsPresentedFrameIdentity": capture_vs_presented_identity,
+        "captureVsRequestedStateIdentity": capture_vs_requested_identity,
+        "captureMatchesPresentedFrame": capture_matches_presented_frame,
+        "captureMatchesRequestedState": capture_matches_requested_state,
+        "capturePresentedFrameMismatchedFields": get_path(
+            capture_vs_presented_identity, ["mismatchedKeys"], []
+        ),
+        "capturePresentedFrameMissingFields": get_path(
+            capture_vs_presented_identity, ["missingKeys"], []
+        ),
+        "captureRequestedStateMismatchedFields": get_path(
+            capture_vs_requested_identity, ["mismatchedKeys"], []
+        ),
+        "captureRequestedStateMissingFields": get_path(
+            capture_vs_requested_identity, ["missingKeys"], []
+        ),
+        "staleCaptureDetected": stale_capture_detected,
+        "captureFreshnessKnown": capture_freshness_known,
+        "captureFreshnessClassification": capture_freshness_classification,
+    }
+    saved_png_matches_presented_output = get_path(
+        orientation_evidence,
+        ["savedPngMatchesPresentedOutput"],
+    )
     live_display_and_saved_png_consistency_known = (
-        saved_png_matches_runtime_output is not None
+        saved_png_matches_presented_output is True
+        and get_path(orientation_evidence, ["orientationConsistencyKnown"]) is True
     )
     visual_degenerated = get_path(
         compositor_contract,
@@ -12940,10 +13709,13 @@ def build_output_capture_consistency_diagnostic(
         **png_diagnostic,
         "captureTarget": get_path(webgpu_summary, ["captureTarget"]),
         "captureSourceKind": (
-            "saved-png-current-viewer-canvas-via-saveCurrentCanvasPng"
+            get_path(png_capture_status, ["captureSourceKind"])
+            or get_path(png_capture_status, ["source"])
+            or "saved-png-current-viewer-canvas-via-saveCurrentCanvasPng"
             if png_captured
             else None
         ),
+        "pngCaptureStatus": png_capture_status or {},
         "presentationSourceKind": presentation_source_kind,
         "runtimeOutputNonblankEvidenceSource": runtime_output_evidence_source
             or presentation_source_kind,
@@ -12951,8 +13723,15 @@ def build_output_capture_consistency_diagnostic(
         "presentationOutputNonblank": presentation_output_nonblank,
         "runtimeOutputNonblankEvidenceReady": runtime_output_nonblank_evidence_ready,
         "savedPngMatchesRuntimeOutput": saved_png_matches_runtime_output,
+        "savedPngMatchesRawProductionOutput": get_path(
+            orientation_evidence,
+            ["savedPngMatchesRawProductionOutput"],
+        ),
+        "savedPngMatchesPresentedOutput": saved_png_matches_presented_output,
         "liveDisplayAndSavedPngConsistencyKnown":
             live_display_and_saved_png_consistency_known,
+        "orientationEvidence": orientation_evidence,
+        "captureFreshnessEvidence": freshness_evidence,
         "visualOutputDegeneratedDetected": visual_degenerated,
         "visualOutputDegenerationReason": reason,
         "visualOutputDegenerationClassification": classification,
@@ -12984,7 +13763,11 @@ def apply_output_capture_diagnostic_to_step_summary(
         "presentationOutputNonblank",
         "runtimeOutputNonblankEvidenceReady",
         "savedPngMatchesRuntimeOutput",
+        "savedPngMatchesRawProductionOutput",
+        "savedPngMatchesPresentedOutput",
         "liveDisplayAndSavedPngConsistencyKnown",
+        "orientationEvidence",
+        "captureFreshnessEvidence",
         "visualOutputDegenerationReason",
         "visualOutputDegenerationClassification",
         "step108OutputRegressionDetected",
@@ -19194,6 +19977,7 @@ def summarize_step(base_dir: Path, prefix: str) -> Dict[str, Any]:
         "screenCoarseSweep": None,
         "promotionValidation": None,
         "step111Timing": None,
+        "step111PipelineParityGapClosure": None,
         "gpuVisibleRecordDryRun": None,
         "gpuRawVisibleRecordDryRun": None,
         "webgpuVisibleRecordDryRun": None,
@@ -19295,6 +20079,16 @@ def summarize_step(base_dir: Path, prefix: str) -> Dict[str, Any]:
             loaded["fixed_condition_visual_comparison"]
         )
         result["fixedConditionVisualComparison"] = fixed_condition_visual_comparison
+    step110_fixed_condition_visual_comparison = None
+    step110_prefix = related_step_prefix(prefix, 110)
+    if step110_prefix:
+        step110_data, _ = load_json_if_exists(
+            base_dir / f"{step110_prefix}_fixed_condition_visual_comparison.json"
+        )
+        if isinstance(step110_data, dict):
+            step110_fixed_condition_visual_comparison = (
+                extract_fixed_condition_visual_comparison(step110_data)
+            )
 
     png_diagnostic = extract_png_capture_diagnostic(base_dir / f"{prefix}_canvas.png")
     result["outputCaptureDiagnostic"] = png_diagnostic
@@ -19306,6 +20100,7 @@ def summarize_step(base_dir: Path, prefix: str) -> Dict[str, Any]:
         output_diagnostic = build_output_capture_consistency_diagnostic(
             output_diagnostic_source,
             png_diagnostic,
+            loaded.get("png_capture_status"),
         )
         if output_diagnostic.get("captureTarget") is None:
             output_diagnostic["captureTarget"] = result["webgpuVisibleRecordDryRun"].get(
@@ -19341,6 +20136,19 @@ def summarize_step(base_dir: Path, prefix: str) -> Dict[str, Any]:
             },
             fixed_condition_visual_comparison,
         )
+        result["webgpuVisibleRecordDryRun"][
+            "step111PipelineParityGapClosure"
+        ] = build_step111_pipeline_parity_gap_closure_summary(
+            {
+                **output_diagnostic_source,
+                "outputCaptureDiagnostic": output_diagnostic,
+            },
+            fixed_condition_visual_comparison,
+            step110_fixed_condition_visual_comparison,
+        )
+        result["step111PipelineParityGapClosure"] = result[
+            "webgpuVisibleRecordDryRun"
+        ]["step111PipelineParityGapClosure"]
     elif fixed_condition_visual_comparison is not None:
         result["fixedConditionVisualComparison"] = fixed_condition_visual_comparison
 
@@ -19398,6 +20206,10 @@ def print_human_summary(summary: Dict[str, Any]) -> None:
     print_section("ScreenCoarse sweep", summary.get("screenCoarseSweep"))
     print_section("Promotion validation", summary.get("promotionValidation"))
     print_section("Step111 timing", summary.get("step111Timing"))
+    print_section(
+        "Step111 pipeline parity gap closure",
+        summary.get("step111PipelineParityGapClosure"),
+    )
     print_section("GPU visible record dry-run", summary.get("gpuVisibleRecordDryRun"))
     print_section("GPU raw visible record dry-run", summary.get("gpuRawVisibleRecordDryRun"))
     print_section("Output capture diagnostic", summary.get("outputCaptureDiagnostic"))

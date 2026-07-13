@@ -140,6 +140,26 @@ def build_absdiff_image(diff: np.ndarray, scale: float) -> Image.Image:
     return Image.fromarray(rgba, mode="RGBA")
 
 
+def compute_pixel_metrics(a: np.ndarray, b: np.ndarray) -> Dict[str, Any]:
+    diff = np.abs(a.astype(np.int16) - b.astype(np.int16)).astype(np.uint8)
+    diff_float = diff.astype(np.float64)
+    different_any_channel = np.any(diff > 0, axis=2)
+    different_all_channels = np.all(diff > 0, axis=2)
+    return {
+        "mae": float(np.mean(diff_float)),
+        "rmse": float(math.sqrt(np.mean(diff_float ** 2))),
+        "maxAbsError": int(np.max(diff)),
+        "sumAbsError": int(np.sum(diff.astype(np.uint64))),
+        "differentPixelCountAnyChannel": int(np.count_nonzero(different_any_channel)),
+        "differentPixelCountAllChannels": int(np.count_nonzero(different_all_channels)),
+        "differentValueCount": int(np.count_nonzero(diff)),
+        "samePixels": int(a.shape[0] * a.shape[1] - np.count_nonzero(different_any_channel)),
+        "differentPixelRatioAnyChannel": float(
+            np.count_nonzero(different_any_channel) / max(1, a.shape[0] * a.shape[1])
+        ),
+    }
+
+
 def compare_images(
     a_path: Path,
     b_path: Path,
@@ -165,6 +185,7 @@ def compare_images(
     reference_source_kind: str | None,
     webgpu_source_kind: str | None,
     conditions_json: Path | None,
+    include_vertical_flip_diagnostic: bool,
 ) -> Dict[str, Any]:
     a = load_rgba(a_path)
     b = load_rgba(b_path)
@@ -247,15 +268,7 @@ def compare_images(
         )
         return summary
 
-    a_i = a.astype(np.int16)
-    b_i = b.astype(np.int16)
-    diff = np.abs(a_i - b_i).astype(np.uint8)
-
-    diff_float = diff.astype(np.float64)
-
-    different_any_channel = np.any(diff > 0, axis=2)
-    different_all_channels = np.all(diff > 0, axis=2)
-
+    diff = np.abs(a.astype(np.int16) - b.astype(np.int16)).astype(np.uint8)
     summary.update(
         {
             "comparable": True,
@@ -264,19 +277,43 @@ def compare_images(
             "channelCount": int(a.shape[2]),
             "pixelCount": int(a.shape[0] * a.shape[1]),
             "valueCount": int(a.size),
-            "mae": float(np.mean(diff_float)),
-            "rmse": float(math.sqrt(np.mean(diff_float ** 2))),
-            "maxAbsError": int(np.max(diff)),
-            "sumAbsError": int(np.sum(diff.astype(np.uint64))),
-            "differentPixelCountAnyChannel": int(np.count_nonzero(different_any_channel)),
-            "differentPixelCountAllChannels": int(np.count_nonzero(different_all_channels)),
-            "differentValueCount": int(np.count_nonzero(diff)),
-            "samePixels": int(a.shape[0] * a.shape[1] - np.count_nonzero(different_any_channel)),
+            **compute_pixel_metrics(a, b),
         }
     )
-    summary["differentPixelRatioAnyChannel"] = float(
-        summary["differentPixelCountAnyChannel"] / max(1, summary["pixelCount"])
-    )
+    if include_vertical_flip_diagnostic:
+        flipped_b = np.flipud(b)
+        flipped_metrics = compute_pixel_metrics(a, flipped_b)
+        normal_rmse = summary["rmse"]
+        flipped_rmse = flipped_metrics["rmse"]
+        lower_error_orientation = (
+            "vertical-flipped-webgpu-png"
+            if flipped_rmse < normal_rmse
+            else "normal-webgpu-png"
+            if normal_rmse < flipped_rmse
+            else "tie"
+        )
+        summary["orientationDiagnostic"] = {
+            "normal": {
+                "mae": summary["mae"],
+                "rmse": summary["rmse"],
+                "differentPixelRatioAnyChannel": summary[
+                    "differentPixelRatioAnyChannel"
+                ],
+            },
+            "verticalFlip": {
+                "mae": flipped_metrics["mae"],
+                "rmse": flipped_metrics["rmse"],
+                "differentPixelRatioAnyChannel": flipped_metrics[
+                    "differentPixelRatioAnyChannel"
+                ],
+            },
+            "lowerErrorOrientation": lower_error_orientation,
+            "classification": (
+                "orientation-diagnostic-only-not-parity-evidence"
+                if lower_error_orientation != "tie"
+                else "orientation-diagnostic-tie"
+            ),
+        }
     summary["visualMismatchClassification"] = classify_difference(
         same_size=True,
         conditions_ready=conditions_ready,
@@ -373,6 +410,11 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional JSON object with comparison condition metadata.",
     )
+    parser.add_argument(
+        "--disable-vertical-flip-diagnostic",
+        action="store_true",
+        help="Do not include diagnostic metrics for vertically flipping image B.",
+    )
     return parser.parse_args()
 
 
@@ -408,6 +450,7 @@ def main() -> int:
         reference_source_kind=args.reference_source_kind,
         webgpu_source_kind=args.webgpu_source_kind,
         conditions_json=Path(args.conditions_json) if args.conditions_json else None,
+        include_vertical_flip_diagnostic=not args.disable_vertical_flip_diagnostic,
     )
 
     if json_path is not None:

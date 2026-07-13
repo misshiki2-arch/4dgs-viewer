@@ -2065,7 +2065,7 @@ function readWebGpuFootprintPayload(footprintPayload, recordIndex) {
   const base = recordIndex * 12;
   if (!footprintPayload || base + 11 >= footprintPayload.length) return null;
   const sourceCode = Number(footprintPayload[base + 8]);
-  if (sourceCode !== 82) return null;
+  if (sourceCode !== 82 && sourceCode !== 111) return null;
   const conic = [
     Number(footprintPayload[base + 0]),
     Number(footprintPayload[base + 1]),

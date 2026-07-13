@@ -234,7 +234,18 @@ def build_webgpu_visible_record_dryrun_command(args: argparse.Namespace) -> str:
     phase_step = None
     comparison_mode = None
     fixed_reference_camera_mode_line = ""
-    if "step110" in args.step:
+    if "step111" in args.step:
+        phase_step = "phase3-step111"
+        comparison_mode = (
+            "phase3-step111-rendering-pipeline-parity-gap-closure"
+        )
+        fixed_reference_camera_mode_line = (
+            "\n    fixedReferenceCameraMode: true,"
+            "\n    fixedReferenceCameraActivationMode: "
+            "'cuda-aligned-fixed-reference-camera',"
+            "\n    referenceCameraMode: 'cuda-aligned-fixed-reference-camera',"
+        )
+    elif "step110" in args.step:
         phase_step = "phase3-step110"
         comparison_mode = (
             "phase3-step110-fixed-condition-visual-comparison-readiness"
@@ -408,6 +419,18 @@ def build_live_same_state_command(args: argparse.Namespace) -> str:
 
 
 def build_png_command(args: argparse.Namespace) -> str:
+    if "step111" in args.step:
+        return f"""var pngCaptureResult = await window.gpuViewerDebug.saveCurrentCanvasPng({{
+  name: {quote(args.step + '_canvas.png')},
+  captureSource: 'last-valid-webgpu-tile-compositor-output',
+  fallbackToCanvasOnCaptureFailure: false,
+  renderBeforeCapture: false
+}});
+var {{ blob: _pngBlob, ...pngCaptureStatus }} = pngCaptureResult ?? {{}};
+await window.gpuViewerDebug.downloadJsonDebug(
+  pngCaptureStatus,
+  {quote(args.step + '_png_capture_status.json')}
+);"""
     return f"""await window.gpuViewerDebug.saveCurrentCanvasPng({{
   name: {quote(args.step + '_canvas.png')},
   renderBeforeCapture: false
@@ -445,6 +468,7 @@ def build_preamble(args: argparse.Namespace) -> str:
         or "step108" in args.step
         or "step109" in args.step
         or "step110" in args.step
+        or "step111" in args.step
     ):
         camera_probe = ""
         if (
@@ -460,6 +484,7 @@ def build_preamble(args: argparse.Namespace) -> str:
             or "step108" in args.step
             or "step109" in args.step
             or "step110" in args.step
+            or "step111" in args.step
         ):
             camera_probe = f"""if (typeof window.gpuViewerDebug.runViewerCameraDirtySchedulerProbe === 'function') {{
   var viewerCameraDirtySchedulerProbe =

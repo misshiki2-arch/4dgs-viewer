@@ -2,8 +2,15 @@ import {
   buildWebGpuTileDepthOrderingContract,
   buildWebGpuTileListCompositorContract
 } from './common_4dgs_record_contracts.js';
+import { downloadCanvasPng } from './debug_download_utils.js';
+import {
+  buildWebGpuPresentationCaptureOrientationEvidence,
+  compareWebGpuPresentationFrameIdentity,
+  getWebGpuPresentationCaptureOrientationContract,
+  summarizeWebGpuPresentationFrameIdentity
+} from './webgpu_presentation_capture_orientation_contract.js';
 
-const COMPOSITOR_SUMMARY_FLOAT_COUNT = 36;
+const COMPOSITOR_SUMMARY_FLOAT_COUNT = 40;
 const ORDERING_SUMMARY_UINT_COUNT = 28;
 const BOUNDED_SORT_CAPACITY_LIMIT = 64;
 const PARALLEL_SORT_STAGE_COUNT = 21;
@@ -99,7 +106,14 @@ function readCompositorSummary(summary) {
       Math.round(finiteNumberOr(summary[33], 0)) === 1,
     debugOutputBypassedForProduction:
       Math.round(finiteNumberOr(summary[34], 0)) === 1,
-    activeTileDispatchReady: Math.round(finiteNumberOr(summary[35], 0)) === 1
+    activeTileDispatchReady: Math.round(finiteNumberOr(summary[35], 0)) === 1,
+    scaleAwareConicPayloadConsumed:
+      Math.round(finiteNumberOr(summary[36], 0)) === 1,
+    anisotropicFootprintReferenceCount:
+      Math.round(finiteNumberOr(summary[37], 0)),
+    anisotropicFootprintRatio: finiteNumberOr(summary[38], 0),
+    conicFallbackReferenceCount:
+      Math.round(finiteNumberOr(summary[39], 0))
   };
 }
 
@@ -177,6 +191,178 @@ function summarizeTextureReadback(readback, bytesPerRow, width, height) {
   };
 }
 
+function createCanvasFromRgbaReadback(
+  readback,
+  bytesPerRow,
+  width,
+  height,
+  { flipY = false } = {}
+) {
+  const snapshotCanvas = document.createElement('canvas');
+  snapshotCanvas.width = width;
+  snapshotCanvas.height = height;
+  const ctx = snapshotCanvas.getContext('2d', { willReadFrequently: true });
+  const imageData = ctx.createImageData(width, height);
+  const rowStride = width * 4;
+  for (let y = 0; y < height; y += 1) {
+    const srcOffset = y * bytesPerRow;
+    const dstY = flipY ? height - 1 - y : y;
+    const dstOffset = dstY * rowStride;
+    imageData.data.set(
+      readback.subarray(srcOffset, srcOffset + rowStride),
+      dstOffset
+    );
+  }
+  ctx.putImageData(imageData, 0, 0);
+  return snapshotCanvas;
+}
+
+export async function captureCachedWebGpuTileCompositorOutputPng({
+  viewerCanvasState = null,
+  canvas = null,
+  name = 'webgpu-tile-compositor-output.png',
+  download = true,
+  requestedStateIdentity = null
+} = {}) {
+  const viewerCanvas = canvas ?? viewerCanvasState?.canvas ?? null;
+  const cached = viewerCanvas
+    ? viewerCanvasTileCompositorOutputState.get(viewerCanvas)
+    : null;
+  if (!cached?.device || !cached?.outputTexture) {
+    return {
+      blob: null,
+      fileName: name,
+      status: 'unavailable',
+      reason: 'last-valid-webgpu-tile-compositor-output-unavailable',
+      source: 'cached-last-valid-webgpu-tile-compositor-output-texture-readback'
+    };
+  }
+  const width = Math.max(1, Math.round(finiteNumberOr(cached.outputWidth, 0)));
+  const height = Math.max(1, Math.round(finiteNumberOr(cached.outputHeight, 0)));
+  const bytesPerRow = alignTo(width * 4, 256);
+  const readbackBuffer = cached.device.createBuffer({
+    size: bytesPerRow * height,
+    usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+  });
+  const encoder = cached.device.createCommandEncoder({
+    label: 'capture-cached-webgpu-tile-compositor-output-png'
+  });
+  encoder.copyTextureToBuffer(
+    { texture: cached.outputTexture },
+    { buffer: readbackBuffer, bytesPerRow, rowsPerImage: height },
+    { width, height, depthOrArrayLayers: 1 }
+  );
+  cached.device.queue.submit([encoder.finish()]);
+  if (typeof cached.device.queue.onSubmittedWorkDone === 'function') {
+    await cached.device.queue.onSubmittedWorkDone();
+  }
+  await readbackBuffer.mapAsync(GPUMapMode.READ);
+  const readback = new Uint8Array(readbackBuffer.getMappedRange().slice(0));
+  readbackBuffer.unmap();
+  if (typeof readbackBuffer.destroy === 'function') {
+    readbackBuffer.destroy();
+  }
+  const outputStats = summarizeTextureReadback(readback, bytesPerRow, width, height);
+  const orientationContract = getWebGpuPresentationCaptureOrientationContract();
+  const snapshotCanvas = createCanvasFromRgbaReadback(
+    readback,
+    bytesPerRow,
+    width,
+    height,
+    { flipY: orientationContract.captureVerticalFlipApplied === true }
+  );
+  const result = await downloadCanvasPng(snapshotCanvas, name, { download });
+  const capturedFrameIdentity = summarizeWebGpuPresentationFrameIdentity({
+    ...(cached.frameIdentity ?? {}),
+    generation: cached.generation ?? null,
+    outputWidth: width,
+    outputHeight: height
+  });
+  const presentedFrameIdentity = cached.presentedFrameIdentity ?? null;
+  const requestedFrameIdentity = requestedStateIdentity ?? cached.requestedStateIdentity ?? null;
+  const presentedFrameIdentityRequiredKeys = [
+    'generation',
+    'datasetCameraLabel',
+    'datasetFrameNumber',
+    'datasetTime',
+    'referenceCameraLabel',
+    'outputWidth',
+    'outputHeight'
+  ];
+  const requestedStateIdentityRequiredKeys = [
+    'datasetCameraLabel',
+    'datasetFrameNumber',
+    'datasetTime',
+    'referenceCameraLabel',
+    'outputWidth',
+    'outputHeight'
+  ];
+  const captureVsPresented = compareWebGpuPresentationFrameIdentity(
+    capturedFrameIdentity,
+    presentedFrameIdentity ?? {},
+    { requiredKeys: presentedFrameIdentityRequiredKeys }
+  );
+  const captureVsRequested = compareWebGpuPresentationFrameIdentity(
+    capturedFrameIdentity,
+    requestedFrameIdentity ?? {},
+    { requiredKeys: requestedStateIdentityRequiredKeys }
+  );
+  const captureMatchesPresentedFrame =
+    presentedFrameIdentity != null && captureVsPresented.matches === true;
+  const captureMatchesRequestedState =
+    requestedFrameIdentity != null && captureVsRequested.matches === true;
+  const captureFreshnessKnown =
+    captureMatchesPresentedFrame && captureMatchesRequestedState;
+  const staleCaptureDetected =
+    presentedFrameIdentity != null && captureVsPresented.mismatchedKeys.length > 0;
+  const orientationEvidence = buildWebGpuPresentationCaptureOrientationEvidence({
+    captureVerticalFlipApplied: orientationContract.captureVerticalFlipApplied,
+    savedPngMatchesRawProductionOutput:
+      orientationContract.captureVerticalFlipApplied !== true,
+    savedPngMatchesPresentedOutput:
+      orientationContract.captureVerticalFlipApplied ===
+      orientationContract.presentationVerticalFlipApplied
+  });
+  return {
+    ...result,
+    status: 'success',
+    reason: null,
+    source: 'cached-last-valid-webgpu-tile-compositor-output-texture-readback',
+    captureSourceKind:
+      'cached-last-valid-webgpu-tile-compositor-output-texture-readback',
+    outputWidth: width,
+    outputHeight: height,
+    outputStats,
+    cacheGeneration: cached.generation ?? null,
+    cachedAtMs: cached.cachedAtMs ?? null
+    ,
+    productionOutputGeneration: cached.generation ?? null,
+    presentedOutputGeneration: presentedFrameIdentity?.generation ?? null,
+    capturedOutputGeneration: capturedFrameIdentity.generation ?? null,
+    outputTextureIdentity: cached.outputTextureIdentity ?? null,
+    requestedStateIdentity: requestedFrameIdentity,
+    presentedFrameIdentity,
+    capturedFrameIdentity,
+    captureVsPresentedFrameIdentity: captureVsPresented,
+    captureVsRequestedStateIdentity: captureVsRequested,
+    capturePresentedFrameMismatchedFields: captureVsPresented.mismatchedKeys,
+    capturePresentedFrameMissingFields: captureVsPresented.missingKeys,
+    captureRequestedStateMismatchedFields: captureVsRequested.mismatchedKeys,
+    captureRequestedStateMissingFields: captureVsRequested.missingKeys,
+    captureMatchesPresentedFrame,
+    captureMatchesRequestedState,
+    staleCaptureDetected,
+    captureFreshnessKnown,
+    captureFreshnessClassification: captureFreshnessKnown
+      ? 'captured-current-presented-fixed-reference-frame'
+      : staleCaptureDetected
+        ? 'stale-last-valid-output-detected'
+        : 'capture-freshness-evidence-missing-or-incomplete',
+    orientationEvidence,
+    ...orientationEvidence
+  };
+}
+
 function configureViewerCanvasWebGpuContext({
   canvas,
   context,
@@ -233,8 +419,12 @@ async function presentTileCompositorTextureToCurrentTexture({
   canvasHeight,
   frameCount = 1,
   presentationSource = 'webgpu-tile-compositor-output-texture',
-  forceContextRefresh = false
+  forceContextRefresh = false,
+  outputGeneration = null,
+  frameIdentity = null,
+  onPresentedFrame = null
 }) {
+  const orientationContract = getWebGpuPresentationCaptureOrientationContract();
   const viewerCanvas = viewerCanvasState?.canvas ?? null;
   const summary = {
     compositorOutputPresentedToCurrentTexture: false,
@@ -264,7 +454,12 @@ async function presentTileCompositorTextureToCurrentTexture({
     presentationErrorName: null,
     presentationErrorMessage: null,
     currentTextureSource: null,
-    presentationSource
+    presentationSource,
+    orientationEvidence: buildWebGpuPresentationCaptureOrientationEvidence({
+      captureVerticalFlipApplied: orientationContract.captureVerticalFlipApplied,
+      savedPngMatchesRawProductionOutput: false,
+      savedPngMatchesPresentedOutput: true
+    })
   };
   const currentTextureGuardAllowed =
     viewerCanvasState?.requestedBackendMode === 'webgpu-exclusive' &&
@@ -451,8 +646,18 @@ fn fsMain(in: VertexOut) -> @location(0) vec4f {
         nonzeroPixelRatio: readbackSummary.nonzeroPixelRatio,
         frameHash: readbackSummary.frameHash,
         currentTextureUsesWebGpuTileCompositorOutput: true,
-        presentationSource
+        presentationSource,
+        frameIdentity: summarizeWebGpuPresentationFrameIdentity({
+          ...(frameIdentity ?? {}),
+          generation: outputGeneration,
+          frameHash: readbackSummary.frameHash,
+          outputWidth: currentTextureWidth,
+          outputHeight: currentTextureHeight
+        })
       });
+      if (typeof onPresentedFrame === 'function') {
+        onPresentedFrame(summary.presentationFrameSamples.at(-1));
+      }
     }
     summary.currentTextureViewFreshPerPresentation =
       summary.presentationFrameCount === frameCount &&
@@ -559,7 +764,9 @@ function cacheTileCompositorOutputTexture({
   device,
   outputTexture,
   outputWidth,
-  outputHeight
+  outputHeight,
+  frameIdentity = null,
+  requestedStateIdentity = null
 }) {
   if (!canvas || !device || !outputTexture) {
     return { cached: false, invalidatedOnDeviceChange: false };
@@ -574,18 +781,35 @@ function cacheTileCompositorOutputTexture({
   ) {
     previous.outputTexture.destroy();
   }
+  const generation = (previous?.generation ?? 0) + 1;
   viewerCanvasTileCompositorOutputState.set(canvas, {
     device,
     outputTexture,
     outputWidth,
     outputHeight,
-    generation: (previous?.generation ?? 0) + 1,
+    generation,
+    outputTextureIdentity: `webgpu-tile-compositor-output:${generation}:${outputWidth}x${outputHeight}`,
+    frameIdentity: summarizeWebGpuPresentationFrameIdentity({
+      ...(frameIdentity ?? {}),
+      generation,
+      outputWidth,
+      outputHeight
+    }),
+    requestedStateIdentity: requestedStateIdentity
+      ? summarizeWebGpuPresentationFrameIdentity({
+          ...requestedStateIdentity,
+          generation,
+          outputWidth,
+          outputHeight
+        })
+      : null,
+    presentedFrameIdentity: null,
     cachedAtMs:
       typeof performance !== 'undefined' && typeof performance.now === 'function'
         ? performance.now()
         : Date.now()
   });
-  return { cached: true, invalidatedOnDeviceChange };
+  return { cached: true, invalidatedOnDeviceChange, generation };
 }
 
 export async function presentCachedWebGpuTileCompositorOutputHeartbeat({
@@ -621,7 +845,16 @@ export async function presentCachedWebGpuTileCompositorOutputHeartbeat({
     canvasHeight,
     frameCount,
     presentationSource: 'cached-webgpu-tile-compositor-output-texture',
-    forceContextRefresh: false
+    forceContextRefresh: false,
+    outputGeneration: cached.generation ?? null,
+    frameIdentity: cached.frameIdentity ?? null,
+    onPresentedFrame: (sample) => {
+      cached.presentedFrameIdentity = sample.frameIdentity ?? null;
+      cached.lastPresentedAtMs =
+        typeof performance !== 'undefined' && typeof performance.now === 'function'
+          ? performance.now()
+          : Date.now();
+    }
   });
   const presentationNonBlankFrameCount = presentation.presentationFrameSamples.filter(
     (sample) => sample.nonzeroPixelCount > 0
@@ -695,6 +928,7 @@ export async function buildWebGpuTileListCompositor({
 
   const outputWidth = Math.max(1, Math.round(finiteNumberOr(canvasWidth, resources.tileCols)));
   const outputHeight = Math.max(1, Math.round(finiteNumberOr(canvasHeight, resources.tileRows)));
+  const deterministicState = metadata?.deterministicState ?? null;
   const outputTexture = device.createTexture({
     label: 'phase3-step85-webgpu-tile-list-compositor-output-texture',
     size: { width: outputWidth, height: outputHeight },
@@ -1060,6 +1294,9 @@ fn finalizeSummary() {
   var orderAwareUsed = 0.0;
   var gaussianAttributeConsumed = 0.0;
   var footprintPayloadConsumed = 0.0;
+  var scaleAwareConicPayloadConsumed = 0.0;
+  var anisotropicFootprintRefs = 0.0;
+  var conicFallbackRefs = 0.0;
   for (var tile: u32 = 0u; tile < u32(params.tileCount); tile = tile + 1u) {
     let table = tileTable[tile];
     if (table.w == 84.0) {
@@ -1094,6 +1331,16 @@ fn finalizeSummary() {
         }
         if (a.z > 0.0 || b.x != 0.0 || b.y != 0.0 || b.w != 0.0) {
           footprintPayloadConsumed = 1.0;
+        }
+        if (a.z > 0.0 && b.x > 0.0 && b.w > 0.0) {
+          if (abs(b.x - b.w) > 0.000001 || abs(b.y) > 0.000001) {
+            scaleAwareConicPayloadConsumed = 1.0;
+            anisotropicFootprintRefs = anisotropicFootprintRefs + 1.0;
+          } else {
+            conicFallbackRefs = conicFallbackRefs + 1.0;
+          }
+        } else {
+          conicFallbackRefs = conicFallbackRefs + 1.0;
         }
       }
     }
@@ -1151,6 +1398,12 @@ fn finalizeSummary() {
     select(0.0, 1.0, productionPathUsed),
     select(0.0, 1.0, productionPathUsed),
     select(0.0, 1.0, nonEmpty > 0.0)
+  );
+  compositorSummary[9] = vec4f(
+    scaleAwareConicPayloadConsumed,
+    anisotropicFootprintRefs,
+    anisotropicFootprintRefs / max(totalRefs, 1.0),
+    conicFallbackRefs
   );
 }
 `
@@ -1443,13 +1696,34 @@ fn finalizeSummary() {
   let presentationErrorName = null;
   let presentationErrorMessage = null;
   let outputTextureCachedForHeartbeat = false;
+  const compositorFrameIdentity = summarizeWebGpuPresentationFrameIdentity({
+    datasetCameraLabel:
+      deterministicState?.datasetCameraLabel ??
+      deterministicState?.imageName ??
+      deterministicState?.cudaReferenceLabel ??
+      null,
+    datasetFrameNumber:
+      deterministicState?.datasetFrameNumber ??
+      deterministicState?.frameNumber ??
+      null,
+    datasetTime: deterministicState?.datasetTime ?? deterministicState?.time ?? null,
+    referenceCameraLabel:
+      deterministicState?.cudaReferenceLabel ??
+      deterministicState?.datasetCameraLabel ??
+      deterministicState?.imageName ??
+      null,
+    outputWidth,
+    outputHeight
+  });
   if (currentTextureGuardAllowed && outputTextureWritten) {
     const cacheResult = cacheTileCompositorOutputTexture({
       canvas: viewerCanvas,
       device,
       outputTexture,
       outputWidth,
-      outputHeight
+      outputHeight,
+      frameIdentity: compositorFrameIdentity,
+      requestedStateIdentity: compositorFrameIdentity
     });
     outputTextureCachedForHeartbeat = cacheResult.cached === true;
     compositorOutputCacheInvalidatedOnDeviceChange =
@@ -1464,7 +1738,20 @@ fn finalizeSummary() {
       canvasHeight,
       frameCount: 2,
       presentationSource: 'webgpu-tile-compositor-output-texture',
-      forceContextRefresh: true
+      forceContextRefresh: true,
+      outputGeneration: cacheResult.generation ?? null,
+      frameIdentity: compositorFrameIdentity,
+      onPresentedFrame: (sample) => {
+        const cached = viewerCanvasTileCompositorOutputState.get(viewerCanvas);
+        if (cached) {
+          cached.presentedFrameIdentity = sample.frameIdentity ?? null;
+          cached.lastPresentedAtMs =
+            typeof performance !== 'undefined' &&
+            typeof performance.now === 'function'
+              ? performance.now()
+              : Date.now();
+        }
+      }
     });
     compositorOutputPresentedToCurrentTexture =
       presentation.compositorOutputPresentedToCurrentTexture === true;
@@ -1733,6 +2020,69 @@ fn finalizeSummary() {
     realTimeRuntimePathReady &&
     step89RealCompositorOutputPreserved &&
     visualOutputDegeneratedDetected === false;
+  const scaleAwareConicPayloadConsumed =
+    summary.scaleAwareConicPayloadConsumed === true &&
+    summary.anisotropicFootprintReferenceCount > 0;
+  const step111ProductionRuntimeGapClosureUsed =
+    realTileCompositorOutputReady &&
+    scaleAwareConicPayloadConsumed &&
+    summary.footprintPayloadConsumed === true &&
+    summary.alphaAccumulationUsed === true &&
+    outputTextureProducedByProductionCompositor === true;
+  const cudaWebgpuPipelineParityStageMap = [
+    {
+      stage: '4D state evaluation',
+      classification: 'partial',
+      webgpuPath: 'webgpu-partial-time-parameter-position-eval',
+      cudaReferenceGap: 'full-4d-conditional-state-and-covariance-remain-deferred'
+    },
+    {
+      stage: 'covariance / conic / screen-space footprint',
+      classification: step111ProductionRuntimeGapClosureUsed ? 'partial' : 'approximation',
+      webgpuPath: 'scale-aware-raw-scale-xy-anisotropic-conic-production-v1',
+      cudaReferenceGap: 'rotation-and-camera-jacobian-conic-parity-deferred'
+    },
+    {
+      stage: 'SH / color / opacity / temporal weighting',
+      classification: 'partial',
+      webgpuPath: 'f_dc-l0-rgb-opacity-temporal-weight-production-v1',
+      cudaReferenceGap: 'full-sh-color-and-material-parity-deferred'
+    },
+    {
+      stage: 'projection / visibility',
+      classification: 'partial',
+      webgpuPath: 'fixed-reference-camera-routed-visible-samples',
+      cudaReferenceGap: 'full-reference-visibility-parity-still-compared-by-step110'
+    },
+    {
+      stage: 'tile list / depth ordering',
+      classification: 'partial',
+      webgpuPath: 'gpu-owned-tile-list-workgroup-parallel-per-tile-sort-v1',
+      cudaReferenceGap: 'full-parallel-sort-parity-deferred'
+    },
+    {
+      stage: 'front-to-back alpha accumulation',
+      classification: 'partial',
+      webgpuPath: 'production-tile-compositor-alpha-accumulation',
+      cudaReferenceGap: 'final-cuda-compositor-parity-deferred'
+    },
+    {
+      stage: 'background / final output',
+      classification: 'partial',
+      webgpuPath: 'production-output-texture-to-currentTexture-and-saved-png',
+      cudaReferenceGap: 'final-color-space-compositor-parity-deferred'
+    }
+  ];
+  const step111ProductionConsumptionEvidence = {
+    scaleAwareConicPayloadConsumed,
+    anisotropicFootprintReferenceCount: summary.anisotropicFootprintReferenceCount,
+    anisotropicFootprintRatio: summary.anisotropicFootprintRatio,
+    conicFallbackReferenceCount: summary.conicFallbackReferenceCount,
+    footprintPayloadConsumed: summary.footprintPayloadConsumed,
+    alphaAccumulationUsed: summary.alphaAccumulationUsed,
+    outputTextureProducedByProductionCompositor,
+    productionPathUsed: summary.productionTileCompositorPathUsed
+  };
   const updatedStageNames = [
     'time-frame-state',
     'webgpu-4d-state-visible',
@@ -2442,7 +2792,6 @@ fn finalizeSummary() {
     'early-termination-on-off-output-delta-probe-v1';
   const step103ProductionRuntimeBoundaryReviewPreserved =
     productionRuntimeBoundaryReviewReady;
-  const deterministicState = metadata?.deterministicState ?? null;
   const referenceImageLabel =
     deterministicState?.cudaReferenceLabel ??
     deterministicState?.imageName ??
@@ -2888,7 +3237,9 @@ fn finalizeSummary() {
         'visual-mismatch-classification-baseline-v1',
         'step105-reference-visual-parity-next-step-selection-v1',
         'capability-based-regression-gate-v1',
-        'legacy-step-preservation-diagnostic-mapping-v1'
+        'legacy-step-preservation-diagnostic-mapping-v1',
+        'step111-scale-aware-anisotropic-footprint-production-v1',
+        'step111-cuda-webgpu-pipeline-parity-stage-map-v1'
       ],
       deferredCompositorFields: [
         'full-production-parallel-sort-parity',
@@ -2902,6 +3253,9 @@ fn finalizeSummary() {
         'visual-parity-diagnostics',
         'runtime-pixel-diff-against-reference-image',
         'cuda-reference-execution-refresh',
+        'rotation-aware-anisotropic-conic-parity',
+        'camera-jacobian-screen-space-conic-parity',
+        'full-sh-color-parity',
         'early-termination-v1',
         'lod-streaming'
       ],
@@ -3326,6 +3680,73 @@ fn finalizeSummary() {
         cameraConstantsRoutingReady && visualParityComparisonAllowed
           ? 'run-fixed-reference-camera-visual-parity-diff-v1'
           : 'resolve-fixed-reference-camera-routing-or-comparison-blocker-v1',
+      cudaWebgpuPipelineParityStageMap,
+      step111SelectedGoal:
+        'scale-aware-gaussian-footprint-conic-production-path-v1',
+      step111SelectedGap:
+        'covariance-conic-screen-space-footprint',
+      step111GapBeforeClassification:
+        'approximation-isotropic-radius-derived-conic',
+      step111GapAfterClassification:
+        step111ProductionRuntimeGapClosureUsed
+          ? 'partial-scale-aware-anisotropic-conic-production'
+          : 'blocked-scale-aware-conic-not-consumed',
+      step111ProductionRuntimeGapClosureUsed,
+      step111ProductionConsumptionEvidence,
+      step111ApproximationReplaced:
+        'isotropic-radius-only-conic-for-production-gaussian-weight',
+      step111RemainingApproximations: [
+        'rotation-ignored-in-screen-space-conic',
+        'camera-jacobian-covariance-projection-deferred',
+        'full-4d-covariance-deferred',
+        'full-sh-color-deferred',
+        'final-cuda-compositor-parity-deferred'
+      ],
+      step111DeferredStructuralGaps: [
+        'rotation-aware-anisotropic-conic-parity',
+        'camera-jacobian-screen-space-conic-parity',
+        'full-sh-color-opacity-parity',
+        'cuda-front-to-back-compositor-parity',
+        'chunk-lod-streaming'
+      ],
+      scaleAwareConicPayloadConsumed,
+      anisotropicFootprintReferenceCount:
+        summary.anisotropicFootprintReferenceCount,
+      anisotropicFootprintRatio: summary.anisotropicFootprintRatio,
+      conicFallbackReferenceCount: summary.conicFallbackReferenceCount,
+      presentationCaptureOrientationEvidence:
+        buildWebGpuPresentationCaptureOrientationEvidence({
+          captureVerticalFlipApplied:
+            getWebGpuPresentationCaptureOrientationContract()
+              .captureVerticalFlipApplied,
+          savedPngMatchesRawProductionOutput: false,
+          savedPngMatchesPresentedOutput: true
+        }),
+      captureFreshnessEvidence: {
+        productionOutputGeneration:
+          outputTextureCachedForHeartbeat && viewerCanvas
+            ? viewerCanvasTileCompositorOutputState.get(viewerCanvas)?.generation ?? null
+            : null,
+        presentedOutputGeneration:
+          outputTextureCachedForHeartbeat && viewerCanvas
+            ? viewerCanvasTileCompositorOutputState.get(viewerCanvas)
+                ?.presentedFrameIdentity?.generation ?? null
+            : null,
+        productionFrameIdentity:
+          outputTextureCachedForHeartbeat && viewerCanvas
+            ? viewerCanvasTileCompositorOutputState.get(viewerCanvas)?.frameIdentity ?? null
+            : null,
+        presentedFrameIdentity:
+          outputTextureCachedForHeartbeat && viewerCanvas
+            ? viewerCanvasTileCompositorOutputState.get(viewerCanvas)
+                ?.presentedFrameIdentity ?? null
+            : null,
+        captureFreshnessKnown: null,
+        captureFreshnessClassification:
+          'capture-freshness-validated-by-png-capture-status-after-save'
+      },
+      step111NextStepRecommendedGoal:
+        'rotation-and-camera-jacobian-screen-space-conic-parity-v1',
       step108NextStepRecommendedGoal:
         fixedReferenceCameraActivationReady
           ? 'run-fixed-reference-camera-visual-parity-comparison-v1'

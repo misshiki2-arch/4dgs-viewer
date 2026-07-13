@@ -105,6 +105,7 @@ import {
 import { buildGpuCandidateRuntimeFallbackSummary } from './gpu_candidate_runtime_fallback.js';
 import { buildGpuOwnedCandidateSourceComparison } from './gpu_candidate_source_runtime.js';
 import {
+  captureCachedWebGpuTileCompositorOutputPng,
   presentCachedWebGpuTileCompositorOutputHeartbeat
 } from './webgpu_tile_list_compositor.js';
 
@@ -5663,8 +5664,61 @@ async function saveCurrentCanvasPng(options = {}) {
   const input = typeof options === 'string' ? { name: options } : (options ?? {});
   const download = input.download !== false;
   const fileName = sanitizeSnapshotFileName(input.name ?? 'gpu-viewer-current-canvas.png');
+  const requestedCaptureSource =
+    input.captureSource ??
+    input.source ??
+    (
+      input.useLastValidWebGpuTileCompositorOutput === true
+        ? 'last-valid-webgpu-tile-compositor-output'
+        : 'viewer-canvas-current-default-framebuffer'
+    );
+  let renderBeforeCaptureResult = null;
   if (input.renderBeforeCapture) {
-    await renderCurrentFrame();
+    renderBeforeCaptureResult = await renderCurrentFrame(input.renderOptions ?? {});
+  }
+  if (requestedCaptureSource === 'last-valid-webgpu-tile-compositor-output') {
+    const deterministicState = buildDeterministicStateSummary();
+    const cachedOutputCapture =
+      await captureCachedWebGpuTileCompositorOutputPng({
+        viewerCanvasState: { canvas },
+        name: fileName,
+        download,
+        requestedStateIdentity: {
+          datasetCameraLabel:
+            deterministicState?.datasetCameraLabel ??
+            deterministicState?.imageName ??
+            deterministicState?.cudaReferenceLabel ??
+            null,
+          datasetFrameNumber:
+            deterministicState?.datasetFrameNumber ??
+            deterministicState?.frameNumber ??
+            null,
+          datasetTime: deterministicState?.datasetTime ?? deterministicState?.time ?? null,
+          referenceCameraLabel:
+            deterministicState?.cudaReferenceLabel ??
+            deterministicState?.datasetCameraLabel ??
+            deterministicState?.imageName ??
+            null,
+          outputWidth: canvas?.width ?? null,
+          outputHeight: canvas?.height ?? null
+        }
+      });
+    if (cachedOutputCapture.status === 'success') {
+      return {
+        ...cachedOutputCapture,
+        requestedCaptureSource,
+        deterministicState,
+        renderBeforeCaptureResultSummary:
+          buildRenderResultInspectionSummary(renderBeforeCaptureResult),
+        lastRenderResultSummary: buildRenderResultInspectionSummary(latestRenderResult),
+        canvasSizeSummary: buildCanvasSizeSummary()
+      };
+    }
+    if (input.fallbackToCanvasOnCaptureFailure === false) {
+      throw new Error(
+        `WebGPU tile compositor PNG capture failed: ${cachedOutputCapture.reason}`
+      );
+    }
   }
   const framebufferStats = sampleCurrentFramebufferStats(input.framebufferStats ?? {});
   console.info('[gpuViewerDebug.saveCurrentCanvasPng] framebufferStats', {
@@ -5679,6 +5733,9 @@ async function saveCurrentCanvasPng(options = {}) {
     blob,
     fileName,
     source: 'canvas-toBlob-current-default-framebuffer',
+    requestedCaptureSource,
+    renderBeforeCaptureResultSummary:
+      buildRenderResultInspectionSummary(renderBeforeCaptureResult),
     framebufferStats,
     canvasSizeSummary: buildCanvasSizeSummary(),
     deterministicState: buildDeterministicStateSummary(),
