@@ -2721,3 +2721,47 @@ If evidence is missing, Step109 must keep activation blocked and list
 `missingCameraEvidenceReasons`. It preserves the Step108 camera evidence gate,
 Step107 design gate, Step106 capability gate, and Step105 camera gate, and keeps
 early termination, LOD, and streaming disabled.
+
+## Step110 Fixed-Condition Visual Comparison Readiness Infrastructure
+
+Step110 adds the fixed-condition comparison boundary that lets a later browser
+capture compare WebGPU fixed-reference output against the CUDA Reference image
+without guessing which condition changed. It is infrastructure for visual
+comparison, not a visual parity success claim.
+
+The Step110 path is:
+
+```text
+CUDA Reference image source
+-> WebGPU fixed-reference saved PNG source
+-> fixed comparison condition contract
+-> machine-readable PNG metric JSON
+-> Summary decision state and mismatch classification
+```
+
+- Fixed inputs: the comparison contract records reference image source, WebGPU
+  PNG source, camera/view label, frame label, dataset time, output resolution,
+  viewport, background policy, color-space policy, pixel origin, Y convention,
+  screen-space convention, capture source, fixed reference camera mode, WebGPU
+  camera constants source, and runtime/presentation/saved-PNG consistency.
+- PNG comparison tool: `tools/compare_png.py` emits a JSON object with image
+  size match, comparison channel mode, pixel MAE/RMSE/max absolute difference,
+  differing pixel count/ratio, reference image statistics, WebGPU image
+  statistics, comparison conditions, and a conservative mismatch
+  classification.
+- Classification boundary: camera, projection, viewport, screen-space, pixel
+  coordinate, background, or color-space condition mismatches must block or
+  classify the comparison before rendering-content causes are inferred. If a
+  fixed-condition comparison runs and differences remain but cause evidence is
+  insufficient, Step110 classifies them as
+  `comparison-ready-difference-unclassified`.
+- Pending states: Summary distinguishes implementation readiness, awaiting
+  browser capture, awaiting comparison result, comparison executed, comparison
+  blocked, comparison completed with mismatch, and parity candidate. Missing
+  comparison JSON after initial implementation is pending work, not a failed
+  visual parity result.
+
+Step110 preserves Step109 fixed reference activation/routing, Step108 camera
+evidence, Step107 design gate, Step106 capability diagnostics, and Step105
+camera gate. It does not enable early termination, LOD, streaming, camera-axis
+tuning, color tuning, or CUDA parity claims.

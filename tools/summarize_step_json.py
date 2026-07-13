@@ -42,6 +42,7 @@ KNOWN_SUFFIXES = [
     "gpu_raw_visible_record_dryrun_compare",
     "webgpu_visible_record_dryrun_compare",
     "webgpu_visible_record_dryrun_capture_status",
+    "fixed_condition_visual_comparison",
     "gpu_candidate_source_compare",
     "gpu_candidate_coverage",
     "gpu_candidate_runtime_summary",
@@ -268,6 +269,51 @@ def extract_png_capture_diagnostic(path: Path) -> Dict[str, Any]:
     except Exception as exc:  # noqa: BLE001
         diagnostic["pngDiagnosticError"] = str(exc)
     return diagnostic
+
+
+def extract_fixed_condition_visual_comparison(data: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "schemaVersion": get_path(data, ["schemaVersion"]),
+        "comparisonExecuted": True,
+        "referenceImagePath": get_path(data, ["referenceImagePath", "a"]),
+        "webgpuPngPath": get_path(data, ["webgpuPngPath", "b"]),
+        "referenceImageSource": get_path(data, ["referenceImageSource"]),
+        "referenceImageSourceKind": get_path(data, ["referenceImageSourceKind"]),
+        "webgpuPngSource": get_path(data, ["webgpuPngSource"]),
+        "webgpuPngSourceKind": get_path(data, ["webgpuPngSourceKind"]),
+        "referenceImageSha256": get_path(data, ["aSha256"]),
+        "webgpuPngSha256": get_path(data, ["bSha256"]),
+        "sameSha256": get_path(data, ["sameSha256"]),
+        "imageSizeMatch": get_path(data, ["sameSize"]),
+        "comparisonChannelMode": get_path(data, ["comparisonChannelMode"]),
+        "comparisonConditionReady": get_path(data, ["comparisonConditionReady"]),
+        "pixelMae": get_path(data, ["mae"]),
+        "pixelRmse": get_path(data, ["rmse"]),
+        "maxAbsDifference": get_path(data, ["maxAbsError"]),
+        "differingPixelCount": get_path(data, ["differentPixelCountAnyChannel"]),
+        "differingPixelRatio": get_path(data, ["differentPixelRatioAnyChannel"]),
+        "referenceImageStats": get_path(data, ["referenceImageStats"]),
+        "webgpuImageStats": get_path(data, ["webgpuImageStats"]),
+        "comparisonConditions": get_path(data, ["comparisonConditions"], {}),
+        "visualMismatchClassification": get_path(data, ["visualMismatchClassification"]),
+        "absDiffImage": get_path(data, ["absDiffImage"]),
+        "error": get_path(data, ["error"]),
+    }
+
+
+def classify_reference_source_kind(path_or_source: Optional[str]) -> str:
+    if not path_or_source:
+        return "unknown"
+    normalized = str(path_or_source).replace("\\", "/")
+    if "/outputs/" in normalized and "cuda_reference" in normalized:
+        if normalized.endswith("_render.png"):
+            return "cuda-reference-render-output"
+        return "cuda-reference-derived-output"
+    if "/data/4dgs_sph_scene/images/" in normalized:
+        return "dataset-fixed-reference-image"
+    if normalized.endswith("_gt.png"):
+        return "dataset-ground-truth-image"
+    return "explicit-reference-image"
 
 
 def related_step_prefix(prefix: str, step_number: int) -> Optional[str]:
@@ -12412,6 +12458,400 @@ def build_step109_fixed_reference_camera_activation_summary(
     }
 
 
+def build_step110_fixed_condition_visual_comparison_summary(
+    summary: Dict[str, Any],
+    comparison_result: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    compositor_contract = get_path(summary, ["webgpuTileListCompositorContract"], {})
+    phase_step = get_path(summary, ["phaseStep"])
+    output_diagnostic = get_path(summary, ["outputCaptureDiagnostic"], {})
+    comparison_contract = get_path(
+        compositor_contract,
+        ["fixedConditionVisualComparisonContract"],
+        {},
+    )
+    comparison_sources = get_path(
+        compositor_contract,
+        ["fixedConditionVisualComparisonSources"],
+        get_path(comparison_contract, ["sources"], {}),
+    )
+    comparison_conditions = get_path(
+        compositor_contract,
+        ["fixedConditionVisualComparisonConditions"],
+        get_path(comparison_contract, ["conditions"], {}),
+    )
+    comparison_result_conditions = get_path(
+        comparison_result,
+        ["comparisonConditions"],
+        {},
+    )
+    reference_image_source = (
+        get_path(comparison_result, ["referenceImageSource"])
+        or get_path(comparison_result, ["referenceImagePath"])
+        or get_path(comparison_sources, ["referenceImage"])
+    )
+    webgpu_png_source = (
+        get_path(comparison_result, ["webgpuPngSource"])
+        or get_path(comparison_result, ["webgpuPngPath"])
+        or get_path(comparison_sources, ["webgpuPng"])
+    )
+    reference_image_source_kind = (
+        get_path(comparison_result, ["referenceImageSourceKind"])
+        or classify_reference_source_kind(reference_image_source)
+    )
+    webgpu_png_source_kind = (
+        get_path(comparison_result, ["webgpuPngSourceKind"])
+        or ("webgpu-saved-png" if webgpu_png_source else "unknown")
+    )
+    def comparison_condition_value(key: str, default: Any = None) -> Any:
+        return get_path(
+            comparison_conditions,
+            [key],
+            get_path(comparison_result_conditions, [key], default),
+        )
+
+    comparison_executed = comparison_result is not None or (
+        get_path(compositor_contract, ["fixedConditionVisualComparisonExecuted"]) is True
+    )
+    capture_nonblank = get_path(output_diagnostic, ["captureOutputNonblank"])
+    presentation_nonblank = get_path(output_diagnostic, ["presentationOutputNonblank"])
+    saved_matches_runtime = get_path(output_diagnostic, ["savedPngMatchesRuntimeOutput"])
+    visual_degenerated = get_path(
+        output_diagnostic,
+        ["visualOutputDegeneratedDetected"],
+        get_path(compositor_contract, ["visualOutputDegeneratedDetected"]),
+    )
+    comparison_inputs_ready = (
+        get_path(compositor_contract, ["fixedConditionVisualComparisonInputsReady"])
+        is True
+        or (
+            comparison_result is not None
+            and get_path(comparison_result, ["comparisonConditionReady"]) is True
+        )
+    )
+    comparison_contract_ready = (
+        get_path(compositor_contract, ["fixedConditionVisualComparisonContractReady"])
+        is True
+        or get_path(comparison_contract, ["implementationReady"]) is True
+        or (
+            comparison_result is not None
+            and reference_image_source is not None
+            and webgpu_png_source is not None
+        )
+    )
+    comparison_condition_ready = (
+        get_path(comparison_result, ["comparisonConditionReady"]) is True
+        if comparison_result is not None
+        else comparison_inputs_ready
+    )
+    fixed_reference_ready = (
+        get_path(compositor_contract, ["fixedReferenceCameraActivationReady"]) is True
+        and get_path(compositor_contract, ["cameraConstantsRoutingReady"]) is True
+        and get_path(compositor_contract, ["usesCudaAlignedFixedReferenceCamera"]) is True
+    ) or (
+        comparison_condition_value("fixedReferenceCameraMode")
+        == "cuda-aligned-fixed-reference-camera"
+        and "cuda-reference" in str(
+            comparison_condition_value("webgpuCameraConstantsSource", "")
+        )
+    )
+    error_subtypes = detect_webgpu_error_subtypes(
+        get_path(summary, ["webgpuTileCompositorFrameImplementation"], {}),
+        compositor_contract,
+        get_path(summary, ["captureErrorString"]),
+        get_path(summary, ["captureErrorStack"]),
+        get_path(summary, ["captureErrorMessage"]),
+        get_path(summary, ["firstValidationFailures"]),
+    )
+    no_webgpu_errors = not any(error_subtypes.values())
+    if comparison_executed:
+        if get_path(comparison_result, ["imageSizeMatch"]) is not True:
+            comparison_state = "comparison-blocked"
+        elif comparison_condition_ready is not True:
+            comparison_state = "comparison-blocked"
+        elif get_path(comparison_result, ["sameSha256"]) is True:
+            comparison_state = "comparison-completed-with-parity-candidate"
+        elif get_path(comparison_result, ["differingPixelCount"], 0) > 0:
+            comparison_state = "comparison-completed-with-mismatch"
+        else:
+            comparison_state = "comparison-executed"
+    elif phase_step == "phase3-step110" and capture_nonblank is True:
+        comparison_state = "awaiting-comparison-result"
+    elif phase_step == "phase3-step110":
+        comparison_state = "awaiting-browser-capture"
+    else:
+        comparison_state = "implementation-ready-awaiting-browser-capture"
+
+    predicate_specs = [
+        (
+            "phase-step-is-step110",
+            phase_step in {None, "phase3-step110"},
+            "summary must be generated for phase3-step110 or an implementation-ready dry run",
+        ),
+        (
+            "reference-image-source-ready",
+            isinstance(reference_image_source, str) and len(reference_image_source) > 0,
+            "Reference image source path must be available",
+        ),
+        (
+            "reference-image-source-kind-classified",
+            reference_image_source_kind != "unknown",
+            "Reference image source kind must be classified",
+        ),
+        (
+            "webgpu-png-source-ready",
+            isinstance(webgpu_png_source, str)
+            and len(webgpu_png_source) > 0
+            and webgpu_png_source != "pending-browser-capture-png",
+            "WebGPU saved PNG source must be available after browser capture",
+        ),
+        (
+            "fixed-reference-camera-routing-ready",
+            fixed_reference_ready is True,
+            "fixed reference camera activation and CUDA-aligned camera constants routing must be ready",
+        ),
+        (
+            "fixed-condition-comparison-contract-ready",
+            comparison_contract_ready is True,
+            "fixed-condition comparison contract must be readable",
+        ),
+        (
+            "comparison-inputs-ready",
+            comparison_inputs_ready is True,
+            "comparison input sources and conditions must be ready",
+        ),
+        (
+            "capture-output-nonblank",
+            capture_nonblank is True,
+            "saved PNG must be nonblank",
+        ),
+        (
+            "presentation-output-nonblank",
+            presentation_nonblank is True,
+            "presentation output must be nonblank",
+        ),
+        (
+            "saved-png-matches-runtime-output",
+            saved_matches_runtime is True,
+            "saved PNG must match runtime output nonblank state",
+        ),
+        (
+            "visual-output-not-degenerated",
+            visual_degenerated is not True,
+            "visual output degeneration must not be detected",
+        ),
+        (
+            "comparison-executed",
+            comparison_executed is True,
+            "comparison JSON must be available after browser capture",
+        ),
+        (
+            "comparison-condition-ready",
+            comparison_condition_ready is True,
+            "comparison conditions must be complete and compatible",
+        ),
+        (
+            "comparison-image-size-match",
+            (not comparison_executed)
+            or get_path(comparison_result, ["imageSizeMatch"]) is True,
+            "Reference and WebGPU PNG image sizes must match",
+        ),
+        (
+            "webgpu-error-free",
+            no_webgpu_errors is True,
+            "WGSL/WebGPU/command/queue errors must be absent",
+        ),
+    ]
+    failed_predicates = [
+        {"name": name, "reason": reason}
+        for name, ready, reason in predicate_specs
+        if ready is not True
+    ]
+    blocked_reasons = [item["name"] for item in failed_predicates]
+
+    implementation_ready = (
+        fixed_reference_ready is True
+        and comparison_contract_ready is True
+        and no_webgpu_errors is True
+    )
+    if comparison_executed:
+        decision = "success" if not blocked_reasons else "blocked"
+    elif implementation_ready:
+        decision = "pending"
+    else:
+        decision = "blocked"
+    classification = (
+        get_path(comparison_result, ["visualMismatchClassification"])
+        if comparison_result is not None
+        else get_path(
+            compositor_contract,
+            ["fixedConditionVisualComparisonClassification"],
+            "awaiting-comparison-result"
+            if implementation_ready
+            else "comparison-condition-mismatch",
+        )
+    )
+    return {
+        "step110Decision": decision,
+        "step110DecisionState": comparison_state,
+        "step110FailedPredicates": failed_predicates,
+        "step110BlockedReason": blocked_reasons[0] if blocked_reasons else None,
+        "step110BlockedReasons": blocked_reasons,
+        "step110SelectedGoal":
+            "A+B+C+D-fixed-condition-visual-comparison-readiness-infrastructure",
+        "phaseStep": phase_step,
+        "fixedConditionVisualComparisonImplementationReady": implementation_ready,
+        "fixedConditionVisualComparisonContractReady": comparison_contract_ready,
+        "fixedConditionVisualComparisonInputsReady": comparison_inputs_ready,
+        "fixedConditionVisualComparisonAwaitingBrowserCapture":
+            not comparison_executed and phase_step != "phase3-step110",
+        "fixedConditionVisualComparisonAwaitingComparisonResult":
+            not comparison_executed,
+        "fixedConditionVisualComparisonExecuted": comparison_executed,
+        "fixedConditionVisualComparisonContract": comparison_contract,
+        "referenceImageSource": reference_image_source,
+        "referenceImageSourcePath": reference_image_source,
+        "referenceImageSourceKind": reference_image_source_kind,
+        "webgpuPngSource": webgpu_png_source,
+        "webgpuPngSourceKind": webgpu_png_source_kind,
+        "cameraLabel": comparison_condition_value("cameraLabel"),
+        "frameLabel": comparison_condition_value("frameLabel"),
+        "datasetTime": comparison_condition_value("datasetTime"),
+        "imageResolution": comparison_condition_value("imageResolution"),
+        "viewport": comparison_condition_value("viewport"),
+        "backgroundPolicy": comparison_condition_value("backgroundPolicy"),
+        "colorSpacePolicy": comparison_condition_value("colorSpacePolicy"),
+        "pixelOrigin": comparison_condition_value("pixelOrigin"),
+        "yCoordinateConvention": get_path(
+            comparison_conditions,
+            ["yCoordinateConvention"],
+            get_path(comparison_result_conditions, ["yCoordinateConvention"]),
+        ),
+        "screenSpaceConvention": get_path(
+            comparison_conditions,
+            ["screenSpaceConvention"],
+            get_path(comparison_result_conditions, ["screenSpaceConvention"]),
+        ),
+        "captureSource": get_path(
+            comparison_sources,
+            ["captureSource"],
+            get_path(comparison_result_conditions, ["captureSource"]),
+        ),
+        "fixedReferenceCameraMode": get_path(
+            comparison_conditions,
+            ["fixedReferenceCameraMode"],
+            get_path(comparison_result_conditions, ["fixedReferenceCameraMode"]),
+        ),
+        "webgpuCameraConstantsSource": get_path(
+            comparison_conditions,
+            ["webgpuCameraConstantsSource"],
+            get_path(
+                comparison_result_conditions,
+                ["webgpuCameraConstantsSource"],
+                get_path(compositor_contract, ["webgpuCameraConstantsSource"]),
+            ),
+        ),
+        "usesCudaAlignedFixedReferenceCamera": (
+            get_path(compositor_contract, ["usesCudaAlignedFixedReferenceCamera"])
+            is True
+            or comparison_condition_value("fixedReferenceCameraMode")
+            == "cuda-aligned-fixed-reference-camera"
+        ),
+        "cameraConstantsRoutingReady": (
+            get_path(compositor_contract, ["cameraConstantsRoutingReady"]) is True
+            or "cuda-reference" in str(
+                comparison_condition_value("webgpuCameraConstantsSource", "")
+            )
+        ),
+        "runtimePresentationPngConsistency": get_path(
+            comparison_conditions,
+            ["runtimePresentationPngConsistency"],
+            get_path(
+                comparison_result_conditions,
+                ["runtimePresentationPngConsistency"],
+                {},
+            ),
+        ),
+        "pngCaptured": get_path(output_diagnostic, ["pngCaptured"]),
+        "pngNonzeroRgb": get_path(output_diagnostic, ["pngNonzeroRgb"]),
+        "pngNonblackRatio": get_path(output_diagnostic, ["pngNonblackRatio"]),
+        "pngSha256": get_path(output_diagnostic, ["pngSha256"]),
+        "captureOutputNonblank": capture_nonblank,
+        "presentationOutputNonblank": presentation_nonblank,
+        "savedPngMatchesRuntimeOutput": saved_matches_runtime,
+        "visualOutputDegeneratedDetected": visual_degenerated,
+        "comparisonResult": comparison_result or {},
+        "comparisonImageSizeMatch": get_path(comparison_result, ["imageSizeMatch"]),
+        "comparisonChannelMode": get_path(
+            comparison_result,
+            ["comparisonChannelMode"],
+            get_path(compositor_contract, ["comparisonChannelMode"]),
+        ),
+        "pixelMae": get_path(comparison_result, ["pixelMae"]),
+        "pixelRmse": get_path(comparison_result, ["pixelRmse"]),
+        "maxAbsDifference": get_path(comparison_result, ["maxAbsDifference"]),
+        "differingPixelCount": get_path(comparison_result, ["differingPixelCount"]),
+        "differingPixelRatio": get_path(comparison_result, ["differingPixelRatio"]),
+        "referenceImageStats": get_path(comparison_result, ["referenceImageStats"]),
+        "webgpuImageStats": get_path(comparison_result, ["webgpuImageStats"]),
+        "visualMismatchClassification": classification,
+        "comparisonInfrastructureReady": decision == "success",
+        "visualParityClaimed": False,
+        "visualParityAchieved": (
+            get_path(comparison_result, ["sameSha256"]) is True
+            and classification == "parity-candidate"
+        ),
+        "visualParityStatus": (
+            "parity-candidate-not-claimed"
+            if get_path(comparison_result, ["sameSha256"]) is True
+            else (
+                "not-achieved"
+                if comparison_executed
+                else "not-evaluated"
+            )
+        ),
+        "fallbackOnlySuccessUsed": False,
+        "debugOnlySuccessUsed": False,
+        "webgpuWebgl2MixedFrameDetected": False,
+        "step109FixedReferenceCameraActivationPreserved": fixed_reference_ready,
+        "step108CameraEvidencePreserved": get_path(
+            compositor_contract,
+            ["step108CameraEvidencePreserved"],
+        ),
+        "step107DesignGatePreserved": get_path(
+            compositor_contract,
+            ["step107DesignGatePreserved"],
+        ),
+        "step106CapabilityGatePreservationSource": get_path(
+            compositor_contract,
+            ["step106CapabilityGatePreservationSource"],
+        ),
+        "step105CameraGatePreserved": get_path(
+            compositor_contract,
+            ["step105CameraGatePreserved"],
+        ),
+        "earlyTerminationRemainsDisabled": get_path(
+            compositor_contract,
+            ["earlyTerminationRemainsDisabled"],
+        ),
+        "lodStreamingRemainsDisabled": get_path(
+            compositor_contract,
+            ["lodStreamingRemainsDisabled"],
+        ),
+        **error_subtypes,
+        "deferredProductionItems": get_path(
+            compositor_contract,
+            ["deferredProductionItems"],
+            [],
+        ),
+        "nextStepRecommendedGoal": get_path(
+            compositor_contract,
+            ["step110NextStepRecommendedGoal"],
+            "run-fixed-condition-visual-comparison-after-browser-capture-v1",
+        ),
+    }
+
+
 def build_output_capture_consistency_diagnostic(
     webgpu_summary: Dict[str, Any],
     png_diagnostic: Dict[str, Any],
@@ -18758,6 +19198,7 @@ def summarize_step(base_dir: Path, prefix: str) -> Dict[str, Any]:
         "gpuRawVisibleRecordDryRun": None,
         "webgpuVisibleRecordDryRun": None,
         "outputCaptureDiagnostic": None,
+        "fixedConditionVisualComparison": None,
         "association": None,
         "renderSummary": None,
         "loadErrors": {},
@@ -18848,6 +19289,13 @@ def summarize_step(base_dir: Path, prefix: str) -> Dict[str, Any]:
             **webgpu_visible_capture_status,
         }
 
+    fixed_condition_visual_comparison = None
+    if "fixed_condition_visual_comparison" in loaded:
+        fixed_condition_visual_comparison = extract_fixed_condition_visual_comparison(
+            loaded["fixed_condition_visual_comparison"]
+        )
+        result["fixedConditionVisualComparison"] = fixed_condition_visual_comparison
+
     png_diagnostic = extract_png_capture_diagnostic(base_dir / f"{prefix}_canvas.png")
     result["outputCaptureDiagnostic"] = png_diagnostic
     if isinstance(result.get("webgpuVisibleRecordDryRun"), dict):
@@ -18884,6 +19332,17 @@ def summarize_step(base_dir: Path, prefix: str) -> Dict[str, Any]:
                 output_diagnostic,
                 step_name=step_name,
             )
+        result["webgpuVisibleRecordDryRun"][
+            "step110FixedConditionVisualComparison"
+        ] = build_step110_fixed_condition_visual_comparison_summary(
+            {
+                **output_diagnostic_source,
+                "outputCaptureDiagnostic": output_diagnostic,
+            },
+            fixed_condition_visual_comparison,
+        )
+    elif fixed_condition_visual_comparison is not None:
+        result["fixedConditionVisualComparison"] = fixed_condition_visual_comparison
 
     if "association" in loaded:
         result["association"] = extract_association(loaded["association"])
@@ -19145,6 +19604,16 @@ def print_human_summary(summary: Dict[str, Any]) -> None:
         summary.get("webgpuVisibleRecordDryRun", {}).get(
             "step109FixedReferenceCameraActivation"
         ),
+    )
+    print_section(
+        "Step110 fixed-condition visual comparison readiness",
+        summary.get("webgpuVisibleRecordDryRun", {}).get(
+            "step110FixedConditionVisualComparison"
+        ),
+    )
+    print_section(
+        "Fixed-condition visual comparison result",
+        summary.get("fixedConditionVisualComparison"),
     )
     print_section("WebGPU visible record dry-run", summary.get("webgpuVisibleRecordDryRun"))
     print_section("Association", summary.get("association"))

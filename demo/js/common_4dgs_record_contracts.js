@@ -18,6 +18,9 @@ export const WEBGPU_GPU_OWNED_TILE_LIST_LAYOUT_CONTRACT_VERSION =
 export const WEBGPU_TILE_LIST_COMPOSITOR_CONTRACT_VERSION =
   'phase3-step109-fixed-reference-camera-activation-v1';
 
+export const WEBGPU_FIXED_CONDITION_VISUAL_COMPARISON_CONTRACT_VERSION =
+  'phase3-step110-fixed-condition-visual-comparison-readiness-v1';
+
 export const WEBGPU_PHASE3_BACKEND_BOUNDARY_CONTRACT_VERSION =
   'phase3-step86-webgpu-backend-boundary-and-dirty-contract-v1';
 
@@ -1036,6 +1039,23 @@ export function buildWebGpuTileListCompositorContract({
   step108CameraEvidencePreserved = false,
   step109NextStepRecommendedGoal = null,
   step108NextStepRecommendedGoal = null,
+  fixedConditionVisualComparisonContractReady = false,
+  fixedConditionVisualComparisonInputsReady = false,
+  fixedConditionVisualComparisonAwaitingCapture = false,
+  fixedConditionVisualComparisonAwaitingComparison = false,
+  fixedConditionVisualComparisonExecuted = false,
+  fixedConditionVisualComparisonDecisionState = null,
+  fixedConditionVisualComparisonBlockedReason = null,
+  fixedConditionVisualComparisonContract = {},
+  fixedConditionVisualComparisonSources = {},
+  fixedConditionVisualComparisonConditions = {},
+  fixedConditionVisualComparisonMetrics = {},
+  fixedConditionVisualComparisonClassification = null,
+  referenceImageComparisonSource = null,
+  webgpuPngComparisonSource = null,
+  comparisonChannelMode = 'rgba',
+  comparisonTool = 'tools/compare_png.py',
+  step110NextStepRecommendedGoal = null,
   step104VisualSafetyGatePreserved = false,
   earlyTerminationRemainsDisabled = false,
   lodStreamingRemainsDisabled = false,
@@ -1917,6 +1937,164 @@ export function buildWebGpuTileListCompositorContract({
       effectiveCudaReferenceCameraEvidenceReady === true &&
       effectiveMissingCameraEvidenceDetected === false
     );
+  const effectiveReferenceImageComparisonSource =
+    referenceImageComparisonSource ??
+    referenceImagePath ??
+    referenceImageSource;
+  const effectiveWebgpuPngComparisonSource =
+    webgpuPngComparisonSource ??
+    'pending-browser-capture-png';
+  const effectiveFixedConditionVisualComparisonSources = {
+    referenceImage: effectiveReferenceImageComparisonSource,
+    webgpuPng: effectiveWebgpuPngComparisonSource,
+    captureSource: 'saved-png-current-viewer-canvas-via-saveCurrentCanvasPng',
+    runtimeOutput:
+      outputTextureProducedByProductionCompositor === true
+        ? 'webgpu-production-compositor-output-texture'
+        : null,
+    presentation:
+      currentTextureUsesWebGpuTileCompositorOutput === true
+        ? 'webgpu-tile-compositor-currentTexture-presentation'
+        : null,
+    cameraConstants: effectiveWebgpuCameraConstantsSource,
+    ...fixedConditionVisualComparisonSources
+  };
+  const effectiveFixedConditionVisualComparisonConditions = {
+    cameraLabel:
+      visualComparisonConditions?.cameraLabel ??
+      cameraMetadataName ??
+      referenceImageLabel,
+    frameLabel:
+      visualComparisonConditions?.frameNumber ??
+      visualComparisonConditions?.imageName ??
+      referenceImageLabel,
+    datasetTime: visualComparisonConditions?.datasetTime ?? null,
+    imageResolution: {
+      width: outputWidth,
+      height: outputHeight
+    },
+    viewport:
+      visualComparisonConditions?.viewport ??
+      viewportEvidence?.viewport ??
+      null,
+    backgroundPolicy:
+      visualComparisonConditions?.backgroundPolicy ??
+      backgroundPolicyEvidence?.backgroundPolicy ??
+      null,
+    colorSpacePolicy:
+      visualComparisonConditions?.colorSpacePolicy ??
+      backgroundPolicyEvidence?.colorSpacePolicy ??
+      null,
+    pixelOrigin: 'top-left-saved-png',
+    yCoordinateConvention:
+      screenSpaceConventionEvidence?.screenYSign === 1
+        ? 'screen-y-down'
+        : 'unverified',
+    screenSpaceConvention:
+      screenSpaceConventionEvidence?.pixelSignContract ??
+      screenSpaceConventionEvidence?.viewMatrixSource ??
+      null,
+    fixedReferenceCameraMode: effectiveFixedReferenceCameraActivationMode,
+    webgpuCameraConstantsSource: effectiveWebgpuCameraConstantsSource,
+    runtimePresentationPngConsistency: {
+      runtimeOutputNonblankExpected:
+        outputTextureProducedByProductionCompositor === true &&
+        nonzeroOutputRatio > 0,
+      presentationOutputNonblankExpected:
+        currentTextureUsesWebGpuTileCompositorOutput === true &&
+        presentationNonzeroPixelRatioMax > 0,
+      savedPngMatchPendingBrowserCapture: true
+    },
+    ...fixedConditionVisualComparisonConditions
+  };
+  const fixedConditionRequiredConditionsReady =
+    visualParityComparisonAllowed === true &&
+    effectiveCameraConstantsRoutingReady === true &&
+    effectiveStep108CameraEvidencePreserved === true &&
+    webgpuProductionOutputCaptureReady === true &&
+    referenceImageInputReady === true &&
+    cameraViewportBackgroundColorSpaceRecorded === true;
+  const effectiveFixedConditionVisualComparisonInputsReady =
+    fixedConditionVisualComparisonInputsReady === true ||
+    fixedConditionRequiredConditionsReady;
+  const effectiveFixedConditionVisualComparisonContractReady =
+    fixedConditionVisualComparisonContractReady === true ||
+    (
+      effectiveFixedConditionVisualComparisonInputsReady === true &&
+      typeof effectiveReferenceImageComparisonSource === 'string' &&
+      effectiveReferenceImageComparisonSource.length > 0 &&
+      typeof effectiveWebgpuPngComparisonSource === 'string' &&
+      effectiveWebgpuPngComparisonSource.length > 0
+    );
+  const effectiveFixedConditionVisualComparisonExecuted =
+    fixedConditionVisualComparisonExecuted === true;
+  const effectiveFixedConditionVisualComparisonAwaitingCapture =
+    fixedConditionVisualComparisonAwaitingCapture === true ||
+    !effectiveFixedConditionVisualComparisonExecuted;
+  const effectiveFixedConditionVisualComparisonAwaitingComparison =
+    fixedConditionVisualComparisonAwaitingComparison === true ||
+    !effectiveFixedConditionVisualComparisonExecuted;
+  const effectiveFixedConditionVisualComparisonDecisionState =
+    fixedConditionVisualComparisonDecisionState ??
+    (
+      effectiveFixedConditionVisualComparisonExecuted
+        ? 'comparison-executed'
+        : effectiveFixedConditionVisualComparisonContractReady
+          ? 'implementation-ready-awaiting-browser-capture-and-comparison'
+          : 'comparison-condition-mismatch'
+    );
+  const effectiveFixedConditionVisualComparisonBlockedReason =
+    fixedConditionVisualComparisonBlockedReason ??
+    (
+      effectiveFixedConditionVisualComparisonContractReady
+        ? null
+        : visualParityComparisonAllowed !== true
+          ? 'camera-or-projection-condition-mismatch'
+          : 'comparison-condition-mismatch'
+    );
+  const effectiveFixedConditionVisualComparisonClassification =
+    fixedConditionVisualComparisonClassification ??
+    (
+      effectiveFixedConditionVisualComparisonExecuted
+        ? 'comparison-ready-difference-unclassified'
+        : effectiveFixedConditionVisualComparisonContractReady
+          ? 'awaiting-comparison-result'
+          : effectiveFixedConditionVisualComparisonBlockedReason
+    );
+  const effectiveFixedConditionVisualComparisonContract = {
+    schemaVersion: WEBGPU_FIXED_CONDITION_VISUAL_COMPARISON_CONTRACT_VERSION,
+    comparisonPurpose:
+      'fixed-reference-webgpu-production-output-vs-cuda-reference-png',
+    implementationReady: effectiveFixedConditionVisualComparisonContractReady,
+    inputsReady: effectiveFixedConditionVisualComparisonInputsReady,
+    awaitingBrowserCapture:
+      effectiveFixedConditionVisualComparisonAwaitingCapture,
+    awaitingComparisonResult:
+      effectiveFixedConditionVisualComparisonAwaitingComparison,
+    comparisonExecuted: effectiveFixedConditionVisualComparisonExecuted,
+    decisionState: effectiveFixedConditionVisualComparisonDecisionState,
+    blockedReason: effectiveFixedConditionVisualComparisonBlockedReason,
+    sources: effectiveFixedConditionVisualComparisonSources,
+    conditions: effectiveFixedConditionVisualComparisonConditions,
+    metrics: fixedConditionVisualComparisonMetrics,
+    classification:
+      effectiveFixedConditionVisualComparisonClassification,
+    comparisonChannelMode,
+    comparisonTool,
+    allowedClassifications: [
+      'comparison-condition-mismatch',
+      'reference-image-source-mismatch',
+      'capture-source-or-timing-mismatch',
+      'runtime-output-nonblank-but-saved-png-blank',
+      'camera-or-projection-condition-mismatch',
+      'viewport-or-resolution-mismatch',
+      'screen-space-or-pixel-coordinate-mismatch',
+      'background-or-color-space-mismatch',
+      'rendering-content-mismatch',
+      'comparison-ready-difference-unclassified'
+    ],
+    ...fixedConditionVisualComparisonContract
+  };
   return {
     contractVersion: WEBGPU_TILE_LIST_COMPOSITOR_CONTRACT_VERSION,
     status: ready ? 'ok' : status,
@@ -2396,6 +2574,39 @@ export function buildWebGpuTileListCompositorContract({
           ? 'run-fixed-reference-camera-visual-parity-diff-v1'
           : 'resolve-fixed-reference-camera-routing-or-comparison-blocker-v1'
       ),
+    fixedConditionVisualComparisonContractReady:
+      effectiveFixedConditionVisualComparisonContractReady,
+    fixedConditionVisualComparisonInputsReady:
+      effectiveFixedConditionVisualComparisonInputsReady,
+    fixedConditionVisualComparisonAwaitingCapture:
+      effectiveFixedConditionVisualComparisonAwaitingCapture,
+    fixedConditionVisualComparisonAwaitingComparison:
+      effectiveFixedConditionVisualComparisonAwaitingComparison,
+    fixedConditionVisualComparisonExecuted:
+      effectiveFixedConditionVisualComparisonExecuted,
+    fixedConditionVisualComparisonDecisionState:
+      effectiveFixedConditionVisualComparisonDecisionState,
+    fixedConditionVisualComparisonBlockedReason:
+      effectiveFixedConditionVisualComparisonBlockedReason,
+    fixedConditionVisualComparisonContract:
+      effectiveFixedConditionVisualComparisonContract,
+    fixedConditionVisualComparisonSources:
+      effectiveFixedConditionVisualComparisonSources,
+    fixedConditionVisualComparisonConditions:
+      effectiveFixedConditionVisualComparisonConditions,
+    fixedConditionVisualComparisonMetrics:
+      fixedConditionVisualComparisonMetrics,
+    fixedConditionVisualComparisonClassification:
+      effectiveFixedConditionVisualComparisonClassification,
+    referenceImageComparisonSource:
+      effectiveReferenceImageComparisonSource,
+    webgpuPngComparisonSource:
+      effectiveWebgpuPngComparisonSource,
+    comparisonChannelMode,
+    comparisonTool,
+    step110NextStepRecommendedGoal:
+      step110NextStepRecommendedGoal ??
+      'run-fixed-condition-visual-comparison-after-browser-capture-v1',
     step108NextStepRecommendedGoal:
       step108NextStepRecommendedGoal ??
       (

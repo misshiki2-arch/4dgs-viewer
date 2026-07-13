@@ -139,6 +139,18 @@ def build_gpu_candidate_params(args: argparse.Namespace) -> dict[str, str]:
                 "webgpuVisibleRecordFields": args.webgpu_visible_record_fields,
             }
         )
+    if args.phase_step:
+        params["phaseStep"] = args.phase_step
+    if args.comparison_mode:
+        params["comparisonMode"] = args.comparison_mode
+    if parse_bool(args.fixed_reference_camera_mode) == "true":
+        params["fixedReferenceCameraMode"] = "true"
+    if args.fixed_reference_camera_activation_mode:
+        params["fixedReferenceCameraActivationMode"] = (
+            args.fixed_reference_camera_activation_mode
+        )
+    if args.reference_camera_mode:
+        params["referenceCameraMode"] = args.reference_camera_mode
 
     if args.source_mode:
         params["gpuCandidateSourceMode"] = args.source_mode
@@ -502,6 +514,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--webgpu-visible-record-dry-run", default="false")
     parser.add_argument("--webgpu-visible-record-max-count", type=int, default=65536)
     parser.add_argument("--webgpu-visible-record-fields", default="srcIndex,valid,px,py,depth,aabb")
+    parser.add_argument("--phase-step", default=None)
+    parser.add_argument("--comparison-mode", default=None)
+    parser.add_argument("--fixed-reference-camera-mode", default="false")
+    parser.add_argument(
+        "--fixed-reference-camera-activation-mode",
+        default=None,
+    )
+    parser.add_argument("--reference-camera-mode", default=None)
 
     # Range options.
     parser.add_argument("--range-start", type=int, default=0)

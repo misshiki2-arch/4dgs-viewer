@@ -56,6 +56,76 @@ def count_nonblack_pixels(arr: np.ndarray, threshold: int = 0) -> int:
     return int(np.count_nonzero(mask))
 
 
+def image_stats(arr: np.ndarray, threshold: int = 0) -> Dict[str, Any]:
+    rgb = arr[..., :3]
+    alpha = arr[..., 3]
+    return {
+        "width": int(arr.shape[1]),
+        "height": int(arr.shape[0]),
+        "channelCount": int(arr.shape[2]),
+        "pixelCount": int(arr.shape[0] * arr.shape[1]),
+        "nonBlackPixelCount": count_nonblack_pixels(arr, threshold),
+        "nonBlackPixelRatio": float(
+            count_nonblack_pixels(arr, threshold) / max(1, arr.shape[0] * arr.shape[1])
+        ),
+        "rgbMin": int(np.min(rgb)),
+        "rgbMax": int(np.max(rgb)),
+        "rgbMean": float(np.mean(rgb)),
+        "alphaMin": int(np.min(alpha)),
+        "alphaMax": int(np.max(alpha)),
+        "alphaMean": float(np.mean(alpha)),
+    }
+
+
+def load_json_object(path: Path | None) -> Dict[str, Any]:
+    if path is None:
+        return {}
+    with path.open("r", encoding="utf-8") as f:
+        value = json.load(f)
+    if not isinstance(value, dict):
+        raise ValueError(f"Expected JSON object in {path}")
+    return value
+
+
+def classify_difference(
+    *,
+    same_size: bool,
+    conditions_ready: bool,
+    condition_mismatch_reason: str | None,
+    a_nonblack: int,
+    b_nonblack: int,
+    differing_ratio: float | None,
+) -> str:
+    if not same_size:
+        return "viewport-or-resolution-mismatch"
+    if not conditions_ready:
+        return condition_mismatch_reason or "comparison-condition-mismatch"
+    if a_nonblack > 0 and b_nonblack == 0:
+        return "runtime-output-nonblank-but-saved-png-blank"
+    if a_nonblack == 0 and b_nonblack > 0:
+        return "reference-image-source-mismatch"
+    if differing_ratio is None:
+        return "comparison-condition-mismatch"
+    if differing_ratio == 0:
+        return "parity-candidate"
+    return "comparison-ready-difference-unclassified"
+
+
+def classify_reference_source_kind(path_or_source: str | None) -> str:
+    if not path_or_source:
+        return "unknown"
+    normalized = path_or_source.replace("\\", "/")
+    if "/outputs/" in normalized and "cuda_reference" in normalized:
+        if normalized.endswith("_render.png"):
+            return "cuda-reference-render-output"
+        return "cuda-reference-derived-output"
+    if "/data/4dgs_sph_scene/images/" in normalized:
+        return "dataset-fixed-reference-image"
+    if normalized.endswith("_gt.png"):
+        return "dataset-ground-truth-image"
+    return "explicit-reference-image"
+
+
 def build_absdiff_image(diff: np.ndarray, scale: float) -> Image.Image:
     """
     Build an RGBA absolute-difference image.
@@ -76,13 +146,41 @@ def compare_images(
     nonblack_threshold: int,
     diff_scale: float,
     out_path: Path | None,
+    *,
+    reference_source: str | None,
+    webgpu_source: str | None,
+    camera_label: str | None,
+    frame_label: str | None,
+    dataset_time: str | None,
+    viewport: str | None,
+    background_policy: str | None,
+    color_space_policy: str | None,
+    pixel_origin: str,
+    y_coordinate_convention: str,
+    screen_space_convention: str | None,
+    capture_source: str | None,
+    fixed_reference_camera_mode: str | None,
+    webgpu_camera_constants_source: str | None,
+    comparison_channel_mode: str,
+    reference_source_kind: str | None,
+    webgpu_source_kind: str | None,
+    conditions_json: Path | None,
 ) -> Dict[str, Any]:
     a = load_rgba(a_path)
     b = load_rgba(b_path)
+    conditions_from_json = load_json_object(conditions_json)
 
     summary: Dict[str, Any] = {
+        "schemaVersion": "phase3-step110-fixed-condition-png-comparison-v1",
         "a": str(a_path),
         "b": str(b_path),
+        "referenceImagePath": str(a_path),
+        "webgpuPngPath": str(b_path),
+        "referenceImageSource": reference_source or str(a_path),
+        "referenceImageSourceKind": reference_source_kind
+        or classify_reference_source_kind(reference_source or str(a_path)),
+        "webgpuPngSource": webgpu_source or str(b_path),
+        "webgpuPngSourceKind": webgpu_source_kind or "webgpu-saved-png",
         "aSha256": sha256_file(a_path),
         "bSha256": sha256_file(b_path),
         "sameSha256": sha256_file(a_path) == sha256_file(b_path),
@@ -90,16 +188,61 @@ def compare_images(
         "bShape": list(b.shape),
         "sameSize": list(a.shape) == list(b.shape),
         "nonBlackThreshold": nonblack_threshold,
+        "comparisonChannelMode": comparison_channel_mode,
+        "comparisonConditions": {
+            "cameraLabel": camera_label,
+            "frameLabel": frame_label,
+            "datasetTime": dataset_time,
+            "viewport": viewport,
+            "backgroundPolicy": background_policy,
+            "colorSpacePolicy": color_space_policy,
+            "pixelOrigin": pixel_origin,
+            "yCoordinateConvention": y_coordinate_convention,
+            "screenSpaceConvention": screen_space_convention,
+            "captureSource": capture_source,
+            "fixedReferenceCameraMode": fixed_reference_camera_mode,
+            "webgpuCameraConstantsSource": webgpu_camera_constants_source,
+            **conditions_from_json,
+        },
     }
 
     summary["aNonBlackPixelCount"] = count_nonblack_pixels(a, nonblack_threshold)
     summary["bNonBlackPixelCount"] = count_nonblack_pixels(b, nonblack_threshold)
+    summary["referenceImageStats"] = image_stats(a, nonblack_threshold)
+    summary["webgpuImageStats"] = image_stats(b, nonblack_threshold)
+    conditions_ready = all(
+        summary["comparisonConditions"].get(key)
+        for key in [
+            "cameraLabel",
+            "frameLabel",
+            "backgroundPolicy",
+            "colorSpacePolicy",
+            "pixelOrigin",
+            "yCoordinateConvention",
+            "screenSpaceConvention",
+            "captureSource",
+            "fixedReferenceCameraMode",
+            "webgpuCameraConstantsSource",
+        ]
+    )
+    condition_mismatch_reason = None
+    if not conditions_ready:
+        condition_mismatch_reason = "comparison-condition-mismatch"
+    summary["comparisonConditionReady"] = conditions_ready
 
     if a.shape != b.shape:
         summary.update(
             {
                 "comparable": False,
                 "error": "Image sizes differ. Pixel-wise metrics were not computed.",
+                "visualMismatchClassification": classify_difference(
+                    same_size=False,
+                    conditions_ready=conditions_ready,
+                    condition_mismatch_reason=condition_mismatch_reason,
+                    a_nonblack=summary["aNonBlackPixelCount"],
+                    b_nonblack=summary["bNonBlackPixelCount"],
+                    differing_ratio=None,
+                ),
             }
         )
         return summary
@@ -131,6 +274,17 @@ def compare_images(
             "samePixels": int(a.shape[0] * a.shape[1] - np.count_nonzero(different_any_channel)),
         }
     )
+    summary["differentPixelRatioAnyChannel"] = float(
+        summary["differentPixelCountAnyChannel"] / max(1, summary["pixelCount"])
+    )
+    summary["visualMismatchClassification"] = classify_difference(
+        same_size=True,
+        conditions_ready=conditions_ready,
+        condition_mismatch_reason=condition_mismatch_reason,
+        a_nonblack=summary["aNonBlackPixelCount"],
+        b_nonblack=summary["bNonBlackPixelCount"],
+        differing_ratio=summary["differentPixelRatioAnyChannel"],
+    )
 
     if out_path is not None:
         out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -148,6 +302,9 @@ def print_human_summary(summary: Dict[str, Any]) -> None:
     print(f"- B: {summary['b']}")
     print(f"- sameSha256: {summary['sameSha256']}")
     print(f"- sameSize: {summary['sameSize']}")
+    print(f"- comparisonChannelMode: {summary.get('comparisonChannelMode')}")
+    print(f"- comparisonConditionReady: {summary.get('comparisonConditionReady')}")
+    print(f"- visualMismatchClassification: {summary.get('visualMismatchClassification')}")
     print(f"- A nonBlackPixelCount: {summary['aNonBlackPixelCount']}")
     print(f"- B nonBlackPixelCount: {summary['bNonBlackPixelCount']}")
 
@@ -194,6 +351,28 @@ def parse_args() -> argparse.Namespace:
         default=0,
         help="RGB threshold for non-black pixel count. Default: 0",
     )
+    parser.add_argument("--reference-source", default=None)
+    parser.add_argument("--webgpu-source", default=None)
+    parser.add_argument("--camera-label", default=None)
+    parser.add_argument("--frame-label", default=None)
+    parser.add_argument("--dataset-time", default=None)
+    parser.add_argument("--viewport", default=None)
+    parser.add_argument("--background-policy", default=None)
+    parser.add_argument("--color-space-policy", default=None)
+    parser.add_argument("--pixel-origin", default="top-left-saved-png")
+    parser.add_argument("--y-coordinate-convention", default="screen-y-down")
+    parser.add_argument("--screen-space-convention", default=None)
+    parser.add_argument("--capture-source", default=None)
+    parser.add_argument("--fixed-reference-camera-mode", default=None)
+    parser.add_argument("--webgpu-camera-constants-source", default=None)
+    parser.add_argument("--comparison-channel-mode", default="rgba")
+    parser.add_argument("--reference-source-kind", default=None)
+    parser.add_argument("--webgpu-source-kind", default=None)
+    parser.add_argument(
+        "--conditions-json",
+        default=None,
+        help="Optional JSON object with comparison condition metadata.",
+    )
     return parser.parse_args()
 
 
@@ -211,6 +390,24 @@ def main() -> int:
         nonblack_threshold=args.nonblack_threshold,
         diff_scale=args.diff_scale,
         out_path=out_path,
+        reference_source=args.reference_source,
+        webgpu_source=args.webgpu_source,
+        camera_label=args.camera_label,
+        frame_label=args.frame_label,
+        dataset_time=args.dataset_time,
+        viewport=args.viewport,
+        background_policy=args.background_policy,
+        color_space_policy=args.color_space_policy,
+        pixel_origin=args.pixel_origin,
+        y_coordinate_convention=args.y_coordinate_convention,
+        screen_space_convention=args.screen_space_convention,
+        capture_source=args.capture_source,
+        fixed_reference_camera_mode=args.fixed_reference_camera_mode,
+        webgpu_camera_constants_source=args.webgpu_camera_constants_source,
+        comparison_channel_mode=args.comparison_channel_mode,
+        reference_source_kind=args.reference_source_kind,
+        webgpu_source_kind=args.webgpu_source_kind,
+        conditions_json=Path(args.conditions_json) if args.conditions_json else None,
     )
 
     if json_path is not None:
