@@ -1073,6 +1073,20 @@ export function buildWebGpuTileListCompositorContract({
   presentationCaptureOrientationEvidence = {},
   captureFreshnessEvidence = {},
   step111NextStepRecommendedGoal = null,
+  step112SelectedGoal = null,
+  step112SelectedCandidates = [],
+  step112RootCause = null,
+  step112CoordinateTransformStageMap = [],
+  step112CanonicalCameraProjectionSources = {},
+  step112CoordinateConvention = {},
+  step112RepresentativePointComparison = {},
+  step112FirstMismatchStage = null,
+  step112ViewProjectionPixelParityReady = false,
+  step112CenterProjectionParityReady = false,
+  step112CenterProjectionConicConventionConsistent = false,
+  step112ProductionRuntimeConsumptionReady = false,
+  step112RemainingCameraProjectionGaps = [],
+  step112NextStepRecommendedGoal = null,
   step104VisualSafetyGatePreserved = false,
   earlyTerminationRemainsDisabled = false,
   lodStreamingRemainsDisabled = false,
@@ -2645,6 +2659,24 @@ export function buildWebGpuTileListCompositorContract({
     step111NextStepRecommendedGoal:
       step111NextStepRecommendedGoal ??
       'rotation-and-camera-jacobian-screen-space-conic-parity-v1',
+    step112SelectedGoal:
+      step112SelectedGoal ??
+      'cuda-fixed-reference-camera-projection-screen-space-orientation-parity-closure-v1',
+    step112SelectedCandidates,
+    step112RootCause,
+    step112CoordinateTransformStageMap,
+    step112CanonicalCameraProjectionSources,
+    step112CoordinateConvention,
+    step112RepresentativePointComparison,
+    step112FirstMismatchStage,
+    step112ViewProjectionPixelParityReady,
+    step112CenterProjectionParityReady,
+    step112CenterProjectionConicConventionConsistent,
+    step112ProductionRuntimeConsumptionReady,
+    step112RemainingCameraProjectionGaps,
+    step112NextStepRecommendedGoal:
+      step112NextStepRecommendedGoal ??
+      'camera-jacobian-screen-space-conic-parity-v1',
     step108NextStepRecommendedGoal:
       step108NextStepRecommendedGoal ??
       (

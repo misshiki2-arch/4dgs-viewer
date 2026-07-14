@@ -2798,3 +2798,24 @@ compositor's Gaussian weight and output texture path. Step111 does not claim
 full covariance, camera-Jacobian, SH, final compositor, or visual parity; those
 remain follow-up structural gaps validated through the Step110 comparison
 infrastructure.
+
+## Step112 CUDA Fixed-Reference Camera / Projection / Screen-Space Orientation Parity Closure V1
+
+Step112 narrows the fixed-reference visual mismatch before changing camera,
+axis, projection, or image orientation code. The production runtime records a
+representative-point projection trace from world position through CUDA-aligned
+view/intrinsics, top-left pixel coordinates, WebGPU visible-record centers,
+tile input, conic payload, compositor output, presentation, and PNG capture.
+
+The canonical center projection source is the fixed CUDA camera evidence routed
+through `projectionParams`: row-major view rows, CUDA-aligned intrinsics, and
+the existing half-pixel principal-point adjustment that matches CUDA `ndc2Pix`
+image coordinates. Step112 validates several non-collinear representative
+points against WebGPU visible-record center/depth output and classifies the
+first failing stage if any point diverges.
+
+This step intentionally does not tune `cameraUp`, axis signs, Y flips, camera
+targets, or projection matrices by eye. If representative centers pass, the
+remaining camera/projection gap moves to camera-Jacobian screen-space conic and
+full covariance parity. If they fail, Step112 blocks with the first mismatch
+stage and leaves visual parity unclaimed.

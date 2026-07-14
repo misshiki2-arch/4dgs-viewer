@@ -13510,6 +13510,301 @@ def build_step111_pipeline_parity_gap_closure_summary(
     }
 
 
+def build_step112_camera_projection_orientation_parity_summary(
+    summary: Dict[str, Any],
+    comparison_result: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    compositor_contract = get_path(summary, ["webgpuTileListCompositorContract"], {})
+    phase_step = get_path(summary, ["phaseStep"])
+    representative = get_path(
+        compositor_contract,
+        ["step112RepresentativePointComparison"],
+        {},
+    )
+    representative_points = get_path(representative, ["points"], [])
+    representative_ready = (
+        get_path(representative, ["ready"]) is True
+        and isinstance(representative_points, list)
+        and len(representative_points) >= 3
+    )
+    first_mismatch_stage = get_path(
+        compositor_contract,
+        ["step112FirstMismatchStage"],
+    )
+    center_projection_ready = (
+        get_path(compositor_contract, ["step112CenterProjectionParityReady"])
+        is True
+    )
+    view_projection_pixel_ready = (
+        get_path(compositor_contract, ["step112ViewProjectionPixelParityReady"])
+        is True
+    )
+    conic_convention_consistent = (
+        get_path(
+            compositor_contract,
+            ["step112CenterProjectionConicConventionConsistent"],
+        )
+        is True
+    )
+    production_consumption_ready = (
+        get_path(compositor_contract, ["step112ProductionRuntimeConsumptionReady"])
+        is True
+    )
+    step110_preserved = (
+        get_path(compositor_contract, ["fixedConditionVisualComparisonContractReady"])
+        is True
+        and get_path(compositor_contract, ["fixedConditionVisualComparisonInputsReady"])
+        is True
+        and get_path(compositor_contract, ["fixedReferenceCameraActivationReady"]) is True
+        and get_path(compositor_contract, ["cameraConstantsRoutingReady"]) is True
+        and get_path(compositor_contract, ["usesCudaAlignedFixedReferenceCamera"]) is True
+    )
+    step111_preserved = (
+        get_path(compositor_contract, ["step111ProductionRuntimeGapClosureUsed"])
+        is True
+        and get_path(compositor_contract, ["scaleAwareConicPayloadConsumed"]) is True
+        and numeric_value(
+            get_path(compositor_contract, ["anisotropicFootprintReferenceCount"]),
+            0,
+        )
+        > 0
+        and get_path(compositor_contract, ["conicFallbackReferenceCount"]) == 0
+    )
+    output_diagnostic = get_path(summary, ["outputCaptureDiagnostic"], {})
+    capture_preserved = (
+        get_path(output_diagnostic, ["captureOutputNonblank"]) is True
+        and get_path(output_diagnostic, ["presentationOutputNonblank"]) is True
+        and get_path(output_diagnostic, ["savedPngMatchesRuntimeOutput"]) is True
+        and get_path(output_diagnostic, ["visualOutputDegeneratedDetected"]) is not True
+    )
+    error_subtypes = detect_webgpu_error_subtypes(
+        get_path(summary, ["webgpuTileCompositorFrameImplementation"], {}),
+        compositor_contract,
+        comparison_result,
+        get_path(summary, ["captureErrorString"]),
+        get_path(summary, ["captureErrorStack"]),
+        get_path(summary, ["captureErrorMessage"]),
+        get_path(summary, ["firstValidationFailures"]),
+    )
+    no_webgpu_errors = not any(error_subtypes.values())
+    visual_parity_claimed = (
+        get_path(compositor_contract, ["fullCudaParity"]) is True
+        or get_path(compositor_contract, ["fullRendererSuccessClaimed"]) is True
+        or (
+            comparison_result is not None
+            and get_path(comparison_result, ["visualMismatchClassification"])
+            == "parity-candidate"
+        )
+    )
+    predicate_specs = [
+        (
+            "phase-step-is-step112",
+            phase_step in {None, "phase3-step112"},
+            "summary must be generated for phase3-step112 or an implementation dry run",
+        ),
+        (
+            "selected-candidates-readable",
+            len(get_path(compositor_contract, ["step112SelectedCandidates"], [])) > 0,
+            "Step112 selected candidate list must be readable",
+        ),
+        (
+            "coordinate-stage-map-readable",
+            len(get_path(compositor_contract, ["step112CoordinateTransformStageMap"], []))
+            > 0,
+            "world/camera/clip/pixel/visible-record/compositor stage map must be readable",
+        ),
+        (
+            "canonical-camera-projection-sources-readable",
+            isinstance(
+                get_path(
+                    compositor_contract,
+                    ["step112CanonicalCameraProjectionSources"],
+                ),
+                dict,
+            )
+            and len(
+                get_path(
+                    compositor_contract,
+                    ["step112CanonicalCameraProjectionSources"],
+                    {},
+                )
+            )
+            > 0,
+            "canonical camera/projection/viewport sources must be readable",
+        ),
+        (
+            "coordinate-convention-readable",
+            isinstance(
+                get_path(compositor_contract, ["step112CoordinateConvention"]),
+                dict,
+            )
+            and len(get_path(compositor_contract, ["step112CoordinateConvention"], {}))
+            > 0,
+            "coordinate convention summary must be readable",
+        ),
+        (
+            "representative-point-comparison-ready",
+            representative_ready,
+            "at least three non-collinear representative point projection comparisons must be readable",
+        ),
+        (
+            "view-projection-pixel-parity-ready",
+            view_projection_pixel_ready,
+            "CUDA canonical center projection must match WebGPU visible-record center projection",
+        ),
+        (
+            "center-projection-parity-ready",
+            center_projection_ready,
+            "center projection parity must be established before classifying rendering differences",
+        ),
+        (
+            "no-representative-first-mismatch-stage",
+            first_mismatch_stage in {None, "none"},
+            "first mismatch stage must be absent for Step112 closure",
+        ),
+        (
+            "center-projection-conic-convention-consistent",
+            conic_convention_consistent,
+            "center projection evidence and production conic payload must share the same screen-space convention",
+        ),
+        (
+            "production-runtime-consumption-ready",
+            production_consumption_ready,
+            "Step112 evidence must be consumed by the production tile compositor path",
+        ),
+        (
+            "step110-fixed-condition-comparison-preserved",
+            step110_preserved,
+            "Step110 fixed reference comparison infrastructure must remain intact",
+        ),
+        (
+            "step111-structural-gap-closure-preserved",
+            step111_preserved,
+            "Step111 scale-aware anisotropic footprint path must remain active",
+        ),
+        (
+            "capture-presentation-png-preserved",
+            capture_preserved,
+            "presentation/capture/saved PNG consistency must remain nondegenerate",
+        ),
+        (
+            "visual-parity-not-claimed",
+            visual_parity_claimed is False,
+            "Step112 must not claim visual/CUDA parity before browser recapture comparison",
+        ),
+        (
+            "webgpu-error-free",
+            no_webgpu_errors,
+            "WGSL/WebGPU/command/queue errors must be absent",
+        ),
+    ]
+    failed_predicates = [
+        {"name": name, "reason": reason}
+        for name, ready, reason in predicate_specs
+        if ready is not True
+    ]
+    blocked_reasons = [item["name"] for item in failed_predicates]
+    return {
+        "step112Decision": "success" if not blocked_reasons else "blocked",
+        "step112FailedPredicates": failed_predicates,
+        "step112BlockedReason": blocked_reasons[0] if blocked_reasons else None,
+        "step112BlockedReasons": blocked_reasons,
+        "step112SelectedGoal": get_path(
+            compositor_contract,
+            ["step112SelectedGoal"],
+        ),
+        "step112SelectedCandidates": get_path(
+            compositor_contract,
+            ["step112SelectedCandidates"],
+            [],
+        ),
+        "step112RootCause": get_path(
+            compositor_contract,
+            ["step112RootCause"],
+        ),
+        "step112CoordinateTransformStageMap": get_path(
+            compositor_contract,
+            ["step112CoordinateTransformStageMap"],
+            [],
+        ),
+        "step112CanonicalCameraProjectionSources": get_path(
+            compositor_contract,
+            ["step112CanonicalCameraProjectionSources"],
+            {},
+        ),
+        "step112CoordinateConvention": get_path(
+            compositor_contract,
+            ["step112CoordinateConvention"],
+            {},
+        ),
+        "step112RepresentativePointComparison": representative,
+        "step112RepresentativePointCount": len(representative_points)
+        if isinstance(representative_points, list)
+        else 0,
+        "step112FirstMismatchStage": first_mismatch_stage,
+        "step112ViewProjectionPixelParityReady": view_projection_pixel_ready,
+        "step112CenterProjectionParityReady": center_projection_ready,
+        "step112CenterProjectionConicConventionConsistent":
+            conic_convention_consistent,
+        "step112ProductionRuntimeConsumptionReady": production_consumption_ready,
+        "step110FixedConditionComparisonPreserved": step110_preserved,
+        "step111StructuralGapClosurePreserved": step111_preserved,
+        "step111ProductionRuntimeGapClosureUsed": get_path(
+            compositor_contract,
+            ["step111ProductionRuntimeGapClosureUsed"],
+        ),
+        "scaleAwareConicPayloadConsumed": get_path(
+            compositor_contract,
+            ["scaleAwareConicPayloadConsumed"],
+        ),
+        "anisotropicFootprintReferenceCount": get_path(
+            compositor_contract,
+            ["anisotropicFootprintReferenceCount"],
+        ),
+        "conicFallbackReferenceCount": get_path(
+            compositor_contract,
+            ["conicFallbackReferenceCount"],
+        ),
+        "capturePresentationPngPreserved": capture_preserved,
+        "presentationOutputNonblank": get_path(
+            output_diagnostic,
+            ["presentationOutputNonblank"],
+        ),
+        "captureOutputNonblank": get_path(
+            output_diagnostic,
+            ["captureOutputNonblank"],
+        ),
+        "savedPngMatchesRuntimeOutput": get_path(
+            output_diagnostic,
+            ["savedPngMatchesRuntimeOutput"],
+        ),
+        "visualOutputDegeneratedDetected": get_path(
+            output_diagnostic,
+            ["visualOutputDegeneratedDetected"],
+        ),
+        "step112RemainingCameraProjectionGaps": get_path(
+            compositor_contract,
+            ["step112RemainingCameraProjectionGaps"],
+            [],
+        ),
+        "visualParityClaimed": visual_parity_claimed,
+        "visualParityAchieved": False,
+        "earlyTerminationRemainsDisabled": get_path(
+            compositor_contract,
+            ["earlyTerminationRemainsDisabled"],
+        ),
+        "lodStreamingRemainsDisabled": get_path(
+            compositor_contract,
+            ["lodStreamingRemainsDisabled"],
+        ),
+        "nextStepRecommendedGoal": get_path(
+            compositor_contract,
+            ["step112NextStepRecommendedGoal"],
+        ),
+        **error_subtypes,
+    }
+
+
 def build_output_capture_consistency_diagnostic(
     webgpu_summary: Dict[str, Any],
     png_diagnostic: Dict[str, Any],
@@ -19978,6 +20273,7 @@ def summarize_step(base_dir: Path, prefix: str) -> Dict[str, Any]:
         "promotionValidation": None,
         "step111Timing": None,
         "step111PipelineParityGapClosure": None,
+        "step112CameraProjectionOrientationParity": None,
         "gpuVisibleRecordDryRun": None,
         "gpuRawVisibleRecordDryRun": None,
         "webgpuVisibleRecordDryRun": None,
@@ -20149,6 +20445,18 @@ def summarize_step(base_dir: Path, prefix: str) -> Dict[str, Any]:
         result["step111PipelineParityGapClosure"] = result[
             "webgpuVisibleRecordDryRun"
         ]["step111PipelineParityGapClosure"]
+        result["webgpuVisibleRecordDryRun"][
+            "step112CameraProjectionOrientationParity"
+        ] = build_step112_camera_projection_orientation_parity_summary(
+            {
+                **output_diagnostic_source,
+                "outputCaptureDiagnostic": output_diagnostic,
+            },
+            fixed_condition_visual_comparison,
+        )
+        result["step112CameraProjectionOrientationParity"] = result[
+            "webgpuVisibleRecordDryRun"
+        ]["step112CameraProjectionOrientationParity"]
     elif fixed_condition_visual_comparison is not None:
         result["fixedConditionVisualComparison"] = fixed_condition_visual_comparison
 
@@ -20209,6 +20517,10 @@ def print_human_summary(summary: Dict[str, Any]) -> None:
     print_section(
         "Step111 pipeline parity gap closure",
         summary.get("step111PipelineParityGapClosure"),
+    )
+    print_section(
+        "Step112 camera projection orientation parity",
+        summary.get("step112CameraProjectionOrientationParity"),
     )
     print_section("GPU visible record dry-run", summary.get("gpuVisibleRecordDryRun"))
     print_section("GPU raw visible record dry-run", summary.get("gpuRawVisibleRecordDryRun"))

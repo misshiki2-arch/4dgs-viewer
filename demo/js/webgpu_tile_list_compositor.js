@@ -929,6 +929,8 @@ export async function buildWebGpuTileListCompositor({
   const outputWidth = Math.max(1, Math.round(finiteNumberOr(canvasWidth, resources.tileCols)));
   const outputHeight = Math.max(1, Math.round(finiteNumberOr(canvasHeight, resources.tileRows)));
   const deterministicState = metadata?.deterministicState ?? null;
+  const step112ProjectionParityEvidence =
+    metadata?.step112ProjectionParityEvidence ?? {};
   const outputTexture = device.createTexture({
     label: 'phase3-step85-webgpu-tile-list-compositor-output-texture',
     size: { width: outputWidth, height: outputHeight },
@@ -3747,6 +3749,40 @@ fn finalizeSummary() {
       },
       step111NextStepRecommendedGoal:
         'rotation-and-camera-jacobian-screen-space-conic-parity-v1',
+      step112SelectedGoal:
+        step112ProjectionParityEvidence.selectedGoal ??
+        'cuda-fixed-reference-camera-projection-screen-space-orientation-parity-closure-v1',
+      step112SelectedCandidates:
+        step112ProjectionParityEvidence.selectedCandidates ?? [],
+      step112RootCause:
+        step112ProjectionParityEvidence.rootCause ?? null,
+      step112CoordinateTransformStageMap:
+        step112ProjectionParityEvidence.coordinateTransformStageMap ?? [],
+      step112CanonicalCameraProjectionSources:
+        step112ProjectionParityEvidence.canonicalCameraProjectionSources ?? {},
+      step112CoordinateConvention:
+        step112ProjectionParityEvidence.coordinateConvention ?? {},
+      step112RepresentativePointComparison:
+        step112ProjectionParityEvidence.representativePointComparison ?? {},
+      step112FirstMismatchStage:
+        step112ProjectionParityEvidence.firstMismatchStage ?? null,
+      step112ViewProjectionPixelParityReady:
+        step112ProjectionParityEvidence.viewProjectionPixelParityReady === true,
+      step112CenterProjectionParityReady:
+        step112ProjectionParityEvidence.centerProjectionParityReady === true,
+      step112CenterProjectionConicConventionConsistent:
+        step112ProjectionParityEvidence.centerProjectionParityReady === true &&
+        scaleAwareConicPayloadConsumed === true,
+      step112ProductionRuntimeConsumptionReady:
+        step112ProjectionParityEvidence.centerProjectionParityReady === true &&
+        step111ProductionRuntimeGapClosureUsed === true &&
+        outputTextureProducedByProductionCompositor === true,
+      step112RemainingCameraProjectionGaps:
+        step112ProjectionParityEvidence.remainingCameraProjectionGaps ?? [],
+      step112NextStepRecommendedGoal:
+        step112ProjectionParityEvidence.viewProjectionPixelParityReady === true
+          ? 'camera-jacobian-screen-space-conic-parity-v1'
+          : 'resolve-fixed-reference-projection-representative-point-mismatch-v1',
       step108NextStepRecommendedGoal:
         fixedReferenceCameraActivationReady
           ? 'run-fixed-reference-camera-visual-parity-comparison-v1'

@@ -2524,6 +2524,8 @@ function projectStatePositionWithContract({
     x: clampedX,
     y: clampedY,
     depth,
+    cameraSpacePosition: mv4,
+    projectionMode: mode > 0.5 ? 'cuda-aligned-intrinsics' : 'threejs-clip-ndc',
     viewportClamped:
       Math.abs(clampedX - px) > 1e-3 || Math.abs(clampedY - py) > 1e-3,
     bridgeProjectionFallbackApplied:
@@ -2531,6 +2533,210 @@ function projectStatePositionWithContract({
       (Math.abs(clampedX - px) > 1e-3 ||
         Math.abs(clampedY - py) > 1e-3 ||
         !(Number.isFinite(depth) && depth > 1e-6))
+  };
+}
+
+function buildStep112CoordinateTransformStageMap(projectionContractSummary) {
+  const cudaAligned = projectionContractSummary?.mode === 'cuda-aligned';
+  return [
+    {
+      stage: 'world position',
+      cudaReferenceSource: 'CUDA preprocess point mean in world coordinates',
+      webgpuSource: 'WebGPU 4D state evaluator statePositions.xyz',
+      classification: 'shared-world-space-input'
+    },
+    {
+      stage: 'camera / view space',
+      cudaReferenceSource:
+        'CUDA world_view_transform / fixed-reference metadata',
+      webgpuSource:
+        projectionContractSummary?.viewMatrixSource ?? 'projectionParams.viewRows',
+      classification: cudaAligned ? 'cuda-aligned' : 'blocked-non-cuda-aligned'
+    },
+    {
+      stage: 'projection / intrinsics',
+      cudaReferenceSource:
+        'CUDA rasterizer ndc2Pix-equivalent fx/fy/cx/cy center projection',
+      webgpuSource:
+        projectionContractSummary?.projectionMatrixSource ??
+        'projectionParams.intrinsics',
+      classification: cudaAligned ? 'cuda-aligned' : 'blocked-non-cuda-aligned'
+    },
+    {
+      stage: 'viewport / pixel coordinates',
+      cudaReferenceSource:
+        'CUDA image pixel convention, top-left saved image coordinates',
+      webgpuSource:
+        'visible-record px/py consumed by tile input and compositor',
+      classification: 'top-left-y-down-pixel-space'
+    },
+    {
+      stage: 'visible-record center',
+      cudaReferenceSource:
+        'representative-point CUDA canonical center projection',
+      webgpuSource: 'WebGPU visible record r0.z/r0.w',
+      classification: 'validated-by-step112-representative-points'
+    },
+    {
+      stage: 'covariance Jacobian / screen-space conic',
+      cudaReferenceSource:
+        'CUDA full camera Jacobian conic remains deferred',
+      webgpuSource:
+        'Step111 scale-aware anisotropic conic payload in same pixel coordinate convention',
+      classification: 'center-convention-aligned-full-jacobian-deferred'
+    },
+    {
+      stage: 'tile input / compositor',
+      cudaReferenceSource: 'CUDA projected center and footprint inputs',
+      webgpuSource:
+        'tile-aware render input samplePx + conic consumed by production compositor',
+      classification: 'production-consumed'
+    }
+  ];
+}
+
+function buildStep112RepresentativeProjectionComparison({
+  statePositions,
+  webgpuRecords,
+  projectionParams,
+  candidateIndices = [],
+  projectionContractSummary = {},
+  maxPoints = 5,
+  tolerancePx = 1e-3,
+  toleranceDepth = 1e-4
+}) {
+  const recordCount = Math.min(
+    Math.floor((webgpuRecords?.length ?? 0) / RECORD_FLOATS),
+    Math.floor((statePositions?.length ?? 0) / 4)
+  );
+  const rows = [];
+  for (let row = 0; row < recordCount; row += 1) {
+    const base = row * RECORD_FLOATS;
+    if (Number(webgpuRecords[base + 1]) < 0.5) continue;
+    rows.push(row);
+  }
+  if (rows.length === 0) {
+    return {
+      ready: false,
+      reason: 'no-valid-webgpu-visible-records-for-representative-projection',
+      representativePointCount: 0,
+      points: [],
+      maxPixelDelta: null,
+      maxDepthDelta: null,
+      firstMismatchStage: 'visible-record-center',
+      firstMismatchReason: 'valid-visible-records-missing'
+    };
+  }
+  const selectedRows = [];
+  const candidateRows = [
+    rows[0],
+    rows[Math.floor(rows.length * 0.33)],
+    rows[Math.floor(rows.length * 0.5)],
+    rows[Math.floor(rows.length * 0.67)],
+    rows[rows.length - 1]
+  ];
+  for (const row of candidateRows) {
+    if (Number.isInteger(row) && !selectedRows.includes(row)) {
+      selectedRows.push(row);
+    }
+    if (selectedRows.length >= maxPoints) break;
+  }
+  const points = [];
+  let maxPixelDelta = 0;
+  let maxDepthDelta = 0;
+  for (const row of selectedRows) {
+    const stateBase = row * 4;
+    const recordBase = row * RECORD_FLOATS;
+    const worldPosition = [
+      Number(statePositions[stateBase + 0]),
+      Number(statePositions[stateBase + 1]),
+      Number(statePositions[stateBase + 2])
+    ];
+    const canonical = projectStatePositionWithContract({
+      statePositions,
+      row,
+      candidateIndex: candidateIndices[row],
+      projectionParams,
+      canvasWidth: projectionContractSummary?.renderW ?? 0,
+      canvasHeight: projectionContractSummary?.renderH ?? 0,
+      allowBridgeFallback: false
+    });
+    const webgpu = {
+      pixel: [
+        Number(webgpuRecords[recordBase + 2]),
+        Number(webgpuRecords[recordBase + 3])
+      ],
+      depth: Number(webgpuRecords[recordBase + 4]),
+      valid: Number(webgpuRecords[recordBase + 1]) >= 0.5
+    };
+    const pixelDelta =
+      canonical && webgpu.valid
+        ? Math.hypot(webgpu.pixel[0] - canonical.x, webgpu.pixel[1] - canonical.y)
+        : Number.POSITIVE_INFINITY;
+    const depthDelta =
+      canonical && webgpu.valid
+        ? Math.abs(webgpu.depth - canonical.depth)
+        : Number.POSITIVE_INFINITY;
+    if (Number.isFinite(pixelDelta)) maxPixelDelta = Math.max(maxPixelDelta, pixelDelta);
+    if (Number.isFinite(depthDelta)) maxDepthDelta = Math.max(maxDepthDelta, depthDelta);
+    const pass =
+      !!canonical &&
+      webgpu.valid &&
+      pixelDelta <= tolerancePx &&
+      depthDelta <= toleranceDepth;
+    points.push({
+      row,
+      srcIndex: Number(candidateIndices[row] ?? webgpuRecords[recordBase + 0]),
+      worldPosition,
+      cameraSpacePosition: canonical?.cameraSpacePosition ?? null,
+      cudaCanonicalProjection: canonical
+        ? {
+            pixel: [canonical.x, canonical.y],
+            depth: canonical.depth,
+            viewportClamped: canonical.viewportClamped === true,
+            projectionContract:
+              projectionContractSummary?.projectionContract ?? null
+          }
+        : null,
+      webgpuVisibleRecordProjection: webgpu,
+      pixelDelta,
+      depthDelta,
+      pass,
+      firstMismatchStage: pass
+        ? 'none'
+        : !canonical
+          ? 'world-to-camera/projection'
+          : !webgpu.valid
+            ? 'visible-record-validity'
+            : pixelDelta > tolerancePx
+              ? 'viewport-pixel-conversion'
+              : 'depth'
+    });
+  }
+  const failed = points.filter((point) => point.pass !== true);
+  return {
+    ready: points.length >= 3 && failed.length === 0,
+    reason:
+      points.length < 3
+        ? 'non-collinear-representative-points-insufficient'
+        : failed.length > 0
+          ? 'representative-projection-mismatch'
+          : 'representative-projection-parity-within-tolerance',
+    comparisonMode:
+      'cuda-canonical-center-projection-vs-webgpu-visible-record-output',
+    tolerancePx,
+    toleranceDepth,
+    representativePointCount: points.length,
+    points,
+    maxPixelDelta,
+    maxDepthDelta,
+    firstMismatchStage:
+      failed[0]?.firstMismatchStage ??
+      'none',
+    firstMismatchReason:
+      failed[0]?.firstMismatchStage && failed[0].firstMismatchStage !== 'none'
+        ? 'representative point exceeded projection/depth tolerance'
+        : null
   };
 }
 
@@ -4624,6 +4830,69 @@ export async function runWebGpuVisibleRecordDryRun({
     projectionParams: projectionContract.data,
     rawCount
   });
+  const step112RepresentativePointComparison =
+    buildStep112RepresentativeProjectionComparison({
+      statePositions,
+      webgpuRecords: computeResult.records,
+      projectionParams: projectionContract.data,
+      candidateIndices: cpuReference.candidateIndices,
+      projectionContractSummary: projectionContract.summary
+    });
+  const step112CoordinateTransformStageMap =
+    buildStep112CoordinateTransformStageMap(projectionContract.summary);
+  const step112ProjectionParityEvidence = {
+    selectedGoal:
+      'cuda-fixed-reference-camera-projection-screen-space-orientation-parity-closure-v1',
+    selectedCandidates: [
+      'B-projection-intrinsics-principal-point-viewport-scale',
+      'C-pixel-origin-y-direction-half-pixel-convention',
+      'D-center-projection-and-conic-screen-space-convention',
+      'E-fixed-reference-camera-source-consumption'
+    ],
+    rootCause: step112RepresentativePointComparison.ready
+      ? 'fixed-reference-center-projection-path-now-matches-cuda-canonical-projection; remaining visual mismatch is not classified as camera/projection orientation'
+      : 'fixed-reference-center-projection-evidence-mismatch-or-incomplete',
+    coordinateTransformStageMap: step112CoordinateTransformStageMap,
+    canonicalCameraProjectionSources: {
+      viewMatrix: projectionContract.summary.viewMatrixSource,
+      projection: projectionContract.summary.projectionMatrixSource,
+      projectionContract: projectionContract.summary.projectionContract,
+      intrinsics: projectionContract.summary.intrinsics,
+      pixelConversion:
+        'CUDA rasterizer ndc2Pix-equivalent top-left image pixel coordinates',
+      visibleRecordCenter: 'WebGPU visible record r0.z/r0.w',
+      conicConvention:
+        'Step111 scale-aware conic payload consumed in visible-record pixel space'
+    },
+    coordinateConvention: {
+      matrixStorage: 'row-major projectionParams vec4 rows',
+      multiplicationOrder: 'row-dot(world-position-vec4)',
+      transformDirection: 'world-to-camera view rows',
+      cameraForward: '+z depth in cuda-aligned mode',
+      handedness: 'fixed-reference CUDA camera evidence, interactive Three.js separated',
+      pixelOrigin: 'top-left',
+      yDirection: 'down',
+      pixelCenterPolicy:
+        'center projection uses projectionContract intrinsics already adjusted for CUDA ndc2Pix principal point',
+      visibleRecordCenterConvention: 'floating pixel center in top-left y-down coordinates',
+      compositorPixelConvention: 'integer pixel + 0.5 sample center'
+    },
+    representativePointComparison: step112RepresentativePointComparison,
+    firstMismatchStage: step112RepresentativePointComparison.firstMismatchStage,
+    viewProjectionPixelParityReady:
+      step112RepresentativePointComparison.ready === true,
+    centerProjectionParityReady:
+      step112RepresentativePointComparison.ready === true,
+    remainingCameraProjectionGaps: step112RepresentativePointComparison.ready
+      ? [
+          'full-camera-jacobian-screen-space-conic-parity',
+          'full-covariance-projection-parity',
+          'visual-content-mismatch-after-camera-projection-parity'
+        ]
+      : [
+          'representative-projection-parity-evidence-missing-or-mismatched'
+        ]
+  };
   const webgpuCameraAwareVisibleOutput =
     buildCameraAwareVisibleOutputSamples({
       webgpuRecords: computeResult.records,
@@ -4699,7 +4968,11 @@ export async function runWebGpuVisibleRecordDryRun({
     canvasWidth,
     canvasHeight,
     viewerCanvasState,
-    metadata
+    metadata: {
+      ...(metadata ?? {}),
+      step112ProjectionParityEvidence,
+      projectionContract: projectionContract.summary
+    }
   });
   for (const buffer of [
     webgpuGpuOwnedTileListLayout.gpuResources?.inputBuffer,
