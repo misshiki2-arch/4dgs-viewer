@@ -2819,3 +2819,29 @@ targets, or projection matrices by eye. If representative centers pass, the
 remaining camera/projection gap moves to camera-Jacobian screen-space conic and
 full covariance parity. If they fail, Step112 blocks with the first mismatch
 stage and leaves visual parity unclaimed.
+
+## Step113 CUDA/WebGPU Covariance-Jacobian-Conic Parity Closure V1
+
+Step113 keeps the Step112 camera/projection/pixel convention fixed and moves
+the next upstream structural gap into the WebGPU production runtime:
+CUDA-style `scale_xyz` plus quaternion rotation covariance, camera-space
+covariance transform, projection Jacobian, 2D covariance inverse conic, and
+eigenvalue radius.
+
+The selected candidates are:
+
+- A, rotation-aware covariance: WebGPU now constructs the 3D covariance with
+  the CUDA `computeCov3D` row order and `transpose(M) * M` convention.
+- C, camera-Jacobian projection: the WebGPU footprint evaluator consumes the
+  Step112 `projectionParams` view rows and intrinsics to compute CUDA-aligned
+  Jacobian-projected screen-space covariance and conic.
+- D, production consumption: the resulting payload is emitted with source code
+  `113`, flows through visible samples, tile input, Gaussian weight
+  accumulation, output texture, presentation, and PNG capture.
+
+Step113 deliberately does not re-tune camera axes, projection signs, Y flips,
+or color to improve image metrics. Conditional 4D covariance, full SH/color
+parity, final CUDA compositor parity, early termination, LOD, and streaming
+remain deferred. Summary records representative Gaussian intermediate values
+and first mismatch stage so browser captures can validate the production path
+without relying on raw JSON hand inspection.

@@ -13805,6 +13805,688 @@ def build_step112_camera_projection_orientation_parity_summary(
     }
 
 
+def build_step113_covariance_jacobian_conic_parity_summary(
+    summary: Dict[str, Any],
+    comparison_result: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    compositor_contract = get_path(summary, ["webgpuTileListCompositorContract"], {})
+    phase_step = get_path(summary, ["phaseStep"])
+    representative = get_path(
+        compositor_contract,
+        ["step113RepresentativeGaussianComparison"],
+        {},
+    )
+    representative_count = numeric_value(
+        get_path(compositor_contract, ["step113RepresentativeGaussianCount"]),
+        0,
+    )
+    actual_evidence_source = get_path(representative, ["actualEvidenceSource"])
+    expected_evidence_source = get_path(representative, ["expectedEvidenceSource"])
+    readback_completed_count = numeric_value(
+        get_path(representative, ["readbackCompletedCount"]),
+        0,
+    )
+    missing_readback_count = numeric_value(
+        get_path(representative, ["missingReadbackCount"]),
+        0,
+    )
+    invalid_readback_count = numeric_value(
+        get_path(representative, ["invalidReadbackCount"]),
+        0,
+    )
+    production_storage_binding_count = numeric_value(
+        get_path(
+            representative,
+            ["productionComputeStorageBufferBindingCount"],
+        ),
+        0,
+    )
+    requested_storage_binding_limit = numeric_value(
+        get_path(
+            representative,
+            ["requestedMaxStorageBuffersPerShaderStage"],
+        ),
+        0,
+    )
+    adapter_supported_storage_binding_limit = numeric_value(
+        get_path(
+            representative,
+            ["adapterSupportedMaxStorageBuffersPerShaderStage"],
+        ),
+        requested_storage_binding_limit,
+    )
+    representative_coverage = get_path(
+        representative,
+        ["representativeCoverage"],
+        {},
+    )
+    camera_depth_min = numeric_value(
+        get_path(representative_coverage, ["cameraDepthRange.min"]),
+        None,
+    )
+    camera_depth_max = numeric_value(
+        get_path(representative_coverage, ["cameraDepthRange.max"]),
+        None,
+    )
+    camera_depth_span = numeric_value(
+        get_path(representative_coverage, ["cameraDepthRange.span"]),
+        0,
+    )
+    camera_screen_x_min = numeric_value(
+        get_path(representative_coverage, ["cameraScreenPositionRange.x.min"]),
+        None,
+    )
+    camera_screen_x_max = numeric_value(
+        get_path(representative_coverage, ["cameraScreenPositionRange.x.max"]),
+        None,
+    )
+    camera_screen_span_x = numeric_value(
+        get_path(representative_coverage, ["cameraScreenPositionRange.x.span"]),
+        0,
+    )
+    camera_screen_y_min = numeric_value(
+        get_path(representative_coverage, ["cameraScreenPositionRange.y.min"]),
+        None,
+    )
+    camera_screen_y_max = numeric_value(
+        get_path(representative_coverage, ["cameraScreenPositionRange.y.max"]),
+        None,
+    )
+    camera_screen_span_y = numeric_value(
+        get_path(representative_coverage, ["cameraScreenPositionRange.y.span"]),
+        0,
+    )
+    coverage_thresholds = {
+        "depthSpanMin": numeric_value(
+            get_path(representative_coverage, ["thresholds.depthSpanMin"]),
+            1e-6,
+        ),
+        "screenXSpanMin": numeric_value(
+            get_path(representative_coverage, ["thresholds.screenXSpanMin"]),
+            1e-6,
+        ),
+        "screenYSpanMin": numeric_value(
+            get_path(representative_coverage, ["thresholds.screenYSpanMin"]),
+            1e-6,
+        ),
+        "screenAnyAxisSpanMin": numeric_value(
+            get_path(representative_coverage, ["thresholds.screenAnyAxisSpanMin"]),
+            1e-6,
+        ),
+    }
+    coverage_axis_pass = {
+        "depth": (
+            get_path(representative_coverage, ["pass.depth"])
+            if get_path(representative_coverage, ["pass.depth"]) is not None
+            else camera_depth_span > coverage_thresholds["depthSpanMin"]
+        ),
+        "screenX": (
+            get_path(representative_coverage, ["pass.screenX"])
+            if get_path(representative_coverage, ["pass.screenX"]) is not None
+            else camera_screen_span_x > coverage_thresholds["screenXSpanMin"]
+        ),
+        "screenY": (
+            get_path(representative_coverage, ["pass.screenY"])
+            if get_path(representative_coverage, ["pass.screenY"]) is not None
+            else camera_screen_span_y > coverage_thresholds["screenYSpanMin"]
+        ),
+        "screenAnyAxis": (
+            get_path(representative_coverage, ["pass.screenAnyAxis"])
+            if get_path(representative_coverage, ["pass.screenAnyAxis"]) is not None
+            else max(camera_screen_span_x, camera_screen_span_y)
+            > coverage_thresholds["screenAnyAxisSpanMin"]
+        ),
+    }
+    representative_coverage_pass = (
+        get_path(representative_coverage, ["overallPass"])
+        if get_path(representative_coverage, ["overallPass"]) is not None
+        else (
+            numeric_value(
+                get_path(representative_coverage, ["nonIsotropicRepresentativeCount"]),
+                0,
+            )
+            > 0
+            and numeric_value(
+                get_path(
+                    representative_coverage,
+                    ["nonTrivialRotationRepresentativeCount"],
+                ),
+                0,
+            )
+            > 0
+            and coverage_axis_pass["depth"] is True
+            and coverage_axis_pass["screenAnyAxis"] is True
+        )
+    )
+    representative_coverage_failure_reasons = get_path(
+        representative_coverage,
+        ["failureReasons"],
+        [],
+    )
+    if not representative_coverage_failure_reasons:
+        derived_coverage_reasons = []
+        if coverage_axis_pass["depth"] is not True:
+            derived_coverage_reasons.append("insufficient-depth-span")
+        if coverage_axis_pass["screenAnyAxis"] is not True:
+            derived_coverage_reasons.append("insufficient-screen-position-span")
+        representative_coverage_failure_reasons = derived_coverage_reasons
+    coverage_diagnostic = {
+        "cameraDepthRange": {
+            "min": camera_depth_min,
+            "max": camera_depth_max,
+            "span": camera_depth_span,
+            "threshold": coverage_thresholds["depthSpanMin"],
+            "pass": coverage_axis_pass["depth"],
+        },
+        "cameraScreenPositionRange": {
+            "x": {
+                "min": camera_screen_x_min,
+                "max": camera_screen_x_max,
+                "span": camera_screen_span_x,
+                "threshold": coverage_thresholds["screenXSpanMin"],
+                "pass": coverage_axis_pass["screenX"],
+            },
+            "y": {
+                "min": camera_screen_y_min,
+                "max": camera_screen_y_max,
+                "span": camera_screen_span_y,
+                "threshold": coverage_thresholds["screenYSpanMin"],
+                "pass": coverage_axis_pass["screenY"],
+            },
+            "anyAxisThreshold": coverage_thresholds["screenAnyAxisSpanMin"],
+            "anyAxisPass": coverage_axis_pass["screenAnyAxis"],
+        },
+        "thresholds": coverage_thresholds,
+        "axisPass": coverage_axis_pass,
+        "overallPass": representative_coverage_pass,
+        "failureReasons": representative_coverage_failure_reasons,
+    }
+    diagnostic_tail_layout = get_path(
+        representative,
+        ["diagnosticPackedTailLayout"],
+        {},
+    )
+    diagnostic_layout_alignment_valid = (
+        get_path(diagnostic_tail_layout, ["productionPayloadOffsetAligned"]) is True
+        and get_path(diagnostic_tail_layout, ["diagnosticTailOffsetAligned"]) is True
+        and get_path(diagnostic_tail_layout, ["readbackRangeOffsetAligned"]) is True
+    )
+    diagnostic_layout_non_overlapping = (
+        get_path(diagnostic_tail_layout, ["regionsOverlap"]) is False
+    )
+    diagnostic_layout_capacity_sufficient = (
+        get_path(diagnostic_tail_layout, ["bufferCapacitySufficient"]) is True
+    )
+    diagnostic_readback_within_tail = (
+        get_path(diagnostic_tail_layout, ["readbackRangeWithinDiagnosticTail"]) is True
+    )
+    diagnostic_wgsl_write_within_tail = (
+        get_path(diagnostic_tail_layout, ["wgslWriteRangeWithinDiagnosticTail"])
+        is True
+    )
+    diagnostic_layout_ready = (
+        diagnostic_layout_non_overlapping
+        and diagnostic_layout_capacity_sufficient
+        and diagnostic_layout_alignment_valid
+        and diagnostic_wgsl_write_within_tail
+        and diagnostic_readback_within_tail
+        and get_path(diagnostic_tail_layout, ["productionRecordStridePreserved"]) is True
+        and get_path(diagnostic_tail_layout, ["productionRecordCountPreserved"]) is True
+    )
+    comparison_executed = (
+        comparison_result is not None
+        and get_path(comparison_result, ["comparisonExecuted"]) is True
+    )
+    first_mismatch_stage = get_path(
+        compositor_contract,
+        ["step113FirstMismatchStage"],
+    )
+    production_used = (
+        get_path(compositor_contract, ["step113ProductionRuntimeGapClosureUsed"])
+        is True
+    )
+    production_consumption = get_path(
+        compositor_contract,
+        ["step113ProductionConsumptionEvidence"],
+        {},
+    )
+    step110_preserved = (
+        get_path(compositor_contract, ["fixedConditionVisualComparisonContractReady"])
+        is True
+        and get_path(compositor_contract, ["fixedConditionVisualComparisonInputsReady"])
+        is True
+        and get_path(compositor_contract, ["fixedReferenceCameraActivationReady"]) is True
+        and get_path(compositor_contract, ["cameraConstantsRoutingReady"]) is True
+        and get_path(compositor_contract, ["usesCudaAlignedFixedReferenceCamera"]) is True
+    )
+    step111_preserved = (
+        get_path(compositor_contract, ["step111ProductionRuntimeGapClosureUsed"])
+        is True
+        and get_path(compositor_contract, ["scaleAwareConicPayloadConsumed"]) is True
+        and numeric_value(
+            get_path(compositor_contract, ["anisotropicFootprintReferenceCount"]),
+            0,
+        )
+        > 0
+    )
+    step112_preserved = (
+        get_path(compositor_contract, ["step112CenterProjectionParityReady"]) is True
+        and get_path(compositor_contract, ["step112ViewProjectionPixelParityReady"])
+        is True
+        and get_path(
+            compositor_contract,
+            ["step112CenterProjectionConicConventionConsistent"],
+        )
+        is True
+        and get_path(compositor_contract, ["step112ProductionRuntimeConsumptionReady"])
+        is True
+    )
+    output_diagnostic = get_path(summary, ["outputCaptureDiagnostic"], {})
+    capture_preserved = (
+        get_path(output_diagnostic, ["captureOutputNonblank"]) is True
+        and get_path(output_diagnostic, ["presentationOutputNonblank"]) is True
+        and (
+            get_path(output_diagnostic, ["savedPngMatchesPresentedOutput"]) is True
+            or get_path(output_diagnostic, ["savedPngMatchesRuntimeOutput"]) is True
+        )
+        and get_path(output_diagnostic, ["visualOutputDegeneratedDetected"]) is not True
+    )
+    error_subtypes = detect_webgpu_error_subtypes(
+        get_path(summary, ["webgpuTileCompositorFrameImplementation"], {}),
+        compositor_contract,
+        comparison_result,
+        get_path(summary, ["captureErrorString"]),
+        get_path(summary, ["captureErrorStack"]),
+        get_path(summary, ["captureErrorMessage"]),
+        get_path(summary, ["firstValidationFailures"]),
+    )
+    no_webgpu_errors = not any(error_subtypes.values())
+    visual_parity_claimed = (
+        get_path(compositor_contract, ["fullCudaParity"]) is True
+        or get_path(compositor_contract, ["fullRendererSuccessClaimed"]) is True
+        or (
+            comparison_result is not None
+            and get_path(comparison_result, ["visualMismatchClassification"])
+            == "parity-candidate"
+        )
+    )
+    old_approximation_used = (
+        get_path(compositor_contract, ["step113OldApproximationUsedInProduction"])
+        is True
+    )
+    predicate_specs = [
+        (
+            "phase-step-is-step113",
+            phase_step in {None, "phase3-step113"},
+            "summary must be generated for phase3-step113 or an implementation dry run",
+        ),
+        (
+            "selected-candidates-readable",
+            len(get_path(compositor_contract, ["step113SelectedCandidates"], [])) > 0,
+            "Step113 selected candidates must be readable",
+        ),
+        (
+            "covariance-conic-stage-map-readable",
+            len(
+                get_path(
+                    compositor_contract,
+                    ["step113CudaWebgpuCovarianceConicStageMap"],
+                    [],
+                )
+            )
+            > 0,
+            "CUDA/WebGPU covariance-to-conic stage map must be readable",
+        ),
+        (
+            "representative-gaussian-comparison-ready",
+            representative_count >= 3
+            and isinstance(
+                get_path(representative, ["representativeGaussians"], []),
+                list,
+            )
+            and len(get_path(representative, ["representativeGaussians"], [])) >= 3,
+            "multiple representative Gaussian covariance/conic comparisons must be readable",
+        ),
+        (
+            "actual-source-is-wgsl-intermediate-readback",
+            actual_evidence_source
+            == "wgsl-step113-intermediate-diagnostic-readback-buffer",
+            "Step113 canonical actual evidence must come from WGSL intermediate readback",
+        ),
+        (
+            "expected-source-is-cuda-reference-formula",
+            expected_evidence_source
+            == "cuda-forward-cu-computeCov3D-computeCov2D-reference-formula",
+            "Step113 expected evidence must identify the CUDA-equivalent reference formula",
+        ),
+        (
+            "wgsl-intermediate-readback-complete",
+            readback_completed_count >= 3
+            and missing_readback_count == 0
+            and invalid_readback_count == 0,
+            "WGSL intermediate readback must complete for representative Gaussians",
+        ),
+        (
+            "production-compute-storage-binding-count-within-limit",
+            production_storage_binding_count > 0
+            and requested_storage_binding_limit > 0
+            and production_storage_binding_count <= requested_storage_binding_limit
+            and production_storage_binding_count <= 8,
+            "Step113 evaluator storage buffer bindings must stay within the default WebGPU minimum limit",
+        ),
+        (
+            "diagnostic-buffer-packed-without-required-limits-raise",
+            get_path(representative, ["diagnosticPackingMode"])
+            == "packed-into-footprint-payload-tail-existing-storage-buffer"
+            and get_path(
+                representative,
+                ["requiredLimitsRaisedForStep113Diagnostic"],
+            )
+            is False,
+            "Step113 diagnostic readback must be packed without raising production device limits",
+        ),
+        (
+            "actual-evidence-same-production-dispatch",
+            get_path(representative, ["actualEvidenceSameProductionDispatch"]) is True,
+            "Step113 actual evidence must be written by the same production evaluator dispatch",
+        ),
+        (
+            "representatives-cover-anisotropy-and-rotation",
+            numeric_value(
+                get_path(
+                    representative_coverage,
+                    ["nonIsotropicRepresentativeCount"],
+                ),
+                0,
+            )
+            > 0
+            and numeric_value(
+                get_path(
+                    representative_coverage,
+                    ["nonTrivialRotationRepresentativeCount"],
+                ),
+                0,
+            )
+            > 0,
+            "representative Gaussians must include non-isotropic scale and non-trivial rotation",
+        ),
+        (
+            "representatives-cover-depth-and-screen-position",
+            representative_coverage_pass is True,
+            "representative Gaussians must cover different camera depths and screen positions",
+        ),
+        (
+            "diagnostic-packed-tail-layout-safe",
+            diagnostic_layout_ready,
+            "packed diagnostic tail must be aligned, non-overlapping, within buffer capacity, and preserve production payload layout",
+        ),
+        (
+            "no-first-mismatch-stage",
+            first_mismatch_stage in {None, "none"},
+            "CUDA canonical covariance/Jacobian/conic and WebGPU payload must match within tolerance",
+        ),
+        (
+            "production-runtime-gap-closure-consumed",
+            production_used,
+            "Step113 covariance/Jacobian/conic payload must be consumed by production runtime",
+        ),
+        (
+            "jacobian-conic-payload-consumed",
+            get_path(production_consumption, ["jacobianConicPayloadConsumed"]) is True
+            and numeric_value(
+                get_path(production_consumption, ["jacobianConicPayloadCount"]),
+                0,
+            )
+            > 0,
+            "sourceCode=113 Jacobian conic payload must be present and consumed",
+        ),
+        (
+            "old-approximation-not-used-in-production",
+            old_approximation_used is False,
+            "Step111 scale-only approximation must not be the Step113 production success path",
+        ),
+        (
+            "diagnostic-readback-separated-from-production-runtime",
+            get_path(
+                representative,
+                ["diagnosticReadbackSeparatedFromProductionRuntime"],
+            )
+            is True
+            and get_path(
+                representative,
+                ["productionCalculationDependsOnDiagnosticReadback"],
+            )
+            is False,
+            "diagnostic readback must not be a production runtime dependency",
+        ),
+        (
+            "step110-fixed-condition-comparison-preserved",
+            step110_preserved,
+            "Step110 fixed-condition comparison infrastructure must remain intact",
+        ),
+        (
+            "step111-footprint-path-preserved",
+            step111_preserved,
+            "Step111 production footprint path must remain active",
+        ),
+        (
+            "step112-camera-projection-parity-preserved",
+            step112_preserved,
+            "Step112 canonical camera/projection parity must remain active",
+        ),
+        (
+            "capture-orientation-freshness-preserved",
+            capture_preserved,
+            "capture/presentation/saved PNG consistency must remain nondegenerate",
+        ),
+        (
+            "visual-parity-not-claimed",
+            visual_parity_claimed is False,
+            "Step113 must not claim visual/CUDA parity before browser recapture comparison",
+        ),
+        (
+            "webgpu-error-free",
+            no_webgpu_errors,
+            "WGSL/WebGPU/command/queue errors must be absent",
+        ),
+    ]
+    failed_predicates = [
+        {"name": name, "reason": reason}
+        for name, ready, reason in predicate_specs
+        if ready is not True
+    ]
+    blocked_reasons = [item["name"] for item in failed_predicates]
+    return {
+        "step113Decision": "success" if not blocked_reasons else "blocked",
+        "step113FailedPredicates": failed_predicates,
+        "step113BlockedReason": blocked_reasons[0] if blocked_reasons else None,
+        "step113BlockedReasons": blocked_reasons,
+        "step113SelectedGoal": get_path(
+            compositor_contract,
+            ["step113SelectedGoal"],
+        ),
+        "step113SelectedCandidates": get_path(
+            compositor_contract,
+            ["step113SelectedCandidates"],
+            [],
+        ),
+        "step113RootCause": get_path(
+            compositor_contract,
+            ["step113RootCause"],
+        ),
+        "cudaWebgpuCovarianceConicStageMap": get_path(
+            compositor_contract,
+            ["step113CudaWebgpuCovarianceConicStageMap"],
+            [],
+        ),
+        "representativeGaussianCount": representative_count,
+        "representativeGaussianComparison": representative,
+        "actualEvidenceSource": actual_evidence_source,
+        "expectedEvidenceSource": expected_evidence_source,
+        "readbackCompletedCount": readback_completed_count,
+        "missingReadbackCount": missing_readback_count,
+        "invalidReadbackCount": invalid_readback_count,
+        "productionComputeStorageBufferBindingCount":
+            production_storage_binding_count,
+        "deviceDefaultMaxStorageBuffersPerShaderStage": get_path(
+            representative,
+            ["deviceDefaultMaxStorageBuffersPerShaderStage"],
+        ),
+        "adapterSupportedMaxStorageBuffersPerShaderStage":
+            adapter_supported_storage_binding_limit,
+        "requestedMaxStorageBuffersPerShaderStage":
+            requested_storage_binding_limit,
+        "requiredLimitsRaisedForStep113Diagnostic": get_path(
+            representative,
+            ["requiredLimitsRaisedForStep113Diagnostic"],
+        ),
+        "diagnosticPackingMode": get_path(
+            representative,
+            ["diagnosticPackingMode"],
+        ),
+        "diagnosticReadbackSourceBuffer": get_path(
+            representative,
+            ["diagnosticReadbackSourceBuffer"],
+        ),
+        "actualEvidenceSameProductionDispatch": get_path(
+            representative,
+            ["actualEvidenceSameProductionDispatch"],
+        ),
+        "storageBufferBindingBreakdown": get_path(
+            representative,
+            ["storageBufferBindingBreakdown"],
+            [],
+        ),
+        "representativeCoverage": representative_coverage,
+        "representativeCoverageDiagnostic": coverage_diagnostic,
+        "representativeCoverageThresholds": coverage_thresholds,
+        "representativeCoverageAxisPass": coverage_axis_pass,
+        "representativeCoveragePass": representative_coverage_pass,
+        "representativeCoverageFailureReasons":
+            representative_coverage_failure_reasons,
+        "diagnosticPackedTailLayout": diagnostic_tail_layout,
+        "diagnosticPackedTailLayoutReady": diagnostic_layout_ready,
+        "diagnosticPackedTailAlignmentValid": diagnostic_layout_alignment_valid,
+        "diagnosticPackedTailRegionsOverlap": get_path(
+            diagnostic_tail_layout,
+            ["regionsOverlap"],
+        ),
+        "diagnosticPackedTailCapacitySufficient":
+            diagnostic_layout_capacity_sufficient,
+        "diagnosticReadbackRangeWithinTail": diagnostic_readback_within_tail,
+        "diagnosticWgslWriteRangeWithinTail": diagnostic_wgsl_write_within_tail,
+        "comparisonExecuted": comparison_executed,
+        "comparisonImageSizeMatch": get_path(
+            comparison_result or {},
+            ["imageSizeMatch"],
+        ),
+        "comparisonChannelMode": get_path(
+            comparison_result or {},
+            ["comparisonChannelMode"],
+        ),
+        "pixelMae": get_path(comparison_result or {}, ["pixelMae"]),
+        "pixelRmse": get_path(comparison_result or {}, ["pixelRmse"]),
+        "maxAbsDifference": get_path(
+            comparison_result or {},
+            ["maxAbsDifference"],
+        ),
+        "differingPixelCount": get_path(
+            comparison_result or {},
+            ["differingPixelCount"],
+        ),
+        "differingPixelRatio": get_path(
+            comparison_result or {},
+            ["differingPixelRatio"],
+        ),
+        "mismatchClassification": get_path(
+            comparison_result or {},
+            ["visualMismatchClassification"],
+        ),
+        "comparisonFailedPredicates": (
+            []
+            if comparison_executed
+            else [
+                {
+                    "name": "step113-comparison-json-readable",
+                    "reason": "fixed-condition comparison JSON must be readable for Step113 metric reporting",
+                }
+            ]
+        ),
+        "comparisonBlockedReasons": (
+            [] if comparison_executed else ["step113-comparison-json-readable"]
+        ),
+        "maxStageErrors": get_path(
+            compositor_contract,
+            ["step113MaxStageErrors"],
+            {},
+        ),
+        "firstMismatchStage": first_mismatch_stage,
+        "rotationCovarianceClassification": get_path(
+            compositor_contract,
+            ["step113RotationCovarianceClassification"],
+        ),
+        "conditional4DCovarianceClassification": get_path(
+            compositor_contract,
+            ["step113Conditional4DCovarianceClassification"],
+        ),
+        "jacobianProjectionClassification": get_path(
+            compositor_contract,
+            ["step113JacobianProjectionClassification"],
+        ),
+        "conicRadiusClassification": get_path(
+            compositor_contract,
+            ["step113ConicRadiusClassification"],
+        ),
+        "step113ProductionRuntimeGapClosureUsed": production_used,
+        "step113ProductionConsumptionEvidence": production_consumption,
+        "oldApproximationUsedInProduction": old_approximation_used,
+        "step110FixedConditionComparisonPreserved": step110_preserved,
+        "step111FootprintPathPreserved": step111_preserved,
+        "step112CameraProjectionParityPreserved": step112_preserved,
+        "captureOrientationFreshnessPreserved": capture_preserved,
+        "presentationOutputNonblank": get_path(
+            output_diagnostic,
+            ["presentationOutputNonblank"],
+        ),
+        "captureOutputNonblank": get_path(
+            output_diagnostic,
+            ["captureOutputNonblank"],
+        ),
+        "savedPngMatchesPresentedOutput": get_path(
+            output_diagnostic,
+            ["savedPngMatchesPresentedOutput"],
+        ),
+        "savedPngMatchesRuntimeOutput": get_path(
+            output_diagnostic,
+            ["savedPngMatchesRuntimeOutput"],
+        ),
+        "visualOutputDegeneratedDetected": get_path(
+            output_diagnostic,
+            ["visualOutputDegeneratedDetected"],
+        ),
+        "remainingStructuralGaps": get_path(
+            compositor_contract,
+            ["step113RemainingStructuralGaps"],
+            [],
+        ),
+        "visualParityClaimed": visual_parity_claimed,
+        "visualParityAchieved": False,
+        "earlyTerminationRemainsDisabled": get_path(
+            compositor_contract,
+            ["earlyTerminationRemainsDisabled"],
+        ),
+        "lodStreamingRemainsDisabled": get_path(
+            compositor_contract,
+            ["lodStreamingRemainsDisabled"],
+        ),
+        "nextStepRecommendedGoal": get_path(
+            compositor_contract,
+            ["step113NextStepRecommendedGoal"],
+        ),
+        **error_subtypes,
+    }
+
+
 def build_output_capture_consistency_diagnostic(
     webgpu_summary: Dict[str, Any],
     png_diagnostic: Dict[str, Any],
@@ -20274,6 +20956,7 @@ def summarize_step(base_dir: Path, prefix: str) -> Dict[str, Any]:
         "step111Timing": None,
         "step111PipelineParityGapClosure": None,
         "step112CameraProjectionOrientationParity": None,
+        "step113CovarianceJacobianConicParity": None,
         "gpuVisibleRecordDryRun": None,
         "gpuRawVisibleRecordDryRun": None,
         "webgpuVisibleRecordDryRun": None,
@@ -20457,6 +21140,18 @@ def summarize_step(base_dir: Path, prefix: str) -> Dict[str, Any]:
         result["step112CameraProjectionOrientationParity"] = result[
             "webgpuVisibleRecordDryRun"
         ]["step112CameraProjectionOrientationParity"]
+        result["webgpuVisibleRecordDryRun"][
+            "step113CovarianceJacobianConicParity"
+        ] = build_step113_covariance_jacobian_conic_parity_summary(
+            {
+                **output_diagnostic_source,
+                "outputCaptureDiagnostic": output_diagnostic,
+            },
+            fixed_condition_visual_comparison,
+        )
+        result["step113CovarianceJacobianConicParity"] = result[
+            "webgpuVisibleRecordDryRun"
+        ]["step113CovarianceJacobianConicParity"]
     elif fixed_condition_visual_comparison is not None:
         result["fixedConditionVisualComparison"] = fixed_condition_visual_comparison
 
@@ -20521,6 +21216,10 @@ def print_human_summary(summary: Dict[str, Any]) -> None:
     print_section(
         "Step112 camera projection orientation parity",
         summary.get("step112CameraProjectionOrientationParity"),
+    )
+    print_section(
+        "Step113 covariance Jacobian conic parity",
+        summary.get("step113CovarianceJacobianConicParity"),
     )
     print_section("GPU visible record dry-run", summary.get("gpuVisibleRecordDryRun"))
     print_section("GPU raw visible record dry-run", summary.get("gpuRawVisibleRecordDryRun"))

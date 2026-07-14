@@ -931,6 +931,8 @@ export async function buildWebGpuTileListCompositor({
   const deterministicState = metadata?.deterministicState ?? null;
   const step112ProjectionParityEvidence =
     metadata?.step112ProjectionParityEvidence ?? {};
+  const step113CovarianceJacobianConicEvidence =
+    metadata?.step113CovarianceJacobianConicEvidence ?? {};
   const outputTexture = device.createTexture({
     label: 'phase3-step85-webgpu-tile-list-compositor-output-texture',
     size: { width: outputWidth, height: outputHeight },
@@ -2084,6 +2086,37 @@ fn finalizeSummary() {
     alphaAccumulationUsed: summary.alphaAccumulationUsed,
     outputTextureProducedByProductionCompositor,
     productionPathUsed: summary.productionTileCompositorPathUsed
+  };
+  const step113JacobianConicPayloadCount =
+    Math.max(
+      0,
+      Math.round(
+        finiteNumberOr(
+          step113CovarianceJacobianConicEvidence.jacobianConicPayloadCount,
+          0
+        )
+      )
+    );
+  const step113RepresentativeReady =
+    step113CovarianceJacobianConicEvidence.firstMismatchStage === 'none' &&
+    step113CovarianceJacobianConicEvidence.representativeGaussianCount > 0;
+  const step113ProductionRuntimeGapClosureUsed =
+    step113JacobianConicPayloadCount > 0 &&
+    step113RepresentativeReady &&
+    summary.footprintPayloadConsumed === true &&
+    summary.alphaAccumulationUsed === true &&
+    outputTextureProducedByProductionCompositor === true;
+  const step113ProductionConsumptionEvidence = {
+    jacobianConicPayloadConsumed: step113JacobianConicPayloadCount > 0,
+    jacobianConicPayloadCount: step113JacobianConicPayloadCount,
+    footprintPayloadConsumed: summary.footprintPayloadConsumed,
+    gaussianWeightConicConsumed:
+      summary.footprintPayloadConsumed === true &&
+      summary.alphaAccumulationUsed === true,
+    outputTextureProducedByProductionCompositor,
+    representativeComparisonReady: step113RepresentativeReady,
+    firstMismatchStage:
+      step113CovarianceJacobianConicEvidence.firstMismatchStage ?? null
   };
   const updatedStageNames = [
     'time-frame-state',
@@ -3241,7 +3274,8 @@ fn finalizeSummary() {
         'capability-based-regression-gate-v1',
         'legacy-step-preservation-diagnostic-mapping-v1',
         'step111-scale-aware-anisotropic-footprint-production-v1',
-        'step111-cuda-webgpu-pipeline-parity-stage-map-v1'
+        'step111-cuda-webgpu-pipeline-parity-stage-map-v1',
+        'step113-cuda-webgpu-covariance-jacobian-conic-production-v1'
       ],
       deferredCompositorFields: [
         'full-production-parallel-sort-parity',
@@ -3255,8 +3289,7 @@ fn finalizeSummary() {
         'visual-parity-diagnostics',
         'runtime-pixel-diff-against-reference-image',
         'cuda-reference-execution-refresh',
-        'rotation-aware-anisotropic-conic-parity',
-        'camera-jacobian-screen-space-conic-parity',
+        'full-4d-conditional-covariance',
         'full-sh-color-parity',
         'early-termination-v1',
         'lod-streaming'
@@ -3783,6 +3816,49 @@ fn finalizeSummary() {
         step112ProjectionParityEvidence.viewProjectionPixelParityReady === true
           ? 'camera-jacobian-screen-space-conic-parity-v1'
           : 'resolve-fixed-reference-projection-representative-point-mismatch-v1',
+      step113SelectedGoal:
+        'cuda-webgpu-covariance-jacobian-conic-parity-closure-v1',
+      step113SelectedCandidates:
+        step113CovarianceJacobianConicEvidence.selectedCandidates ?? [],
+      step113RootCause:
+        step113CovarianceJacobianConicEvidence.rootCause ?? null,
+      step113CudaWebgpuCovarianceConicStageMap:
+        step113CovarianceJacobianConicEvidence
+          .cudaWebgpuCovarianceConicStageMap ?? [],
+      step113RepresentativeGaussianComparison:
+        step113CovarianceJacobianConicEvidence,
+      step113RepresentativeGaussianCount:
+        step113CovarianceJacobianConicEvidence.representativeGaussianCount ?? 0,
+      step113FirstMismatchStage:
+        step113CovarianceJacobianConicEvidence.firstMismatchStage ?? null,
+      step113MaxStageErrors:
+        step113CovarianceJacobianConicEvidence.maxStageErrors ?? {},
+      step113RotationCovarianceClassification:
+        step113CovarianceJacobianConicEvidence
+          .rotationCovarianceClassification ?? null,
+      step113Conditional4DCovarianceClassification:
+        step113CovarianceJacobianConicEvidence
+          .conditional4DCovarianceClassification ?? null,
+      step113JacobianProjectionClassification:
+        step113CovarianceJacobianConicEvidence
+          .jacobianProjectionClassification ?? null,
+      step113ConicRadiusClassification:
+        step113CovarianceJacobianConicEvidence
+          .conicRadiusClassification ?? null,
+      step113ProductionRuntimeGapClosureUsed,
+      step113ProductionConsumptionEvidence,
+      step113OldApproximationUsedInProduction:
+        step113ProductionRuntimeGapClosureUsed !== true,
+      step113RemainingStructuralGaps: [
+        'full-4d-conditional-covariance',
+        'full-sh-color-opacity-parity',
+        'cuda-front-to-back-compositor-parity',
+        'chunk-lod-streaming'
+      ],
+      step113NextStepRecommendedGoal:
+        step113ProductionRuntimeGapClosureUsed
+          ? 'sh-color-opacity-temporal-weighting-production-parity-v1'
+          : 'resolve-covariance-jacobian-conic-representative-mismatch-v1',
       step108NextStepRecommendedGoal:
         fixedReferenceCameraActivationReady
           ? 'run-fixed-reference-camera-visual-parity-comparison-v1'

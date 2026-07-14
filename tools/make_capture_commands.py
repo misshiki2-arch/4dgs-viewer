@@ -234,7 +234,18 @@ def build_webgpu_visible_record_dryrun_command(args: argparse.Namespace) -> str:
     phase_step = None
     comparison_mode = None
     fixed_reference_camera_mode_line = ""
-    if "step112" in args.step:
+    if "step113" in args.step:
+        phase_step = "phase3-step113"
+        comparison_mode = (
+            "phase3-step113-cuda-webgpu-covariance-jacobian-conic-parity-closure"
+        )
+        fixed_reference_camera_mode_line = (
+            "\n    fixedReferenceCameraMode: true,"
+            "\n    fixedReferenceCameraActivationMode: "
+            "'cuda-aligned-fixed-reference-camera',"
+            "\n    referenceCameraMode: 'cuda-aligned-fixed-reference-camera',"
+        )
+    elif "step112" in args.step:
         phase_step = "phase3-step112"
         comparison_mode = (
             "phase3-step112-fixed-reference-camera-projection-orientation-parity-closure"
@@ -430,7 +441,7 @@ def build_live_same_state_command(args: argparse.Namespace) -> str:
 
 
 def build_png_command(args: argparse.Namespace) -> str:
-    if "step111" in args.step or "step112" in args.step:
+    if "step111" in args.step or "step112" in args.step or "step113" in args.step:
         return f"""var pngCaptureResult = await window.gpuViewerDebug.saveCurrentCanvasPng({{
   name: {quote(args.step + '_canvas.png')},
   captureSource: 'last-valid-webgpu-tile-compositor-output',
@@ -481,6 +492,7 @@ def build_preamble(args: argparse.Namespace) -> str:
         or "step110" in args.step
         or "step111" in args.step
         or "step112" in args.step
+        or "step113" in args.step
     ):
         camera_probe = ""
         if (
@@ -498,6 +510,7 @@ def build_preamble(args: argparse.Namespace) -> str:
             or "step110" in args.step
             or "step111" in args.step
             or "step112" in args.step
+            or "step113" in args.step
         ):
             camera_probe = f"""if (typeof window.gpuViewerDebug.runViewerCameraDirtySchedulerProbe === 'function') {{
   var viewerCameraDirtySchedulerProbe =

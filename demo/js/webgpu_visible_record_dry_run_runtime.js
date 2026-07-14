@@ -2065,7 +2065,7 @@ function readWebGpuFootprintPayload(footprintPayload, recordIndex) {
   const base = recordIndex * 12;
   if (!footprintPayload || base + 11 >= footprintPayload.length) return null;
   const sourceCode = Number(footprintPayload[base + 8]);
-  if (sourceCode !== 82 && sourceCode !== 111) return null;
+  if (sourceCode !== 82 && sourceCode !== 111 && sourceCode !== 113) return null;
   const conic = [
     Number(footprintPayload[base + 0]),
     Number(footprintPayload[base + 1]),
@@ -2086,10 +2086,622 @@ function readWebGpuFootprintPayload(footprintPayload, recordIndex) {
   return {
     conic,
     covariance2D,
+    sourceCode,
     radiusPx,
     depth,
     sortKey,
     footprintAreaPx: Number.isFinite(footprintAreaPx) ? footprintAreaPx : null
+  };
+}
+
+function finiteNumber(value, fallback = 0) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function normalizeQuat4Local(q) {
+  const len = Math.hypot(q[0], q[1], q[2], q[3]) || 1;
+  return [q[0] / len, q[1] / len, q[2] / len, q[3] / len];
+}
+
+function buildCudaRotationRowsLocal(qRaw) {
+  const [r, x, y, z] = normalizeQuat4Local(qRaw);
+  return [
+    [1 - 2 * (y * y + z * z), 2 * (x * y - r * z), 2 * (x * z + r * y)],
+    [2 * (x * y + r * z), 1 - 2 * (x * x + z * z), 2 * (y * z - r * x)],
+    [2 * (x * z - r * y), 2 * (y * z + r * x), 1 - 2 * (x * x + y * y)]
+  ];
+}
+
+function cov3ApplyLocal(v, cov) {
+  return [
+    cov[0] * v[0] + cov[1] * v[1] + cov[2] * v[2],
+    cov[1] * v[0] + cov[3] * v[1] + cov[4] * v[2],
+    cov[2] * v[0] + cov[4] * v[1] + cov[5] * v[2]
+  ];
+}
+
+function cov3BilinearLocal(a, b, cov) {
+  const cb = cov3ApplyLocal(b, cov);
+  return a[0] * cb[0] + a[1] * cb[1] + a[2] * cb[2];
+}
+
+function dot4Local(row, xyz) {
+  return (
+    finiteNumber(row?.[0]) * xyz[0] +
+    finiteNumber(row?.[1]) * xyz[1] +
+    finiteNumber(row?.[2]) * xyz[2] +
+    finiteNumber(row?.[3], row === undefined ? 0 : 0)
+  );
+}
+
+function readProjectionParamRows(projectionParams) {
+  const readVec4 = (row) => [
+    finiteNumber(projectionParams?.[row * 4 + 0]),
+    finiteNumber(projectionParams?.[row * 4 + 1]),
+    finiteNumber(projectionParams?.[row * 4 + 2]),
+    finiteNumber(projectionParams?.[row * 4 + 3])
+  ];
+  return {
+    mode: finiteNumber(projectionParams?.[0]),
+    renderW: finiteNumber(projectionParams?.[1], 1),
+    renderH: finiteNumber(projectionParams?.[2], 1),
+    pixelXSign: finiteNumber(projectionParams?.[6], 1),
+    fx: Math.abs(finiteNumber(projectionParams?.[8])),
+    fy: Math.abs(finiteNumber(projectionParams?.[9])),
+    cx: finiteNumber(projectionParams?.[10]),
+    cy: finiteNumber(projectionParams?.[11]),
+    viewRows: [readVec4(3), readVec4(4), readVec4(5)]
+  };
+}
+
+function computeStep113CudaAlignedConicReference({
+  raw,
+  srcIndex,
+  statePosition,
+  projectionParams,
+  buildConfig
+}) {
+  const scaleBase = srcIndex * Math.max(1, raw.scaleXYZDim ?? 0);
+  const rotationBase = srcIndex * Math.max(1, raw.rotationDim ?? 0);
+  const scalingModifier = finiteNumber(buildConfig?.scalingModifier, 1);
+  const scale = [
+    Math.max(finiteNumber(raw.scale_xyz?.[scaleBase + 0], 0.01) * scalingModifier, 1e-6),
+    Math.max(finiteNumber(raw.scale_xyz?.[scaleBase + 1], 0.01) * scalingModifier, 1e-6),
+    Math.max(finiteNumber(raw.scale_xyz?.[scaleBase + 2], 0.01) * scalingModifier, 1e-6)
+  ];
+  const rotation = [
+    finiteNumber(raw.rotation?.[rotationBase + 0], 1),
+    finiteNumber(raw.rotation?.[rotationBase + 1], 0),
+    finiteNumber(raw.rotation?.[rotationBase + 2], 0),
+    finiteNumber(raw.rotation?.[rotationBase + 3], 0)
+  ];
+  const rows = buildCudaRotationRowsLocal(rotation);
+  const m = rows.map((row, idx) => row.map((value) => value * scale[idx]));
+  const covWorld = [
+    m[0][0] * m[0][0] + m[1][0] * m[1][0] + m[2][0] * m[2][0],
+    m[0][0] * m[0][1] + m[1][0] * m[1][1] + m[2][0] * m[2][1],
+    m[0][0] * m[0][2] + m[1][0] * m[1][2] + m[2][0] * m[2][2],
+    m[0][1] * m[0][1] + m[1][1] * m[1][1] + m[2][1] * m[2][1],
+    m[0][1] * m[0][2] + m[1][1] * m[1][2] + m[2][1] * m[2][2],
+    m[0][2] * m[0][2] + m[1][2] * m[1][2] + m[2][2] * m[2][2]
+  ];
+  const projection = readProjectionParamRows(projectionParams);
+  const view = projection.viewRows.map((row) => row.slice(0, 3));
+  const covCamera = [
+    cov3BilinearLocal(view[0], view[0], covWorld),
+    cov3BilinearLocal(view[0], view[1], covWorld),
+    cov3BilinearLocal(view[0], view[2], covWorld),
+    cov3BilinearLocal(view[1], view[1], covWorld),
+    cov3BilinearLocal(view[1], view[2], covWorld),
+    cov3BilinearLocal(view[2], view[2], covWorld)
+  ];
+  const pos = [
+    finiteNumber(statePosition?.[0]),
+    finiteNumber(statePosition?.[1]),
+    finiteNumber(statePosition?.[2])
+  ];
+  const mv = projection.viewRows.map((row) => dot4Local(row, pos));
+  const z = Math.max(Math.abs(mv[2]), 1e-6);
+  const tanFovX = projection.renderW / Math.max(2 * projection.fx, 1e-6);
+  const tanFovY = projection.renderH / Math.max(2 * projection.fy, 1e-6);
+  const clampedX = Math.max(-1.3 * tanFovX, Math.min(1.3 * tanFovX, mv[0] / z)) * z;
+  const clampedY = Math.max(-1.3 * tanFovY, Math.min(1.3 * tanFovY, mv[1] / z)) * z;
+  const jacobian = [
+    [projection.fx / z, 0, -(projection.fx * clampedX) / (z * z)],
+    [0, projection.fy / z, -(projection.fy * clampedY) / (z * z)]
+  ];
+  const cov2 = [
+    cov3BilinearLocal(jacobian[0], jacobian[0], covCamera) + 0.3,
+    cov3BilinearLocal(jacobian[0], jacobian[1], covCamera),
+    cov3BilinearLocal(jacobian[1], jacobian[1], covCamera) + 0.3
+  ];
+  const det = cov2[0] * cov2[2] - cov2[1] * cov2[1];
+  const mid = 0.5 * (cov2[0] + cov2[2]);
+  const disc = Math.max(0.1, mid * mid - det);
+  const lambda1 = mid + Math.sqrt(disc);
+  const lambda2 = mid - Math.sqrt(disc);
+  const radius = Math.ceil(3 * Math.sqrt(Math.max(lambda1, lambda2, 1e-6)));
+  return {
+    covarianceWorldBeforeCameraTransform: covWorld,
+    cameraSpaceCovariance: covCamera,
+    jacobian,
+    screenSpaceCovariance: cov2,
+    determinant: det,
+    conic: det > 1e-8 ? [cov2[2] / det, -cov2[1] / det, cov2[0] / det] : null,
+    radius,
+    cameraSpacePosition: mv
+  };
+}
+
+function maxAbsDeltaArray(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b)) return null;
+  let maxDelta = 0;
+  for (let i = 0; i < Math.min(a.length, b.length); i += 1) {
+    const delta = Math.abs(finiteNumber(a[i]) - finiteNumber(b[i]));
+    if (delta > maxDelta) maxDelta = delta;
+  }
+  return maxDelta;
+}
+
+function readStep113WgslIntermediateReadback(readback, slot) {
+  const base = slot * 32;
+  if (!readback || base + 31 >= readback.length) return null;
+  const meta = [
+    Number(readback[base + 0]),
+    Number(readback[base + 1]),
+    Number(readback[base + 2]),
+    Number(readback[base + 3])
+  ];
+  if (!meta.every(Number.isFinite)) return null;
+  return {
+    row: Math.round(meta[0]),
+    sourceCode: meta[1],
+    radius: meta[2],
+    determinant: meta[3],
+    covarianceWorldBeforeCameraTransform: [
+      Number(readback[base + 4]),
+      Number(readback[base + 5]),
+      Number(readback[base + 6]),
+      Number(readback[base + 7]),
+      Number(readback[base + 8]),
+      Number(readback[base + 9])
+    ],
+    cameraSpaceCovariance: [
+      Number(readback[base + 10]),
+      Number(readback[base + 11]),
+      Number(readback[base + 12]),
+      Number(readback[base + 13]),
+      Number(readback[base + 14]),
+      Number(readback[base + 15])
+    ],
+    jacobian: [
+      [
+        Number(readback[base + 16]),
+        Number(readback[base + 17]),
+        Number(readback[base + 18])
+      ],
+      [
+        Number(readback[base + 19]),
+        Number(readback[base + 20]),
+        Number(readback[base + 21])
+      ]
+    ],
+    screenSpaceCovariance: [
+      Number(readback[base + 22]),
+      Number(readback[base + 23]),
+      Number(readback[base + 24])
+    ],
+    conic: [
+      Number(readback[base + 25]),
+      Number(readback[base + 26]),
+      Number(readback[base + 27])
+    ],
+    cameraSpacePosition: [
+      Number(readback[base + 28]),
+      Number(readback[base + 29]),
+      Number(readback[base + 30])
+    ],
+    fallbackFlag: Number(readback[base + 31])
+  };
+}
+
+function flattenJacobian(jacobian) {
+  if (!Array.isArray(jacobian) || jacobian.length < 2) return null;
+  return [
+    finiteNumber(jacobian[0]?.[0]),
+    finiteNumber(jacobian[0]?.[1]),
+    finiteNumber(jacobian[0]?.[2]),
+    finiteNumber(jacobian[1]?.[0]),
+    finiteNumber(jacobian[1]?.[1]),
+    finiteNumber(jacobian[1]?.[2])
+  ];
+}
+
+function getStep113RepresentativeTraits(raw, srcIndex) {
+  const scaleBase = srcIndex * Math.max(1, raw.scaleXYZDim ?? 0);
+  const rotationBase = srcIndex * Math.max(1, raw.rotationDim ?? 0);
+  const scale = [
+    finiteNumber(raw.scale_xyz?.[scaleBase + 0], 0.01),
+    finiteNumber(raw.scale_xyz?.[scaleBase + 1], 0.01),
+    finiteNumber(raw.scale_xyz?.[scaleBase + 2], 0.01)
+  ];
+  const minScale = Math.max(Math.min(...scale), 1e-9);
+  const maxScale = Math.max(...scale);
+  const rotation = [
+    finiteNumber(raw.rotation?.[rotationBase + 0], 1),
+    finiteNumber(raw.rotation?.[rotationBase + 1], 0),
+    finiteNumber(raw.rotation?.[rotationBase + 2], 0),
+    finiteNumber(raw.rotation?.[rotationBase + 3], 0)
+  ];
+  const vectorNorm = Math.hypot(rotation[1], rotation[2], rotation[3]);
+  return {
+    scale,
+    scaleAnisotropyRatio: maxScale / minScale,
+    nonIsotropicScale: maxScale / minScale > 1.01,
+    rotation,
+    rotationVectorNorm: vectorNorm,
+    nonTrivialRotation: vectorNorm > 1e-4
+  };
+}
+
+function buildStep113CovarianceJacobianConicEvidence({
+  raw,
+  candidateIndices,
+  statePositions,
+  footprintPayload,
+  intermediateReadback = null,
+  intermediateReadbackRows = [],
+  diagnosticBindingEvidence = {},
+  projectionParams,
+  buildConfig
+}) {
+  const count = Math.min(candidateIndices?.length ?? 0, Math.floor((footprintPayload?.length ?? 0) / 12));
+  const diagnosticRows = Array.isArray(intermediateReadbackRows)
+    ? intermediateReadbackRows
+        .map((row) => Number(row))
+        .filter((row) => Number.isInteger(row) && row >= 0 && row < count)
+    : [];
+  const representatives = [];
+  let readbackCompletedCount = 0;
+  let missingReadbackCount = 0;
+  let invalidReadbackCount = 0;
+  let nonIsotropicRepresentativeCount = 0;
+  let nonTrivialRotationRepresentativeCount = 0;
+  let minCameraX = Infinity;
+  let maxCameraX = -Infinity;
+  let minCameraY = Infinity;
+  let maxCameraY = -Infinity;
+  let minDepth = Infinity;
+  let maxDepth = -Infinity;
+  let maxScreenCovarianceAbsError = 0;
+  let maxWorldCovarianceAbsError = 0;
+  let maxCameraCovarianceAbsError = 0;
+  let maxJacobianAbsError = 0;
+  let maxConicAbsError = 0;
+  let maxRadiusAbsError = 0;
+  for (let slot = 0; slot < diagnosticRows.length; slot += 1) {
+    const row = diagnosticRows[slot];
+    const srcIndex = candidateIndices[row] | 0;
+    const statePosition = [
+      finiteNumber(statePositions?.[row * 4 + 0]),
+      finiteNumber(statePositions?.[row * 4 + 1]),
+      finiteNumber(statePositions?.[row * 4 + 2])
+    ];
+    const expected = computeStep113CudaAlignedConicReference({
+      raw,
+      srcIndex,
+      statePosition,
+      projectionParams,
+      buildConfig
+    });
+    const actualIntermediate = readStep113WgslIntermediateReadback(
+      intermediateReadback,
+      slot
+    );
+    const productionPayload = readWebGpuFootprintPayload(footprintPayload, row);
+    const traits = getStep113RepresentativeTraits(raw, srcIndex);
+    if (traits.nonIsotropicScale) nonIsotropicRepresentativeCount += 1;
+    if (traits.nonTrivialRotation) nonTrivialRotationRepresentativeCount += 1;
+    minCameraX = Math.min(minCameraX, finiteNumber(expected.cameraSpacePosition?.[0]));
+    maxCameraX = Math.max(maxCameraX, finiteNumber(expected.cameraSpacePosition?.[0]));
+    minCameraY = Math.min(minCameraY, finiteNumber(expected.cameraSpacePosition?.[1]));
+    maxCameraY = Math.max(maxCameraY, finiteNumber(expected.cameraSpacePosition?.[1]));
+    minDepth = Math.min(minDepth, finiteNumber(expected.cameraSpacePosition?.[2]));
+    maxDepth = Math.max(maxDepth, finiteNumber(expected.cameraSpacePosition?.[2]));
+    if (!actualIntermediate) {
+      missingReadbackCount += 1;
+    } else if (
+      actualIntermediate.row !== row ||
+      actualIntermediate.sourceCode !== 113 ||
+      actualIntermediate.fallbackFlag !== 0 ||
+      ![
+        ...actualIntermediate.covarianceWorldBeforeCameraTransform,
+        ...actualIntermediate.cameraSpaceCovariance,
+        ...flattenJacobian(actualIntermediate.jacobian),
+        ...actualIntermediate.screenSpaceCovariance,
+        ...actualIntermediate.conic,
+        actualIntermediate.radius
+      ].every(Number.isFinite)
+    ) {
+      invalidReadbackCount += 1;
+    } else {
+      readbackCompletedCount += 1;
+    }
+    const worldCovErr = maxAbsDeltaArray(
+      expected.covarianceWorldBeforeCameraTransform,
+      actualIntermediate?.covarianceWorldBeforeCameraTransform
+    );
+    const cameraCovErr = maxAbsDeltaArray(
+      expected.cameraSpaceCovariance,
+      actualIntermediate?.cameraSpaceCovariance
+    );
+    const jacobianErr = maxAbsDeltaArray(
+      flattenJacobian(expected.jacobian),
+      flattenJacobian(actualIntermediate?.jacobian)
+    );
+    const covErr = maxAbsDeltaArray(
+      expected.screenSpaceCovariance,
+      actualIntermediate?.screenSpaceCovariance
+    );
+    const conicErr = maxAbsDeltaArray(expected.conic, actualIntermediate?.conic);
+    const radiusErr = Math.abs(
+      finiteNumber(expected.radius) - finiteNumber(actualIntermediate?.radius)
+    );
+    maxWorldCovarianceAbsError = Math.max(
+      maxWorldCovarianceAbsError,
+      worldCovErr ?? Infinity
+    );
+    maxCameraCovarianceAbsError = Math.max(
+      maxCameraCovarianceAbsError,
+      cameraCovErr ?? Infinity
+    );
+    maxJacobianAbsError = Math.max(maxJacobianAbsError, jacobianErr ?? Infinity);
+    maxScreenCovarianceAbsError = Math.max(maxScreenCovarianceAbsError, covErr ?? Infinity);
+    maxConicAbsError = Math.max(maxConicAbsError, conicErr ?? Infinity);
+    maxRadiusAbsError = Math.max(maxRadiusAbsError, radiusErr);
+    representatives.push({
+      row,
+      srcIndex,
+      traits,
+      covarianceBeforeCameraTransform: expected.covarianceWorldBeforeCameraTransform,
+      actualCovarianceBeforeCameraTransform:
+        actualIntermediate?.covarianceWorldBeforeCameraTransform ?? null,
+      cameraSpaceCovariance: expected.cameraSpaceCovariance,
+      actualCameraSpaceCovariance:
+        actualIntermediate?.cameraSpaceCovariance ?? null,
+      jacobian: expected.jacobian,
+      actualJacobian: actualIntermediate?.jacobian ?? null,
+      expectedScreenSpaceCovariance: expected.screenSpaceCovariance,
+      actualScreenSpaceCovariance:
+        actualIntermediate?.screenSpaceCovariance ?? null,
+      expectedConic: expected.conic,
+      actualConic: actualIntermediate?.conic ?? null,
+      expectedRadius: expected.radius,
+      actualRadius: actualIntermediate?.radius ?? null,
+      productionPayloadSourceCode: productionPayload?.sourceCode ?? null,
+      errors: {
+        covarianceBeforeCameraTransformMaxAbs: worldCovErr,
+        cameraSpaceCovarianceMaxAbs: cameraCovErr,
+        jacobianMaxAbs: jacobianErr,
+        screenSpaceCovarianceMaxAbs: covErr,
+        conicMaxAbs: conicErr,
+        radiusAbs: radiusErr
+      }
+    });
+  }
+  const tolerance = {
+    covarianceBeforeCameraTransformMaxAbs: 1e-5,
+    cameraSpaceCovarianceMaxAbs: 1e-5,
+    jacobianMaxAbs: 1e-4,
+    screenSpaceCovarianceMaxAbs: 1e-2,
+    conicMaxAbs: 1e-4,
+    radiusAbs: 0
+  };
+  const coverageThresholds = {
+    depthSpanMin: 1e-6,
+    screenXSpanMin: 1e-6,
+    screenYSpanMin: 1e-6,
+    screenAnyAxisSpanMin: 1e-6
+  };
+  const depthSpan =
+    Number.isFinite(minDepth) && Number.isFinite(maxDepth)
+      ? maxDepth - minDepth
+      : null;
+  const screenXSpan =
+    Number.isFinite(minCameraX) && Number.isFinite(maxCameraX)
+      ? maxCameraX - minCameraX
+      : null;
+  const screenYSpan =
+    Number.isFinite(minCameraY) && Number.isFinite(maxCameraY)
+      ? maxCameraY - minCameraY
+      : null;
+  const coveragePass = {
+    depth:
+      Number.isFinite(depthSpan) &&
+      depthSpan > coverageThresholds.depthSpanMin,
+    screenX:
+      Number.isFinite(screenXSpan) &&
+      screenXSpan > coverageThresholds.screenXSpanMin,
+    screenY:
+      Number.isFinite(screenYSpan) &&
+      screenYSpan > coverageThresholds.screenYSpanMin,
+    screenAnyAxis:
+      Math.max(
+        Number.isFinite(screenXSpan) ? screenXSpan : 0,
+        Number.isFinite(screenYSpan) ? screenYSpan : 0
+      ) > coverageThresholds.screenAnyAxisSpanMin
+  };
+  const representativeCoveragePassed =
+    nonIsotropicRepresentativeCount > 0 &&
+    nonTrivialRotationRepresentativeCount > 0 &&
+    coveragePass.depth &&
+    coveragePass.screenAnyAxis;
+  const representativeCoverageFailureReasons = [];
+  if (nonIsotropicRepresentativeCount <= 0) {
+    representativeCoverageFailureReasons.push('missing-non-isotropic-scale');
+  }
+  if (nonTrivialRotationRepresentativeCount <= 0) {
+    representativeCoverageFailureReasons.push('missing-non-trivial-rotation');
+  }
+  if (!coveragePass.depth) {
+    representativeCoverageFailureReasons.push('insufficient-depth-span');
+  }
+  if (!coveragePass.screenAnyAxis) {
+    representativeCoverageFailureReasons.push('insufficient-screen-position-span');
+  }
+  const firstMismatchStage =
+    representatives.length <= 0
+      ? 'representative-gaussian-selection'
+      : missingReadbackCount > 0
+        ? 'wgsl-intermediate-readback-missing'
+        : invalidReadbackCount > 0
+          ? 'wgsl-intermediate-readback-invalid'
+          : nonIsotropicRepresentativeCount <= 0
+            ? 'representative-scale-anisotropy'
+            : nonTrivialRotationRepresentativeCount <= 0
+              ? 'representative-rotation'
+              : !coveragePass.depth || !coveragePass.screenAnyAxis
+                ? 'representative-depth-screen-coverage'
+              : maxWorldCovarianceAbsError > tolerance.covarianceBeforeCameraTransformMaxAbs
+                ? 'rotation-aware-3d-covariance'
+                : maxCameraCovarianceAbsError > tolerance.cameraSpaceCovarianceMaxAbs
+                  ? 'camera-space-covariance'
+                  : maxJacobianAbsError > tolerance.jacobianMaxAbs
+                    ? 'projection-jacobian'
+                    : maxScreenCovarianceAbsError > tolerance.screenSpaceCovarianceMaxAbs
+        ? 'screen-space-covariance'
+        : maxConicAbsError > tolerance.conicMaxAbs
+          ? 'conic-inversion'
+          : maxRadiusAbsError > tolerance.radiusAbs
+            ? 'radius-eigenvalue-policy'
+            : 'none';
+  return {
+    selectedGoal:
+      'cuda-webgpu-covariance-jacobian-conic-parity-closure-v1',
+    selectedCandidates: [
+      'A-rotation-aware-covariance',
+      'C-camera-jacobian-screen-space-conic',
+      'D-production-consumption'
+    ],
+    rootCause:
+      'Step111 payload used scale_xyz-only conic; Step113 routes CUDA computeCov3D/computeCov2D equivalent covariance and Jacobian into production footprint payload',
+    cudaWebgpuCovarianceConicStageMap: [
+      {
+        stage: 'scale-rotation-to-3d-covariance',
+        cudaSource: 'forward.cu computeCov3D scale*rotation, transpose(M)*M',
+        webgpuPath: 'webgpu_4d_state_evaluator.wgsl sourceCode=113',
+        classification: 'cuda-equivalent-3d-rotation-aware'
+      },
+      {
+        stage: 'camera-space-covariance-transform',
+        cudaSource: 'computeCov2D W matrix from view rows',
+        webgpuPath: 'projectionParams viewRows consumed by evaluator',
+        classification: 'cuda-aligned'
+      },
+      {
+        stage: 'projection-jacobian',
+        cudaSource: 'computeCov2D focal/z Jacobian with 1.3*tanFov clamp',
+        webgpuPath: 'projectionParams intrinsics fx/fy/renderW/renderH',
+        classification: 'cuda-aligned'
+      },
+      {
+        stage: '2d-covariance-conic-radius',
+        cudaSource: 'determinant inverse conic and 3*sigma eigen radius',
+        webgpuPath: 'footprintPayload conic/covariance/radius sourceCode=113',
+        classification: 'cuda-aligned-partial'
+      },
+      {
+        stage: '4d-conditional-covariance',
+        cudaSource: 'conditional 4D covariance path',
+        webgpuPath: 'deferred; Step113 closes 3D rotation/camera-Jacobian gap first',
+        classification: 'deferred'
+      }
+    ],
+    representativeGaussianCount: representatives.length,
+    representativeGaussians: representatives,
+    representativeCoverage: {
+      nonIsotropicRepresentativeCount,
+      nonTrivialRotationRepresentativeCount,
+      cameraDepthRange:
+        Number.isFinite(minDepth) && Number.isFinite(maxDepth)
+          ? { min: minDepth, max: maxDepth, span: depthSpan }
+          : null,
+      cameraScreenPositionRange:
+        Number.isFinite(minCameraX) &&
+        Number.isFinite(maxCameraX) &&
+        Number.isFinite(minCameraY) &&
+        Number.isFinite(maxCameraY)
+          ? {
+              x: { min: minCameraX, max: maxCameraX, span: screenXSpan },
+              y: { min: minCameraY, max: maxCameraY, span: screenYSpan }
+            }
+          : null,
+      thresholds: coverageThresholds,
+      pass: coveragePass,
+      overallPass: representativeCoveragePassed,
+      failureReasons: representativeCoverageFailureReasons
+    },
+    maxStageErrors: {
+      covarianceBeforeCameraTransformMaxAbs:
+        Number.isFinite(maxWorldCovarianceAbsError)
+          ? maxWorldCovarianceAbsError
+          : null,
+      cameraSpaceCovarianceMaxAbs:
+        Number.isFinite(maxCameraCovarianceAbsError)
+          ? maxCameraCovarianceAbsError
+          : null,
+      jacobianMaxAbs: Number.isFinite(maxJacobianAbsError)
+        ? maxJacobianAbsError
+        : null,
+      screenSpaceCovarianceMaxAbs: Number.isFinite(maxScreenCovarianceAbsError)
+        ? maxScreenCovarianceAbsError
+        : null,
+      conicMaxAbs: Number.isFinite(maxConicAbsError) ? maxConicAbsError : null,
+      radiusAbs: Number.isFinite(maxRadiusAbsError) ? maxRadiusAbsError : null
+    },
+    tolerances: tolerance,
+    firstMismatchStage,
+    rotationCovarianceClassification:
+      readbackCompletedCount > 0 ? 'cuda-equivalent-3d-rotation-aware' : 'missing',
+    conditional4DCovarianceClassification: 'deferred',
+    jacobianProjectionClassification:
+      readbackCompletedCount > 0 ? 'cuda-aligned-camera-jacobian' : 'missing',
+    conicRadiusClassification:
+      firstMismatchStage === 'none' ? 'cuda-aligned-partial' : 'mismatch',
+    jacobianConicPayloadCount: count,
+    actualEvidenceSource:
+      'wgsl-step113-intermediate-diagnostic-readback-buffer',
+    expectedEvidenceSource:
+      'cuda-forward-cu-computeCov3D-computeCov2D-reference-formula',
+    representativeSource:
+      'wgsl-intermediate-readback-vs-cuda-reference-formula',
+    readbackCompletedCount,
+    missingReadbackCount,
+    invalidReadbackCount,
+    productionComputeStorageBufferBindingCount:
+      diagnosticBindingEvidence.productionComputeStorageBufferBindingCount ?? null,
+    deviceDefaultMaxStorageBuffersPerShaderStage:
+      diagnosticBindingEvidence.deviceDefaultMaxStorageBuffersPerShaderStage ?? 8,
+    adapterSupportedMaxStorageBuffersPerShaderStage:
+      diagnosticBindingEvidence.adapterSupportedMaxStorageBuffersPerShaderStage ?? null,
+    requestedMaxStorageBuffersPerShaderStage:
+      diagnosticBindingEvidence.requestedMaxStorageBuffersPerShaderStage ?? null,
+    requiredLimitsRaisedForStep113Diagnostic:
+      diagnosticBindingEvidence.requiredLimitsRaisedForStep113Diagnostic === true,
+    diagnosticPackingMode:
+      diagnosticBindingEvidence.diagnosticPackingMode ??
+      'packed-into-footprint-payload-tail-existing-storage-buffer',
+    diagnosticReadbackSourceBuffer:
+      diagnosticBindingEvidence.diagnosticReadbackSourceBuffer ?? 'footprintPayload',
+    diagnosticPackedTailLayout:
+      diagnosticBindingEvidence.diagnosticPackedTailLayout ?? null,
+    actualEvidenceSameProductionDispatch:
+      diagnosticBindingEvidence.actualEvidenceSameProductionDispatch === true,
+    storageBufferBindingBreakdown:
+      diagnosticBindingEvidence.storageBufferBindingBreakdown ?? [],
+    productionCalculationDependsOnDiagnosticReadback: false,
+    diagnosticReadbackSeparatedFromProductionRuntime: true
   };
 }
 
@@ -4722,22 +5334,23 @@ export async function runWebGpuVisibleRecordDryRun({
   }
   const uploadStartMs = nowMs();
   const rawXyzOpacity = buildRawXyzOpacityForCandidates(raw, cpuReference.candidateIndices);
-  const webgpu4DStateSource = await buildWebGpu4DStatePositionsForCandidates({
-    device,
-    raw,
-    candidateIndices: cpuReference.candidateIndices,
-    rawXyzOpacity,
-    buildConfig
-  });
-  const { statePositions } = webgpu4DStateSource;
-  const statePositionAvailabilitySummary =
-    summarizeStatePositionAvailability(statePositions);
   const renderScale = Number.isFinite(buildConfig.renderScale) ? buildConfig.renderScale : 1;
   const renderW = Math.max(1, Math.round(canvasWidth * renderScale));
   const renderH = Math.max(1, Math.round(canvasHeight * renderScale));
   const sx = canvasWidth / renderW;
   const sy = canvasHeight / renderH;
   const projectionContract = buildWebGpuProjectionContract({ camera, screenSpaceCamera, renderW, renderH, sx, sy });
+  const webgpu4DStateSource = await buildWebGpu4DStatePositionsForCandidates({
+    device,
+    raw,
+    candidateIndices: cpuReference.candidateIndices,
+    rawXyzOpacity,
+    buildConfig,
+    projectionParams: projectionContract.data
+  });
+  const { statePositions } = webgpu4DStateSource;
+  const statePositionAvailabilitySummary =
+    summarizeStatePositionAvailability(statePositions);
   const radiusContract = createWebGpuRadiusContract();
   const covarianceContract = createWebGpuCovarianceContract();
   const conicContract = createWebGpuConicContract();
@@ -4893,6 +5506,20 @@ export async function runWebGpuVisibleRecordDryRun({
           'representative-projection-parity-evidence-missing-or-mismatched'
         ]
   };
+  const step113CovarianceJacobianConicEvidence =
+    buildStep113CovarianceJacobianConicEvidence({
+      raw,
+      candidateIndices: cpuReference.candidateIndices,
+      statePositions,
+      footprintPayload: webgpu4DStateSource.footprintPayload,
+      intermediateReadback: webgpu4DStateSource.step113IntermediateReadback,
+      intermediateReadbackRows:
+        webgpu4DStateSource.step113IntermediateReadbackRows,
+      diagnosticBindingEvidence:
+        webgpu4DStateSource.step113DiagnosticBindingEvidence,
+      projectionParams: projectionContract.data,
+      buildConfig
+    });
   const webgpuCameraAwareVisibleOutput =
     buildCameraAwareVisibleOutputSamples({
       webgpuRecords: computeResult.records,
@@ -4971,6 +5598,7 @@ export async function runWebGpuVisibleRecordDryRun({
     metadata: {
       ...(metadata ?? {}),
       step112ProjectionParityEvidence,
+      step113CovarianceJacobianConicEvidence,
       projectionContract: projectionContract.summary
     }
   });

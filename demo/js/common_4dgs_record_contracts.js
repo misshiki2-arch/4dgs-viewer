@@ -457,6 +457,9 @@ export function buildWebGpuGaussianFootprintEvaluationContract({
   fullGaussianFootprintEvaluationInWgsl = false,
   averageComputedConicX = null,
   averageComputedFootprintAreaPx = null,
+  rotationAwareCovarianceCount = 0,
+  cameraJacobianConicCount = 0,
+  scaleOnlyFallbackCount = 0,
   reason = null
 } = {}) {
   const gaussianFootprintEvaluationReady =
@@ -482,6 +485,9 @@ export function buildWebGpuGaussianFootprintEvaluationContract({
     fullGaussianFootprintEvaluationInWgsl,
     averageComputedConicX,
     averageComputedFootprintAreaPx,
+    rotationAwareCovarianceCount,
+    cameraJacobianConicCount,
+    scaleOnlyFallbackCount,
     reason
   };
 }
@@ -1087,6 +1093,23 @@ export function buildWebGpuTileListCompositorContract({
   step112ProductionRuntimeConsumptionReady = false,
   step112RemainingCameraProjectionGaps = [],
   step112NextStepRecommendedGoal = null,
+  step113SelectedGoal = null,
+  step113SelectedCandidates = [],
+  step113RootCause = null,
+  step113CudaWebgpuCovarianceConicStageMap = [],
+  step113RepresentativeGaussianComparison = {},
+  step113RepresentativeGaussianCount = 0,
+  step113FirstMismatchStage = null,
+  step113MaxStageErrors = {},
+  step113RotationCovarianceClassification = null,
+  step113Conditional4DCovarianceClassification = null,
+  step113JacobianProjectionClassification = null,
+  step113ConicRadiusClassification = null,
+  step113ProductionRuntimeGapClosureUsed = false,
+  step113ProductionConsumptionEvidence = {},
+  step113OldApproximationUsedInProduction = true,
+  step113RemainingStructuralGaps = [],
+  step113NextStepRecommendedGoal = null,
   step104VisualSafetyGatePreserved = false,
   earlyTerminationRemainsDisabled = false,
   lodStreamingRemainsDisabled = false,
@@ -2677,6 +2700,27 @@ export function buildWebGpuTileListCompositorContract({
     step112NextStepRecommendedGoal:
       step112NextStepRecommendedGoal ??
       'camera-jacobian-screen-space-conic-parity-v1',
+    step113SelectedGoal:
+      step113SelectedGoal ??
+      'cuda-webgpu-covariance-jacobian-conic-parity-closure-v1',
+    step113SelectedCandidates,
+    step113RootCause,
+    step113CudaWebgpuCovarianceConicStageMap,
+    step113RepresentativeGaussianComparison,
+    step113RepresentativeGaussianCount,
+    step113FirstMismatchStage,
+    step113MaxStageErrors,
+    step113RotationCovarianceClassification,
+    step113Conditional4DCovarianceClassification,
+    step113JacobianProjectionClassification,
+    step113ConicRadiusClassification,
+    step113ProductionRuntimeGapClosureUsed,
+    step113ProductionConsumptionEvidence,
+    step113OldApproximationUsedInProduction,
+    step113RemainingStructuralGaps,
+    step113NextStepRecommendedGoal:
+      step113NextStepRecommendedGoal ??
+      'sh-color-opacity-temporal-weighting-production-parity-v1',
     step108NextStepRecommendedGoal:
       step108NextStepRecommendedGoal ??
       (
