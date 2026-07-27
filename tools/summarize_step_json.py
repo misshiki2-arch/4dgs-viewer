@@ -33,6 +33,8 @@ import zlib
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+from png_pixel_evidence import build_saved_png_evidence, inspect_png_file
+
 
 KNOWN_SUFFIXES = [
     "gpu_candidate_screen_coarse_compare",
@@ -43,7 +45,15 @@ KNOWN_SUFFIXES = [
     "webgpu_visible_record_dryrun_compare",
     "webgpu_visible_record_dryrun_capture_status",
     "fixed_condition_visual_comparison",
+    "cuda_reference_manifest",
+    "webgpu_render_state_manifest",
+    "render_state_manifest_comparison",
+    "cuda_reference_old_new_render_compare",
+    "cuda_reference_old_new_alpha_compare",
+    "cuda_reference_old_new_depth_compare",
+    "cuda_reference_old_new_gt_compare",
     "png_capture_status",
+    "runtime_mismatch",
     "gpu_candidate_source_compare",
     "gpu_candidate_coverage",
     "gpu_candidate_runtime_summary",
@@ -57,6 +67,56 @@ KNOWN_SUFFIXES = [
 WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION = (
     "phase3-step2-webgpu-visible-record-dry-run-v1"
 )
+
+
+STEP114_REQUIRED_CUDA_MANIFEST_PATHS = [
+    "execution.environment.condaDefaultEnv",
+    "execution.argv",
+    "execution.cwd",
+    "execution.repo.revision",
+    "execution.repo.dirty",
+    "lineage.checkpoint.sha256",
+    "lineage.datasetRoot",
+    "renderState.cameraLabel",
+    "renderState.frameNumber",
+    "renderState.viewId",
+    "renderState.timestamp",
+    "renderState.width",
+    "renderState.height",
+    "camera.intrinsics.fx",
+    "camera.intrinsics.fy",
+    "camera.intrinsics.cx",
+    "camera.intrinsics.cy",
+    "camera.worldViewTransform",
+    "camera.fullProjTransform",
+    "imageSpaceConvention.pixelOrigin",
+    "imageSpaceConvention.yDirection",
+    "imageSpaceConvention.ndcToPixel",
+    "imageSpaceConvention.halfPixelConvention",
+    "imageSpaceConvention.directRasterizerScreenCoordinateEvidence.available",
+]
+
+STEP114_REQUIRED_WEBGPU_MANIFEST_PATHS = [
+    "lineage.gaussianAsset.identity.sha256",
+    "lineage.gaussianAsset.gaussianCount",
+    "renderState.cameraLabel",
+    "renderState.frameNumber",
+    "renderState.viewId",
+    "renderState.datasetTime",
+    "renderState.viewport.width",
+    "renderState.viewport.height",
+    "renderState.webgpuCameraConstantsSource",
+    "camera.intrinsics.fx",
+    "camera.intrinsics.fy",
+    "camera.intrinsics.cx",
+    "camera.intrinsics.cy",
+    "camera.worldViewTransform",
+    "camera.fullProjTransform",
+    "imageSpaceConvention.pixelOrigin",
+    "imageSpaceConvention.yDirection",
+    "imageSpaceConvention.ndcToPixel",
+    "imageSpaceConvention.halfPixelConvention",
+]
 
 
 def load_json_if_exists(path: Path) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
@@ -205,6 +265,35 @@ def _unfilter_png_scanlines(
 
 
 def extract_png_capture_diagnostic(path: Path) -> Dict[str, Any]:
+    pixel_evidence = inspect_png_file(path)
+    return {
+        "pngCaptured": pixel_evidence.get("exists") is True,
+        "pngPath": pixel_evidence.get("resolvedPath"),
+        "pngFileName": pixel_evidence.get("fileName"),
+        "pngFileSizeBytes": pixel_evidence.get("sizeBytes"),
+        "pngFileModifiedTimeNs": pixel_evidence.get("modifiedTimeNs"),
+        "pngWidth": pixel_evidence.get("width"),
+        "pngHeight": pixel_evidence.get("height"),
+        "pngBitDepth": pixel_evidence.get("bitDepth"),
+        "pngColorType": pixel_evidence.get("colorType"),
+        "pngColorTypeName": pixel_evidence.get("colorTypeName"),
+        "pngChannelCount": pixel_evidence.get("channelCount"),
+        "pngNonzeroRgb": pixel_evidence.get("rgbNonzeroPixelCount"),
+        "pngNonblackRatio": pixel_evidence.get("rgbNonblackRatio"),
+        "pngNonblackBBox": pixel_evidence.get("nonblackBoundingBox"),
+        "pngMaxRgb": pixel_evidence.get("rgbMax"),
+        "pngAlphaNonzeroPixelCount": pixel_evidence.get("alphaNonzeroPixelCount"),
+        "pngAlphaZeroPixelCount": pixel_evidence.get("alphaZeroPixelCount"),
+        "pngAlphaOpaquePixelCount": pixel_evidence.get("alphaOpaquePixelCount"),
+        "pngAlphaMin": pixel_evidence.get("alphaMin"),
+        "pngAlphaMax": pixel_evidence.get("alphaMax"),
+        "pngPixelClassification": pixel_evidence.get("pixelClassification"),
+        "pngSha256": pixel_evidence.get("sha256"),
+        "pngDiagnosticError": pixel_evidence.get("decodeError"),
+        "savedPngFilePixelEvidence": pixel_evidence,
+    }
+
+    # Legacy parser retained below for old-call-site source compatibility.
     diagnostic: Dict[str, Any] = {
         "pngCaptured": path.exists(),
         "pngPath": str(path),
@@ -14491,6 +14580,7 @@ def build_output_capture_consistency_diagnostic(
     webgpu_summary: Dict[str, Any],
     png_diagnostic: Dict[str, Any],
     png_capture_status: Optional[Dict[str, Any]] = None,
+    saved_png_evidence: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     compositor_contract = get_path(
         webgpu_summary,
@@ -14498,8 +14588,18 @@ def build_output_capture_consistency_diagnostic(
         {},
     )
     png_captured = png_diagnostic.get("pngCaptured") is True
+    canonical_saved_png_result = get_path(
+        saved_png_evidence or {}, ["canonicalSavedPngResult"]
+    )
     png_nonzero_rgb = png_diagnostic.get("pngNonzeroRgb")
     capture_output_nonblank = (
+        True
+        if canonical_saved_png_result == "nonblank"
+        else False
+        if canonical_saved_png_result == "black"
+        else None
+    )
+    actual_saved_file_pixel_nonblank = (
         png_nonzero_rgb > 0 if isinstance(png_nonzero_rgb, int) else None
     )
     presentation_nonblank_frame_count = numeric_value(
@@ -14646,9 +14746,21 @@ def build_output_capture_consistency_diagnostic(
         "captureFreshnessKnown": capture_freshness_known,
         "captureFreshnessClassification": capture_freshness_classification,
     }
-    saved_png_matches_presented_output = get_path(
+    orientation_matches_presented_output = get_path(
         orientation_evidence,
         ["savedPngMatchesPresentedOutput"],
+    )
+    blob_saved_identity_match = get_path(
+        saved_png_evidence or {}, ["blobSavedFileIdentityMatch"]
+    )
+    saved_png_matches_presented_output = (
+        True
+        if orientation_matches_presented_output is True
+        and blob_saved_identity_match is True
+        and capture_matches_presented_frame
+        else False
+        if blob_saved_identity_match is False
+        else None
     )
     live_display_and_saved_png_consistency_known = (
         saved_png_matches_presented_output is True
@@ -14693,11 +14805,33 @@ def build_output_capture_consistency_diagnostic(
             else None
         ),
         "pngCaptureStatus": png_capture_status or {},
+        "savedPngCanonicalEvidence": saved_png_evidence or {},
+        "actualSavedFilePixelNonblank": actual_saved_file_pixel_nonblank,
+        "savedPngPixelResult": get_path(
+            saved_png_evidence or {}, ["savedFilePixelResult"]
+        ),
+        "canonicalSavedPngResult": canonical_saved_png_result,
+        "captureBlobSha256": get_path(
+            saved_png_evidence or {}, ["captureBlobSha256"]
+        ),
+        "blobSavedFileIdentityMatch": get_path(
+            saved_png_evidence or {}, ["blobSavedFileIdentityMatch"]
+        ),
+        "savedPngDuplicateFileDetected": get_path(
+            saved_png_evidence or {}, ["duplicateFileDetected"]
+        ),
+        "savedPngAmbiguousFileDetected": get_path(
+            saved_png_evidence or {}, ["ambiguousFileDetected"]
+        ),
+        "savedPngStaleFileDetected": get_path(
+            saved_png_evidence or {}, ["staleFileDetected"]
+        ),
         "presentationSourceKind": presentation_source_kind,
         "runtimeOutputNonblankEvidenceSource": runtime_output_evidence_source
             or presentation_source_kind,
         "captureOutputNonblank": capture_output_nonblank,
         "presentationOutputNonblank": presentation_output_nonblank,
+        "runtimeOutputNonblank": runtime_output_nonblank,
         "runtimeOutputNonblankEvidenceReady": runtime_output_nonblank_evidence_ready,
         "savedPngMatchesRuntimeOutput": saved_png_matches_runtime_output,
         "savedPngMatchesRawProductionOutput": get_path(
@@ -14791,6 +14925,651 @@ def apply_output_capture_diagnostic_to_step_summary(
     step_summary["step109BlockedReasonDetailed"] = (
         f"{output_predicate['name']}: {output_predicate['reason']}"
     )
+
+
+def apply_step114_fix10_fix2_evidence(
+    step_summary: Optional[Dict[str, Any]],
+    output_diagnostic: Dict[str, Any],
+    saved_png_evidence: Dict[str, Any],
+) -> None:
+    if not isinstance(step_summary, dict):
+        return
+    initial = step_summary.get("initialProductionPresentation")
+    if not isinstance(initial, dict):
+        initial = {}
+    url_logical = initial.get("urlOnlyLogicalPresentationResult")
+    if url_logical is None and initial:
+        url_logical = (
+            True
+            if initial.get("compositorOutputGenerated") is True
+            and initial.get("viewerCanvasPresented") is True
+            else False
+            if initial.get("viewerCanvasPresented") is False
+            else None
+        )
+    url_pixel = initial.get("urlOnlyPixelBackedPresentationResult")
+    capture_logical = initial.get("captureLogicalPresentationResult")
+    capture_pixel = initial.get("capturePixelBackedPresentationResult")
+    encoded_pixel_evidence = initial.get("encodedPngPixelEvidence")
+    if not isinstance(encoded_pixel_evidence, dict):
+        encoded_pixel_evidence = get_path(
+            output_diagnostic,
+            ["pngCaptureStatus.encodedPngPixelEvidence"],
+            {},
+        )
+    encoded_result = encoded_pixel_evidence.get("pixelClassification")
+    saved_file_result = saved_png_evidence.get("savedFilePixelResult")
+    canonical_saved_result = saved_png_evidence.get("canonicalSavedPngResult")
+    saved_file_pixel_evidence = saved_png_evidence.get("savedFilePixelEvidence")
+    if not isinstance(saved_file_pixel_evidence, dict):
+        saved_file_pixel_evidence = {}
+    source_reported_nonzero_count = get_path(
+        output_diagnostic,
+        ["pngCaptureStatus.outputStats.nonzeroPixelCount"],
+    )
+    legacy_alpha_nonzero_false_positive = (
+        source_reported_nonzero_count is not None
+        and float(source_reported_nonzero_count)
+        == float(saved_file_pixel_evidence.get("alphaNonzeroPixelCount") or -1)
+        and source_reported_nonzero_count
+        != saved_file_pixel_evidence.get("rgbNonzeroPixelCount")
+    )
+    production_output_nonblank = get_path(
+        initial, ["evidenceSeparation.productionOutputNonblank"]
+    )
+    if production_output_nonblank is None:
+        production_output_nonblank = output_diagnostic.get("runtimeOutputNonblank")
+    runtime_saved_png_contradiction = (
+        production_output_nonblank is True and canonical_saved_result == "black"
+    )
+    url_logical_pixel_contradiction = (
+        url_logical is True and url_pixel is False
+    )
+    first_contradiction = (
+        "url-only-logical-presentation-nonblank-but-browser-visible-pixels-black"
+        if url_logical_pixel_contradiction
+        else "runtime-output-nonblank-but-saved-png-black"
+        if runtime_saved_png_contradiction
+        else None
+    )
+    initial_root_cause = (
+        "browser-visible-final-presentation-pixels-black"
+        if url_logical_pixel_contradiction
+        else "browser-visible-pixel-evidence-missing"
+        if url_pixel is None
+        else "logical-presentation-incomplete"
+        if url_logical is False
+        else "no-initial-presentation-defect-observed-by-contract"
+    )
+    png_root_cause = (
+        "legacy-alpha-counted-as-rgb-nonblank-and-transparent-png-encoded"
+        if legacy_alpha_nonzero_false_positive
+        else "capture-source-black"
+        if production_output_nonblank is False and encoded_result == "black"
+        else "png-encoding-produced-black-from-nonblank-source"
+        if production_output_nonblank is True and encoded_result == "black"
+        else "saved-file-stale-or-wrong-identity"
+        if saved_png_evidence.get("blobSavedFileIdentityMatch") is False
+        else "saved-file-pixel-black-with-matching-blob"
+        if canonical_saved_result == "black"
+        else "saved-file-pixel-nonblank-with-matching-blob"
+        if canonical_saved_result == "nonblank"
+        else "png-root-cause-evidence-insufficient"
+    )
+    runtime_contract_v3 = initial.get("schemaVersion") == (
+        "phase3-initial-production-presentation-contract-v3"
+    )
+    runtime_results_known = (
+        url_logical in (True, False)
+        and url_pixel in (True, False)
+        and capture_logical in (True, False)
+        and capture_pixel in (True, False)
+    )
+    saved_png_evidence_ready = (
+        saved_png_evidence.get("evidenceDecision") == "ready"
+        and canonical_saved_result in {"black", "nonblank"}
+    )
+    encoded_blob_evidence_ready = encoded_result in {"black", "nonblank"}
+    fix2_ready = (
+        runtime_contract_v3
+        and runtime_results_known
+        and encoded_blob_evidence_ready
+        and saved_png_evidence_ready
+    )
+    fix2_blocked_reasons = [
+        reason
+        for reason, failed in [
+            ("fix10-fix2-runtime-contract-v3-missing", not runtime_contract_v3),
+            ("url-and-capture-browser-visible-results-not-known", not runtime_results_known),
+            ("encoded-png-blob-pixel-evidence-not-ready", not encoded_blob_evidence_ready),
+            ("saved-png-canonical-file-evidence-not-ready", not saved_png_evidence_ready),
+        ]
+        if failed
+    ]
+    url_success_ready = url_logical is True and url_pixel is True
+    fix1_existing_reasons = list(
+        step_summary.get("step114Fix10Fix1ImplementationBlockedReasons", []) or []
+    )
+    if not url_success_ready:
+        fix1_existing_reasons.append(
+            "url-only-browser-visible-pixel-backed-presentation-not-ready"
+        )
+    fix1_existing_reasons = list(dict.fromkeys(fix1_existing_reasons))
+    step_summary.update(
+        {
+            "step114Fix10Fix2ImplementationDecision": (
+                "ready" if fix2_ready else "blocked"
+            ),
+            "step114Fix10Fix2ImplementationBlockedReasons": fix2_blocked_reasons,
+            "urlOnlyLogicalPresentationResult": url_logical,
+            "urlOnlyPixelBackedPresentationResult": url_pixel,
+            "captureLogicalPresentationResult": capture_logical,
+            "capturePixelBackedPresentationResult": capture_pixel,
+            "productionOutputNonblank": production_output_nonblank,
+            "browserVisiblePresentationNonblank": url_pixel,
+            "encodedPngBlobPixelResult": encoded_result,
+            "encodedPngBlobPixelEvidence": encoded_pixel_evidence,
+            "savedPngExactPath": saved_png_evidence.get("expectedResolvedPath"),
+            "savedPngSha256": saved_png_evidence.get("savedFileSha256"),
+            "captureBlobSha256": saved_png_evidence.get("captureBlobSha256"),
+            "blobSavedFileIdentityMatch": saved_png_evidence.get(
+                "blobSavedFileIdentityMatch"
+            ),
+            "savedPngPixelEvidence": saved_png_evidence.get(
+                "savedFilePixelEvidence"
+            ),
+            "savedPngPixelResult": saved_file_result,
+            "savedPngCanonicalResult": canonical_saved_result,
+            "savedPngDuplicateFileDetected": saved_png_evidence.get(
+                "duplicateFileDetected"
+            ),
+            "savedPngAmbiguousFileDetected": saved_png_evidence.get(
+                "ambiguousFileDetected"
+            ),
+            "savedPngStaleFileDetected": saved_png_evidence.get(
+                "staleFileDetected"
+            ),
+            "runtimeOutputSavedPngContradiction": runtime_saved_png_contradiction,
+            "legacyAlphaNonzeroFalsePositiveDetected": (
+                legacy_alpha_nonzero_false_positive
+            ),
+            "urlOnlyLogicalPixelEvidenceContradiction": (
+                url_logical_pixel_contradiction
+            ),
+            "firstEvidenceContradiction": first_contradiction,
+            "pngBlackRootCauseClassification": png_root_cause,
+            "initialPresentationRootCauseClassification": initial_root_cause,
+            "runtimePresentationPathModifiedByFix10Fix2": False,
+            "captureEvidencePathModifiedByFix10Fix2": True,
+            "step114Fix10Fix1ImplementationDecision": (
+                "ready"
+                if not fix1_existing_reasons and url_success_ready
+                else "blocked"
+            ),
+            "step114Fix10Fix1ImplementationBlockedReasons": (
+                fix1_existing_reasons
+            ),
+            "step114Fix10Fix1UrlOnlyInitialPresentationReady": (
+                url_success_ready
+            ),
+        }
+    )
+    if not url_success_ready:
+        step_summary["step114Fix10ImplementationDecision"] = "blocked"
+        reasons = list(
+            step_summary.get("step114Fix10ImplementationBlockedReasons", []) or []
+        )
+        reasons.append("url-only-browser-visible-presentation-not-ready")
+        step_summary["step114Fix10ImplementationBlockedReasons"] = list(
+            dict.fromkeys(reasons)
+        )
+    failed_predicates = list(step_summary.get("step114FailedPredicates", []) or [])
+    blocked_reasons = list(step_summary.get("step114BlockedReasons", []) or [])
+    if not fix2_ready:
+        failed_predicates.append("fix10-fix2-evidence-contract-ready")
+        blocked_reasons.extend(fix2_blocked_reasons)
+    if first_contradiction:
+        failed_predicates.append("presentation-and-png-evidence-consistent")
+        blocked_reasons.append(first_contradiction)
+    step_summary["step114FailedPredicates"] = list(dict.fromkeys(failed_predicates))
+    step_summary["step114BlockedReasons"] = list(dict.fromkeys(blocked_reasons))
+    step_summary["step114BlockedReason"] = (
+        step_summary["step114BlockedReasons"][0]
+        if step_summary["step114BlockedReasons"]
+        else None
+    )
+    if step_summary["step114BlockedReasons"]:
+        step_summary["step114Decision"] = "blocked"
+
+
+def apply_step114_fix10_fix3_evidence(
+    step_summary: Optional[Dict[str, Any]],
+    output_diagnostic: Dict[str, Any],
+    saved_png_evidence: Dict[str, Any],
+) -> None:
+    if not isinstance(step_summary, dict):
+        return
+    initial = step_summary.get("initialProductionPresentation")
+    if not isinstance(initial, dict):
+        initial = {}
+    evidence = initial.get("finalCanvasPresentationEvidence")
+    if not isinstance(evidence, dict):
+        evidence = step_summary.get("finalCanvasPresentationEvidence")
+    if not isinstance(evidence, dict):
+        evidence = {}
+    url_boundary = evidence.get("urlOnlyBoundary")
+    capture_boundary = evidence.get("captureBoundary")
+    if not isinstance(url_boundary, dict):
+        url_boundary = {}
+    if not isinstance(capture_boundary, dict):
+        capture_boundary = {}
+    alpha_evidence = initial.get("alphaNormalizationEvidence")
+    if not isinstance(alpha_evidence, dict):
+        alpha_evidence = get_path(
+            output_diagnostic,
+            ["pngCaptureStatus.alphaNormalizationEvidence"],
+            {},
+        )
+    production_output = step_summary.get("productionOutputNonblank")
+    url_result = url_boundary.get("browserVisibleResult")
+    capture_result = capture_boundary.get("browserVisibleResult")
+    saved_result = saved_png_evidence.get("canonicalSavedPngResult")
+    runtime_browser_contradiction = (
+        production_output is True and url_result is False
+    )
+    browser_saved_contradiction = (
+        capture_result in (True, False)
+        and saved_result in {"black", "nonblank"}
+        and (capture_result is True) != (saved_result == "nonblank")
+    )
+    implementation_decision = step_summary.get(
+        "step114Fix10Fix3ImplementationDecision",
+        "blocked",
+    )
+    implementation_blocked_reasons = list(
+        step_summary.get("step114Fix10Fix3ImplementationBlockedReasons", []) or []
+    )
+    step_summary.update(
+        {
+            "step114Fix10Fix3ImplementationDecision": implementation_decision,
+            "step114Fix10Fix3ImplementationBlockedReasons": (
+                implementation_blocked_reasons
+            ),
+            "urlOnlyFinalBrowserPresentation": url_boundary,
+            "captureFinalBrowserPresentation": capture_boundary,
+            "urlOnlyFinalBrowserPresentationResult": url_result,
+            "captureFinalBrowserPresentationResult": capture_result,
+            "urlOnlyFinalBrowserPresentationBlockedReason": (
+                url_boundary.get("unknownOrBlockedReason")
+            ),
+            "captureFinalBrowserPresentationBlockedReason": (
+                capture_boundary.get("unknownOrBlockedReason")
+            ),
+            "finalCanvasPresentationBoundariesSeparated": evidence.get(
+                "boundariesSeparated"
+            ),
+            "finalCanvasPresentationIndependentPredicates": evidence.get(
+                "independentPredicates",
+                {},
+            ),
+            "runtimeOutputBrowserVisibleContradiction": (
+                runtime_browser_contradiction
+            ),
+            "browserVisibleSavedPngContradiction": (
+                browser_saved_contradiction
+            ),
+            "alphaNormalizationScope": alpha_evidence.get("scope"),
+            "alphaNormalizationAppliedToOpaqueWebGpuProductionPngOnly": (
+                alpha_evidence.get(
+                    "appliedToOpaqueWebGpuProductionPngCaptureOnly"
+                )
+            ),
+            "genericTransparentPngCaptureUnaffected": alpha_evidence.get(
+                "genericTransparentPngCaptureUnaffected"
+            ),
+            "alphaNormalizationRgbInvariant": alpha_evidence.get(
+                "rgbInvariant"
+            ),
+            "alphaNormalizationAlphaOnlyChanged": alpha_evidence.get(
+                "alphaOnlyChanged"
+            ),
+            "alphaNormalizationEvidence": alpha_evidence,
+            "captureCommandDependencyRemaining": initial.get(
+                "captureCommandDependencyRemaining"
+            ),
+        }
+    )
+    if implementation_decision != "ready":
+        failed_predicates = list(
+            step_summary.get("step114FailedPredicates", []) or []
+        )
+        blocked_reasons = list(
+            step_summary.get("step114BlockedReasons", []) or []
+        )
+        failed_predicates.append("fix10-fix3-final-canvas-evidence-contract-ready")
+        blocked_reasons.extend(implementation_blocked_reasons)
+        step_summary["step114FailedPredicates"] = list(
+            dict.fromkeys(failed_predicates)
+        )
+        step_summary["step114BlockedReasons"] = list(
+            dict.fromkeys(blocked_reasons)
+        )
+    if url_result is not True or capture_result is not True:
+        reasons = list(
+            step_summary.get("step114Fix10ImplementationBlockedReasons", []) or []
+        )
+        if url_result is not True:
+            reasons.append("url-only-final-browser-presentation-not-successful")
+        if capture_result is not True:
+            reasons.append("capture-final-browser-presentation-not-successful")
+        step_summary["step114Fix10ImplementationDecision"] = "blocked"
+        step_summary["step114Fix10ImplementationBlockedReasons"] = list(
+            dict.fromkeys(reasons)
+        )
+        step_summary["step114Decision"] = "blocked"
+    step_summary["step114BlockedReason"] = (
+        step_summary.get("step114BlockedReasons", [None])[0]
+        if step_summary.get("step114BlockedReasons")
+        else None
+    )
+
+
+def apply_step114_fix10_fix4_evidence(
+    step_summary: Optional[Dict[str, Any]],
+) -> None:
+    if not isinstance(step_summary, dict):
+        return
+    initial = step_summary.get("initialProductionPresentation")
+    if not isinstance(initial, dict):
+        initial = {}
+    fence = initial.get("synchronousCommandStartFence")
+    if not isinstance(fence, dict):
+        fence = step_summary.get("synchronousCommandStartFence", {})
+    causal = initial.get("commandEraCausalTrace")
+    if not isinstance(causal, dict):
+        causal = step_summary.get("commandEraCausalTrace", {})
+    url_boundary = get_path(
+        initial,
+        ["finalCanvasPresentationEvidence", "urlOnlyBoundary"],
+        {},
+    )
+    capture_boundary = get_path(
+        initial,
+        ["finalCanvasPresentationEvidence", "captureBoundary"],
+        {},
+    )
+    url_coverage = initial.get("urlOnlyCanvasWritePathCoverage", {})
+    capture_coverage = initial.get("captureCanvasWritePathCoverage", {})
+    url_quiescence = initial.get("urlOnlyQuiescenceEvidence", {})
+    capture_quiescence = initial.get("captureQuiescenceEvidence", {})
+    identity_chain = initial.get("initialRequestPresentationIdentityChain", {})
+    fixed_camera = step_summary.get("fixedReferenceCameraContract", {})
+    startup_correction = initial.get("startupRuntimeCorrection", {})
+    implementation_decision = step_summary.get(
+        "step114Fix10Fix4ImplementationDecision",
+        "blocked",
+    )
+    implementation_blocked = list(
+        step_summary.get(
+            "step114Fix10Fix4ImplementationBlockedReasons",
+            [],
+        )
+        or []
+    )
+    step_summary.update(
+        {
+            "step114Fix10Fix4ImplementationDecision": implementation_decision,
+            "step114Fix10Fix4ImplementationBlockedReasons": implementation_blocked,
+            "synchronousCommandStartFence": fence,
+            "synchronousCommandStartFenceReady": (
+                fence.get("schemaVersion")
+                == "phase3-synchronous-command-start-fence-v1"
+                and fence.get("synchronousReadOnlyFence") is True
+                and fence.get("capturedInSingleJavaScriptTurn") is True
+            ),
+            "noAsyncOrMutationBeforeCommandFence": (
+                fence.get("asyncOperationBeforeFence") is False
+                and fence.get("mutationBeforeFence") is False
+            ),
+            "urlOnlyFinalEventSequence": get_path(
+                fence, ["canonicalBoundary", "finalCanvasEventSequence"]
+            ),
+            "urlOnlyFinalRequestIdentity": url_boundary.get(
+                "finalSourceRequestIdentity"
+            ),
+            "urlOnlyFinalGeneration": url_boundary.get(
+                "finalPresentedGeneration"
+            ),
+            "commandEraFirstMutation": causal.get("firstMutation"),
+            "commandEraFirstNonblankPresentation": causal.get(
+                "firstNonblankPresentation"
+            ),
+            "commandEraFirstNonblankCausalClassification": causal.get(
+                "firstNonblankCausalClassification"
+            ),
+            "initialRequestPresentationIdentityChain": identity_chain,
+            "urlOnlyQuiescenceEvidence": url_quiescence,
+            "captureQuiescenceEvidence": capture_quiescence,
+            "urlOnlyCanvasWritePathCoverage": url_coverage,
+            "captureCanvasWritePathCoverage": capture_coverage,
+            "unregisteredCanvasWritePathCount": max(
+                int(url_coverage.get("unregisteredWritePathCount", 0) or 0),
+                int(capture_coverage.get("unregisteredWritePathCount", 0) or 0),
+            ),
+            "urlOnlyFinalBrowserPresentationResult": url_boundary.get(
+                "browserVisibleResult"
+            ),
+            "captureFinalBrowserPresentationResult": capture_boundary.get(
+                "browserVisibleResult"
+            ),
+            "captureCommandDependencyRemaining": initial.get(
+                "captureCommandDependencyRemaining"
+            ),
+            "initialRenderRootCauseClassification": causal.get(
+                "firstNonblankCausalClassification"
+            ),
+            "startupRuntimeCorrection": startup_correction,
+            "fixedReferenceCameraContract": fixed_camera,
+            "fixedReferenceCameraContractConsistent": (
+                fixed_camera.get("fixedReferenceCameraMode")
+                == initial.get("fixedCameraApplied")
+            ),
+            "summaryOverlaySelectedByCanonicalEvidenceSchema": True,
+            "summaryOverlaySelectedByStepName": False,
+        }
+    )
+    if implementation_decision != "ready":
+        failed = list(step_summary.get("step114FailedPredicates", []) or [])
+        blocked = list(step_summary.get("step114BlockedReasons", []) or [])
+        failed.append("fix10-fix4-synchronous-causal-evidence-contract-ready")
+        blocked.extend(implementation_blocked)
+        step_summary["step114FailedPredicates"] = list(dict.fromkeys(failed))
+        step_summary["step114BlockedReasons"] = list(dict.fromkeys(blocked))
+    if (
+        url_boundary.get("browserVisibleResult") is not True
+        or capture_boundary.get("browserVisibleResult") is not True
+    ):
+        step_summary["step114Fix10ImplementationDecision"] = "blocked"
+        step_summary["step114Decision"] = "blocked"
+    step_summary["step114BlockedReason"] = (
+        step_summary.get("step114BlockedReasons", [None])[0]
+        if step_summary.get("step114BlockedReasons")
+        else None
+    )
+
+
+def apply_step114_fix10_fix6_evidence(
+    step_summary: Optional[Dict[str, Any]],
+    webgpu_runtime_summary: Optional[Dict[str, Any]],
+) -> None:
+    if not isinstance(step_summary, dict):
+        return
+    initial = step_summary.get("initialProductionPresentation")
+    if not isinstance(initial, dict):
+        initial = {}
+    fence = initial.get("synchronousCommandStartFence")
+    if not isinstance(fence, dict):
+        fence = step_summary.get("synchronousCommandStartFence", {})
+    runtime_contract = get_path(fence, ["productionRuntimeContract"], {})
+    if not isinstance(runtime_contract, dict) or runtime_contract.get(
+        "schemaVersion"
+    ) != "phase3-production-runtime-selection-contract-v1":
+        return
+
+    webgpu = webgpu_runtime_summary if isinstance(webgpu_runtime_summary, dict) else {}
+    first_present = get_path(webgpu, ["webgpuViewerCanvasBoundedFirstPresent"], {})
+    color_present = get_path(webgpu, ["webgpuViewerCanvasBoundedColorPresent"], {})
+    url_boundary = get_path(
+        initial, ["finalCanvasPresentationEvidence.urlOnlyBoundary"], {}
+    )
+    capture_boundary = get_path(
+        initial, ["finalCanvasPresentationEvidence.captureBoundary"], {}
+    )
+    coverage_candidates = [
+        initial.get("urlOnlyCanvasWritePathCoverage", {}),
+        initial.get("captureCanvasWritePathCoverage", {}),
+        get_path(url_boundary, ["canvasWritePathCoverage"], {}),
+        get_path(capture_boundary, ["canvasWritePathCoverage"], {}),
+    ]
+    coverage = next(
+        (
+            item for item in coverage_candidates
+            if isinstance(item, dict) and item.get("coverageComplete") is not None
+        ),
+        {},
+    )
+    final_events = [
+        get_path(url_boundary, ["finalCanvasEvent"], {}),
+        get_path(capture_boundary, ["finalCanvasEvent"], {}),
+    ]
+    production_events = [
+        event for event in final_events
+        if isinstance(event, dict)
+        and event.get("eventKind") in {
+            "production-presentation",
+            "cached-production-presentation",
+        }
+        and event.get("presentationPathIdentity")
+        == "webgpu-tile-compositor-current-texture"
+    ]
+    nonblank_production_event = next(
+        (
+            event for event in production_events
+            if event.get("sourcePixelResult") == "nonblank"
+        ),
+        None,
+    )
+    scheduler_snapshot = get_path(fence, ["schedulerSnapshot"], {})
+    runtime_snapshot_fresh = (
+        runtime_contract.get("runtimeEvidenceCurrent") is True
+        and runtime_contract.get("readOnlySnapshot") is True
+        and runtime_contract.get("snapshotTakenAtMs")
+        == fence.get("commandStartTimestampMs")
+    )
+    diagnostic_evidence_maintained = (
+        first_present.get("boundedViewerCanvasFirstPresentImplemented") is True
+        and color_present.get("boundedViewerCanvasColorPresentImplemented") is True
+        and isinstance(color_present.get("colorPresentSampleCount"), (int, float))
+        and color_present.get("colorPresentSampleCount", 0) > 0
+    )
+    error_fields = [
+        "runtimeFatalError",
+        "wgslCompilationError",
+        "pipelineCreationError",
+        "bindGroupCreationError",
+        "invalidCommandBufferError",
+        "queueSubmitFailure",
+        "readbackFailure",
+        "pngEncodeFailure",
+    ]
+    runtime_error_detected = any(step_summary.get(field) is True for field in error_fields)
+    checks = {
+        "runtimeEvidenceCurrent": runtime_snapshot_fresh,
+        "productionRuntimeSelected": (
+            runtime_contract.get("requestedRuntime") == "webgpu"
+            and runtime_contract.get("effectiveDisplayRuntime") == "webgpu-production"
+            and runtime_contract.get("productionSelectionReady") is True
+        ),
+        "productionBackendSelected": (
+            runtime_contract.get("backendMode") == "webgpu-exclusive"
+            and runtime_contract.get("backendImplementation")
+            == "webgpu-tile-compositor-frame-implementation"
+            and runtime_contract.get("canvasPresentationEnabled") is True
+            and runtime_contract.get("viewerLoopHookEnabled") is True
+        ),
+        "canvasWriterCoverageComplete": (
+            coverage.get("coverageComplete") is True
+            and int(coverage.get("unregisteredWritePathCount", 0) or 0) == 0
+        ),
+        "boundedFirstPresentationSuppressed": (
+            first_present.get("commandBufferSubmitted") is False
+        ),
+        "boundedColorPresentationSuppressed": (
+            color_present.get("commandBufferSubmitted") is False
+        ),
+        "diagnosticEvidenceMaintained": diagnostic_evidence_maintained,
+        "productionOutputIdentityReady": nonblank_production_event is not None,
+        "schedulerQuiescent": (
+            int(scheduler_snapshot.get("pendingRequestCount", 0) or 0) == 0
+            and scheduler_snapshot.get("productionFrameInFlight") is False
+        ),
+        "runtimeResourceErrorsAbsent": not runtime_error_detected,
+    }
+    blocked = [name for name, ready in checks.items() if ready is not True]
+    decision = "ready" if not blocked else "blocked"
+    runtime_selection_blocked = [
+        name
+        for name in (
+            "runtimeEvidenceCurrent",
+            "productionRuntimeSelected",
+            "productionBackendSelected",
+        )
+        if checks.get(name) is not True
+    ]
+    step_summary.update(
+        {
+            "step114Fix10Fix6Fix1ImplementationDecision": (
+                "ready" if not runtime_selection_blocked else "blocked"
+            ),
+            "step114Fix10Fix6Fix1ImplementationBlockedReasons": (
+                runtime_selection_blocked
+            ),
+            "step114Fix10Fix6ImplementationDecision": decision,
+            "step114Fix10Fix6ImplementationBlockedReasons": blocked,
+            "step114Fix10Fix6EvidenceSelectedBySchema": True,
+            "step114Fix10Fix6EvidenceSelectedByStepName": False,
+            "productionRuntimeContract": runtime_contract,
+            "actualRequestedRuntime": runtime_contract.get("requestedRuntime"),
+            "actualEffectiveDisplayRuntime": runtime_contract.get(
+                "effectiveDisplayRuntime"
+            ),
+            "actualProductionBackendMode": runtime_contract.get("backendMode"),
+            "actualProductionBackendImplementation": runtime_contract.get(
+                "backendImplementation"
+            ),
+            "actualProductionPresentationPath": runtime_contract.get(
+                "actualProductionPresentationPath"
+            ),
+            "step114Fix10Fix6Checks": checks,
+            "boundedFirstDiagnosticCommandBufferSubmitted": first_present.get(
+                "commandBufferSubmitted"
+            ),
+            "boundedColorDiagnosticCommandBufferSubmitted": color_present.get(
+                "commandBufferSubmitted"
+            ),
+            "boundedDiagnosticEvidenceMaintained": diagnostic_evidence_maintained,
+            "productionCanvasWriterCoverage": coverage,
+            "productionFinalCanvasEvents": production_events,
+        }
+    )
+    if decision != "ready":
+        step_summary["step114Decision"] = "blocked"
+    if (
+        url_boundary.get("browserVisibleResult") is not True
+        or capture_boundary.get("browserVisibleResult") is not True
+    ):
+        step_summary["step114Fix10ImplementationDecision"] = "blocked"
+        step_summary["step114Decision"] = "blocked"
 
 
 def build_step75_camera_aware_visible_summary(
@@ -15122,6 +15901,12 @@ def extract_coverage(data: Dict[str, Any]) -> Dict[str, Any]:
 
 def extract_runtime(data: Dict[str, Any]) -> Dict[str, Any]:
     runtime = get_path(data, ["runtimeSummary"], data)
+    production_runtime = get_path(data, ["productionRuntimeContract"], {})
+    production_runtime_available = (
+        isinstance(production_runtime, dict)
+        and production_runtime.get("schemaVersion")
+        == "phase3-production-runtime-selection-contract-v1"
+    )
     fallback = get_path(data, ["fallback", "runtimeSummary.fallback"], {})
 
     limited = get_path(
@@ -15131,8 +15916,46 @@ def extract_runtime(data: Dict[str, Any]) -> Dict[str, Any]:
     )
 
     return {
-        "requestedRuntime": get_path(runtime, ["requestedRuntime", "runtime"]),
-        "effectiveDisplayRuntime": get_path(runtime, ["effectiveDisplayRuntime"]),
+        "requestedRuntime": (
+            production_runtime.get("requestedRuntime")
+            if production_runtime_available
+            else get_path(runtime, ["requestedRuntime", "runtime"])
+        ),
+        "effectiveDisplayRuntime": (
+            production_runtime.get("effectiveDisplayRuntime")
+            if production_runtime_available
+            else get_path(runtime, ["effectiveDisplayRuntime"])
+        ),
+        "runtimeEvidenceSource": (
+            "production-runtime-selection-contract"
+            if production_runtime_available
+            else "gpu-candidate-runtime-summary-legacy-fallback"
+        ),
+        "productionRuntimeContract": (
+            production_runtime if production_runtime_available else {}
+        ),
+        "gpuCandidateRequestedRuntime": get_path(
+            runtime, ["requestedRuntime", "runtime"]
+        ),
+        "backendMode": production_runtime.get("backendMode")
+        if production_runtime_available
+        else None,
+        "backendImplementation": production_runtime.get("backendImplementation")
+        if production_runtime_available
+        else None,
+        "canvasPresentationEnabled": production_runtime.get(
+            "canvasPresentationEnabled"
+        )
+        if production_runtime_available
+        else None,
+        "viewerLoopHookEnabled": production_runtime.get("viewerLoopHookEnabled")
+        if production_runtime_available
+        else None,
+        "actualProductionPresentationPath": production_runtime.get(
+            "actualProductionPresentationPath"
+        )
+        if production_runtime_available
+        else None,
         "sourceMode": get_path(
             runtime,
             [
@@ -20926,6 +21749,1176 @@ def extract_render_summary(data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def manifest_status(value: Any) -> str:
+    if isinstance(value, dict) and isinstance(value.get("status"), str):
+        return value["status"]
+    if value is None:
+        return "missing"
+    return "available"
+
+
+def manifest_value(value: Any) -> Any:
+    if isinstance(value, dict) and "status" in value and "value" in value:
+        return value.get("value")
+    return value
+
+
+def collect_manifest_unknowns(
+    manifest: Optional[Dict[str, Any]],
+    paths: Iterable[str],
+    *,
+    root_name: str,
+) -> List[Dict[str, Any]]:
+    if not isinstance(manifest, dict):
+        return [
+            {
+                "path": root_name,
+                "status": "missing",
+                "reason": f"missing {root_name}",
+            }
+        ]
+    out = []
+    for path in paths:
+        value = get_path(manifest, [path])
+        status = manifest_status(value)
+        if status in {"missing", "unknown"} or value is None:
+            out.append(
+                {
+                    "path": path,
+                    "status": status,
+                    "reason": value.get("reason") if isinstance(value, dict) else None,
+                }
+            )
+    return out
+
+
+def compare_manifest_scalar(
+    cuda_manifest: Optional[Dict[str, Any]],
+    webgpu_manifest: Optional[Dict[str, Any]],
+    cuda_path: str,
+    webgpu_path: str,
+) -> Dict[str, Any]:
+    cuda_value = manifest_value(get_path(cuda_manifest or {}, [cuda_path]))
+    webgpu_value = manifest_value(get_path(webgpu_manifest or {}, [webgpu_path]))
+    return {
+        "cudaPath": cuda_path,
+        "webgpuPath": webgpu_path,
+        "cudaValue": cuda_value,
+        "webgpuValue": webgpu_value,
+        "match": cuda_value == webgpu_value and cuda_value is not None,
+    }
+
+
+def build_step114_cuda_reference_provenance_summary(
+    *,
+    cuda_manifest: Optional[Dict[str, Any]],
+    webgpu_manifest: Optional[Dict[str, Any]],
+    manifest_comparison: Optional[Dict[str, Any]],
+    old_new_render_compare: Optional[Dict[str, Any]],
+    fixed_condition_visual_comparison: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    comparison_cuda_manifest_present = get_path(
+        manifest_comparison or {},
+        ["cudaReferenceManifest", "exists"],
+        False,
+    ) is True
+    comparison_cuda_manifest_identity = get_path(
+        manifest_comparison or {},
+        ["cudaReferenceManifest"],
+        {},
+    )
+    cuda_manifest_for_unknowns = (
+        cuda_manifest
+        if isinstance(cuda_manifest, dict)
+        else (manifest_comparison.get("cudaReference", {}) if comparison_cuda_manifest_present and isinstance(manifest_comparison, dict) else None)
+    )
+    cuda_unknowns = (
+        collect_manifest_unknowns(
+            cuda_manifest_for_unknowns,
+            STEP114_REQUIRED_CUDA_MANIFEST_PATHS,
+            root_name="cudaReferenceManifest",
+        )
+        if isinstance(cuda_manifest, dict)
+        else list(
+            get_path(
+                manifest_comparison or {},
+                ["unknownCriticalFields", "cudaReference"],
+                [],
+            )
+            or []
+        )
+    )
+    webgpu_unknowns = collect_manifest_unknowns(
+        webgpu_manifest,
+        STEP114_REQUIRED_WEBGPU_MANIFEST_PATHS,
+        root_name="webgpuRenderStateManifest",
+    )
+    field_comparisons = get_path(
+        manifest_comparison or {},
+        ["fieldComparisons"],
+        {},
+    ) or {
+        "cameraLabel": compare_manifest_scalar(
+            cuda_manifest,
+            webgpu_manifest,
+            "renderState.cameraLabel",
+            "renderState.cameraLabel",
+        ),
+        "frameNumber": compare_manifest_scalar(
+            cuda_manifest,
+            webgpu_manifest,
+            "renderState.frameNumber",
+            "renderState.frameNumber",
+        ),
+        "viewId": compare_manifest_scalar(
+            cuda_manifest,
+            webgpu_manifest,
+            "renderState.viewId",
+            "renderState.viewId",
+        ),
+        "timestamp": compare_manifest_scalar(
+            cuda_manifest,
+            webgpu_manifest,
+            "renderState.timestamp",
+            "renderState.datasetTime",
+        ),
+        "width": compare_manifest_scalar(
+            cuda_manifest,
+            webgpu_manifest,
+            "renderState.width",
+            "renderState.viewport.width",
+        ),
+        "height": compare_manifest_scalar(
+            cuda_manifest,
+            webgpu_manifest,
+            "renderState.height",
+            "renderState.viewport.height",
+        ),
+    }
+    contradictory_fields = get_path(
+        manifest_comparison or {},
+        ["contradictoryFields"],
+        [],
+    )
+    old_new_render_exact = get_path(old_new_render_compare or {}, ["sameSha256"]) is True
+    if not contradictory_fields:
+        contradictory_fields = [
+            name
+            for name, item in field_comparisons.items()
+            if isinstance(item, dict)
+            and item.get("cudaValue") is not None
+            and item.get("webgpuValue") is not None
+            and item.get("match") is not True
+        ]
+    failed_predicates = list(
+        get_path(manifest_comparison or {}, ["failedPredicates"], []) or []
+    )
+    blocked_reasons = list(
+        get_path(manifest_comparison or {}, ["blockedReasons"], []) or []
+    )
+    if cuda_unknowns and "cuda-reference-critical-fields-known" not in failed_predicates:
+        failed_predicates.append("cuda-reference-critical-fields-known")
+        blocked_reasons.append("cuda-reference-manifest-has-unknown-critical-fields")
+    if webgpu_unknowns and "webgpu-render-state-critical-fields-known" not in failed_predicates:
+        failed_predicates.append("webgpu-render-state-critical-fields-known")
+        blocked_reasons.append("webgpu-render-state-manifest-has-missing-or-unknown-critical-fields")
+    if contradictory_fields and "cuda-webgpu-render-state-fields-match" not in failed_predicates:
+        failed_predicates.append("cuda-webgpu-render-state-fields-match")
+        blocked_reasons.append("cuda-webgpu-render-state-contradictory-fields")
+    if not isinstance(webgpu_manifest, dict) and "webgpu-render-state-manifest-present" not in failed_predicates:
+        failed_predicates.append("webgpu-render-state-manifest-present")
+        blocked_reasons.append("missing-webgpu-render-state-manifest")
+    visual_ready = (
+        get_path(manifest_comparison or {}, ["visualComparisonReady"])
+        if manifest_comparison is not None
+        else False
+    )
+    direct_rasterizer_evidence = get_path(
+        cuda_manifest or {},
+        ["imageSpaceConvention.directRasterizerScreenCoordinateEvidence"],
+        get_path(manifest_comparison or {}, ["directRasterizerScreenCoordinateEvidence"], {}),
+    )
+    direct_src_index_comparison = get_path(
+        manifest_comparison or {},
+        ["directCudaWebGpuSrcIndexComparison"],
+        {},
+    )
+    semantic_matrix_comparison = get_path(
+        manifest_comparison or {},
+        ["semanticMatrixComparison"],
+        {},
+    )
+    src_index_semantics = get_path(
+        manifest_comparison or {},
+        ["srcIndexSemantics"],
+        get_path(webgpu_manifest or {}, ["srcIndexSemantics"], {}),
+    )
+    runtime_responsibility_separation = get_path(
+        webgpu_manifest or {},
+        ["runtimeResponsibilitySeparation"],
+        get_path(manifest_comparison or {}, ["runtimeResponsibilitySeparation"], {}),
+    )
+    fixed_time_capture_state = get_path(
+        webgpu_manifest or {},
+        ["renderState.fixedTimeCaptureState"],
+        get_path(manifest_comparison or {}, ["fixedTimeCaptureState"], {}),
+    )
+    webgpu_record_zero_cause = get_path(
+        direct_src_index_comparison,
+        ["webgpuRecordZeroCause"],
+        {},
+    )
+    runtime_status = get_path(
+        webgpu_manifest or {},
+        ["presentationAndCapture.pngCaptureStatus"],
+        {},
+    )
+    runtime_error_subtype = get_path(runtime_status, ["runtimeErrorSubtype"], None)
+    runtime_error_flags = {
+        "wgslParseErrorDetected": runtime_error_subtype == "wgsl-parse-error",
+        "shaderModuleInvalidDetected": runtime_error_subtype == "shader-module-invalid",
+        "computePipelineInvalidDetected": runtime_error_subtype == "compute-pipeline-invalid",
+        "bindGroupInvalidDetected": runtime_error_subtype == "bind-group-invalid",
+        "invalidCommandBufferDetected": runtime_error_subtype == "invalid-command-buffer",
+        "queueSubmitFailureDetected": runtime_error_subtype == "queue-submit-failure",
+        "readbackFailureDetected": runtime_error_subtype in {
+            "readback-failure",
+            "texture-readback-failure",
+            "buffer-readback-failure",
+        },
+        "runtimeFatalError": runtime_error_subtype is not None,
+    }
+    cuda_execution = get_path(cuda_manifest or {}, ["execution"], {})
+    final_matrix_comparison = {
+        "worldViewTransform": get_path(
+            manifest_comparison or {},
+            ["fieldComparisons.worldViewTransform"],
+            compare_manifest_scalar(
+                cuda_manifest,
+                webgpu_manifest,
+                "camera.worldViewTransform",
+                "camera.worldViewTransform",
+            ),
+        ),
+        "fullProjTransform": get_path(
+            manifest_comparison or {},
+            ["fieldComparisons.fullProjTransform"],
+            compare_manifest_scalar(
+                cuda_manifest,
+                webgpu_manifest,
+                "camera.fullProjTransform",
+                "camera.fullProjTransform",
+            ),
+        ),
+    }
+    image_space_comparison = {
+        "pixelOrigin": compare_manifest_scalar(
+            cuda_manifest,
+            webgpu_manifest,
+            "imageSpaceConvention.pixelOrigin",
+            "imageSpaceConvention.pixelOrigin",
+        ),
+        "yDirection": compare_manifest_scalar(
+            cuda_manifest,
+            webgpu_manifest,
+            "imageSpaceConvention.yDirection",
+            "imageSpaceConvention.yDirection",
+        ),
+        "ndcToPixel": compare_manifest_scalar(
+            cuda_manifest,
+            webgpu_manifest,
+            "imageSpaceConvention.ndcToPixel",
+            "imageSpaceConvention.ndcToPixel",
+        ),
+        "halfPixelConvention": compare_manifest_scalar(
+            cuda_manifest,
+            webgpu_manifest,
+            "imageSpaceConvention.halfPixelConvention",
+            "imageSpaceConvention.halfPixelConvention",
+        ),
+    }
+    pre_cull_summary = get_path(
+        webgpu_manifest or {},
+        ["directGaussianEvidence", "preCullEvidenceSummary"],
+        {},
+    )
+    field_availability_summary = get_path(
+        webgpu_manifest or {},
+        ["directGaussianEvidence", "preCullEvidenceSummary", "fieldAvailabilitySummary"],
+        get_path(
+            webgpu_manifest or {},
+            ["directGaussianEvidence", "fieldAvailabilitySummary"],
+            {},
+        ),
+    )
+    direct_record_count = get_path(
+        direct_src_index_comparison,
+        ["commonSrcIndexCount"],
+        0,
+    ) or 0
+    required_direct_stage_fields = [
+        "rawSourcePositionCount",
+        "temporalWorldPositionCount",
+        "cameraSpacePositionCount",
+        "ndcCount",
+        "screenCenterCount",
+        "depthCount",
+        "radiusCount",
+    ]
+    full_pre_cull_stage_counts_ready = (
+        direct_record_count > 0
+        and all(
+            (get_path(field_availability_summary, [field], 0) or 0) >= direct_record_count
+            for field in required_direct_stage_fields
+        )
+    )
+    index_mapping_decision = get_path(src_index_semantics, ["mappingDecision"])
+    index_mapping_ready = index_mapping_decision == "ready"
+    fix6_ready = (
+        isinstance(webgpu_manifest, dict)
+        and direct_rasterizer_evidence
+        and direct_rasterizer_evidence.get("available") is True
+        and direct_src_index_comparison.get("commonSrcIndexCount", 0) > 0
+        and full_pre_cull_stage_counts_ready
+        and index_mapping_ready
+    )
+    return {
+        "step114Fix2ImplementationDecision": (
+            "ready"
+            if direct_rasterizer_evidence
+            and direct_rasterizer_evidence.get("available") is True
+            else "blocked"
+        ),
+        "step114Fix3ImplementationDecision": (
+            "ready"
+            if direct_rasterizer_evidence
+            and direct_rasterizer_evidence.get("available") is True
+            and isinstance(webgpu_manifest, dict)
+            else "blocked"
+        ),
+        "step114Fix6ImplementationDecision": (
+            "ready" if fix6_ready else "blocked"
+        ),
+        "step114Fix6ImplementationBlockedReasons": [
+            reason
+            for reason, failed in [
+                ("missing-webgpu-render-state-manifest", not isinstance(webgpu_manifest, dict)),
+                (
+                    "cuda-direct-rasterizer-evidence-missing",
+                    not (
+                        direct_rasterizer_evidence
+                        and direct_rasterizer_evidence.get("available") is True
+                    ),
+                ),
+                (
+                    "missing-common-cuda-webgpu-src-index-records",
+                    direct_src_index_comparison.get("commonSrcIndexCount", 0) <= 0,
+                ),
+                (
+                    "full-pre-cull-stage-evidence-missing",
+                    not full_pre_cull_stage_counts_ready,
+                ),
+                (
+                    "checkpoint-to-asset-index-mapping-not-directly-proven",
+                    not index_mapping_ready,
+                ),
+            ]
+            if failed
+        ],
+        "step114Fix7ImplementationDecision": get_path(
+            manifest_comparison or {},
+            ["step114Fix7ImplementationDecision"],
+            "blocked",
+        ),
+        "step114Fix7ImplementationBlockedReasons": get_path(
+            manifest_comparison or {},
+            ["step114Fix7ImplementationBlockedReasons"],
+            [],
+        ),
+        "step114Fix8ImplementationDecision": get_path(
+            manifest_comparison or {},
+            ["step114Fix8ImplementationDecision"],
+            (
+                "ready"
+                if get_path(fixed_time_capture_state, ["artifactsShareFixedTime"]) is True
+                and get_path(fixed_time_capture_state, ["artifactsShareFixedFrame"]) is True
+                and get_path(fixed_time_capture_state, ["probeStateMutationDetected"]) is False
+                and get_path(manifest_comparison or {}, ["step114Fix7ImplementationDecision"]) == "ready"
+                else "blocked"
+            ),
+        ),
+        "step114Fix8ImplementationBlockedReasons": get_path(
+            manifest_comparison or {},
+            ["step114Fix8ImplementationBlockedReasons"],
+            [
+                reason
+                for reason, failed in [
+                    (
+                        "fixed-time-artifacts-do-not-share-state",
+                        get_path(fixed_time_capture_state, ["artifactsShareFixedTime"]) is not True,
+                    ),
+                    (
+                        "capture-frame-identity-not-shared",
+                        get_path(fixed_time_capture_state, ["artifactsShareFixedFrame"]) is not True,
+                    ),
+                    (
+                        "state-changing-probe-ran-during-step114-capture",
+                        get_path(fixed_time_capture_state, ["probeStateMutationDetected"]) is True,
+                    ),
+                ]
+                if failed
+            ],
+        ),
+        "step114Fix9ImplementationDecision": get_path(
+            manifest_comparison or {},
+            ["step114Fix9ImplementationDecision"],
+            "blocked",
+        ),
+        "step114Fix9ImplementationBlockedReasons": get_path(
+            manifest_comparison or {},
+            ["step114Fix9ImplementationBlockedReasons"],
+            [],
+        ),
+        "step114Fix9ProductionTemporalMotionDeltaMatch": get_path(
+            manifest_comparison or {},
+            ["step114Fix9ProductionTemporalMotionDeltaMatch"],
+        ),
+        "step114Fix9ProductionCorrectionApplied": get_path(
+            manifest_comparison or {},
+            ["step114Fix9ProductionCorrectionApplied"],
+        ),
+        "step114Fix10ImplementationDecision": get_path(
+            manifest_comparison or {},
+            ["step114Fix10ImplementationDecision"],
+            "blocked",
+        ),
+        "step114Fix10ImplementationBlockedReasons": get_path(
+            manifest_comparison or {},
+            ["step114Fix10ImplementationBlockedReasons"],
+            [],
+        ),
+        "step114Fix10Fix1ImplementationDecision": get_path(
+            manifest_comparison or {},
+            ["step114Fix10Fix1ImplementationDecision"],
+            "blocked",
+        ),
+        "step114Fix10Fix1ImplementationBlockedReasons": get_path(
+            manifest_comparison or {},
+            ["step114Fix10Fix1ImplementationBlockedReasons"],
+            ["fix10-fix1-comparison-evidence-unavailable"],
+        ),
+        "step114Fix10Fix1PreCaptureSnapshotReady": get_path(
+            manifest_comparison or {},
+            ["step114Fix10Fix1PreCaptureSnapshotReady"],
+        ),
+        "step114Fix10Fix1InitialCaptureRequestSeparated": get_path(
+            manifest_comparison or {},
+            ["step114Fix10Fix1InitialCaptureRequestSeparated"],
+        ),
+        "step114Fix10Fix1InitialCaptureGenerationSeparated": get_path(
+            manifest_comparison or {},
+            ["step114Fix10Fix1InitialCaptureGenerationSeparated"],
+        ),
+        "step114Fix10Fix1CaptureFrameEvidenceReady": get_path(
+            manifest_comparison or {},
+            ["step114Fix10Fix1CaptureFrameEvidenceReady"],
+        ),
+        "step114Fix10Fix1UrlOnlyInitialPresentationReady": get_path(
+            manifest_comparison or {},
+            ["step114Fix10Fix1UrlOnlyInitialPresentationReady"],
+        ),
+        "step114Fix10Fix1RuntimeBehaviorChanged": get_path(
+            manifest_comparison or {},
+            ["step114Fix10Fix1RuntimeBehaviorChanged"],
+        ),
+        "step114Fix10Fix3ImplementationDecision": get_path(
+            manifest_comparison or {},
+            ["step114Fix10Fix3ImplementationDecision"],
+            "blocked",
+        ),
+        "step114Fix10Fix3ImplementationBlockedReasons": get_path(
+            manifest_comparison or {},
+            ["step114Fix10Fix3ImplementationBlockedReasons"],
+            ["fix10-fix3-comparison-evidence-unavailable"],
+        ),
+        "step114Fix10Fix4ImplementationDecision": get_path(
+            manifest_comparison or {},
+            ["step114Fix10Fix4ImplementationDecision"],
+            "blocked",
+        ),
+        "step114Fix10Fix4ImplementationBlockedReasons": get_path(
+            manifest_comparison or {},
+            ["step114Fix10Fix4ImplementationBlockedReasons"],
+            ["fix10-fix4-comparison-evidence-unavailable"],
+        ),
+        "synchronousCommandStartFence": get_path(
+            manifest_comparison or {},
+            ["synchronousCommandStartFence"],
+            {},
+        ),
+        "commandEraCausalTrace": get_path(
+            manifest_comparison or {},
+            ["commandEraCausalTrace"],
+            {},
+        ),
+        "initialRequestPresentationIdentityChain": get_path(
+            manifest_comparison or {},
+            ["initialRequestPresentationIdentityChain"],
+            {},
+        ),
+        "fixedReferenceCameraContract": get_path(
+            manifest_comparison or {},
+            ["fixedReferenceCameraContract"],
+            {},
+        ),
+        "urlOnlyFinalBrowserPresentation": get_path(
+            manifest_comparison or {},
+            ["urlOnlyFinalBrowserPresentation"],
+            {},
+        ),
+        "captureFinalBrowserPresentation": get_path(
+            manifest_comparison or {},
+            ["captureFinalBrowserPresentation"],
+            {},
+        ),
+        "finalCanvasPresentationEvidence": get_path(
+            manifest_comparison or {},
+            ["finalCanvasPresentationEvidence"],
+            {},
+        ),
+        "alphaNormalizationEvidence": get_path(
+            manifest_comparison or {},
+            ["alphaNormalizationEvidence"],
+            {},
+        ),
+        "step114Decision": "success" if visual_ready is True and not failed_predicates else "blocked",
+        "step114FailedPredicates": failed_predicates,
+        "step114BlockedReason": blocked_reasons[0] if blocked_reasons else None,
+        "step114BlockedReasons": blocked_reasons,
+        "step114SelectedGoal": "CUDA reference provenance manifest and render-state comparison gate",
+        "cudaReferenceProvenanceDecision": get_path(
+            manifest_comparison or {},
+            ["cudaReferenceProvenanceDecision"],
+            "blocked" if cuda_unknowns else "ready",
+        ),
+        "cudaReferenceRegenerationDecision": (
+            "ready"
+            if old_new_render_exact
+            else get_path(
+                manifest_comparison or {},
+                ["cudaReferenceRegenerationDecision"],
+                "pending-old-new-regeneration-comparison",
+            )
+        ),
+        "renderStateManifestComparisonDecision": get_path(
+            manifest_comparison or {},
+            ["renderStateManifestComparisonDecision"],
+            "blocked" if failed_predicates else "ready",
+        ),
+        "visualComparisonReady": visual_ready is True and not failed_predicates,
+        "oldNewCudaReferenceMatch": get_path(
+            manifest_comparison or {},
+            ["oldNewCudaReferenceMatch"],
+        ),
+        "oldNewCudaReferenceRenderComparison": old_new_render_compare,
+        "canonicalCudaReferenceManifestRecognized": (
+            isinstance(cuda_manifest, dict) or comparison_cuda_manifest_present
+        ),
+        "canonicalCudaReferenceManifestSource": (
+            "local-prefix-cuda-reference-manifest"
+            if isinstance(cuda_manifest, dict)
+            else (
+                "render-state-manifest-comparison-cudaReferenceManifest"
+                if comparison_cuda_manifest_present
+                else None
+            )
+        ),
+        "resolvedCudaReferenceManifest": comparison_cuda_manifest_identity,
+        "resolvedCudaReferenceManifestPath": get_path(
+            comparison_cuda_manifest_identity,
+            ["absolutePath"],
+        ),
+        "resolvedCudaReferenceManifestSha256": get_path(
+            comparison_cuda_manifest_identity,
+            ["sha256"],
+        ),
+        "resolvedCudaReferenceManifestLoadStatus": get_path(
+            comparison_cuda_manifest_identity,
+            ["loadStatus"],
+        ),
+        "resolvedCudaReferenceManifestParseStatus": get_path(
+            comparison_cuda_manifest_identity,
+            ["parseStatus"],
+        ),
+        "cudaReferenceRunId": get_path(cuda_manifest or {}, ["runId"]),
+        "cudaReferenceExecutionProvenance": {
+            "environment": get_path(cuda_execution, ["environment"], {}),
+            "argv": get_path(cuda_execution, ["argv"]),
+            "cwd": get_path(cuda_execution, ["cwd"]),
+            "repo": get_path(cuda_execution, ["repo"], {}),
+            "generatedAtUtc": get_path(cuda_manifest or {}, ["generatedAtUtc"]),
+        },
+        "cudaReferenceRenderSource": get_path(
+            cuda_manifest or {},
+            ["artifacts.render.absolutePath", "artifacts.render"],
+        ),
+        "cudaReferenceCheckpoint": get_path(cuda_manifest or {}, ["lineage.checkpoint"], {}),
+        "cudaReferenceDatasetRoot": get_path(cuda_manifest or {}, ["lineage.datasetRoot"]),
+        "cudaReferenceReuseLegacyTrainingReport": get_path(
+            cuda_manifest or {},
+            ["lineage.reuseLegacyTrainingReport"],
+        ),
+        "cudaReferenceCamera": {
+            "cameraLabel": get_path(cuda_manifest or {}, ["renderState.cameraLabel"]),
+            "frameNumber": get_path(cuda_manifest or {}, ["renderState.frameNumber"]),
+            "viewId": get_path(cuda_manifest or {}, ["renderState.viewId"]),
+            "timestamp": get_path(cuda_manifest or {}, ["renderState.timestamp"]),
+            "width": get_path(cuda_manifest or {}, ["renderState.width"]),
+            "height": get_path(cuda_manifest or {}, ["renderState.height"]),
+            "intrinsics": get_path(cuda_manifest or {}, ["camera.intrinsics"], {}),
+            "worldViewTransformPresent": get_path(cuda_manifest or {}, ["camera.worldViewTransform"]) is not None,
+            "fullProjTransformPresent": get_path(cuda_manifest or {}, ["camera.fullProjTransform"]) is not None,
+        },
+        "webgpuRenderState": {
+            "cameraLabel": get_path(webgpu_manifest or {}, ["renderState.cameraLabel"]),
+            "frameNumber": get_path(webgpu_manifest or {}, ["renderState.frameNumber"]),
+            "viewId": get_path(webgpu_manifest or {}, ["renderState.viewId"]),
+            "datasetTime": get_path(webgpu_manifest or {}, ["renderState.datasetTime"]),
+            "fixedReferenceCameraMode": get_path(
+                webgpu_manifest or {},
+                ["renderState.fixedReferenceCameraMode"],
+            ),
+            "webgpuCameraConstantsSource": get_path(
+                webgpu_manifest or {},
+                ["renderState.webgpuCameraConstantsSource"],
+            ),
+            "gaussianAsset": get_path(webgpu_manifest or {}, ["lineage.gaussianAsset"], {}),
+            "presentationAndCapture": get_path(
+                webgpu_manifest or {},
+                ["presentationAndCapture"],
+                {},
+            ),
+        },
+        "fixedTimeCaptureState": fixed_time_capture_state,
+        "fixedTimeCaptureIsolationPolicy": get_path(
+            fixed_time_capture_state,
+            ["isolationPolicy"],
+        ),
+        "fixedTimeSelectedIsolationMode": get_path(
+            fixed_time_capture_state,
+            ["selectedIsolationMode"],
+        ),
+        "fixedTimeRequestedTime": get_path(
+            fixed_time_capture_state,
+            ["requestedTime"],
+        ),
+        "fixedTimeManifestTime": get_path(
+            fixed_time_capture_state,
+            ["manifestTime"],
+        ),
+        "fixedTimePresentedFrameTime": get_path(
+            fixed_time_capture_state,
+            ["presentedFrameTime"],
+        ),
+        "fixedTimeCapturedFrameTime": get_path(
+            fixed_time_capture_state,
+            ["capturedFrameTime"],
+        ),
+        "fixedTimeDirectEvidenceRequestedTimestamps": get_path(
+            fixed_time_capture_state,
+            ["directEvidenceRequestedTimestamps"],
+            [],
+        ),
+        "fixedTimeDirectEvidenceActualEvaluatedTimestamps": get_path(
+            fixed_time_capture_state,
+            ["directEvidenceActualEvaluatedTimestamps"],
+            [],
+        ),
+        "fixedTimeArtifactsShareState": get_path(
+            fixed_time_capture_state,
+            ["artifactsShareFixedTime"],
+        ),
+        "fixedTimeArtifactsShareFrame": get_path(
+            fixed_time_capture_state,
+            ["artifactsShareFixedFrame"],
+        ),
+        "fixedTimeMismatchedFields": get_path(
+            fixed_time_capture_state,
+            ["mismatchedFields"],
+            [],
+        ),
+        "probeStateMutationDetected": get_path(
+            fixed_time_capture_state,
+            ["probeStateMutationDetected"],
+        ),
+        "schedulerProbeExecutedInCaptureCommand": get_path(
+            fixed_time_capture_state,
+            ["schedulerProbeExecutedInCaptureCommand"],
+        ),
+        "cameraDirtyProbeExecutedInCaptureCommand": get_path(
+            fixed_time_capture_state,
+            ["cameraDirtyProbeExecutedInCaptureCommand"],
+        ),
+        "stateRestorationPerformed": get_path(
+            fixed_time_capture_state,
+            ["stateRestorationPerformed"],
+        ),
+        "fixedTimeCaptureClassification": get_path(
+            fixed_time_capture_state,
+            ["classification"],
+        ),
+        "webgpuRecordZeroCause": webgpu_record_zero_cause,
+        "runtimeResponsibilitySeparation": runtime_responsibility_separation,
+        "limitedDrawRole": get_path(
+            runtime_responsibility_separation,
+            ["gpuCandidateRuntimeRole"],
+        ),
+        "productionPresentationSource": get_path(
+            runtime_responsibility_separation,
+            ["presentationSource"],
+        ),
+        "directGaussianEvidenceFromProductionEvaluator": get_path(
+            runtime_responsibility_separation,
+            ["directGaussianEvidenceFromProductionEvaluator"],
+        ),
+        "limitedDrawUsedAsDirectActual": get_path(
+            runtime_responsibility_separation,
+            ["limitedDrawUsedAsDirectActual"],
+        ),
+        "canonicalComparisonIndexSet": get_path(
+            direct_src_index_comparison,
+            ["canonicalComparisonIndexSet"],
+            get_path(webgpu_manifest or {}, ["canonicalComparisonIndexSet"], {}),
+        ),
+        "srcIndexSemantics": src_index_semantics,
+        "originalIndexPreserved": get_path(src_index_semantics, ["originalIndexPreserved"]),
+        "indexMappingAvailable": get_path(src_index_semantics, ["indexMappingAvailable"]),
+        "indexMappingDecision": index_mapping_decision,
+        "indexMappingEvidence": get_path(src_index_semantics, ["mappingEvidence"], {}),
+        "sourcePositionUniquenessEvidence": get_path(
+            src_index_semantics,
+            ["sourcePositionUniquenessEvidence"],
+            {},
+        ),
+        "assetRecordIndexPreservedByParser": get_path(
+            src_index_semantics,
+            ["assetRecordIndexPreservedByParser"],
+        ),
+        "assetRecordIndexPreservationSource": get_path(
+            src_index_semantics,
+            ["assetRecordIndexPreservationSource"],
+        ),
+        "fieldComparisons": field_comparisons,
+        "modelAssetLineageDecision": get_path(
+            manifest_comparison or {},
+            ["modelAssetLineageDecision"],
+            "blocked" if cuda_unknowns or webgpu_unknowns else "ready",
+        ),
+        "finalMatrixComparison": final_matrix_comparison,
+        "semanticMatrixComparison": semantic_matrix_comparison,
+        "rawMatrixComparison": {
+            "worldViewTransform": get_path(
+                semantic_matrix_comparison,
+                ["worldViewTransform.rawMatrixMatch"],
+            ),
+            "fullProjTransform": get_path(
+                semantic_matrix_comparison,
+                ["fullProjTransform.rawMatrixMatch"],
+            ),
+        },
+        "normalizedMatrixComparison": {
+            "worldViewTransform": get_path(
+                semantic_matrix_comparison,
+                ["worldViewTransform.declaredConventionNormalizedMatch"],
+            ),
+            "fullProjTransform": get_path(
+                semantic_matrix_comparison,
+                ["fullProjTransform.declaredConventionNormalizedMatch"],
+            ),
+            "normalizationStatus": get_path(
+                semantic_matrix_comparison,
+                ["normalizationStatus"],
+            ),
+            "normalizationBlockedReason": get_path(
+                semantic_matrix_comparison,
+                ["normalizationBlockedReason"],
+            ),
+        },
+        "imageSpaceConventionComparison": image_space_comparison,
+        "unknownCriticalFields": {
+            "cudaReference": cuda_unknowns,
+            "webgpu": webgpu_unknowns,
+        },
+        "contradictoryFields": contradictory_fields,
+        "directRasterizerScreenCoordinateEvidence": {
+            "available": direct_rasterizer_evidence.get("available")
+            if isinstance(direct_rasterizer_evidence, dict)
+            else None,
+            "actualEvidenceSource": direct_rasterizer_evidence.get("actualEvidenceSource")
+            if isinstance(direct_rasterizer_evidence, dict)
+            else None,
+            "recordCount": direct_rasterizer_evidence.get("recordCount")
+            if isinstance(direct_rasterizer_evidence, dict)
+            else None,
+            "validRecordCount": direct_rasterizer_evidence.get("validRecordCount")
+            if isinstance(direct_rasterizer_evidence, dict)
+            else None,
+            "artifact": direct_rasterizer_evidence.get("artifact")
+            if isinstance(direct_rasterizer_evidence, dict)
+            else None,
+            "screenSpaceUnits": direct_rasterizer_evidence.get("screenSpaceUnits")
+            if isinstance(direct_rasterizer_evidence, dict)
+            else None,
+            "selectionPolicy": direct_rasterizer_evidence.get("selectionPolicy")
+            if isinstance(direct_rasterizer_evidence, dict)
+            else None,
+        },
+        "directCudaWebGpuSrcIndexComparison": direct_src_index_comparison,
+        "preCullWebGpuDirectEvidence": {
+            "available": get_path(pre_cull_summary, ["available"]),
+            "source": get_path(pre_cull_summary, ["source"]),
+            "recordCount": get_path(pre_cull_summary, ["recordCount"]),
+            "matchedRequestedRecordCount": get_path(pre_cull_summary, ["matchedRequestedRecordCount"]),
+            "evidenceAvailableCount": get_path(pre_cull_summary, ["evidenceAvailableCount"]),
+            "explicitlyCulledCount": get_path(pre_cull_summary, ["explicitlyCulledCount"]),
+            "missingCount": get_path(pre_cull_summary, ["missingCount"]),
+            "invalidCount": get_path(pre_cull_summary, ["invalidCount"]),
+            "availabilityClassifications": get_path(
+                pre_cull_summary,
+                ["availabilityClassifications"],
+                [],
+            ),
+            "fieldAvailabilitySummary": field_availability_summary,
+            "fullPreCullStageCountsReady": full_pre_cull_stage_counts_ready,
+            "directEvidenceLayout": get_path(
+                webgpu_manifest or {},
+                ["directGaussianEvidence", "preCullEvidenceSummary", "directEvidenceLayout"],
+                get_path(
+                    webgpu_manifest or {},
+                    ["directGaussianEvidence", "directEvidenceLayout"],
+                    {},
+                ),
+            ),
+        },
+        "directStageComparisonSummary": get_path(
+            direct_src_index_comparison,
+            ["stageErrorSummary"],
+            {},
+        ),
+        "temporalStageComparisonSummary": get_path(
+            direct_src_index_comparison,
+            ["temporalStageComparisonSummary"],
+            {},
+        ),
+        "motionDeltaInternalStageComparisonSummary": get_path(
+            direct_src_index_comparison,
+            ["motionDeltaInternalStageComparisonSummary"],
+            get_path(
+                manifest_comparison or {},
+                ["motionDeltaInternalStageComparisonSummary"],
+                {},
+            ),
+        ),
+        "temporalSourceParameterStageComparisonSummary": get_path(
+            manifest_comparison or {},
+            ["temporalSourceParameterStageComparisonSummary"],
+            {},
+        ),
+        "rotationInputPackingContract": get_path(
+            manifest_comparison or {},
+            ["rotationInputPackingContract"],
+            get_path(webgpu_manifest or {}, ["rotationInputPackingContract"], {}),
+        ),
+        "initialProductionPresentation": get_path(
+            manifest_comparison or {},
+            ["initialProductionPresentation"],
+            get_path(webgpu_manifest or {}, ["initialProductionPresentation"], {}),
+        ),
+        "initialProductionPresentationPolicy": get_path(
+            manifest_comparison or {},
+            ["initialProductionPresentation", "policy"],
+            get_path(webgpu_manifest or {}, ["initialProductionPresentation", "policy"]),
+        ),
+        "initialProductionPresentationClassification": get_path(
+            manifest_comparison or {},
+            ["initialProductionPresentation", "classification"],
+            get_path(webgpu_manifest or {}, ["initialProductionPresentation", "classification"]),
+        ),
+        "urlLoadAloneGaussianVisible": get_path(
+            manifest_comparison or {},
+            ["initialProductionPresentation", "urlLoadAloneGaussianVisible"],
+            get_path(webgpu_manifest or {}, ["initialProductionPresentation", "urlLoadAloneGaussianVisible"]),
+        ),
+        "captureCommandDependencyRemaining": get_path(
+            manifest_comparison or {},
+            ["initialProductionPresentation", "captureCommandDependencyRemaining"],
+            get_path(webgpu_manifest or {}, ["initialProductionPresentation", "captureCommandDependencyRemaining"]),
+        ),
+        "preCaptureSnapshotAvailable": get_path(
+            webgpu_manifest or {},
+            ["initialProductionPresentation", "preCaptureSnapshotAvailable"],
+        ),
+        "preCaptureSnapshotReadOnly": get_path(
+            webgpu_manifest or {},
+            ["initialProductionPresentation", "preCaptureSnapshotReadOnly"],
+        ),
+        "preCaptureSnapshotCapturedBeforeMutation": get_path(
+            webgpu_manifest or {},
+            ["initialProductionPresentation", "preCaptureSnapshotCapturedBeforeMutation"],
+        ),
+        "initialScheduleSource": get_path(
+            webgpu_manifest or {},
+            ["initialProductionPresentation", "initialScheduleSource"],
+        ),
+        "initialRequestIdentity": get_path(
+            webgpu_manifest or {},
+            ["initialProductionPresentation", "initialRequestIdentity"],
+        ),
+        "initialProductionGeneration": get_path(
+            webgpu_manifest or {},
+            ["initialProductionPresentation", "initialProductionGeneration"],
+        ),
+        "initialCompositorGeneration": get_path(
+            webgpu_manifest or {},
+            ["initialProductionPresentation", "initialCompositorGeneration"],
+        ),
+        "initialPresentedGeneration": get_path(
+            webgpu_manifest or {},
+            ["initialProductionPresentation", "initialPresentedGeneration"],
+        ),
+        "initialFrameIdentity": get_path(
+            webgpu_manifest or {},
+            ["initialProductionPresentation", "initialFrameIdentity"],
+        ),
+        "initialPresentationKnownNonblank": get_path(
+            webgpu_manifest or {},
+            ["initialProductionPresentation", "knownNonblank"],
+        ),
+        "captureBaselineGeneration": get_path(
+            webgpu_manifest or {},
+            ["initialProductionPresentation", "captureBaselineGeneration"],
+        ),
+        "captureRequestIdentity": get_path(
+            webgpu_manifest or {},
+            ["initialProductionPresentation", "captureRequestIdentity"],
+        ),
+        "captureProductionGeneration": get_path(
+            webgpu_manifest or {},
+            ["initialProductionPresentation", "captureProductionGeneration"],
+        ),
+        "captureCompositorGeneration": get_path(
+            webgpu_manifest or {},
+            ["initialProductionPresentation", "captureCompositorGeneration"],
+        ),
+        "capturePresentedGeneration": get_path(
+            webgpu_manifest or {},
+            ["initialProductionPresentation", "capturePresentedGeneration"],
+        ),
+        "captureProductionFrameIdentity": get_path(
+            webgpu_manifest or {},
+            ["initialProductionPresentation", "captureProductionFrameIdentity"],
+        ),
+        "captureArtifactFrameIdentity": get_path(
+            webgpu_manifest or {},
+            ["initialProductionPresentation", "captureArtifactFrameIdentity"],
+        ),
+        "captureArtifactMatchesCaptureProductionFrame": get_path(
+            webgpu_manifest or {},
+            ["initialProductionPresentation", "captureArtifactMatchesCaptureProductionFrame"],
+        ),
+        "initialAndCaptureGenerationSeparated": get_path(
+            webgpu_manifest or {},
+            ["initialProductionPresentation", "initialAndCaptureGenerationSeparated"],
+        ),
+        "initialPresentationRuntimeError": get_path(
+            webgpu_manifest or {},
+            ["initialProductionPresentation", "runtimeError"],
+        ),
+        "initialPresentationRuntimeBehaviorChanged": get_path(
+            webgpu_manifest or {},
+            ["initialProductionPresentation", "runtimeBehaviorChanged"],
+        ),
+        "projectionCanonicalStageComparisonSummary": get_path(
+            direct_src_index_comparison,
+            ["projectionCanonicalStageComparisonSummary"],
+            get_path(
+                manifest_comparison or {},
+                ["projectionCanonicalStageComparisonSummary"],
+                {},
+            ),
+        ),
+        "projectionCanonicalContract": get_path(
+            direct_src_index_comparison,
+            ["projectionCanonicalContract"],
+            get_path(
+                manifest_comparison or {},
+                ["projectionCanonicalContract"],
+                {},
+            ),
+        ),
+        "firstProjectionMismatchSubstage": get_path(
+            direct_src_index_comparison,
+            ["firstProjectionMismatchSubstage"],
+            get_path(
+                manifest_comparison or {},
+                ["firstProjectionMismatchSubstage"],
+                None,
+            ),
+        ),
+        "projectionRootCauseClassification": get_path(
+            direct_src_index_comparison,
+            ["projectionRootCauseClassification"],
+            get_path(
+                manifest_comparison or {},
+                ["projectionRootCauseClassification"],
+                None,
+            ),
+        ),
+        "radiusFootprintStageComparisonSummary": get_path(
+            direct_src_index_comparison,
+            ["radiusFootprintStageComparisonSummary"],
+            get_path(
+                manifest_comparison or {},
+                ["radiusFootprintStageComparisonSummary"],
+                {},
+            ),
+        ),
+        "step114Fix10ProductionFixApplied": get_path(
+            manifest_comparison or {},
+            ["step114Fix10ProductionFixApplied"],
+        ),
+        "step114Fix10ProductionFixDescription": get_path(
+            manifest_comparison or {},
+            ["step114Fix10ProductionFixDescription"],
+        ),
+        "step114Fix10BeforeAfterComparison": get_path(
+            manifest_comparison or {},
+            ["step114Fix10BeforeAfterComparison"],
+            {},
+        ),
+        "firstTemporalMismatchSubstage": get_path(
+            direct_src_index_comparison,
+            ["firstTemporalMismatchSubstage"],
+            None,
+        ),
+        "firstMotionDeltaMismatchSubstage": get_path(
+            direct_src_index_comparison,
+            ["firstMotionDeltaMismatchSubstage"],
+            get_path(
+                manifest_comparison or {},
+                ["firstMotionDeltaMismatchSubstage"],
+                None,
+            ),
+        ),
+        "temporalEvidenceMissing": get_path(
+            direct_src_index_comparison,
+            ["temporalEvidenceMissing"],
+            None,
+        ),
+        "motionDeltaEvidenceMissing": get_path(
+            direct_src_index_comparison,
+            ["motionDeltaEvidenceMissing"],
+            get_path(
+                manifest_comparison or {},
+                ["motionDeltaEvidenceMissing"],
+                None,
+            ),
+        ),
+        "temporalRootCauseClassifications": get_path(
+            direct_src_index_comparison,
+            ["temporalRootCauseClassifications"],
+            [],
+        ),
+        "motionDeltaRootCauseClassifications": get_path(
+            direct_src_index_comparison,
+            ["motionDeltaRootCauseClassifications"],
+            get_path(
+                manifest_comparison or {},
+                ["motionDeltaRootCauseClassifications"],
+                [],
+            ),
+        ),
+        "fixedConditionVisualComparison": fixed_condition_visual_comparison,
+        "fixedConditionVisualComparisonExecuted": (
+            fixed_condition_visual_comparison is not None
+        ),
+        "fixedConditionVisualComparisonMetrics": {
+            "imageSizeMatch": get_path(
+                fixed_condition_visual_comparison or {},
+                ["imageSizeMatch"],
+            ),
+            "channelMode": get_path(
+                fixed_condition_visual_comparison or {},
+                ["channelMode"],
+                get_path(
+                    fixed_condition_visual_comparison or {},
+                    ["comparisonChannelMode"],
+                ),
+            ),
+            "mae": get_path(
+                fixed_condition_visual_comparison or {},
+                ["mae"],
+                get_path(fixed_condition_visual_comparison or {}, ["pixelMae"]),
+            ),
+            "rmse": get_path(
+                fixed_condition_visual_comparison or {},
+                ["rmse"],
+                get_path(fixed_condition_visual_comparison or {}, ["pixelRmse"]),
+            ),
+            "maxAbsDiff": get_path(
+                fixed_condition_visual_comparison or {},
+                ["maxAbsDiff"],
+                get_path(
+                    fixed_condition_visual_comparison or {},
+                    ["maxAbsoluteDifference"],
+                    get_path(
+                        fixed_condition_visual_comparison or {},
+                        ["maxAbsDifference"],
+                    ),
+                ),
+            ),
+            "differingPixelCount": get_path(
+                fixed_condition_visual_comparison or {},
+                ["differingPixelCount"],
+            ),
+            "differingPixelRatio": get_path(
+                fixed_condition_visual_comparison or {},
+                ["differingPixelRatio"],
+            ),
+            "mismatchClassification": get_path(
+                fixed_condition_visual_comparison or {},
+                ["mismatchClassification"],
+                get_path(
+                    fixed_condition_visual_comparison or {},
+                    ["visualMismatchClassification"],
+                ),
+            ),
+        },
+        "diagonalOrientationMismatchClassification": get_path(
+            direct_src_index_comparison,
+            ["diagonalOrientationMismatchClassification"],
+            None,
+        ),
+        "directRasterizerEvidenceAvailable": direct_rasterizer_evidence.get("available")
+        if isinstance(direct_rasterizer_evidence, dict)
+        else None,
+        "directSrcIndexComparisonReady": direct_src_index_comparison.get("decision") == "ready"
+        if isinstance(direct_src_index_comparison, dict)
+        else False,
+        "firstMismatchStage": get_path(
+            direct_src_index_comparison,
+            ["firstMismatchStage"],
+            None,
+        ),
+        "runtimeErrorSubtype": get_path(
+            webgpu_manifest or {},
+            ["presentationAndCapture.pngCaptureStatus.runtimeErrorSubtype"],
+            None,
+        ),
+        **runtime_error_flags,
+    }
+
+
 def collect_existing_json(base_dir: Path, prefix: str) -> Dict[str, Path]:
     found: Dict[str, Path] = {}
     for suffix in KNOWN_SUFFIXES:
@@ -20957,10 +22950,12 @@ def summarize_step(base_dir: Path, prefix: str) -> Dict[str, Any]:
         "step111PipelineParityGapClosure": None,
         "step112CameraProjectionOrientationParity": None,
         "step113CovarianceJacobianConicParity": None,
+        "step114CudaReferenceProvenance": None,
         "gpuVisibleRecordDryRun": None,
         "gpuRawVisibleRecordDryRun": None,
         "webgpuVisibleRecordDryRun": None,
         "outputCaptureDiagnostic": None,
+        "runtimeMismatch": None,
         "fixedConditionVisualComparison": None,
         "association": None,
         "renderSummary": None,
@@ -20989,6 +22984,36 @@ def summarize_step(base_dir: Path, prefix: str) -> Dict[str, Any]:
 
     if "gpu_candidate_runtime_summary" in loaded:
         result["runtime"] = extract_runtime(loaded["gpu_candidate_runtime_summary"])
+
+    if "runtime_mismatch" in loaded:
+        result["runtimeMismatch"] = loaded["runtime_mismatch"]
+        mismatch_contract = get_path(
+            loaded["runtime_mismatch"],
+            ["productionRuntimeValidation.actual"],
+            {},
+        )
+        if isinstance(mismatch_contract, dict):
+            result["runtime"] = {
+                "requestedRuntime": mismatch_contract.get("requestedRuntime"),
+                "effectiveDisplayRuntime": mismatch_contract.get(
+                    "effectiveDisplayRuntime"
+                ),
+                "backendMode": mismatch_contract.get("backendMode"),
+                "backendImplementation": mismatch_contract.get(
+                    "backendImplementation"
+                ),
+                "canvasPresentationEnabled": mismatch_contract.get(
+                    "canvasPresentationEnabled"
+                ),
+                "viewerLoopHookEnabled": mismatch_contract.get(
+                    "viewerLoopHookEnabled"
+                ),
+                "actualProductionPresentationPath": mismatch_contract.get(
+                    "actualProductionPresentationPath"
+                ),
+                "runtimeEvidenceSource": "runtime-mismatch-command-start-fence",
+                "productionRuntimeContract": mismatch_contract,
+            }
 
     if "limited_draw_summary" in loaded:
         result["limitedDraw"] = extract_runtime(loaded["limited_draw_summary"])
@@ -21058,6 +23083,54 @@ def summarize_step(base_dir: Path, prefix: str) -> Dict[str, Any]:
             loaded["fixed_condition_visual_comparison"]
         )
         result["fixedConditionVisualComparison"] = fixed_condition_visual_comparison
+    cuda_reference_manifest = loaded.get("cuda_reference_manifest")
+    webgpu_render_state_manifest = loaded.get("webgpu_render_state_manifest")
+    render_state_manifest_comparison = loaded.get("render_state_manifest_comparison")
+    cuda_reference_old_new_render_compare = loaded.get("cuda_reference_old_new_render_compare")
+    cuda_reference_old_new_aux_compares = {
+        "alpha": loaded.get("cuda_reference_old_new_alpha_compare"),
+        "depth": loaded.get("cuda_reference_old_new_depth_compare"),
+        "gt": loaded.get("cuda_reference_old_new_gt_compare"),
+    }
+    should_build_step114_summary = (
+        "step114" in prefix
+        or cuda_reference_manifest is not None
+        or webgpu_render_state_manifest is not None
+        or render_state_manifest_comparison is not None
+    )
+    if should_build_step114_summary:
+        result["step114CudaReferenceProvenance"] = (
+            build_step114_cuda_reference_provenance_summary(
+                cuda_manifest=cuda_reference_manifest,
+                webgpu_manifest=webgpu_render_state_manifest,
+                manifest_comparison=render_state_manifest_comparison,
+                old_new_render_compare=cuda_reference_old_new_render_compare,
+                fixed_condition_visual_comparison=fixed_condition_visual_comparison,
+            )
+        )
+        result["step114CudaReferenceProvenance"][
+            "oldNewCudaReferenceAuxComparisons"
+        ] = cuda_reference_old_new_aux_compares
+        if isinstance(result.get("runtimeMismatch"), dict):
+            runtime_validation = get_path(
+                result["runtimeMismatch"], ["productionRuntimeValidation"], {}
+            )
+            mismatch_fields = get_path(
+                runtime_validation, ["mismatchFields"], []
+            )
+            step114 = result["step114CudaReferenceProvenance"]
+            step114.update(
+                {
+                    "step114Fix10Fix6Fix1ImplementationDecision": "blocked",
+                    "step114Fix10Fix6Fix1ImplementationBlockedReasons": [
+                        "production-runtime-selection-mismatch",
+                        *list(mismatch_fields or []),
+                    ],
+                    "productionRuntimeValidation": runtime_validation,
+                    "step114Fix10ImplementationDecision": "blocked",
+                    "step114Decision": "blocked",
+                }
+            )
     step110_fixed_condition_visual_comparison = None
     step110_prefix = related_step_prefix(prefix, 110)
     if step110_prefix:
@@ -21069,7 +23142,16 @@ def summarize_step(base_dir: Path, prefix: str) -> Dict[str, Any]:
                 extract_fixed_condition_visual_comparison(step110_data)
             )
 
-    png_diagnostic = extract_png_capture_diagnostic(base_dir / f"{prefix}_canvas.png")
+    png_capture_status = loaded.get("png_capture_status")
+    saved_png_evidence = build_saved_png_evidence(
+        base_dir=base_dir,
+        prefix=prefix,
+        capture_status=png_capture_status,
+    )
+    png_diagnostic = extract_png_capture_diagnostic(
+        Path(saved_png_evidence["expectedResolvedPath"])
+    )
+    result["savedPngCanonicalEvidence"] = saved_png_evidence
     result["outputCaptureDiagnostic"] = png_diagnostic
     if isinstance(result.get("webgpuVisibleRecordDryRun"), dict):
         output_diagnostic_source = loaded.get(
@@ -21079,7 +23161,8 @@ def summarize_step(base_dir: Path, prefix: str) -> Dict[str, Any]:
         output_diagnostic = build_output_capture_consistency_diagnostic(
             output_diagnostic_source,
             png_diagnostic,
-            loaded.get("png_capture_status"),
+            png_capture_status,
+            saved_png_evidence,
         )
         if output_diagnostic.get("captureTarget") is None:
             output_diagnostic["captureTarget"] = result["webgpuVisibleRecordDryRun"].get(
@@ -21152,8 +23235,65 @@ def summarize_step(base_dir: Path, prefix: str) -> Dict[str, Any]:
         result["step113CovarianceJacobianConicParity"] = result[
             "webgpuVisibleRecordDryRun"
         ]["step113CovarianceJacobianConicParity"]
+        if should_build_step114_summary:
+            result["webgpuVisibleRecordDryRun"][
+                "step114CudaReferenceProvenance"
+            ] = build_step114_cuda_reference_provenance_summary(
+                cuda_manifest=cuda_reference_manifest,
+                webgpu_manifest=webgpu_render_state_manifest,
+                manifest_comparison=render_state_manifest_comparison,
+                old_new_render_compare=cuda_reference_old_new_render_compare,
+                fixed_condition_visual_comparison=fixed_condition_visual_comparison,
+            )
+            result["webgpuVisibleRecordDryRun"][
+                "step114CudaReferenceProvenance"
+            ]["oldNewCudaReferenceAuxComparisons"] = (
+                cuda_reference_old_new_aux_compares
+            )
+            result["step114CudaReferenceProvenance"] = result[
+                "webgpuVisibleRecordDryRun"
+            ]["step114CudaReferenceProvenance"]
     elif fixed_condition_visual_comparison is not None:
         result["fixedConditionVisualComparison"] = fixed_condition_visual_comparison
+
+    if should_build_step114_summary:
+        apply_step114_fix10_fix2_evidence(
+            result.get("step114CudaReferenceProvenance"),
+            result.get("outputCaptureDiagnostic", png_diagnostic),
+            saved_png_evidence,
+        )
+        final_canvas_evidence = get_path(
+            webgpu_render_state_manifest,
+            ["initialProductionPresentation", "finalCanvasPresentationEvidence"],
+            {},
+        )
+        if (
+            isinstance(final_canvas_evidence, dict)
+            and final_canvas_evidence.get("schemaVersion")
+            == "phase3-final-canvas-presentation-evidence-v1"
+        ):
+            apply_step114_fix10_fix3_evidence(
+                result.get("step114CudaReferenceProvenance"),
+                result.get("outputCaptureDiagnostic", png_diagnostic),
+                saved_png_evidence,
+            )
+        synchronous_fence = get_path(
+            webgpu_render_state_manifest,
+            ["initialProductionPresentation", "synchronousCommandStartFence"],
+            {},
+        )
+        if (
+            isinstance(synchronous_fence, dict)
+            and synchronous_fence.get("schemaVersion")
+            == "phase3-synchronous-command-start-fence-v1"
+        ):
+            apply_step114_fix10_fix4_evidence(
+                result.get("step114CudaReferenceProvenance")
+            )
+            apply_step114_fix10_fix6_evidence(
+                result.get("step114CudaReferenceProvenance"),
+                result.get("webgpuVisibleRecordDryRun"),
+            )
 
     if "association" in loaded:
         result["association"] = extract_association(loaded["association"])
@@ -21199,6 +23339,8 @@ def print_human_summary(summary: Dict[str, Any]) -> None:
             "- missingKnownSuffixes: "
             + ", ".join(summary["missingKnownSuffixes"])
         )
+    if summary.get("webgpuVisibleRecordDryRun") is None:
+        summary["webgpuVisibleRecordDryRun"] = {}
 
     print_section("Candidate compare", summary.get("candidate"))
     print_section("Coverage", summary.get("coverage"))
@@ -21220,6 +23362,10 @@ def print_human_summary(summary: Dict[str, Any]) -> None:
     print_section(
         "Step113 covariance Jacobian conic parity",
         summary.get("step113CovarianceJacobianConicParity"),
+    )
+    print_section(
+        "Step114 CUDA reference provenance",
+        summary.get("step114CudaReferenceProvenance"),
     )
     print_section("GPU visible record dry-run", summary.get("gpuVisibleRecordDryRun"))
     print_section("GPU raw visible record dry-run", summary.get("gpuRawVisibleRecordDryRun"))
@@ -21432,6 +23578,12 @@ def print_human_summary(summary: Dict[str, Any]) -> None:
         "Step110 fixed-condition visual comparison readiness",
         summary.get("webgpuVisibleRecordDryRun", {}).get(
             "step110FixedConditionVisualComparison"
+        ),
+    )
+    print_section(
+        "Step114 CUDA reference provenance",
+        summary.get("webgpuVisibleRecordDryRun", {}).get(
+            "step114CudaReferenceProvenance"
         ),
     )
     print_section(

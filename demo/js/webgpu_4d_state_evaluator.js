@@ -67,15 +67,20 @@ function buildCandidateAttributeInput(raw, candidateIndices) {
 }
 
 function buildCandidateRotationInput(raw, candidateIndices) {
-  const out = new Float32Array(candidateIndices.length * 4);
+  const out = new Float32Array(candidateIndices.length * 8);
   for (let row = 0; row < candidateIndices.length; row += 1) {
     const srcIndex = candidateIndices[row] | 0;
     const rotationBase = srcIndex * (raw.rotationDim ?? 0);
-    const o = row * 4;
+    const rotationRBase = srcIndex * (raw.rotationRDim ?? 0);
+    const o = row * 8;
     out[o + 0] = toFiniteNumber(raw.rotation?.[rotationBase + 0], 1);
     out[o + 1] = toFiniteNumber(raw.rotation?.[rotationBase + 1], 0);
     out[o + 2] = toFiniteNumber(raw.rotation?.[rotationBase + 2], 0);
     out[o + 3] = toFiniteNumber(raw.rotation?.[rotationBase + 3], 0);
+    out[o + 4] = toFiniteNumber(raw.rotation_r?.[rotationRBase + 0], 1);
+    out[o + 5] = toFiniteNumber(raw.rotation_r?.[rotationRBase + 1], 0);
+    out[o + 6] = toFiniteNumber(raw.rotation_r?.[rotationRBase + 2], 0);
+    out[o + 7] = toFiniteNumber(raw.rotation_r?.[rotationRBase + 3], 0);
   }
   return out;
 }
@@ -102,16 +107,22 @@ function buildStep113DiagnosticRowIndices(count) {
 function summarizeComputedStatePositions(statePositions) {
   const count = Math.floor((statePositions?.length ?? 0) / 4);
   let computed4DStatePositionCount = 0;
+  let cudaConditionalTemporalMeanCount = 0;
   let unavailableStatePositionCount = 0;
   for (let row = 0; row < count; row += 1) {
     const w = Number(statePositions[row * 4 + 3]);
-    if (w > 0.89 && w < 0.99) {
+    if (w > 0.89) {
       computed4DStatePositionCount += 1;
+      if (w > 0.99) cudaConditionalTemporalMeanCount += 1;
     } else {
       unavailableStatePositionCount += 1;
     }
   }
-  return { computed4DStatePositionCount, unavailableStatePositionCount };
+  return {
+    computed4DStatePositionCount,
+    cudaConditionalTemporalMeanCount,
+    unavailableStatePositionCount
+  };
 }
 
 function summarizeComputedRenderAttributes(renderAttributes) {
@@ -308,6 +319,72 @@ fn cov3Bilinear(
   return dot(a, cov3Apply(b, c00, c01, c02, c11, c12, c22));
 }
 
+fn rotation4dRowsCudaGlm(qLRaw: vec4f, qRRaw: vec4f) -> mat4x4f {
+  let qL = qLRaw / max(length(qLRaw), 1e-6);
+  let qR = qRRaw / max(length(qRRaw), 1e-6);
+  let a = qL.x;
+  let b = qL.y;
+  let c = qL.z;
+  let d = qL.w;
+  let p = qR.x;
+  let q = qR.y;
+  let r = qR.z;
+  let s = qR.w;
+  let ml0 = vec4f(a, -b, c, -d);
+  let ml1 = vec4f(b, a, -d, -c);
+  let ml2 = vec4f(-c, d, a, -b);
+  let ml3 = vec4f(d, c, b, a);
+  let mr0 = vec4f(p, -q, r, s);
+  let mr1 = vec4f(q, p, -s, r);
+  let mr2 = vec4f(-r, s, p, q);
+  let mr3 = vec4f(-s, -r, -q, p);
+  let mlCol0 = vec4f(ml0.x, ml1.x, ml2.x, ml3.x);
+  let mlCol1 = vec4f(ml0.y, ml1.y, ml2.y, ml3.y);
+  let mlCol2 = vec4f(ml0.z, ml1.z, ml2.z, ml3.z);
+  let mlCol3 = vec4f(ml0.w, ml1.w, ml2.w, ml3.w);
+  return mat4x4f(
+    vec4f(dot(mr0, mlCol0), dot(mr0, mlCol1), dot(mr0, mlCol2), dot(mr0, mlCol3)),
+    vec4f(dot(mr1, mlCol0), dot(mr1, mlCol1), dot(mr1, mlCol2), dot(mr1, mlCol3)),
+    vec4f(dot(mr2, mlCol0), dot(mr2, mlCol1), dot(mr2, mlCol2), dot(mr2, mlCol3)),
+    vec4f(dot(mr3, mlCol0), dot(mr3, mlCol1), dot(mr3, mlCol2), dot(mr3, mlCol3))
+  );
+}
+
+fn sigma4Component(scaleSq: vec4f, colA: vec4f, colB: vec4f) -> f32 {
+  return dot(scaleSq * colA, colB);
+}
+
+fn cudaConditionalTemporalMeanOffset(
+  dt: f32,
+  scaleXYZ: vec3f,
+  scaleT: f32,
+  qLRaw: vec4f,
+  qRRaw: vec4f
+) -> vec4f {
+  let r4 = rotation4dRowsCudaGlm(qLRaw, qRRaw);
+  let row0 = r4[0];
+  let row1 = r4[1];
+  let row2 = r4[2];
+  let row3 = r4[3];
+  let col0 = vec4f(row0.x, row1.x, row2.x, row3.x);
+  let col1 = vec4f(row0.y, row1.y, row2.y, row3.y);
+  let col2 = vec4f(row0.z, row1.z, row2.z, row3.z);
+  let col3 = vec4f(row0.w, row1.w, row2.w, row3.w);
+  let scaleSq = vec4f(
+    scaleXYZ.x * scaleXYZ.x,
+    scaleXYZ.y * scaleXYZ.y,
+    scaleXYZ.z * scaleXYZ.z,
+    scaleT * scaleT
+  );
+  let covT = max(sigma4Component(scaleSq, col3, col3), 1e-8);
+  let cov12 = vec3f(
+    sigma4Component(scaleSq, col0, col3),
+    sigma4Component(scaleSq, col1, col3),
+    sigma4Component(scaleSq, col2, col3)
+  );
+  return vec4f(cov12 * (dt / covT), covT);
+}
+
 fn roundFractionRow(maxRow: u32, numerator: u32, denominator: u32) -> u32 {
   return (maxRow * numerator + denominator / 2u) / denominator;
 }
@@ -338,29 +415,33 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let hasScaleT = ts.w > 0.5;
   let scaleT = max(select(1.0, ts.y, hasScaleT) * params.scalingModifier * params.sigmaScale, 1e-6);
   let dt = select(0.0, params.timestamp - ts.x, hasTime);
-  let temporal = clamp(dt / scaleT, -1.0, 1.0);
-
-  // Step80 intentionally implements a partial state evaluation boundary:
-  // time parameters affect the emitted position, while full covariance/rotation
-  // parity remains deferred to later WebGPU 4D state work.
-  let pos = raw0.xyz + vec3f(0.015 * temporal, -0.010 * temporal, 0.005 * temporal);
-  statePositions[row] = vec4f(pos, 0.9);
-
   let attrBaseInput = row * 2u;
   let attrs = attributeInput[attrBaseInput + 0u];
   let scaleInfo = attributeInput[attrBaseInput + 1u];
-  let temporalWeight = exp(-0.5 * temporal * temporal);
-  let alpha = clamp(sigmoid(raw0.w) * temporalWeight, 0.05, 0.99);
-  let rgb = clamp(attrs.rgb + vec3f(0.5), vec3f(0.0), vec3f(1.0));
-  let radiusPx = clamp(attrs.w * 900.0 + 2.0 + abs(temporal) * 2.0, 3.0, 14.0);
-  let attrBase = row * 2u;
-  renderAttributes[attrBase + 0u] = vec4f(radiusPx, alpha, rgb.r, rgb.g);
-  renderAttributes[attrBase + 1u] = vec4f(rgb.b, temporalWeight, 81.0, 0.0);
-
   let meanScale = max(attrs.w, 1e-6);
   let scaleX = max(scaleInfo.x * params.scalingModifier, 1e-6);
   let scaleY = max(scaleInfo.y * params.scalingModifier, 1e-6);
   let scaleZ = max(scaleInfo.z * params.scalingModifier, 1e-6);
+  let rotationBase = row * 2u;
+  let qRaw = rotationInput[rotationBase + 0u];
+  let qRRaw = rotationInput[rotationBase + 1u];
+  let temporalMean = cudaConditionalTemporalMeanOffset(
+    dt,
+    vec3f(scaleX, scaleY, scaleZ),
+    scaleT,
+    qRaw,
+    qRRaw
+  );
+  let temporalWeight = exp(-0.5 * dt * dt / max(temporalMean.w, 1e-8));
+  let pos = raw0.xyz + temporalMean.xyz;
+  statePositions[row] = vec4f(pos, 1.0);
+  let alpha = clamp(sigmoid(raw0.w) * temporalWeight, 0.05, 0.99);
+  let rgb = clamp(attrs.rgb + vec3f(0.5), vec3f(0.0), vec3f(1.0));
+  let normalizedTemporal = clamp(dt / scaleT, -1.0, 1.0);
+  let radiusPx = clamp(attrs.w * 900.0 + 2.0 + abs(normalizedTemporal) * 2.0, 3.0, 14.0);
+  let attrBase = row * 2u;
+  renderAttributes[attrBase + 0u] = vec4f(radiusPx, alpha, rgb.r, rgb.g);
+  renderAttributes[attrBase + 1u] = vec4f(rgb.b, temporalWeight, 81.0, 0.0);
   let anisotropyX = clamp(scaleX / meanScale, 0.35, 2.75);
   let anisotropyY = clamp(scaleY / meanScale, 0.35, 2.75);
   let radiusX = max(radiusPx * anisotropyX, 1.0);
@@ -382,7 +463,6 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   var footprintSourceCode = 111.0;
   var fallbackFlag = 1.0;
 
-  let qRaw = rotationInput[row];
   let q = qRaw / max(length(qRaw), 1e-6);
   let qr = q.x;
   let qx = q.y;
@@ -737,12 +817,12 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         'attributeInput',
         'renderAttributes',
         'footprintPayload-with-packed-step113-diagnostic-tail',
-        'rotationInput',
+        'rotationInput-packed-left-and-right-4d-quaternions',
         'projectionParams'
       ]
     },
     contract: buildWebGpu4DStateSourceContract({
-      stateSourceMode: 'webgpu-partial-4d-state-evaluator',
+      stateSourceMode: 'webgpu-cuda-conditional-temporal-mean-evaluator',
       candidateCount: count,
       statePositionCount: count,
       computed4DStatePositionCount: stateSummary.computed4DStatePositionCount,
@@ -751,7 +831,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       timestamp: buildConfig?.timestamp ?? null,
       stateParameterMode: 'viewer-build-config-webgpu-uniform',
       webgpuComputedStatePositions: true,
-      webgpu4DStateEvaluationMode: 'partial-time-parameter-position-eval',
+      webgpu4DStateEvaluationMode: 'cuda-style-conditional-temporal-mean-position-eval',
       full4DStateEvaluationInWgsl: false,
       rawXyzRepairInVisibleRecordComputeRequired: false,
       reason:

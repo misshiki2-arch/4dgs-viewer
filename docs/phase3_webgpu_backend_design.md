@@ -2845,3 +2845,242 @@ parity, final CUDA compositor parity, early termination, LOD, and streaming
 remain deferred. Summary records representative Gaussian intermediate values
 and first mismatch stage so browser captures can validate the production path
 without relying on raw JSON hand inspection.
+
+## Step114 CUDA Reference Provenance and Render-State Manifest Audit V1
+
+Step114 treats the CUDA Reference image as an auditable artifact, not an
+implicit filename. A CUDA render-state manifest must accompany each regenerated
+reference render and record the render entry point, command line, repo/git
+state, Python/PyTorch/CUDA/rasterizer environment, checkpoint identity,
+dataset identity, camera/frame/time, matrices, intrinsics, viewport,
+background policy, image-space convention evidence, and output artifact
+hashes.
+
+The existing CUDA Reference directory remains immutable. Regeneration writes to
+a versioned directory and produces an old/new comparison record before any
+visual comparison can be trusted. If CUDA rasterizer screen-coordinate
+conventions are not emitted directly, the manifest records them as `unknown`
+rather than inferring them from image appearance.
+
+The WebGPU viewer emits a matching render-state manifest through the debug
+capture path. It records the requested, presented, and captured state identity,
+fixed-reference camera activation, CUDA-derived camera constants routing,
+viewport/background/capture source, output/presentation/PNG consistency, and
+Gaussian asset lineage. Missing model hash or unknown render-state evidence
+blocks visual comparison readiness instead of silently falling back to raw JSON
+or PNG inspection.
+
+Step114 does not change camera/projection/math to improve image metrics and
+does not claim CUDA or visual parity. It only opens the next comparison gate
+when CUDA and WebGPU manifests agree on canonical render state and all critical
+provenance fields are known.
+
+### Step114 Fix2 Direct Rasterizer Evidence
+
+Step114 fix2 upgrades the CUDA manifest to `phase3-render-state-manifest-v2`
+and requires direct screen-coordinate evidence from the same CUDA production
+rasterizer invocation that generated the reference render. The evidence is
+written as a small representative debug row from the rasterizer preprocess
+kernel and records source Gaussian index, post-temporal world position,
+camera-space position, clip/NDC coordinates, CUDA `ndc2Pix` pixel center,
+depth, conic, radius, tile rectangle, and screen-space convention units.
+
+This direct CUDA rasterizer evidence is diagnostic-only: it must not change the
+reference render, WebGPU camera constants, or production compositing math.
+WebGPU manifests must expose the actual fixed-reference camera constants and
+browser-loaded Gaussian asset identity used for rendering. The manifest
+comparison gate compares CUDA and WebGPU render-state vocabulary plus any
+same-srcIndex direct evidence, and blocks visual comparison when model lineage,
+final camera/projection state, image-space convention, or direct evidence is
+missing, inferred-only, or contradictory.
+
+### Step114 Fix7 Temporal Deformation Lineage
+
+Step114 fix7 treats the fix6 result, `source-world-position` match followed by
+`temporal-world-position` mismatch, as a temporal evaluation gate. The WebGPU
+manifest records source-position uniqueness evidence for the canonical
+same-srcIndex set and records temporal evidence from the production
+state-position input consumed by the same WebGPU visible-record dispatch.
+
+The comparison tool splits temporal evaluation into timestamp, Gaussian time,
+time delta, scale-time, pre-temporal position, motion delta, post-temporal
+position, and validity substages. Missing temporal evidence blocks the gate;
+it is not reported as a mismatch. Camera matrices, projection, Y orientation,
+presentation, and CUDA reference output remain unchanged until temporal
+lineage either matches or reports a direct first temporal mismatch substage.
+
+### Step114 Fix8 Fixed-Time Capture Isolation
+
+Step114 fix8 separates state-changing scheduler/camera probes from the
+render-state manifest, direct Gaussian evidence, and PNG capture path. The
+Step114 fix8 capture command first waits for viewer data readiness, schedules
+the fixed-reference production frame at the URL-requested time, and then
+captures WebGPU direct evidence, PNG output, and the WebGPU render-state
+manifest without running the time scheduler probe that advances the viewer
+time by `0.05`.
+
+The WebGPU manifest records a fixed-time capture state contract with the
+requested URL time, manifest time, presented frame time, captured PNG frame
+time, direct evidence requested/evaluated timestamps, generation identity,
+probe execution status, and artifact mismatch fields. If any artifact was
+captured from a different time or a state-changing probe ran during Step114
+capture, the Summary reports the fixed-time isolation as blocked rather than
+treating the resulting temporal mismatch as renderer math evidence.
+
+### Step114 Fix9 Production Temporal Motion Delta Direct Parity
+
+Step114 fix9 keeps the fix8 fixed-time capture policy and focuses only on the
+first remaining temporal substage mismatch. The CUDA production rasterizer
+defines the temporal motion delta as the post-temporal world position minus the
+pre-temporal input position, with scale, scaleT, rotation, rotationR, Gaussian
+time, and timestamp coming from the production debug row. The WebGPU production
+path now evaluates the same CUDA-style conditional temporal mean in the 4D state
+evaluator WGSL dispatch. Rotation and rotationR are packed into the existing
+rotation input storage buffer so the storage-buffer binding count is not
+increased.
+
+The Step114 comparison contract splits temporal motion into source parameters,
+timestamp scalars, conditional temporal covariance coupling, raw delta,
+post-activation delta, axis/unit-converted delta, final motion delta, and
+pre-world plus delta. CUDA coupling values that are not emitted directly by the
+v2 rasterizer row are marked as derived from production debug-row fields rather
+than direct rasterizer lanes. Visual parity and camera parity remain blocked
+until a new fixed-time capture confirms the direct stage comparison and any
+subsequent first mismatch.
+
+### Step114 Fix10 Projection Vocabulary and Rotation Contract Closure
+
+Step114 fix10 closes the manifest vocabulary around the WebGPU `rotationInput`
+buffer and the CUDA/WebGPU projection evidence without changing camera,
+projection, Y orientation, or production radius math by inspection. The WebGPU
+manifest records the left/right 4D quaternion packing contract, including asset
+field names, component order, byte offsets, stride, alignment, WGSL read
+locations, production evaluator consumption, and diagnostic readback locations.
+This contract is generic to the SPL4-v2 asset and WebGPU evaluator; it must not
+branch on Step114, Fix10, camera label, or representative srcIndex.
+
+The comparison tool decomposes the previous `temporal-source-parameters` bucket
+into canonical scale, scaleT, left quaternion, right quaternion, Gaussian time,
+evaluated time, and time delta stages. It also splits projection evidence into
+camera-space, clip, NDC, screen center, and depth. If camera-space, screen
+center, and depth agree but clip/NDC fields differ, the gate classifies that as
+a projection vocabulary or debug-field correspondence issue until direct
+production evidence proves a real projection calculation mismatch. Radius and
+footprint diagnostics are likewise reported by production payload stage
+(conic, screen-space covariance, radius, and bounds) with missing evidence kept
+separate from mismatch.
+
+Fix10 also records an initial production presentation contract. The production
+viewer should schedule and present the first WebGPU-exclusive tile compositor
+frame without requiring a capture command. Capture commands may still schedule a
+fresh fixed-time frame for deterministic evidence, but Summary must distinguish
+URL-load presentation readiness from capture-triggered rendering before using
+the capture path as proof of normal viewer startup behavior.
+
+### Step114 Fix10 Fix1 Initial Production Presentation Observation
+
+Step114 fix10 fix1 corrects the observation boundary without changing startup
+rendering behavior or production math. A Step-independent common recorder is
+active from page load and associates scheduler request identity and source with
+the production tile compositor generation, frame identity, currentTexture
+presentation, known nonblank state, timestamp, and runtime error evidence.
+
+The capture command's first runtime operation is a cloned read-only snapshot of
+that recorder. Readiness waits, scene retry, scheduling, dry-run execution, GPU
+readback, PNG capture, and manifest capture occur only after the snapshot. The
+subsequent fixed-time artifact request has its own request identity and must
+complete with a production generation newer than the pre-capture baseline.
+Capture success is never promoted to URL-only initial presentation success.
+
+Step labels select the capture preset and artifact vocabulary only. The common
+recorder, scheduler request metadata, generation comparison, and manifest
+contract do not branch on Step114, camera label, representative srcIndex, or
+fixed timestamp. Missing evidence remains unknown and Summary classifies the
+first observed stop boundary instead of inferring success from PNG or post-
+capture render state.
+
+### Step114 Fix10 Fix2 Browser-Visible and Saved-PNG Evidence
+
+Step114 fix10 fix2 separates logical WebGPU presentation from pixel-backed
+browser-visible evidence and from the exact PNG file saved by the browser. A
+submitted currentTexture pass or a nonzero alpha channel is not evidence that
+Gaussian RGB is visible. CurrentTexture and production-output diagnostics count
+RGB nonzero pixels with alpha excluded, and URL-only success additionally
+requires the existing final-present source and steady-state RAF trace to show
+that the tile compositor remains the final presentation owner without a clear,
+no-op, fallback, stale-source, or black overwrite.
+
+PNG capture records the encoded Blob SHA-256 and browser-decoded RGB/alpha pixel
+statistics before download. The tool-side canonical evidence resolves the exact
+expected filename, rejects missing, duplicate, ambiguous, stale, or hash-mismatched
+files, decodes the saved PNG pixels, and compares its SHA-256 with the capture
+Blob. Production output, browser-visible presentation, encoded Blob, and saved
+file are independent predicates. Missing pixel or identity evidence remains
+unknown and cannot promote Fix10 fix1 or URL-only presentation to ready.
+The cached WebGPU output capture also forces encoded PNG alpha opaque while
+preserving readback RGB, matching the viewer canvas opaque presentation instead
+of reapplying the compositor alpha during canvas PNG encoding.
+
+This correction is diagnostic and capture infrastructure shared by WebGPU
+production captures. It does not change camera, projection, Y orientation,
+temporal deformation, radius/footprint math, storage bindings, required device
+limits, or the production scheduler/presentation path. A production runtime
+change is allowed only after the corrected evidence identifies a unique common
+runtime stop stage.
+
+### Step114 Fix10 Fix3 Final Canvas Presentation Evidence
+
+Final browser presentation is observed through a Step-independent event trace
+at the guarded WebGPU canvas-write boundaries. Each actual currentTexture write
+records the presentation source, source and presenting request identities,
+production/compositor/presented generation, frame identity, existing source
+pixel evidence, submit/completion state, timestamp, and failure reason. Clear,
+black fallback, cached output, normal-backend diagnostic output, production
+tile-compositor output, and presentation failure remain distinguishable event
+kinds. The trace consumes existing readback results; it does not add a new
+always-on readback or change the production render pass.
+
+URL-only evidence is a cloned read-only snapshot taken before capture readiness,
+retry, scheduling, or capture readback. Capture evidence waits across RAF
+boundaries without requesting another production frame, then snapshots the same
+trace. Browser-visible success requires the final canvas write to reference the
+expected nonblank generation and frame identity, with no later clear, black,
+different-generation, or stale-source overwrite and with a stable tail of trace
+events. Missing identity, pixel evidence, or persistence is reported as unknown;
+a final black or clear write is false.
+
+Opaque production PNG capture records pre/post-normalization pixel identities.
+The common generic canvas PNG path preserves source alpha; only the cached
+WebGPU production tile-compositor capture forces alpha to 255. RGB hashes,
+counts, and maxima must remain unchanged, so Summary can prove that alpha alone
+changed without treating the Blob or saved file as browser-presentation proof.
+
+### Step114 Fix10 Fix4 Synchronous Command Boundary and Quiescence
+
+The capture command begins with a synchronous, cloned, read-only fence before
+any readiness wait, retry, scheduler mutation, GPU readback, or PNG work. The
+fence stores both monotonic scheduler request identity and final-canvas event
+sequence, plus pending/in-flight state and the initial request-to-production-
+to-presentation identity chain. Events after that sequence are command-era
+events even when their underlying asynchronous work began earlier.
+
+Final presentation persistence uses passive scheduler/presentation quiescence,
+not a fixed RAF count. Quiescence requires no pending scheduler request, no
+production or presentation work in flight, and an unchanged final event,
+source, and generation across consecutive timer observations. Timeout remains
+unknown. A common registry also lists every active viewer currentTexture writer;
+an unregistered writer makes browser-visible evidence unknown.
+
+Scene readiness now requests a forced production update through the common
+`onSceneLoaded` scheduler transition. This ensures the `default-scene-loaded`
+request owns its fresh production generation instead of inheriting a pre-load
+or cached frame. Continuous tile-compositor scheduler continuation is not used
+as an `isPlaying` source; the existing bounded presentation-persistence work
+still runs within the production frame, after which passive quiescence can be
+observed. Neither change depends on a Step/Fix label, camera, time, or srcIndex.
+
+The fixed-reference camera selector and render-state fields are derived from
+one normalized deterministic-query runtime contract. This normalizes contract
+vocabulary only and does not change camera matrices, projection, orientation,
+Y flip, temporal deformation, or footprint math. Summary overlays are selected
+by evidence schema availability rather than Step-name strings.

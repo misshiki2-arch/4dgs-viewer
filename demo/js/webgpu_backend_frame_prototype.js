@@ -4,6 +4,9 @@ import { buildWebGpuViewerCanvasNativeBoundedColorSamples } from './webgpu_viewe
 import { buildWebGpuViewerCanvasBoundedColorSourceSelector } from './webgpu_viewer_canvas_bounded_color_source_selector.js';
 import { buildWebGpuViewerCanvasBoundedColorPresent } from './webgpu_viewer_canvas_bounded_color_present.js';
 import {
+  WEBGPU_TILE_COMPOSITOR_FRAME_IMPLEMENTATION_MODE
+} from './webgpu_tile_compositor_frame_implementation.js';
+import {
   DEFAULT_MAX_BOUNDED_COLOR_SAMPLES,
   normalizeBoundedColorSamples
 } from './common_4dgs_sample_contracts.js';
@@ -16,6 +19,15 @@ export const WEBGPU_BACKEND_FRAME_CONTINUATION_CONTRACT_VERSION =
 
 export const WEBGPU_BACKEND_FRAME_BUDGET_CONTRACT_VERSION =
   'phase3-step54-backend-frame-budget-contract-v1';
+
+export function shouldAllowDiagnosticCanvasPresentation(
+  backendImplementationKind = null
+) {
+  // The production tile compositor owns the viewer currentTexture; bounded
+  // presentation remains available to prototype and diagnostic backends.
+  return backendImplementationKind !==
+    WEBGPU_TILE_COMPOSITOR_FRAME_IMPLEMENTATION_MODE;
+}
 
 function nowMs() {
   return typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -208,7 +220,8 @@ function buildValidationSummary({
   webgpuViewerCanvasBoundedColorPresent,
   frameInputSourceContract,
   frameBudgetContract,
-  continuationFrameContract
+  continuationFrameContract,
+  diagnosticCanvasPresentationAllowed = true
 }) {
   const colorOutputContract =
     webgpuViewerCanvasBoundedColorPresent?.colorOutputContract ?? {};
@@ -224,6 +237,10 @@ function buildValidationSummary({
     webgpuViewerCanvasBoundedColorSourceSelector?.boundedColorSourceReady === true;
   const presentSucceeded =
     webgpuViewerCanvasBoundedColorPresent?.boundedViewerCanvasColorPresentSucceeded === true;
+  const boundedFirstPresentReady =
+    boundedFirstPresentSucceeded || diagnosticCanvasPresentationAllowed === false;
+  const diagnosticPresentReady =
+    presentSucceeded || diagnosticCanvasPresentationAllowed === false;
   const selectorSelectedSamplesUsed =
     colorOutputContract.selectorSelectedSamplesUsed === true;
   const fallbackSuppressedBySelectorSamples =
@@ -241,10 +258,10 @@ function buildValidationSummary({
     continuationFrameContract?.productionLoopConnected === false;
   const backendFrameReady =
     currentTexturePathReady &&
-    boundedFirstPresentSucceeded &&
+    boundedFirstPresentReady &&
     nativeBoundedSamplesReady &&
     selectorReady &&
-    presentSucceeded &&
+    diagnosticPresentReady &&
     selectorSelectedSamplesUsed &&
     fallbackSuppressedBySelectorSamples &&
     webgl2HybridRenderingPrevented &&
@@ -257,7 +274,7 @@ function buildValidationSummary({
       reason: 'viewer canvas currentTexture path is not ready for the backend frame'
     });
   }
-  if (!boundedFirstPresentSucceeded) {
+  if (!boundedFirstPresentReady) {
     firstValidationFailures.push({
       stage: 'bounded-first-present',
       reason: 'bounded first-present did not succeed before backend color present'
@@ -275,7 +292,7 @@ function buildValidationSummary({
       reason: 'selector did not produce a bounded color source'
     });
   }
-  if (!presentSucceeded) {
+  if (!diagnosticPresentReady) {
     firstValidationFailures.push({
       stage: 'bounded-color-present',
       reason: 'viewer canvas bounded color present did not submit successfully'
@@ -345,9 +362,12 @@ export async function buildWebGpuBackendFramePrototype({
   canvasHeight = 1,
   frameIndex = 0,
   previousBackendFramePrototype = null,
-  requestedSampleBudget = DEFAULT_MAX_BOUNDED_COLOR_SAMPLES
+  requestedSampleBudget = DEFAULT_MAX_BOUNDED_COLOR_SAMPLES,
+  backendImplementationKind = null
 } = {}) {
   const startMs = nowMs();
+  const diagnosticCanvasPresentationAllowed =
+    shouldAllowDiagnosticCanvasPresentation(backendImplementationKind);
   const webgpuViewerCanvasCurrentTexturePath =
     await buildWebGpuViewerCanvasCurrentTexturePathReadiness({
       device,
@@ -358,7 +378,8 @@ export async function buildWebGpuBackendFramePrototype({
       device,
       viewerCanvasState,
       webgpuViewerCanvasCurrentTexturePath,
-      webgpuRenderHandoffStub
+      webgpuRenderHandoffStub,
+      diagnosticCanvasPresentationAllowed
     });
   const webgpuViewerCanvasNativeBoundedColorSamples =
     buildWebGpuViewerCanvasNativeBoundedColorSamples({
@@ -387,7 +408,8 @@ export async function buildWebGpuBackendFramePrototype({
       webgpuRenderHandoffStub,
       webgpuFramebufferFreeTileOutputDryRunComparison,
       webgpuRenderTargetHandoffDryRunComparison,
-      webgpuConstrainedDisplayAdapterDryRunComparison
+      webgpuConstrainedDisplayAdapterDryRunComparison,
+      diagnosticCanvasPresentationAllowed
     });
   const colorOutputContract =
     webgpuViewerCanvasBoundedColorPresent?.colorOutputContract ?? {};
@@ -416,7 +438,8 @@ export async function buildWebGpuBackendFramePrototype({
       frameIndex,
       previousBackendFramePrototype,
       backendFrameReady: false
-    })
+    }),
+    diagnosticCanvasPresentationAllowed
   });
   const backendFrameReady = validationSummary.backendFrameReady;
   const continuationFrameContract = buildContinuationFrameContract({

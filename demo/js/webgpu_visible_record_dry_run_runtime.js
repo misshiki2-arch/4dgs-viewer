@@ -2,6 +2,10 @@ import { buildVisibleItemForCandidate } from './gpu_visible_item_builder.js';
 import { clampInt } from './gpu_tile_utils.js';
 import { computeGaussianState } from './rot4d_math.js';
 import {
+  CUDA_4D_STATE_HELPER_VERSION,
+  computeCudaConditionalGaussianState4D
+} from './cuda_4d_state.js';
+import {
   createWebGpuAabbContract,
   createWebGpuTileRangeContract
 } from './common_4dgs_bounds_contracts.js';
@@ -95,6 +99,7 @@ import {
 const DEFAULT_MAX_RECORDS = 65536;
 const DEFAULT_EPSILON = DEFAULT_COMPARISON_EPSILON;
 const RECORD_FLOATS = WEBGPU_VISIBLE_RECORD_FLOATS;
+const STEP114_DIRECT_EVIDENCE_FLOATS = 24;
 const IMPLEMENTED_FIELDS = WEBGPU_VISIBLE_RECORD_IMPLEMENTED_FIELDS;
 const WGSL_COMPUTED_FIELDS = WEBGPU_VISIBLE_RECORD_WGSL_COMPUTED_FIELDS;
 const WGSL_REFERENCE_ASSISTED_FIELDS = WEBGPU_VISIBLE_RECORD_REFERENCE_ASSISTED_FIELDS;
@@ -2006,6 +2011,284 @@ function buildRawXyzOpacityForCandidates(raw, candidateIndices) {
   return out;
 }
 
+function buildStep114TemporalEvaluationInputs({ raw, candidateIndices, statePositions, buildConfig } = {}) {
+  const count = candidateIndices?.length ?? 0;
+  const records = [];
+  const timestamp = Number(buildConfig?.timestamp);
+  const timeDuration = Number(buildConfig?.timeDuration);
+  const scalingModifier = Number.isFinite(Number(buildConfig?.scalingModifier))
+    ? Number(buildConfig.scalingModifier)
+    : 1;
+  const sigmaScale = Number.isFinite(Number(buildConfig?.sigmaScale))
+    ? Number(buildConfig.sigmaScale)
+    : 1;
+  for (let row = 0; row < count; row += 1) {
+    const srcIndex = Number(candidateIndices[row]);
+    if (!Number.isFinite(srcIndex)) continue;
+    const index = srcIndex | 0;
+    const xyzBase = index * Math.max(1, raw?.xyzDim ?? 3);
+    const stateBase = row * 4;
+    const rawSourcePosition = vector3OrNull(raw?.xyz, xyzBase);
+    const statePositionAvailable = Number(statePositions?.[stateBase + 3]) > 0.5;
+    const postTemporalWorldPosition = statePositionAvailable
+      ? vector3OrNull(statePositions, stateBase)
+      : rawSourcePosition;
+    const gaussianTime =
+      raw?.t && raw.tDim > 0
+        ? finiteOrNull(raw.t[index * raw.tDim])
+        : null;
+    const rawScaleT =
+      raw?.scale_t && raw.scaleTDim > 0
+        ? finiteOrNull(raw.scale_t[index * raw.scaleTDim])
+        : null;
+    const scaleXYZ = raw?.scale_xyz && raw.scaleXYZDim >= 3
+      ? [
+          finiteOrNull(raw.scale_xyz[index * raw.scaleXYZDim + 0]),
+          finiteOrNull(raw.scale_xyz[index * raw.scaleXYZDim + 1]),
+          finiteOrNull(raw.scale_xyz[index * raw.scaleXYZDim + 2])
+        ]
+      : null;
+    const rotation = raw?.rotation && raw.rotationDim >= 4
+      ? [
+          finiteOrNull(raw.rotation[index * raw.rotationDim + 0]),
+          finiteOrNull(raw.rotation[index * raw.rotationDim + 1]),
+          finiteOrNull(raw.rotation[index * raw.rotationDim + 2]),
+          finiteOrNull(raw.rotation[index * raw.rotationDim + 3])
+        ]
+      : null;
+    const rotationR = raw?.rotation_r && raw.rotationRDim >= 4
+      ? [
+          finiteOrNull(raw.rotation_r[index * raw.rotationRDim + 0]),
+          finiteOrNull(raw.rotation_r[index * raw.rotationRDim + 1]),
+          finiteOrNull(raw.rotation_r[index * raw.rotationRDim + 2]),
+          finiteOrNull(raw.rotation_r[index * raw.rotationRDim + 3])
+        ]
+      : null;
+    const opacity =
+      raw?.opacity && raw.opacityDim > 0
+        ? finiteOrNull(raw.opacity[index * raw.opacityDim])
+        : null;
+    const effectiveScaleT =
+      rawScaleT !== null
+        ? Math.max(rawScaleT * scalingModifier * sigmaScale, 1e-6)
+        : null;
+    const timeDelta =
+      Number.isFinite(timestamp) && gaussianTime !== null
+        ? timestamp - gaussianTime
+        : null;
+    const temporalMotionDelta =
+      rawSourcePosition && postTemporalWorldPosition
+        ? [
+            postTemporalWorldPosition[0] - rawSourcePosition[0],
+            postTemporalWorldPosition[1] - rawSourcePosition[1],
+            postTemporalWorldPosition[2] - rawSourcePosition[2]
+          ]
+        : null;
+    const cudaStyleState =
+      rawSourcePosition &&
+      scaleXYZ &&
+      scaleXYZ.every((value) => value !== null) &&
+      rotation &&
+      rotation.every((value) => value !== null) &&
+      rotationR &&
+      rotationR.every((value) => value !== null) &&
+      effectiveScaleT !== null &&
+      gaussianTime !== null &&
+      Number.isFinite(timestamp)
+        ? computeCudaConditionalGaussianState4D({
+            position: rawSourcePosition,
+            opacity: 1 / (1 + Math.exp(-(opacity ?? 0))),
+            scaleXYZ: scaleXYZ.map((value) => Math.max(value, 1e-6)),
+            scaleT: effectiveScaleT,
+            rotation,
+            rotationR,
+            timestamp,
+            tCenter: gaussianTime,
+            prefilterVar: buildConfig?.prefilterVar ?? -1
+          })
+        : null;
+    const cudaStyleDelta = cudaStyleState?.debug?.mean_offset ?? null;
+    const motionDeltaInternalStages = [
+      {
+        stage: 'temporal-source-parameters',
+        cudaMeaning: 'checkpoint temporal fields consumed by CUDA production rasterizer',
+        webgpuMeaning: 'SPL4v2 asset fields uploaded for WebGPU production evaluator',
+        webgpuValue: {
+          scaleXYZ,
+          scaleT: effectiveScaleT,
+          rotation,
+          rotationR,
+          gaussianTime
+        },
+        valueSource:
+          'browser-loaded-runtime-asset-fields-consumed-by-webgpu-production-evaluator',
+        available:
+          scaleXYZ !== null &&
+          rotation !== null &&
+          rotationR !== null &&
+          effectiveScaleT !== null &&
+          gaussianTime !== null
+      },
+      {
+        stage: 'timestamp-derived-scalar-inputs',
+        webgpuValue: {
+          requestedTimestamp: Number.isFinite(timestamp) ? timestamp : null,
+          actualEvaluatedTimestamp: Number.isFinite(timestamp) ? timestamp : null,
+          timeDelta,
+          effectiveScaleT
+        },
+        valueSource:
+          'webgpu-production-evaluator-uniform-and-runtime-asset-time-fields',
+        available: Number.isFinite(timestamp) && timeDelta !== null && effectiveScaleT !== null
+      },
+      {
+        stage: 'conditional-covariance-temporal-coupling',
+        webgpuValue: {
+          covT: cudaStyleState?.debug?.cov_t ?? null,
+          cov12: cudaStyleState?.debug?.cov12 ?? null,
+          invCovT:
+            Number.isFinite(Number(cudaStyleState?.debug?.cov_t)) &&
+            Math.abs(Number(cudaStyleState.debug.cov_t)) > 1e-8
+              ? 1 / Number(cudaStyleState.debug.cov_t)
+              : null
+        },
+        valueSource:
+          'webgpu-production-wgsl-cuda-style-conditional-temporal-mean-formula-contract',
+        available:
+          Number.isFinite(Number(cudaStyleState?.debug?.cov_t)) &&
+          Array.isArray(cudaStyleState?.debug?.cov12)
+      },
+      {
+        stage: 'deformation-raw-output',
+        webgpuValue: cudaStyleDelta,
+        valueSource:
+          'webgpu-production-wgsl-cuda-style-conditional-mean-before-world-add',
+        available: Array.isArray(cudaStyleDelta)
+      },
+      {
+        stage: 'weight-lifetime-activation-applied-delta',
+        webgpuValue: cudaStyleDelta,
+        valueSource:
+          'webgpu-production-temporal-position-delta-no-extra-lifetime-scale',
+        available: Array.isArray(cudaStyleDelta)
+      },
+      {
+        stage: 'axis-unit-scale-converted-delta',
+        webgpuValue: cudaStyleDelta,
+        valueSource:
+          'webgpu-production-world-space-delta-same-axis-unit-as-source-position',
+        available: Array.isArray(cudaStyleDelta)
+      },
+      {
+        stage: 'final-temporal-motion-delta',
+        webgpuValue: temporalMotionDelta,
+        expectedWebGpuFormulaValue: cudaStyleDelta,
+        valueSource:
+          'webgpu-production-statepositions-buffer-consumed-by-visible-record-dispatch',
+        available: temporalMotionDelta !== null
+      },
+      {
+        stage: 'pre-world-plus-delta',
+        webgpuValue: postTemporalWorldPosition,
+        expectedWebGpuFormulaValue:
+          rawSourcePosition && Array.isArray(cudaStyleDelta)
+            ? [
+                rawSourcePosition[0] + cudaStyleDelta[0],
+                rawSourcePosition[1] + cudaStyleDelta[1],
+                rawSourcePosition[2] + cudaStyleDelta[2]
+              ]
+            : null,
+        valueSource:
+          'webgpu-production-statepositions-buffer-consumed-by-visible-record-dispatch',
+        available: postTemporalWorldPosition !== null
+      }
+    ];
+    records[row] = {
+      srcIndex: index,
+      actualEvidenceSource:
+        'webgpu-production-statepositions-buffer-consumed-by-visible-record-dispatch',
+      actualEvidenceDispatch:
+        'same-webgpu-visible-record-production-dispatch-consumed-statepositions-buffer',
+      requestedTimestamp: Number.isFinite(timestamp) ? timestamp : null,
+      actualEvaluatedTimestamp: Number.isFinite(timestamp) ? timestamp : null,
+      timeNormalizationMode: 'absolute-dataset-time-minus-gaussian-time',
+      temporalPathClassification:
+        'cuda-style-conditional-temporal-mean-position-evaluator',
+      temporalPathProductionOwner:
+        'webgpu-4d-state-evaluator-wgsl-production-dispatch',
+      cudaEquivalentHelperVersion: CUDA_4D_STATE_HELPER_VERSION,
+      gaussianTime,
+      timeDelta,
+      timeDuration: Number.isFinite(timeDuration) ? timeDuration : null,
+      rawScaleT,
+      effectiveScaleT,
+      scaleXYZ,
+      rotation,
+      rotationR,
+      preTemporalWorldPosition: rawSourcePosition,
+      postTemporalWorldPosition,
+      temporalMotionDelta,
+      motionDeltaInternalStages,
+      statePositionAvailable,
+      temporalEvaluatorOwner:
+        'webgpu-visible-record-production-input-statepositions-buffer',
+      temporalEvaluatorImplementation:
+        statePositionAvailable
+          ? 'cpu-materialized-4d-state-source-consumed-by-webgpu-visible-record-dispatch'
+          : 'raw-source-position-baseline-consumed-by-webgpu-visible-record-dispatch',
+      temporalValidity: {
+        statePositionAvailable,
+        temporalWorldPositionAvailable: postTemporalWorldPosition !== null,
+        validForProjectionInput: postTemporalWorldPosition !== null
+      },
+      actualFieldAvailability: {
+        requestedTimestamp: Number.isFinite(timestamp),
+        actualEvaluatedTimestamp: Number.isFinite(timestamp),
+        gaussianTime: gaussianTime !== null,
+        timeDelta: timeDelta !== null,
+        effectiveScaleT: effectiveScaleT !== null,
+        scaleXYZ: scaleXYZ !== null,
+        rotation: rotation !== null,
+        rotationR: rotationR !== null,
+        motionDeltaInternalStages:
+          motionDeltaInternalStages.every((stage) => stage.available === true),
+        preTemporalWorldPosition: rawSourcePosition !== null,
+        postTemporalWorldPosition: postTemporalWorldPosition !== null,
+        temporalMotionDelta: temporalMotionDelta !== null,
+        temporalValidity: true
+      }
+    };
+  }
+  return {
+    schemaVersion: 'phase3-step114-fix7-webgpu-temporal-evaluation-evidence-v1',
+    actualEvidenceSource:
+      'webgpu-production-statepositions-buffer-consumed-by-visible-record-dispatch',
+    actualEvidenceDispatch:
+      'same-webgpu-visible-record-production-dispatch-consumed-statepositions-buffer',
+    recordCount: records.filter(Boolean).length,
+    requestedRecordCount: count,
+    records,
+    fieldAvailabilitySummary: {
+      requestedTimestampCount: records.filter((record) => record?.actualFieldAvailability.requestedTimestamp).length,
+      actualEvaluatedTimestampCount: records.filter((record) => record?.actualFieldAvailability.actualEvaluatedTimestamp).length,
+      gaussianTimeCount: records.filter((record) => record?.actualFieldAvailability.gaussianTime).length,
+      timeDeltaCount: records.filter((record) => record?.actualFieldAvailability.timeDelta).length,
+      effectiveScaleTCount: records.filter((record) => record?.actualFieldAvailability.effectiveScaleT).length,
+      scaleXYZCount: records.filter((record) => record?.actualFieldAvailability.scaleXYZ).length,
+      rotationCount: records.filter((record) => record?.actualFieldAvailability.rotation).length,
+      rotationRCount: records.filter((record) => record?.actualFieldAvailability.rotationR).length,
+      motionDeltaInternalStageCount: records.filter((record) => record?.actualFieldAvailability.motionDeltaInternalStages).length,
+      preTemporalWorldPositionCount: records.filter((record) => record?.actualFieldAvailability.preTemporalWorldPosition).length,
+      postTemporalWorldPositionCount: records.filter((record) => record?.actualFieldAvailability.postTemporalWorldPosition).length,
+      temporalMotionDeltaCount: records.filter((record) => record?.actualFieldAvailability.temporalMotionDelta).length
+    },
+    productionDiagnosticSeparation: {
+      productionOutputDependsOnTemporalDiagnosticReadback: false,
+      temporalEvidenceUsesProductionStatePositionsInput: true
+    }
+  };
+}
+
 function boostedVisibleColor({ r, g, b, a, depth, recordIndex }) {
   const alpha = Math.max(0.35, Math.min(1, Number.isFinite(a) ? a : 1));
   const sourceRgb = [
@@ -3678,6 +3961,232 @@ function summarizeWebGpuVisibleRecordGate(records, recordCount) {
   };
 }
 
+function finiteOrNull(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function vector3OrNull(values, base = 0) {
+  if (!values) return null;
+  const out = [
+    finiteOrNull(values[base + 0]),
+    finiteOrNull(values[base + 1]),
+    finiteOrNull(values[base + 2])
+  ];
+  return out.every((value) => value !== null) ? out : null;
+}
+
+function vector4OrNull(values, base = 0) {
+  if (!values) return null;
+  const out = [
+    finiteOrNull(values[base + 0]),
+    finiteOrNull(values[base + 1]),
+    finiteOrNull(values[base + 2]),
+    finiteOrNull(values[base + 3])
+  ];
+  return out.every((value) => value !== null) ? out : null;
+}
+
+function buildStep114PreCullDirectEvidence({
+  candidateIndices,
+  rawXyzOpacity,
+  statePositions,
+  temporalEvaluationEvidence,
+  webgpuRecords,
+  directEvidenceRecords,
+  directEvidenceLayout,
+  footprintPayload,
+  projectionParams,
+  projectionContractSummary = {}
+} = {}) {
+  const count = Math.min(
+    candidateIndices?.length ?? 0,
+    Math.floor((webgpuRecords?.length ?? 0) / RECORD_FLOATS)
+  );
+  const records = [];
+  for (let row = 0; row < count; row += 1) {
+    const recordBase = row * RECORD_FLOATS;
+    const srcIndex = Number(candidateIndices[row]);
+    if (!Number.isFinite(srcIndex)) continue;
+    const stateBase = row * 4;
+    const rawBase = row * 4;
+    const valid = Number(webgpuRecords[recordBase + 1]) > 0.5;
+    const statePositionAvailable = Number(statePositions?.[stateBase + 3]) > 0.5;
+    const rawSourcePosition = vector3OrNull(rawXyzOpacity, rawBase);
+    const temporalWorldPosition = statePositionAvailable
+      ? vector3OrNull(statePositions, stateBase)
+      : rawSourcePosition;
+    const directBase = row * STEP114_DIRECT_EVIDENCE_FLOATS;
+    const directHeader = vector4OrNull(directEvidenceRecords, directBase);
+    const directRawSource = vector4OrNull(directEvidenceRecords, directBase + 4);
+    const directTemporalWorld = vector4OrNull(directEvidenceRecords, directBase + 8);
+    const directCameraSpace = vector4OrNull(directEvidenceRecords, directBase + 12);
+    const directClip = vector4OrNull(directEvidenceRecords, directBase + 16);
+    const directNdcScreen = vector4OrNull(directEvidenceRecords, directBase + 20);
+    const temporalEvaluation =
+      temporalEvaluationEvidence?.records?.[row] ?? null;
+    const productionFootprint = readWebGpuFootprintPayload(footprintPayload, row);
+    const screenCenter = [
+      finiteOrNull(webgpuRecords[recordBase + 2]),
+      finiteOrNull(webgpuRecords[recordBase + 3])
+    ];
+    const depth = finiteOrNull(webgpuRecords[recordBase + 4]);
+    const sourceCode = finiteOrNull(webgpuRecords[recordBase + 10]);
+    const directEvidenceAvailable =
+      directHeader !== null &&
+      directRawSource !== null &&
+      directTemporalWorld !== null &&
+      directCameraSpace !== null &&
+      directNdcScreen !== null;
+    const directProjectionOk = directHeader?.[2] > 0.5;
+    const directRawIndexInBounds = directHeader?.[3] > 0.5;
+    const directScreenCenter = directNdcScreen !== null
+      ? [directNdcScreen[2], directNdcScreen[3]]
+      : null;
+    const record = {
+      srcIndex: srcIndex | 0,
+      sourceIndex: srcIndex | 0,
+      row,
+      available: directEvidenceAvailable,
+      actualEvidenceSource:
+        'webgpu-production-wgsl-visible-record-pre-cull-readback',
+      actualEvidenceDispatch:
+        'same-webgpu-visible-record-production-dispatch-diagnostic-buffer',
+      rawSourcePosition: directRawSource ? directRawSource.slice(0, 3) : rawSourcePosition,
+      sourceWorldPosition: directRawSource ? directRawSource.slice(0, 3) : rawSourcePosition,
+      temporalWorldPosition: directTemporalWorld
+        ? directTemporalWorld.slice(0, 3)
+        : temporalWorldPosition,
+      temporalEvaluation: temporalEvaluation
+        ? {
+            ...temporalEvaluation,
+            postTemporalWorldPosition: directTemporalWorld
+              ? directTemporalWorld.slice(0, 3)
+              : temporalEvaluation.postTemporalWorldPosition,
+            temporalMotionDelta:
+              directTemporalWorld && directRawSource
+                ? [
+                    directTemporalWorld[0] - directRawSource[0],
+                    directTemporalWorld[1] - directRawSource[1],
+                    directTemporalWorld[2] - directRawSource[2]
+                  ]
+                : temporalEvaluation.temporalMotionDelta
+          }
+        : null,
+      cameraSpacePosition: directCameraSpace ? directCameraSpace.slice(0, 3) : null,
+      clipPosition: directClip,
+      ndc: directNdcScreen
+        ? [directNdcScreen[0], directNdcScreen[1], directClip?.[2] ?? 0]
+        : null,
+      screenCenter:
+        directScreenCenter ??
+        (screenCenter[0] !== null && screenCenter[1] !== null
+          ? screenCenter
+          : null),
+      centerPx:
+        directScreenCenter ??
+        (screenCenter[0] !== null && screenCenter[1] !== null
+          ? screenCenter
+          : null),
+      depth,
+      productionFootprintConic: productionFootprint?.conic ?? null,
+      conic: productionFootprint?.conic ?? null,
+      productionFootprintCovariance2D: productionFootprint?.covariance2D ?? null,
+      covariance2D: productionFootprint?.covariance2D ?? null,
+      radius: productionFootprint?.radiusPx ?? null,
+      footprintRadius: productionFootprint?.radiusPx ?? null,
+      footprintDepth: productionFootprint?.depth ?? null,
+      footprintSortKey: productionFootprint?.sortKey ?? null,
+      footprintAreaPx: productionFootprint?.footprintAreaPx ?? null,
+      footprintEvidenceSource: productionFootprint
+        ? 'webgpu-production-footprint-payload-readback-sourceCode-113'
+        : 'missing-webgpu-production-footprint-payload',
+      valid,
+      culled: !valid,
+      culledStage: valid ? null : (directRawIndexInBounds ? 'projection-or-bounds' : 'raw-index-bounds'),
+      culledReason: valid
+        ? 'none'
+        : (
+            depth !== null && depth <= 0
+              ? 'projection-depth-or-camera-frustum'
+              : 'projection-bounds-or-validity-gate'
+          ),
+      sourceCode,
+      statePositionAvailable,
+      projectionOk: directProjectionOk,
+      rawIndexInBounds: directRawIndexInBounds,
+      actualFieldAvailability: {
+        rawSourcePosition: directRawSource !== null || rawSourcePosition !== null,
+        temporalWorldPosition: directTemporalWorld !== null || temporalWorldPosition !== null,
+        cameraSpacePosition: directCameraSpace !== null,
+        clipPosition: directClip !== null,
+        ndc: directNdcScreen !== null,
+        screenCenter:
+          directScreenCenter !== null ||
+          (screenCenter[0] !== null && screenCenter[1] !== null),
+        depth: depth !== null,
+        conic: productionFootprint?.conic !== null && productionFootprint?.conic !== undefined,
+        covariance2D: productionFootprint?.covariance2D !== null && productionFootprint?.covariance2D !== undefined,
+        radius: productionFootprint?.radiusPx !== null && productionFootprint?.radiusPx !== undefined
+      },
+      projectionContract: {
+        mode: projectionContractSummary?.mode ?? null,
+        source: projectionContractSummary?.projectionContract ?? null,
+        renderW: projectionContractSummary?.renderW ?? null,
+        renderH: projectionContractSummary?.renderH ?? null
+      },
+      diagnosticLayout: {
+        directEvidenceLayout: directEvidenceLayout ?? null,
+        directEvidenceRecordFloats: STEP114_DIRECT_EVIDENCE_FLOATS,
+        diagnosticRecordRow: row,
+        productionOutputDependsOnDirectReadback: false
+      }
+    };
+    records.push(record);
+  }
+  return {
+    schemaVersion: 'phase3-step114-pre-cull-webgpu-direct-evidence-v1',
+    available: records.length > 0,
+    actualEvidenceSource:
+      'webgpu-production-wgsl-visible-record-pre-cull-readback',
+    actualEvidenceDispatch:
+      'same-webgpu-visible-record-production-dispatch-diagnostic-buffer',
+    diagnosticReadbackIsProductionDependency: false,
+    diagnosticPackingMode:
+      'single-step114-direct-evidence-storage-buffer-same-production-visible-record-dispatch',
+    directEvidenceLayout: directEvidenceLayout ?? null,
+    temporalEvaluationEvidenceSummary: temporalEvaluationEvidence
+      ? {
+          schemaVersion: temporalEvaluationEvidence.schemaVersion,
+          actualEvidenceSource: temporalEvaluationEvidence.actualEvidenceSource,
+          actualEvidenceDispatch: temporalEvaluationEvidence.actualEvidenceDispatch,
+          recordCount: temporalEvaluationEvidence.recordCount,
+          requestedRecordCount: temporalEvaluationEvidence.requestedRecordCount,
+          fieldAvailabilitySummary: temporalEvaluationEvidence.fieldAvailabilitySummary,
+          productionDiagnosticSeparation:
+            temporalEvaluationEvidence.productionDiagnosticSeparation
+        }
+      : null,
+    recordCount: records.length,
+    requestedRecordCount: candidateIndices?.length ?? 0,
+    validRecordCount: records.filter((record) => record.valid === true).length,
+    culledRecordCount: records.filter((record) => record.culled === true).length,
+    records,
+    fieldAvailabilitySummary: {
+      rawSourcePositionCount: records.filter((record) => record.actualFieldAvailability.rawSourcePosition).length,
+      temporalWorldPositionCount: records.filter((record) => record.actualFieldAvailability.temporalWorldPosition).length,
+      cameraSpacePositionCount: records.filter((record) => record.actualFieldAvailability.cameraSpacePosition).length,
+      clipPositionCount: records.filter((record) => record.actualFieldAvailability.clipPosition).length,
+      ndcCount: records.filter((record) => record.actualFieldAvailability.ndc).length,
+      screenCenterCount: records.filter((record) => record.actualFieldAvailability.screenCenter).length,
+      depthCount: records.filter((record) => record.actualFieldAvailability.depth).length,
+      conicCount: records.filter((record) => record.actualFieldAvailability.conic).length,
+      covariance2DCount: records.filter((record) => record.actualFieldAvailability.covariance2D).length,
+      radiusCount: records.filter((record) => record.actualFieldAvailability.radius).length
+    }
+  };
+}
+
 function compareRecords(reference, candidate, count, { epsilon, maxMismatches }) {
   const firstMismatches = [];
   let fieldMismatchCount = 0;
@@ -3755,6 +4264,7 @@ struct Params {
 @group(0) @binding(4) var<uniform> params: Params;
 @group(0) @binding(5) var<storage, read> statePositions: array<vec4f>;
 @group(0) @binding(6) var<storage, read> projectionParams: array<vec4f>;
+@group(0) @binding(7) var<storage, read_write> directEvidenceRecords: array<vec4f>;
 
 fn rowDot(row: vec4f, value: vec4f) -> f32 {
   return dot(row, value);
@@ -3815,12 +4325,18 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   var projectedPx = 0.0;
   var projectedPy = 0.0;
   var projectedDepth = 0.0;
+  var clipOut = vec4f(0.0, 0.0, 0.0, 1.0);
+  var ndcOut = vec4f(0.0, 0.0, 0.0, 1.0);
   var projectionOk = false;
   if (mode > 0.5) {
     projectedDepth = mv4.z;
     projectionOk = projectedDepth > 1e-6;
     projectedPx = (pixelXSign * intrinsics.x * (mv4.x / max(projectedDepth, 1e-8)) + intrinsics.z) * sx;
     projectedPy = (intrinsics.y * (mv4.y / max(projectedDepth, 1e-8)) + intrinsics.w) * sy;
+    let imageNdcX = ((projectedPx / max(sx, 1e-8)) * 2.0 + 1.0) / max(renderW, 1e-8) - 1.0;
+    let imageNdcY = ((projectedPy / max(sy, 1e-8)) * 2.0 + 1.0) / max(renderH, 1e-8) - 1.0;
+    ndcOut = vec4f(imageNdcX, imageNdcY, projectedDepth, 1.0);
+    clipOut = vec4f(imageNdcX, imageNdcY, projectedDepth, 1.0);
   } else {
     projectedDepth = -mv4.z;
     let clip = vec4f(
@@ -3832,6 +4348,9 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     let invW = 1.0 / (clip.w + 1e-7);
     let ndcX = clip.x * invW;
     let ndcY = clip.y * invW;
+    let ndcZ = clip.z * invW;
+    clipOut = clip;
+    ndcOut = vec4f(ndcX, ndcY, ndcZ, 1.0);
     projectionOk = projectedDepth > 1e-6;
     projectedPx = (((ndcX + 1.0) * renderW - 1.0) * 0.5) * sx;
     projectedPy = (((ndcY + 1.0) * renderH - 1.0) * 0.5) * sy;
@@ -3859,6 +4378,19 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   outputRecords[base + 0u] = r0;
   outputRecords[base + 1u] = r1;
   outputRecords[base + 2u] = r2;
+
+  let directBase = row * 6u;
+  directEvidenceRecords[directBase + 0u] = vec4f(
+    f32(srcIndex),
+    select(0.0, 1.0, outputValid),
+    select(0.0, 1.0, projectionOk),
+    select(0.0, 1.0, rawIndexInBounds)
+  );
+  directEvidenceRecords[directBase + 1u] = vec4f(raw0.xyz, raw0.w);
+  directEvidenceRecords[directBase + 2u] = vec4f(sourcePos, select(0.0, 1.0, statePositionAvailable));
+  directEvidenceRecords[directBase + 3u] = mv4;
+  directEvidenceRecords[directBase + 4u] = clipOut;
+  directEvidenceRecords[directBase + 5u] = vec4f(ndcOut.x, ndcOut.y, projectedPx, projectedPy);
 }`
   });
   const pipeline = device.createComputePipeline({
@@ -3878,6 +4410,12 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     size: outputByteLength,
     usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
   });
+  const directEvidenceByteLength =
+    Math.max(4, cpuReference.count * STEP114_DIRECT_EVIDENCE_FLOATS * Float32Array.BYTES_PER_ELEMENT);
+  const directEvidenceBuffer = device.createBuffer({
+    size: directEvidenceByteLength,
+    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
+  });
   const paramsBuffer = createBuffer(
     device,
     new Uint32Array([cpuReference.count, RECORD_FLOATS, rawCount, 0]),
@@ -3885,6 +4423,10 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   );
   const readbackBuffer = device.createBuffer({
     size: outputByteLength,
+    usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
+  });
+  const directEvidenceReadbackBuffer = device.createBuffer({
+    size: directEvidenceByteLength,
     usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
   });
   const bindGroup = device.createBindGroup({
@@ -3896,7 +4438,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       { binding: 3, resource: { buffer: outputBuffer } },
       { binding: 4, resource: { buffer: paramsBuffer } },
       { binding: 5, resource: { buffer: statePositionBuffer } },
-      { binding: 6, resource: { buffer: projectionParamsBuffer } }
+      { binding: 6, resource: { buffer: projectionParamsBuffer } },
+      { binding: 7, resource: { buffer: directEvidenceBuffer } }
     ]
   });
   const dispatchStartMs = nowMs();
@@ -3907,6 +4450,13 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   pass.dispatchWorkgroups(Math.ceil(cpuReference.count / 64));
   pass.end();
   encoder.copyBufferToBuffer(outputBuffer, 0, readbackBuffer, 0, outputByteLength);
+  encoder.copyBufferToBuffer(
+    directEvidenceBuffer,
+    0,
+    directEvidenceReadbackBuffer,
+    0,
+    directEvidenceByteLength
+  );
   device.queue.submit([encoder.finish()]);
   await device.queue.onSubmittedWorkDone();
   const computeDispatchMs = nowMs() - dispatchStartMs;
@@ -3914,12 +4464,26 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   await readbackBuffer.mapAsync(GPUMapMode.READ);
   const out = new Float32Array(readbackBuffer.getMappedRange().slice(0));
   readbackBuffer.unmap();
+  await directEvidenceReadbackBuffer.mapAsync(GPUMapMode.READ);
+  const directEvidenceRecords = new Float32Array(
+    directEvidenceReadbackBuffer.getMappedRange().slice(0)
+  );
+  directEvidenceReadbackBuffer.unmap();
   const visibleRecordGateSummary = summarizeWebGpuVisibleRecordGate(
     out,
     cpuReference.count
   );
   return {
     records: out,
+    directEvidenceRecords,
+    directEvidenceLayout: {
+      floatsPerRecord: STEP114_DIRECT_EVIDENCE_FLOATS,
+      vec4RowsPerRecord: STEP114_DIRECT_EVIDENCE_FLOATS / 4,
+      source: 'same-webgpu-visible-record-production-dispatch-diagnostic-buffer',
+      storageBufferBindingCount: 7,
+      requiredStorageBufferLimit: 8,
+      productionOutputDependsOnDirectReadback: false
+    },
     ...visibleRecordGateSummary,
     timing: {
       computeDispatchMs,
@@ -5351,6 +5915,12 @@ export async function runWebGpuVisibleRecordDryRun({
   const { statePositions } = webgpu4DStateSource;
   const statePositionAvailabilitySummary =
     summarizeStatePositionAvailability(statePositions);
+  const step114TemporalEvaluationEvidence = buildStep114TemporalEvaluationInputs({
+    raw,
+    candidateIndices: cpuReference.candidateIndices,
+    statePositions,
+    buildConfig
+  });
   const radiusContract = createWebGpuRadiusContract();
   const covarianceContract = createWebGpuCovarianceContract();
   const conicContract = createWebGpuConicContract();
@@ -5451,6 +6021,18 @@ export async function runWebGpuVisibleRecordDryRun({
       candidateIndices: cpuReference.candidateIndices,
       projectionContractSummary: projectionContract.summary
     });
+  const step114PreCullDirectEvidence = buildStep114PreCullDirectEvidence({
+    candidateIndices: cpuReference.candidateIndices,
+    rawXyzOpacity,
+    statePositions,
+    temporalEvaluationEvidence: step114TemporalEvaluationEvidence,
+    webgpuRecords: computeResult.records,
+    directEvidenceRecords: computeResult.directEvidenceRecords,
+    directEvidenceLayout: computeResult.directEvidenceLayout,
+    footprintPayload: webgpu4DStateSource.footprintPayload,
+    projectionParams: projectionContract.data,
+    projectionContractSummary: projectionContract.summary
+  });
   const step112CoordinateTransformStageMap =
     buildStep112CoordinateTransformStageMap(projectionContract.summary);
   const step112ProjectionParityEvidence = {
@@ -5589,6 +6171,14 @@ export async function runWebGpuVisibleRecordDryRun({
       sourceTileAwareRenderInputContract: webgpuTileAwareRenderInput.contract,
       keepGpuResources: true
     });
+  const viewerLifecycleIntegrationRequest =
+    metadata?.viewerLifecycleIntegrationRequest ?? {};
+  const selectedBackendImplementationKind =
+    viewerLifecycleIntegrationRequest.backendImplementationKind ??
+    viewerLifecycleIntegrationRequest.webgpuBackendImplementation ??
+    metadata?.deterministicState?.webgpuBackendImplementation ??
+    metadata?.webgpuBackendImplementation ??
+    'webgpu-visible-record-dry-run-runtime';
   const webgpuTileListCompositor = await buildWebGpuTileListCompositor({
     device,
     gpuOwnedTileListLayout: webgpuGpuOwnedTileListLayout,
@@ -5711,7 +6301,8 @@ export async function runWebGpuVisibleRecordDryRun({
       webgpuRenderTargetHandoffDryRunComparison,
       webgpuConstrainedDisplayAdapterDryRunComparison,
       canvasWidth,
-      canvasHeight
+      canvasHeight,
+      backendImplementationKind: selectedBackendImplementationKind
     });
   const webgpuBackendFrameLifecyclePrototype =
     buildWebGpuBackendFrameLifecyclePrototype({
@@ -5738,14 +6329,13 @@ export async function runWebGpuVisibleRecordDryRun({
           canvasWidth,
           canvasHeight,
           frameIndex,
-          previousBackendFramePrototype
+          previousBackendFramePrototype,
+          backendImplementationKind: selectedBackendImplementationKind
         })
     });
   const {
     webgpuBackendFrameControlledRepeatedExecution
   } = webgpuBackendViewerLoopAdapter;
-  const viewerLifecycleIntegrationRequest =
-    metadata?.viewerLifecycleIntegrationRequest ?? {};
   const webgpuBackendViewerLifecycleIntegrationBoundary =
     buildWebGpuBackendViewerLifecycleIntegrationBoundary({
       requestedBackendMode:
@@ -5996,12 +6586,6 @@ export async function runWebGpuVisibleRecordDryRun({
       reason:
         'Step86 records Phase 3 backend ownership and dirty update entrypoints before depth sort/final compositor work'
     });
-  const selectedBackendImplementationKind =
-    viewerLifecycleIntegrationRequest.backendImplementationKind ??
-    viewerLifecycleIntegrationRequest.webgpuBackendImplementation ??
-    metadata?.deterministicState?.webgpuBackendImplementation ??
-    metadata?.webgpuBackendImplementation ??
-    'webgpu-visible-record-dry-run-runtime';
   const webgpuTileCompositorFrameImplementation =
     buildWebGpuTileCompositorFrameImplementation({
       backendImplementationKind: selectedBackendImplementationKind,
@@ -6084,6 +6668,9 @@ export async function runWebGpuVisibleRecordDryRun({
     },
     webgpuTileCompositorFrameImplementation,
     webgpuPhase3BackendBoundaryContract,
+    step114PreCullDirectEvidence,
+    webgpuPreCullDirectGaussianEvidence: step114PreCullDirectEvidence,
+    step114TemporalEvaluationEvidence,
     webgpuVisibleRecordGateSummary: {
       ...statePositionAvailabilitySummary,
       fourDStateSourceReady:

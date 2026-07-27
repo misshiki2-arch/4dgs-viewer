@@ -108,11 +108,27 @@ import {
   captureCachedWebGpuTileCompositorOutputPng,
   presentCachedWebGpuTileCompositorOutputHeartbeat
 } from './webgpu_tile_list_compositor.js';
+import {
+  buildWebGpuRenderStateManifest
+} from './common_4dgs_render_state_manifest.js';
+import {
+  buildWebGpuProductionPresentationFrameEvidence,
+  createInitialProductionPresentationRecorder
+} from './common_4dgs_initial_production_presentation.js';
+import {
+  createFinalCanvasPresentationTraceRecorder,
+  FINAL_CANVAS_PRESENTATION_PATHS
+} from './common_4dgs_final_canvas_presentation.js';
+import {
+  buildProductionRuntimeSelectionContract,
+  PRODUCTION_WEBGPU_TILE_COMPOSITOR_IMPLEMENTATION,
+  validateExpectedProductionRuntimeContract
+} from './common_4dgs_production_runtime_contract.js';
 
 const canvas = document.getElementById('glCanvas');
 
 const WEBGPU_TILE_COMPOSITOR_FRAME_IMPLEMENTATION =
-  'webgpu-tile-compositor-frame-implementation';
+  PRODUCTION_WEBGPU_TILE_COMPOSITOR_IMPLEMENTATION;
 const WEBGPU_TILE_COMPOSITOR_VIEWER_LOOP_PERSISTENCE_FRAME_COUNT = 8;
 const WEBGPU_TILE_COMPOSITOR_RAF_TRACE_RING_BUFFER_CAPACITY = 240;
 const webgpuTileCompositorFinalPresentTraceRecords = [];
@@ -180,6 +196,26 @@ let latestViewerProductionRuntimeCameraState = null;
 let latestViewerConnectedSchedulerRuntimeState = null;
 let latestViewerConnectedSchedulerTimeControlEvidence = null;
 let latestViewerConnectedSchedulerCameraControlEvidence = null;
+const initialProductionPresentationRecorder =
+  createInitialProductionPresentationRecorder({
+    initialScheduleSource: 'default-scene-loaded'
+  });
+const finalCanvasPresentationTraceRecorder =
+  createFinalCanvasPresentationTraceRecorder({
+    historyLimit: 256,
+    requiredSteadyStateEventCount: 1,
+    activePathIdentities:
+      deterministicQueryState.webgpuBackendImplementation ===
+          WEBGPU_TILE_COMPOSITOR_FRAME_IMPLEMENTATION &&
+        deterministicQueryState.webgpuBackendViewerLoopHook === true &&
+        deterministicQueryState.webgpuAllowViewerCanvasPresentation === true
+        ? [
+            FINAL_CANVAS_PRESENTATION_PATHS.TILE_COMPOSITOR,
+            FINAL_CANVAS_PRESENTATION_PATHS.BOUNDED_FIRST_PRESENT,
+            FINAL_CANVAS_PRESENTATION_PATHS.BOUNDED_COLOR_PRESENT
+          ]
+        : [FINAL_CANVAS_PRESENTATION_PATHS.GUARDED_PRESENTATION]
+  });
 let appliedCameraPresetName = deterministicQueryState.cameraPresetName ?? 'none';
 let lastSnapshotSummary = {
   available: true,
@@ -408,6 +444,7 @@ function buildGpuCandidateRuntimeDebugSummary(options = {}) {
     latestShadowCompareStatus: latestGpuCandidateShadowCompare?.status ?? null,
     latestShadowCompareAnyMismatch: latestGpuCandidateShadowCompare?.summary?.anyMismatch ?? null,
     deterministicState: buildSlimDeterministicStateSummary(buildDeterministicStateSummary()),
+    productionRuntimeContract: getProductionRuntimeSelectionContract(),
     lastRenderResultSummary: buildRenderResultInspectionSummary(latestRenderResult),
     readbackPolicy: runtimeSummary.readbackPolicy
   };
@@ -1337,6 +1374,486 @@ function buildViewerDebugDataReadinessSummary() {
   };
 }
 
+function buildRawAssetLineageSummary() {
+  const rawCount = Number.isFinite(raw?.count)
+    ? Number(raw.count)
+    : Number.isFinite(raw?.N)
+      ? Number(raw.N)
+      : Array.isArray(raw?.xyz) || ArrayBuffer.isView(raw?.xyz)
+        ? Math.floor(raw.xyz.length / Math.max(1, raw.xyzDim || 3))
+        : null;
+  return {
+    rawLoaded: !!raw,
+    rawCount,
+    count: rawCount,
+    assetPath:
+      raw?.assetPath ??
+      raw?.sourcePath ??
+      raw?.filePath ??
+      raw?.url ??
+      deterministicQueryState.defaultSceneUrl ??
+      null,
+    hash: raw?.assetSha256 ?? raw?.sha256 ?? raw?.hash ?? null,
+    sha256: raw?.assetSha256 ?? raw?.sha256 ?? raw?.hash ?? null,
+    assetSha256: raw?.assetSha256 ?? raw?.sha256 ?? raw?.hash ?? null,
+    assetSizeBytes: raw?.assetSizeBytes ?? raw?.sizeBytes ?? null,
+    assetSourceKind: raw?.assetSourceKind ?? null,
+    assetFormat: raw?.version === 2 ? 'SPL4-v2' : raw?.assetFormat ?? null,
+    assetRecordIndexPreservedByParser:
+      raw?.version === 2
+        ? true
+        : null,
+    assetRecordIndexPreservationSource:
+      raw?.version === 2
+        ? 'parseSplat4DV2 sequential per-Gaussian record loop into raw typed arrays'
+        : null,
+    checkpointToAssetMappingArtifact:
+      raw?.checkpointToAssetMappingArtifact ??
+      raw?.indexMappingArtifact ??
+      null,
+    conversionReorderKnown:
+      raw?.conversionReorderKnown ??
+      (raw?.checkpointToAssetMappingArtifact || raw?.indexMappingArtifact ? true : null),
+    conversionReorderApplied: raw?.conversionReorderApplied ?? null,
+    lineageStatus:
+      raw?.assetSha256 || raw?.sha256 || raw?.hash
+        ? 'available'
+        : raw
+          ? 'partial-no-browser-file-hash'
+          : 'unknown-no-scene-loaded'
+  };
+}
+
+function buildStep114PreCullEvidenceMap(webgpuVisibleRecordDryRunResult) {
+  const evidence =
+    webgpuVisibleRecordDryRunResult?.step114PreCullDirectEvidence ??
+    webgpuVisibleRecordDryRunResult?.webgpuPreCullDirectGaussianEvidence ??
+    null;
+  const map = new Map();
+  if (!Array.isArray(evidence?.records)) return map;
+  for (const record of evidence.records) {
+    const index = Number(record?.srcIndex ?? record?.sourceIndex);
+    if (!Number.isFinite(index)) continue;
+    map.set(index | 0, record);
+  }
+  return map;
+}
+
+function isStep114PreCullEvidenceAvailable(preCullEvidence) {
+  if (!preCullEvidence || typeof preCullEvidence !== 'object') return false;
+  const index = Number(preCullEvidence.srcIndex ?? preCullEvidence.sourceIndex);
+  const source = String(preCullEvidence.actualEvidenceSource ?? '');
+  return (
+    Number.isFinite(index) &&
+    preCullEvidence.available === true &&
+    source.includes('webgpu-production') &&
+    source.includes('readback')
+  );
+}
+
+function classifyStep114PreCullEvidence(preCullEvidence) {
+  if (!preCullEvidence) {
+    return {
+      available: false,
+      classification: 'missing',
+      reason: 'pre-cull-record-not-found-for-src-index'
+    };
+  }
+  const available = isStep114PreCullEvidenceAvailable(preCullEvidence);
+  if (!available) {
+    return {
+      available: false,
+      classification: 'invalid',
+      reason:
+        preCullEvidence.invalidReason ??
+        preCullEvidence.reason ??
+        'pre-cull-record-source-or-availability-contract-invalid'
+    };
+  }
+  if (preCullEvidence.valid === true) {
+    return {
+      available: true,
+      classification: 'evidence-available',
+      reason: 'pre-cull-production-readback-record-available-and-valid'
+    };
+  }
+  return {
+    available: true,
+    classification: 'explicitly-culled',
+    reason:
+      preCullEvidence.culledReason ??
+      preCullEvidence.cullReason ??
+      'pre-cull-production-readback-record-explicitly-culled'
+  };
+}
+
+function mergeStep114PreCullEvidenceRecord(record, preCullEvidence) {
+  const preCullClassification = classifyStep114PreCullEvidence(preCullEvidence);
+  if (!preCullEvidence) {
+    return {
+      ...record,
+      preCullEvidenceAvailable: false,
+      preCullAvailabilityClassification: preCullClassification.classification,
+      preCullAvailabilityReason: preCullClassification.reason
+    };
+  }
+  const preCullValid = preCullEvidence.valid === true;
+  const preCullAvailable = preCullClassification.available === true;
+  const cullReason =
+    preCullEvidence.culledReason ??
+    preCullEvidence.cullReason ??
+    preCullEvidence.invalidReason ??
+    (preCullValid ? 'none' : 'webgpu-visible-record-pre-cull-validity-failed');
+  return {
+    ...record,
+    actualEvidenceSource: preCullAvailable
+      ? 'webgpu-production-wgsl-visible-record-pre-cull-readback'
+      : record.actualEvidenceSource,
+    actualEvidenceDispatch: preCullAvailable
+      ? 'same-webgpu-production-visible-record-dry-run-dispatch'
+      : record.actualEvidenceDispatch ?? null,
+    preCullEvidenceAvailable: preCullAvailable,
+    preCullAvailabilityClassification: preCullClassification.classification,
+    preCullAvailabilityReason: preCullClassification.reason,
+    preCullEvidenceSource: preCullEvidence.actualEvidenceSource ?? null,
+    found: record.found || preCullAvailable,
+    invalid: preCullAvailable ? false : record.invalid,
+    worldPosition:
+      preCullEvidence.rawSourcePosition ??
+      preCullEvidence.sourceWorldPosition ??
+      record.worldPosition,
+    temporalWorldPosition:
+      preCullEvidence.temporalWorldPosition ??
+      preCullEvidence.worldPosition ??
+      record.temporalWorldPosition,
+    temporalEvaluation:
+      preCullEvidence.temporalEvaluation ??
+      record.temporalEvaluation ??
+      null,
+    cameraSpacePosition:
+      preCullEvidence.cameraSpacePosition ?? record.cameraSpacePosition,
+    clipPosition: preCullEvidence.clipPosition ?? record.clipPosition,
+    ndc: preCullEvidence.ndc ?? record.ndc,
+    screenCenter:
+      preCullEvidence.screenCenter ??
+      preCullEvidence.centerPx ??
+      record.screenCenter,
+    centerPx:
+      preCullEvidence.screenCenter ??
+      preCullEvidence.centerPx ??
+      record.centerPx,
+    depth: preCullEvidence.depth ?? record.depth,
+    radius:
+      preCullEvidence.radius ??
+      preCullEvidence.footprintRadius ??
+      record.radius,
+    footprintRadius:
+      preCullEvidence.footprintRadius ??
+      preCullEvidence.radius ??
+      record.footprintRadius,
+    valid: preCullValid || record.valid,
+    culled: preCullAvailable ? !preCullValid : record.culled,
+    culledStage:
+      preCullEvidence.culledStage ??
+      (preCullAvailable && !preCullValid ? 'visible-record-pre-cull-validity' : null),
+    culledReason: cullReason,
+    cullReason: cullReason,
+    missingReason: preCullAvailable ? null : record.missingReason,
+    preCullDirectEvidence: preCullEvidence
+  };
+}
+
+function buildDirectGaussianEvidenceRecord(renderResult, srcIndex, preCullEvidenceMap = null) {
+  const index = Number(srcIndex);
+  if (!Number.isFinite(index)) return null;
+  const originalIndex = index | 0;
+  const actual = inspectActualPayloadForOriginalIndex(renderResult, originalIndex);
+  const preCullEvidence = preCullEvidenceMap?.get(originalIndex) ?? null;
+  const preCullClassification = classifyStep114PreCullEvidence(preCullEvidence);
+  const preCullAvailable = preCullClassification.available === true;
+  const xyzBase = originalIndex * Math.max(1, raw?.xyzDim ?? 3);
+  const worldPosition = raw?.xyz
+    ? [
+        toFiniteNumberOrNull(raw.xyz[xyzBase + 0]),
+        toFiniteNumberOrNull(raw.xyz[xyzBase + 1]),
+        toFiniteNumberOrNull(raw.xyz[xyzBase + 2])
+      ]
+    : null;
+  const payload = actual.actualPayload ?? actual.visiblePayload ?? actual.packedPayload ?? actual.accumulationPayload ?? null;
+  const duplicateOccurrenceCount = Math.max(0, (actual.accumulationOccurrenceCount ?? 0) - 1);
+  const record = {
+    srcIndex: originalIndex,
+    sourceIndex: originalIndex,
+    actualEvidenceSource: payload
+      ? `webgpu-production-${payload.payloadSource ?? 'payload'}`
+      : 'webgpu-production-payload-missing',
+    requestedByCanonicalIndexSet: true,
+    found: actual.found,
+    missingReason: actual.missingReason,
+    invalid: !payload && actual.missingReason !== 'not-visible-or-culled',
+    duplicateOccurrenceCount,
+    originalIndexPreserved:
+      preCullAvailable ||
+      payload?.originalSplatIndex === originalIndex ||
+      actual.visiblePayload?.originalSplatIndex === originalIndex ||
+      actual.packedPayload?.originalSplatIndex === originalIndex ||
+      actual.accumulationPayload?.originalSplatIndex === originalIndex,
+    worldPosition,
+    temporalWorldPosition: worldPosition,
+    cameraSpacePosition: payload?.cameraSpacePosition ?? null,
+    clipPosition: payload?.clipPosition ?? null,
+    ndc: payload?.ndc ?? null,
+    screenCenter: payload?.centerPx ?? null,
+    centerPx: payload?.centerPx ?? null,
+    depth: payload?.depth ?? null,
+    radius: payload?.radius ?? payload?.radiusPx ?? null,
+    footprintRadius: payload?.radius ?? payload?.radiusPx ?? null,
+    conic: payload?.conic ?? null,
+    valid: !!payload,
+    culled: !payload,
+    cullReason: payload ? 'none' : actual.missingReason,
+    payloadSource: payload?.payloadSource ?? null,
+    visiblePayloadPresent: !!actual.visiblePayload,
+    packedPayloadPresent: !!actual.packedPayload,
+    accumulationPayloadPresent: !!actual.accumulationPayload,
+    accumulationOccurrenceCount: actual.accumulationOccurrenceCount,
+    accumulationOccurrenceConsistency: actual.accumulationOccurrenceConsistency,
+    sourcePath: payload?.sourcePath ?? null,
+    packedContract: payload?.packedContract ?? null,
+    tileRange: payload?.tileRange ?? null,
+    tileCoverage: payload?.tileCoverage ?? null
+  };
+  return mergeStep114PreCullEvidenceRecord(record, preCullEvidence);
+}
+
+function countRawSourcePositionMatches(targetPosition, tolerance = 1e-6) {
+  if (!targetPosition || !raw?.xyz) {
+    return {
+      matchCount: 0,
+      matchingIndices: [],
+      ready: false,
+      reason: 'raw-source-position-or-runtime-xyz-buffer-missing'
+    };
+  }
+  const dim = Math.max(1, raw.xyzDim ?? 3);
+  const count = Number.isFinite(Number(raw.N))
+    ? Number(raw.N)
+    : Math.floor(raw.xyz.length / dim);
+  const matchingIndices = [];
+  for (let i = 0; i < count; i += 1) {
+    const base = i * dim;
+    const dx = Math.abs(Number(raw.xyz[base + 0]) - targetPosition[0]);
+    const dy = Math.abs(Number(raw.xyz[base + 1]) - targetPosition[1]);
+    const dz = Math.abs(Number(raw.xyz[base + 2]) - targetPosition[2]);
+    if (dx <= tolerance && dy <= tolerance && dz <= tolerance) {
+      matchingIndices.push(i);
+      if (matchingIndices.length > 4) break;
+    }
+  }
+  return {
+    matchCount: matchingIndices.length,
+    matchingIndices,
+    ready: matchingIndices.length === 1,
+    reason:
+      matchingIndices.length === 1
+        ? 'runtime-asset-source-position-unique-for-src-index'
+        : 'runtime-asset-source-position-not-unique-or-missing'
+  };
+}
+
+function buildSourcePositionUniquenessEvidence(records) {
+  const rows = [];
+  for (const record of records) {
+    const targetPosition =
+      record.preCullDirectEvidence?.rawSourcePosition ??
+      record.worldPosition ??
+      null;
+    const uniqueness = countRawSourcePositionMatches(targetPosition);
+    rows.push({
+      srcIndex: record.srcIndex,
+      targetPosition,
+      ...uniqueness,
+      requestedIndexMatchesUniquePosition:
+        uniqueness.ready === true && uniqueness.matchingIndices[0] === record.srcIndex
+    });
+  }
+  const ready =
+    rows.length > 0 &&
+    rows.every((row) => row.requestedIndexMatchesUniquePosition === true);
+  return {
+    schemaVersion: 'phase3-step114-fix7-source-position-uniqueness-v1',
+    source:
+      'browser-loaded-runtime-asset-raw-xyz-buffer-scanned-against-cuda-direct-source-position',
+    ready,
+    checkedCount: rows.length,
+    uniqueMatchCount: rows.filter((row) => row.ready === true).length,
+    requestedIndexMatchCount: rows.filter(
+      (row) => row.requestedIndexMatchesUniquePosition === true
+    ).length,
+    tolerance: 1e-6,
+    rows,
+    decision: ready
+      ? 'source-position-unique-mapping-evidence-ready'
+      : 'source-position-unique-mapping-evidence-blocked'
+  };
+}
+
+function buildWebGpuDirectGaussianEvidence(
+  renderResult,
+  requestedSrcIndices = [],
+  { webgpuVisibleRecordDryRunResult = null } = {}
+) {
+  const indices = normalizeRepresentativeIndexList(requestedSrcIndices);
+  const preCullEvidenceMap = buildStep114PreCullEvidenceMap(
+    webgpuVisibleRecordDryRunResult
+  );
+  const records = indices
+    .map((index) => buildDirectGaussianEvidenceRecord(renderResult, index, preCullEvidenceMap))
+    .filter(Boolean);
+  const sourcePositionUniquenessEvidence =
+    buildSourcePositionUniquenessEvidence(records);
+  const foundCount = records.filter((record) => record.found).length;
+  const missingCount = records.filter((record) => !record.found).length;
+  const invalidCount = records.filter((record) => record.invalid).length;
+  const duplicateCount = records.reduce(
+    (sum, record) => sum + Math.max(0, record.duplicateOccurrenceCount ?? 0),
+    0
+  );
+  const preCullAvailableCount = records.filter(
+    (record) => record.preCullAvailabilityClassification === 'evidence-available'
+  ).length;
+  const preCullCulledCount = records.filter(
+    (record) => record.preCullAvailabilityClassification === 'explicitly-culled'
+  ).length;
+  const preCullMissingCount = records.filter(
+    (record) => record.preCullAvailabilityClassification === 'missing'
+  ).length;
+  const preCullInvalidCount = records.filter(
+    (record) => record.preCullAvailabilityClassification === 'invalid'
+  ).length;
+  const countAvailableField = (fieldName) =>
+    records.filter((record) => record.preCullDirectEvidence?.actualFieldAvailability?.[fieldName] === true).length;
+  const directEvidenceLayout =
+    records.find((record) => record.preCullDirectEvidence?.diagnosticLayout?.directEvidenceLayout)
+      ?.preCullDirectEvidence?.diagnosticLayout?.directEvidenceLayout ?? null;
+  return {
+    available: indices.length > 0,
+    actualEvidenceSource: preCullEvidenceMap.size > 0
+      ? 'webgpu-production-wgsl-visible-record-pre-cull-readback'
+      : 'webgpu-production-render-result-visible-packed-or-tile-compositor-payload',
+    actualEvidenceDispatch: preCullEvidenceMap.size > 0
+      ? 'same-webgpu-production-visible-record-dry-run-dispatch'
+      : 'same-production-renderCurrentFrame/latestRenderResult-consumed-by-presentation',
+    requestedSrcIndices: indices,
+    recordCount: records.length,
+    foundCount,
+    missingCount,
+    duplicateCount,
+    invalidCount,
+    records,
+    recordSummary: {
+      requestedCount: indices.length,
+      recordCount: records.length,
+      foundCount,
+      missingCount,
+      duplicateCount,
+      invalidCount,
+      allRecordsUseRequestedOriginalIndex:
+        records.length === indices.length &&
+        records.every((record) => record.originalIndexPreserved === true),
+      preCullAvailableCount,
+      preCullCulledCount,
+      preCullMissingCount,
+      preCullInvalidCount
+    },
+    indexSemantics: {
+      requestedIndexRole: 'CUDA direct rasterizer selected checkpoint srcIndex',
+      runtimeIndexRole: 'WebGPU originalSplatIndex/srcIndex carried through pre-cull visible-record dispatch and visible/tile payloads',
+      runtimeOriginalIndexPreserved:
+        records.length > 0 && records.every((record) => record.originalIndexPreserved === true),
+      preCullRuntimeOriginalIndexPreserved:
+        records.length > 0 &&
+        records.every((record) => record.preCullEvidenceAvailable === true),
+      sourcePositionUniquenessEvidence,
+      productionOrderMayDiffer: true,
+      sortCompactionPreservesOriginalIndex: records.some((record) => record.accumulationPayloadPresent)
+    },
+    preCullEvidenceSummary: {
+      available: preCullEvidenceMap.size > 0,
+      source: preCullEvidenceMap.size > 0
+        ? 'webgpu-visible-record-dry-run-step114-pre-cull-direct-evidence'
+        : 'not-provided',
+      recordCount: preCullEvidenceMap.size,
+      requestedRecordCount: indices.length,
+      matchedRequestedRecordCount: records.filter(
+        (record) => record.preCullEvidenceAvailable === true
+      ).length,
+      evidenceAvailableCount: preCullAvailableCount,
+      explicitlyCulledCount: preCullCulledCount,
+      missingCount: preCullMissingCount,
+      invalidCount: preCullInvalidCount,
+      availabilityClassifications: records.map((record) => ({
+        srcIndex: record.srcIndex,
+        classification: record.preCullAvailabilityClassification,
+        reason: record.preCullAvailabilityReason
+      })),
+      directEvidenceLayout,
+      fieldAvailabilitySummary: {
+        rawSourcePositionCount: countAvailableField('rawSourcePosition'),
+        temporalWorldPositionCount: countAvailableField('temporalWorldPosition'),
+        cameraSpacePositionCount: countAvailableField('cameraSpacePosition'),
+        clipPositionCount: countAvailableField('clipPosition'),
+        ndcCount: countAvailableField('ndc'),
+        screenCenterCount: countAvailableField('screenCenter'),
+        depthCount: countAvailableField('depth'),
+        radiusCount: countAvailableField('radius')
+      }
+    },
+    productionDiagnosticSeparation: {
+      productionOutputDependsOnDirectReadback: false,
+      readbackPurpose: 'Step114 manifest evidence only',
+      productionPayloadConsumedByPresentation: !!renderResult
+    },
+    blockedReason: indices.length <= 0
+      ? 'canonical-comparison-index-set-not-provided'
+      : (records.length <= 0
+          ? 'webgpu-direct-record-build-produced-no-records'
+          : null)
+  };
+}
+
+function captureWebGpuRenderStateManifestDebug(options = {}) {
+  const input = options ?? {};
+  const canonicalComparisonSrcIndices = normalizeRepresentativeIndexList(
+    input.canonicalComparisonSrcIndices ?? input.selectedSrcIndices ?? input.indices
+  );
+  const directGaussianEvidence = buildWebGpuDirectGaussianEvidence(
+    latestRenderResult,
+    canonicalComparisonSrcIndices,
+    {
+      webgpuVisibleRecordDryRunResult:
+        input.webgpuVisibleRecordDryRunResult ??
+        (typeof window !== 'undefined'
+          ? window.__phase3LatestWebGpuVisibleRecordDryRunResult
+          : null)
+    }
+  );
+  return buildWebGpuRenderStateManifest({
+    deterministicState: buildDeterministicStateSummary(),
+    canvasSizeSummary: buildCanvasSizeSummary(),
+    renderResultSummary: buildRenderResultInspectionSummary(latestRenderResult),
+    pngCaptureStatus: input.pngCaptureStatus ?? null,
+    rawSummary: buildRawAssetLineageSummary(),
+    canonicalComparisonSrcIndices,
+    directGaussianEvidence,
+    captureStateContract: input.captureStateContract ?? null,
+    phaseStep: input.phaseStep ?? 'phase3-step114',
+    comparisonMode:
+      input.comparisonMode ??
+      'phase3-step114-cuda-reference-provenance-render-state-audit'
+  });
+}
+
 async function waitForViewerDebugDataReady({
   timeoutMs = 8000,
   retryDefaultScene = true,
@@ -2058,6 +2575,25 @@ function resolveCandidateInfoForWebGpuDryRun({
   candidateArgs = null,
   options = {}
 } = {}) {
+  const explicitCanonicalIndices = normalizeRepresentativeIndexList(
+    options.canonicalComparisonSrcIndices ??
+    options.selectedSrcIndices ??
+    options.indices
+  );
+  if (explicitCanonicalIndices.length > 0) {
+    return {
+      candidateInfo: {
+        candidateIndices: Uint32Array.from(explicitCanonicalIndices),
+        candidateCount: explicitCanonicalIndices.length,
+        sourceMode: 'canonical-src-index-set',
+        source: 'step114-canonical-cuda-direct-rasterizer-index-set',
+        comparisonMode:
+          options.comparisonMode ??
+          'phase3-step114-fix4-canonical-index-lineage-pre-cull-production-evidence'
+      },
+      source: 'step114-canonical-src-index-set'
+    };
+  }
   if (existingCandidateInfo?.candidateIndices?.length > 0) {
     return {
       candidateInfo: existingCandidateInfo,
@@ -2544,6 +3080,7 @@ async function runWebGpuVisibleRecordDryRunFromViewerState({
       requestedBackendMode: requestedWebGpuBackendMode,
       allowViewerCanvasPresentation,
       webgl2FrameLifecycleSuppressed: useExclusiveWebGpuFrameLifecycle,
+      finalCanvasPresentationTraceRecorder,
       schedulerFrameState: schedulerFrameStateForDryRun,
       viewerTimeState: viewerTimeStateForDryRun,
       viewerCameraState: viewerCameraStateForDryRun
@@ -4045,6 +4582,7 @@ function buildSlimDeterministicStateSummary(summary) {
         ? summary.webgpuBackendViewerLoopHook
         : null,
     webgpuBackendImplementation: summary?.webgpuBackendImplementation ?? null,
+    viewerRuntime: summary?.viewerRuntime ?? null,
     gpuFramePolicyOverride: summary?.gpuFramePolicyOverride ?? 'auto',
     gpuCandidateRuntime: summary?.gpuCandidateRuntime ?? 'off',
     gpuCandidateFallback: summary?.gpuCandidateFallback ?? null,
@@ -5907,6 +6445,7 @@ async function renderCurrentFrame(options = {}) {
       requestedBackendMode,
       allowViewerCanvasPresentation,
       webgl2FrameLifecycleSuppressed: true,
+      finalCanvasPresentationTraceRecorder,
       viewport,
       schedulerFrameState,
       viewerTimeState,
@@ -5940,6 +6479,7 @@ async function renderCurrentFrame(options = {}) {
       calledFromSchedulerFrameLoop &&
       backendImplementationKind === WEBGPU_TILE_COMPOSITOR_FRAME_IMPLEMENTATION &&
       shouldKeepWebGpuTileCompositorViewerLoopAlive() &&
+      schedulerFrameState?.forceProductionUpdate !== true &&
       viewerTimeState.dirtyTimeState !== true
     ) {
       const heartbeatFrame = await runTileCompositorHeartbeatPresentationFrame({
@@ -5985,6 +6525,24 @@ async function renderCurrentFrame(options = {}) {
               heartbeatFrame.finalPresentRecord.finalPresentSource
           },
           limitedDrawRuntimeSummary: null
+        };
+        renderResult.webgpuProductionPresentationEvidence = {
+          ...(latestRenderResult?.webgpuProductionPresentationEvidence ?? {}),
+          schemaVersion: 'phase3-production-presentation-frame-evidence-v1',
+          productionFrameCompleted: true,
+          viewerCanvasPresented: true,
+          knownNonblank:
+            heartbeat?.compositorCurrentTextureReadbackNonZero === true
+              ? true
+              : latestRenderResult?.webgpuProductionPresentationEvidence
+                  ?.knownNonblank ?? null,
+          presentationSource:
+            heartbeat?.currentTextureSource ??
+            latestRenderResult?.webgpuProductionPresentationEvidence
+              ?.presentationSource ??
+            null,
+          presentationTimestampMs: getNowMs(),
+          completedAtMs: getNowMs()
         };
         latestRenderResult = renderResult;
         latestGpuCandidateShadowCompare = null;
@@ -6387,6 +6945,12 @@ async function renderCurrentFrame(options = {}) {
       },
       limitedDrawRuntimeSummary: null
     };
+    renderResult.webgpuProductionPresentationEvidence =
+      buildWebGpuProductionPresentationFrameEvidence({
+        backendFrameResult: backendFrameExecutorResult?.backendFrameResult ?? null,
+        renderResult,
+        completedAtMs: getNowMs()
+      });
     latestRenderResult = renderResult;
     latestGpuCandidateShadowCompare = null;
     return renderResult;
@@ -6563,6 +7127,205 @@ async function inspectActiveSplat(options = {}) {
       });
 }
 
+function getFinalCanvasPresentationBoundarySnapshot(options = {}) {
+  const initialSnapshot = initialProductionPresentationRecorder.getSnapshot();
+  const boundaryKind = options.boundaryKind ?? 'url-only';
+  const useInitialDefaults = boundaryKind === 'url-only';
+  return finalCanvasPresentationTraceRecorder.getSnapshot({
+    ...options,
+    boundaryKind,
+    boundaryTimestampMs: options.boundaryTimestampMs ?? getNowMs(),
+    expectedRequestIdentity:
+      options.expectedRequestIdentity ??
+      (useInitialDefaults ? initialSnapshot.initialRequestIdentity : null),
+    expectedGeneration:
+      options.expectedGeneration ??
+      (useInitialDefaults ? initialSnapshot.initialProductionGeneration : null),
+    expectedFrameIdentity:
+      options.expectedFrameIdentity ??
+      (useInitialDefaults ? initialSnapshot.initialFrameIdentity : null)
+  });
+}
+
+function getProductionRuntimeSelectionContract() {
+  const finalCanvasRuntimeSnapshot =
+    finalCanvasPresentationTraceRecorder.getRuntimeStateSnapshot();
+  return buildProductionRuntimeSelectionContract({
+    queryState: deterministicQueryState,
+    latestFinalCanvasEvent: finalCanvasRuntimeSnapshot.latestEvent ?? null,
+    snapshotTakenAtMs: finalCanvasRuntimeSnapshot.snapshotTakenAtMs
+  });
+}
+
+function getSynchronousCommandStartFence() {
+  const commandStartTimestampMs = getNowMs();
+  const schedulerSnapshot = scheduler.getSynchronousSnapshot();
+  const initialPresentationSnapshot =
+    initialProductionPresentationRecorder.getSnapshot();
+  const finalCanvasRuntimeSnapshot =
+    finalCanvasPresentationTraceRecorder.getRuntimeStateSnapshot();
+  const expectedInitialRequestIdentity =
+    initialPresentationSnapshot.initialRequestIdentity ?? null;
+  const urlOnlyFinalPresentation =
+    finalCanvasPresentationTraceRecorder.getSnapshot({
+      boundaryKind: 'url-only-synchronous-command-start-fence',
+      boundaryTimestampMs: commandStartTimestampMs,
+      expectedRequestIdentity: expectedInitialRequestIdentity,
+      expectedGeneration:
+        initialPresentationSnapshot.initialProductionGeneration ?? null,
+      expectedFrameIdentity:
+        initialPresentationSnapshot.initialFrameIdentity ?? null,
+      requiredSteadyStateEventCount: 1,
+      requireCanvasWritePathCoverage: true,
+      requireQuiescence: true,
+      canvasWritePathCoverage:
+        finalCanvasRuntimeSnapshot.canvasWritePathCoverage ?? null,
+      quiescenceEvidence:
+        finalCanvasRuntimeSnapshot.quiescenceObservation ?? null
+    });
+  return structuredClone({
+    schemaVersion: 'phase3-synchronous-command-start-fence-v1',
+    source: 'common-viewer-debug-synchronous-command-boundary',
+    commandStartTimestampMs,
+    canonicalBoundary: {
+      finalCanvasEventSequence:
+        finalCanvasRuntimeSnapshot.latestEventSequence ?? 0,
+      finalCanvasEventIdentity:
+        finalCanvasRuntimeSnapshot.latestEventIdentity ?? null,
+      schedulerLatestRequestSequence:
+        schedulerSnapshot.latestRequestSequence ?? 0,
+      schedulerLatestRequestIdentity:
+        schedulerSnapshot.latestRequestIdentity ?? null
+    },
+    schedulerSnapshot,
+    productionRuntimeContract: buildProductionRuntimeSelectionContract({
+      queryState: deterministicQueryState,
+      latestFinalCanvasEvent: finalCanvasRuntimeSnapshot.latestEvent ?? null,
+      snapshotTakenAtMs: commandStartTimestampMs
+    }),
+    initialPresentationSnapshot,
+    finalCanvasRuntimeSnapshot,
+    urlOnlyFinalPresentation,
+    initialRequestPresentationIdentityChain: {
+      initialRequestIdentity: expectedInitialRequestIdentity,
+      initialRequestSource:
+        initialPresentationSnapshot.initialScheduleSource ?? null,
+      productionSourceRequestIdentity:
+        initialPresentationSnapshot.initialProductionSourceRequestIdentity ?? null,
+      productionGeneration:
+        initialPresentationSnapshot.initialProductionGeneration ?? null,
+      compositorGeneration:
+        initialPresentationSnapshot.initialCompositorGeneration ?? null,
+      presentedGeneration:
+        initialPresentationSnapshot.initialPresentedGeneration ?? null,
+      finalCanvasSourceRequestIdentity:
+        urlOnlyFinalPresentation.finalSourceRequestIdentity ?? null,
+      finalCanvasEventIdentity:
+        urlOnlyFinalPresentation.finalCanvasEventIdentity ?? null,
+      frameIdentity: urlOnlyFinalPresentation.finalFrameIdentity ?? null,
+      requestToProductionIdentityMatches:
+        expectedInitialRequestIdentity != null &&
+        initialPresentationSnapshot.initialProductionSourceRequestIdentity != null
+          ? expectedInitialRequestIdentity ===
+              initialPresentationSnapshot.initialProductionSourceRequestIdentity
+          : null,
+      requestToFinalCanvasIdentityMatches:
+        expectedInitialRequestIdentity != null &&
+        urlOnlyFinalPresentation.finalSourceRequestIdentity != null
+          ? expectedInitialRequestIdentity ===
+              urlOnlyFinalPresentation.finalSourceRequestIdentity
+          : null
+    },
+    synchronousReadOnlyFence: true,
+    capturedInSingleJavaScriptTurn: true,
+    asyncOperationBeforeFence: false,
+    mutationBeforeFence: false,
+    renderScheduledByFence: false,
+    readinessWaitPerformedByFence: false,
+    sceneRetryPerformedByFence: false,
+    gpuReadbackPerformedByFence: false,
+    canvasWritePerformedByFence: false
+  });
+}
+
+async function waitForFinalCanvasPresentationQuiescence(options = {}) {
+  const timeoutMs = Math.max(0, Number(options.timeoutMs ?? 2000));
+  const pollIntervalMs = Math.max(1, Number(options.pollIntervalMs ?? 25));
+  const requiredConsecutive = Math.max(
+    2,
+    Math.round(Number(options.requiredConsecutive ?? 3))
+  );
+  const startedAtMs = getNowMs();
+  let observation = null;
+  do {
+    observation = finalCanvasPresentationTraceRecorder.observeQuiescence({
+      schedulerSnapshot: scheduler.getSynchronousSnapshot(),
+      requiredConsecutive
+    });
+    if (observation.quiescent === true) break;
+    if (getNowMs() - startedAtMs >= timeoutMs) break;
+    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+  } while (true);
+  const completedAtMs = getNowMs();
+  const timedOut = observation?.quiescent !== true;
+  const boundary = getFinalCanvasPresentationBoundarySnapshot({
+    ...options,
+    boundaryTimestampMs: completedAtMs,
+    requiredSteadyStateEventCount: 1,
+    requireCanvasWritePathCoverage: true,
+    requireQuiescence: true,
+    quiescenceEvidence: observation
+  });
+  return {
+    ...boundary,
+    quiescenceTimedOut: timedOut,
+    quiescenceObservation: observation,
+    passiveQuiescenceObservation: {
+      requestedProductionFrame: false,
+      scheduledRender: false,
+      changedCamera: false,
+      changedTime: false,
+      performedGpuReadback: false,
+      wroteCanvas: false,
+      timerUsedOnlyAsObservationWindow: true,
+      timeoutMs,
+      pollIntervalMs,
+      startedAtMs,
+      completedAtMs
+    }
+  };
+}
+
+async function waitForFinalCanvasPresentationSteadyState(options = {}) {
+  const requestedRafCount = Number(options.requiredRafCount ?? 8);
+  const requiredRafCount = Math.max(
+    1,
+    Math.round(Number.isFinite(requestedRafCount) ? requestedRafCount : 8)
+  );
+  const startedAtMs = getNowMs();
+  for (let index = 0; index < requiredRafCount; index += 1) {
+    await waitForAnimationFrameBoundary();
+  }
+  const completedAtMs = getNowMs();
+  return {
+    ...getFinalCanvasPresentationBoundarySnapshot({
+      ...options,
+      boundaryTimestampMs: completedAtMs
+    }),
+    passiveSteadyStateObservation: {
+      requestedProductionFrame: false,
+      scheduledRender: false,
+      changedCamera: false,
+      changedTime: false,
+      performedGpuReadback: false,
+      wroteCanvas: false,
+      waitedRafCount: requiredRafCount,
+      startedAtMs,
+      completedAtMs
+    }
+  };
+}
+
 function installViewerDebugApi() {
   window.gpuViewerDebug = {
     captureFrame,
@@ -6615,6 +7378,7 @@ function installViewerDebugApi() {
     captureGpuVisibleRecordDryRunDebug,
     captureGpuRawVisibleRecordDryRunDebug,
     captureWebGpuVisibleRecordDryRunDebug,
+    captureWebGpuRenderStateManifestDebug,
     captureGpuCandidateShadowCompareDebug,
     captureGpuCandidateSourceCompareDebug,
     captureGpuCandidateScreenCoarseCompareDebug,
@@ -6626,10 +7390,19 @@ function installViewerDebugApi() {
     captureCurrentCanvasPng: saveCurrentCanvasPng,
     getLatestDebugText: () => refreshLatestDebugText(),
     getLastRenderResult: () => latestRenderResult,
+    getInitialProductionPresentationSnapshot: () =>
+      initialProductionPresentationRecorder.getSnapshot(),
+    getFinalCanvasPresentationBoundarySnapshot,
+    waitForFinalCanvasPresentationSteadyState,
+    getSynchronousCommandStartFence,
+    getProductionRuntimeSelectionContract,
+    validateExpectedProductionRuntimeContract,
+    waitForFinalCanvasPresentationQuiescence,
+    getRenderSchedulerSynchronousSnapshot: () => scheduler.getSynchronousSnapshot(),
     getLastGpuCandidateShadowCompare: () => latestGpuCandidateShadowCompare,
     runViewerConnectedSchedulerProbe,
     runViewerCameraDirtySchedulerProbe,
-    scheduleRender: () => scheduler.scheduleRender()
+    scheduleRender: (options = {}) => scheduler.scheduleRender(options)
   };
 }
 
@@ -6842,9 +7615,7 @@ function bindSliderTextUpdates() {
 const scheduler = createRenderScheduler({
   renderFrame: renderCurrentFrame,
   tokenRef,
-  isPlaying: () =>
-    (playback ? playback.isPlaying() : false) ||
-    shouldKeepWebGpuTileCompositorViewerLoopAlive(),
+  isPlaying: () => (playback ? playback.isPlaying() : false),
   buildFramePresentationBoundary: ({ schedulerFrameState, renderResult }) => {
     const executor = renderResult?.webgpuBackendViewerFrameExecutor ?? null;
     const pass =
@@ -6865,7 +7636,30 @@ const scheduler = createRenderScheduler({
         deterministicQueryState.webgpuBackendImplementation ?? null,
       frameIndex: renderResult?.executionSummary?.frameIndex ?? 0
     });
-  }
+  },
+  onScheduleRequest: (request) =>
+    initialProductionPresentationRecorder.recordScheduleRequest(request),
+  onFrameStarted: (schedulerFrameState) =>
+    initialProductionPresentationRecorder.recordFrameStarted(schedulerFrameState),
+  onFrameCompleted: ({ schedulerFrameState, renderResult }) =>
+    initialProductionPresentationRecorder.recordFrameCompleted({
+      schedulerFrameState,
+      frameEvidence:
+        renderResult?.webgpuProductionPresentationEvidence ?? {
+          schemaVersion: 'phase3-production-presentation-frame-evidence-v1',
+          productionFrameCompleted: true,
+          compositorOutputGenerated: null,
+          viewerCanvasPresented: null,
+          knownNonblank: null,
+          blockedReason: 'production-presentation-evidence-unavailable',
+          completedAtMs: getNowMs()
+        }
+    }),
+  onFrameError: ({ schedulerFrameState, error }) =>
+    initialProductionPresentationRecorder.recordFrameError({
+      schedulerFrameState,
+      error
+    })
 });
 
 playback = createViewerPlayback({
@@ -6883,7 +7677,7 @@ playback = createViewerPlayback({
 const fileIO = createViewerFileIO({
   ui,
   parseArrayBuffer: (buf) => parseSplat4DV2(buf),
-  onSceneLoaded: async (nextRaw) => {
+  onSceneLoaded: async (nextRaw, sourceMetadata = {}) => {
     raw = nextRaw;
     if (!applyDeterministicCameraPreset()) {
       fitCameraToRaw(raw, controls, camera);
@@ -6891,7 +7685,17 @@ const fileIO = createViewerFileIO({
         appliedCameraPresetName = 'none';
       }
     }
-    await scheduler.scheduleRender();
+    await scheduler.scheduleRender({
+      source:
+        sourceMetadata.sourceKind === 'default-scene-url'
+          ? 'default-scene-loaded'
+          : 'scene-loaded',
+      forceProductionUpdate: true,
+      metadata: {
+        transition: 'scene-ready-full-production-update',
+        sourceKind: sourceMetadata.sourceKind ?? null
+      }
+    });
   },
   scheduleRender: scheduler.scheduleRender,
   defaultSceneUrl: './scene_v2.splat4d'
@@ -6988,6 +7792,15 @@ initializeDebugLogArea();
 bindSliderTextUpdates();
 bindUiEvents();
 installViewerDebugApi();
+
+function observeFinalCanvasPresentationQuiescencePassively() {
+  finalCanvasPresentationTraceRecorder.observeQuiescence({
+    schedulerSnapshot: scheduler.getSynchronousSnapshot(),
+    requiredConsecutive: 3
+  });
+  setTimeout(observeFinalCanvasPresentationQuiescencePassively, 25);
+}
+setTimeout(observeFinalCanvasPresentationQuiescencePassively, 0);
 
 applyCanvasSize();
 playback.startLoop();

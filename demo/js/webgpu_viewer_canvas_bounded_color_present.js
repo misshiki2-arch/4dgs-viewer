@@ -10,6 +10,12 @@ import {
   normalizeBoundedColorSamples,
   summarizeBoundedColorSampleContract
 } from './common_4dgs_sample_contracts.js';
+import {
+  beginFinalCanvasPresentationWrite,
+  FINAL_CANVAS_PRESENTATION_PATHS,
+  registerFinalCanvasPresentationPath,
+  recordFinalCanvasPresentationEvent
+} from './common_4dgs_final_canvas_presentation.js';
 
 export const WEBGPU_VIEWER_CANVAS_BOUNDED_COLOR_PRESENT_MODE =
   'webgpu-viewer-canvas-bounded-color-present';
@@ -236,8 +242,14 @@ export async function buildWebGpuViewerCanvasBoundedColorPresent({
   webgpuRenderHandoffStub = null,
   webgpuFramebufferFreeTileOutputDryRunComparison = null,
   webgpuRenderTargetHandoffDryRunComparison = null,
-  webgpuConstrainedDisplayAdapterDryRunComparison = null
+  webgpuConstrainedDisplayAdapterDryRunComparison = null,
+  diagnosticCanvasPresentationAllowed = true
 } = {}) {
+  registerFinalCanvasPresentationPath(viewerCanvasState, {
+    pathIdentity: FINAL_CANVAS_PRESENTATION_PATHS.BOUNDED_COLOR_PRESENT,
+    source: 'webgpu_viewer_canvas_bounded_color_present',
+    supportedEventKinds: ['diagnostic-presentation', 'presentation-failure']
+  });
   const startMs = nowMs();
   const requestedBackendMode = normalizeWebGpuBackendMode(
     viewerCanvasState?.requestedBackendMode
@@ -256,12 +268,17 @@ export async function buildWebGpuViewerCanvasBoundedColorPresent({
     webgpuViewerCanvasCurrentTexturePath?.viewerCanvasCurrentTexturePathReady === true;
   const boundedFirstPresentSucceeded =
     webgpuViewerCanvasBoundedFirstPresent?.boundedViewerCanvasFirstPresentSucceeded === true;
+  const diagnosticCanvasWriteAllowed =
+    diagnosticCanvasPresentationAllowed !== false;
   const guardAllowed = canProbeViewerCanvasCurrentTexturePath({
     requestedBackendMode,
     allowViewerCanvasPresentation,
     contextMode,
     webgl2FrameLifecycleSuppressed
-  }) && currentTexturePathReady && boundedFirstPresentSucceeded;
+  }) &&
+    currentTexturePathReady &&
+    boundedFirstPresentSucceeded &&
+    diagnosticCanvasWriteAllowed;
   const textureFormat = normalizeCanvasFormat(
     webgpuViewerCanvasCurrentTexturePath?.textureFormat ??
       (typeof navigator !== 'undefined' && navigator.gpu?.getPreferredCanvasFormat
@@ -287,11 +304,15 @@ export async function buildWebGpuViewerCanvasBoundedColorPresent({
   let commandBufferSubmitted = false;
   let submittedWorkDone = false;
   let presentError = null;
+  let writeToken = null;
 
   if (device && viewerCanvasProvided && guardAllowed && vertexData.length > 0) {
     try {
       context = canvas.getContext?.('webgpu') ?? null;
       if (context) {
+        writeToken = beginFinalCanvasPresentationWrite(viewerCanvasState, {
+          pathIdentity: FINAL_CANVAS_PRESENTATION_PATHS.BOUNDED_COLOR_PRESENT
+        });
         context.configure({
           device,
           format: textureFormat,
@@ -384,6 +405,36 @@ fn fsMain(in: VertexOut) -> @location(0) vec4f {
   const currentTextureAcquired = !!currentTexture;
   const boundedColorPresentSucceeded =
     commandBufferSubmitted && !presentError && currentTextureAcquired;
+  if (commandBufferSubmitted || presentError) {
+    recordFinalCanvasPresentationEvent(viewerCanvasState, {
+      writeToken,
+      presentationPathIdentity:
+        FINAL_CANVAS_PRESENTATION_PATHS.BOUNDED_COLOR_PRESENT,
+      eventKind: 'diagnostic-presentation',
+      presentationSource: 'webgpu-viewer-canvas-bounded-color-present',
+      sourceRequestIdentity: null,
+      presentingRequestIdentity:
+        viewerCanvasState?.schedulerFrameState?.requestIdentity ?? null,
+      scheduleSource:
+        viewerCanvasState?.schedulerFrameState?.requestSource ?? null,
+      sourcePixelEvidenceIdentity: {
+        source: 'bounded-color-present-selected-samples',
+        selectedSampleCount: colorSamples.length,
+        vertexCount: vertexData.length / VERTEX_FLOATS,
+        width,
+        height
+      },
+      sourcePixelResult: 'unknown',
+      canvasWriteAttempted: true,
+      canvasWriteSubmitted: commandBufferSubmitted,
+      canvasWriteCompleted: boundedColorPresentSucceeded,
+      staleSource: false,
+      presentationFailed: !!presentError,
+      error: presentError
+        ? { name: presentError.name ?? 'Error', message: presentError.message ?? String(presentError) }
+        : null
+    });
+  }
   const firstValidationFailures = buildFailures({
     deviceAvailable: !!device,
     viewerCanvasProvided,

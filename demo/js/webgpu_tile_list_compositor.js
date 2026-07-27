@@ -2,13 +2,22 @@ import {
   buildWebGpuTileDepthOrderingContract,
   buildWebGpuTileListCompositorContract
 } from './common_4dgs_record_contracts.js';
-import { downloadCanvasPng } from './debug_download_utils.js';
+import {
+  buildOpaqueWebGpuPngAlphaNormalizationEvidence,
+  downloadCanvasPng
+} from './debug_download_utils.js';
 import {
   buildWebGpuPresentationCaptureOrientationEvidence,
   compareWebGpuPresentationFrameIdentity,
   getWebGpuPresentationCaptureOrientationContract,
   summarizeWebGpuPresentationFrameIdentity
 } from './webgpu_presentation_capture_orientation_contract.js';
+import {
+  beginFinalCanvasPresentationWrite,
+  FINAL_CANVAS_PRESENTATION_PATHS,
+  registerFinalCanvasPresentationPath,
+  recordFinalCanvasPresentationEvent
+} from './common_4dgs_final_canvas_presentation.js';
 
 const COMPOSITOR_SUMMARY_FLOAT_COUNT = 40;
 const ORDERING_SUMMARY_UINT_COUNT = 28;
@@ -152,41 +161,83 @@ function readOrderingSummary(summary) {
 function hasNonZeroTextureByte(readback, bytesPerRow, width, height) {
   for (let y = 0; y < height; y += 1) {
     const row = y * bytesPerRow;
-    for (let x = 0; x < width * 4; x += 1) {
-      if (readback[row + x] !== 0) return true;
+    for (let x = 0; x < width; x += 1) {
+      const offset = row + x * 4;
+      if (
+        readback[offset] !== 0 ||
+        readback[offset + 1] !== 0 ||
+        readback[offset + 2] !== 0
+      ) {
+        return true;
+      }
     }
   }
   return false;
 }
 
-function summarizeTextureReadback(readback, bytesPerRow, width, height) {
+function summarizeTextureReadback(
+  readback,
+  bytesPerRow,
+  width,
+  height,
+  { flipY = false } = {}
+) {
   let nonzeroPixelCount = 0;
+  let alphaNonzeroPixelCount = 0;
+  let alphaZeroPixelCount = 0;
+  let alphaOpaquePixelCount = 0;
+  let rgbMax = 0;
   let hash = 2166136261;
+  let rgbHash = 2166136261;
+  let alphaHash = 2166136261;
   const pixelCount = Math.max(1, width * height);
   for (let y = 0; y < height; y += 1) {
-    const row = y * bytesPerRow;
+    const sourceY = flipY ? height - 1 - y : y;
+    const row = sourceY * bytesPerRow;
     for (let x = 0; x < width; x += 1) {
       const offset = row + x * 4;
       const r = readback[offset + 0] ?? 0;
       const g = readback[offset + 1] ?? 0;
       const b = readback[offset + 2] ?? 0;
       const a = readback[offset + 3] ?? 0;
-      if (r !== 0 || g !== 0 || b !== 0 || a !== 0) {
+      const pixelRgbMax = Math.max(r, g, b);
+      rgbMax = Math.max(rgbMax, pixelRgbMax);
+      if (pixelRgbMax > 0) {
         nonzeroPixelCount += 1;
       }
+      alphaNonzeroPixelCount += a > 0 ? 1 : 0;
+      alphaZeroPixelCount += a === 0 ? 1 : 0;
+      alphaOpaquePixelCount += a === 255 ? 1 : 0;
       hash ^= r;
       hash = Math.imul(hash, 16777619) >>> 0;
+      rgbHash ^= r;
+      rgbHash = Math.imul(rgbHash, 16777619) >>> 0;
       hash ^= g;
       hash = Math.imul(hash, 16777619) >>> 0;
+      rgbHash ^= g;
+      rgbHash = Math.imul(rgbHash, 16777619) >>> 0;
       hash ^= b;
       hash = Math.imul(hash, 16777619) >>> 0;
+      rgbHash ^= b;
+      rgbHash = Math.imul(rgbHash, 16777619) >>> 0;
       hash ^= a;
       hash = Math.imul(hash, 16777619) >>> 0;
+      alphaHash ^= a;
+      alphaHash = Math.imul(alphaHash, 16777619) >>> 0;
     }
   }
   return {
+    nonzeroDefinition: 'rgb-any-channel-greater-than-zero-alpha-excluded',
     nonzeroPixelCount,
     nonzeroPixelRatio: nonzeroPixelCount / pixelCount,
+    rgbNonzeroPixelCount: nonzeroPixelCount,
+    rgbNonblackRatio: nonzeroPixelCount / pixelCount,
+    rgbMax,
+    alphaNonzeroPixelCount,
+    alphaZeroPixelCount,
+    alphaOpaquePixelCount,
+    rgbHash: rgbHash.toString(16).padStart(8, '0'),
+    alphaHash: alphaHash.toString(16).padStart(8, '0'),
     frameHash: hash.toString(16).padStart(8, '0')
   };
 }
@@ -196,7 +247,7 @@ function createCanvasFromRgbaReadback(
   bytesPerRow,
   width,
   height,
-  { flipY = false } = {}
+  { flipY = false, forceOpaqueAlpha = false } = {}
 ) {
   const snapshotCanvas = document.createElement('canvas');
   snapshotCanvas.width = width;
@@ -212,6 +263,11 @@ function createCanvasFromRgbaReadback(
       readback.subarray(srcOffset, srcOffset + rowStride),
       dstOffset
     );
+    if (forceOpaqueAlpha) {
+      for (let x = 0; x < width; x += 1) {
+        imageData.data[dstOffset + x * 4 + 3] = 255;
+      }
+    }
   }
   ctx.putImageData(imageData, 0, 0);
   return snapshotCanvas;
@@ -264,14 +320,39 @@ export async function captureCachedWebGpuTileCompositorOutputPng({
   }
   const outputStats = summarizeTextureReadback(readback, bytesPerRow, width, height);
   const orientationContract = getWebGpuPresentationCaptureOrientationContract();
-  const snapshotCanvas = createCanvasFromRgbaReadback(
+  const preNormalizationPixelEvidence = summarizeTextureReadback(
     readback,
     bytesPerRow,
     width,
     height,
     { flipY: orientationContract.captureVerticalFlipApplied === true }
   );
+  const snapshotCanvas = createCanvasFromRgbaReadback(
+    readback,
+    bytesPerRow,
+    width,
+    height,
+    {
+      flipY: orientationContract.captureVerticalFlipApplied === true,
+      forceOpaqueAlpha: true
+    }
+  );
   const result = await downloadCanvasPng(snapshotCanvas, name, { download });
+  const postNormalizationPixelEvidence = result.encodedPngPixelEvidence ?? null;
+  const alphaNormalizationEvidence =
+    buildOpaqueWebGpuPngAlphaNormalizationEvidence({
+      preNormalizationPixelEvidence,
+      postNormalizationPixelEvidence,
+      preNormalizationSourceIdentity: {
+        outputTextureIdentity: cached.outputTextureIdentity ?? null,
+        generation: cached.generation ?? null,
+        rgbHash: preNormalizationPixelEvidence.rgbHash,
+        alphaHash: preNormalizationPixelEvidence.alphaHash
+      },
+      postNormalizationBlobIdentity: result.captureBlobIdentity ?? null,
+      width,
+      height
+    });
   const capturedFrameIdentity = summarizeWebGpuPresentationFrameIdentity({
     ...(cached.frameIdentity ?? {}),
     generation: cached.generation ?? null,
@@ -333,9 +414,11 @@ export async function captureCachedWebGpuTileCompositorOutputPng({
     outputWidth: width,
     outputHeight: height,
     outputStats,
+    captureAlphaPolicy: 'force-opaque-to-match-webgpu-canvas-presentation',
+    captureAlphaForcedOpaque: true,
+    alphaNormalizationEvidence,
     cacheGeneration: cached.generation ?? null,
-    cachedAtMs: cached.cachedAtMs ?? null
-    ,
+    cachedAtMs: cached.cachedAtMs ?? null,
     productionOutputGeneration: cached.generation ?? null,
     presentedOutputGeneration: presentedFrameIdentity?.generation ?? null,
     capturedOutputGeneration: capturedFrameIdentity.generation ?? null,
@@ -421,9 +504,21 @@ async function presentTileCompositorTextureToCurrentTexture({
   presentationSource = 'webgpu-tile-compositor-output-texture',
   forceContextRefresh = false,
   outputGeneration = null,
+  outputTextureIdentity = null,
+  sourceRequestIdentity = null,
   frameIdentity = null,
   onPresentedFrame = null
 }) {
+  registerFinalCanvasPresentationPath(viewerCanvasState, {
+    pathIdentity: FINAL_CANVAS_PRESENTATION_PATHS.TILE_COMPOSITOR,
+    source: 'webgpu_tile_list_compositor.presentTileCompositorTextureToCurrentTexture',
+    supportedEventKinds: [
+      'production-presentation',
+      'cached-production-presentation',
+      'black-fallback',
+      'presentation-failure'
+    ]
+  });
   const orientationContract = getWebGpuPresentationCaptureOrientationContract();
   const viewerCanvas = viewerCanvasState?.canvas ?? null;
   const summary = {
@@ -478,6 +573,7 @@ async function presentTileCompositorTextureToCurrentTexture({
   }
 
   let validationScopePushed = false;
+  let activeWriteToken = null;
   try {
     const validationScopeSupported =
       typeof device.pushErrorScope === 'function' &&
@@ -580,6 +676,11 @@ fn fsMain(in: VertexOut) -> @location(0) vec4f {
     let previousCurrentTexture = null;
     let previousCurrentTextureView = null;
     for (let frame = 0; frame < frameCount; frame += 1) {
+      activeWriteToken = beginFinalCanvasPresentationWrite(viewerCanvasState, {
+        pathIdentity: FINAL_CANVAS_PRESENTATION_PATHS.TILE_COMPOSITOR,
+        sourceRequestIdentity,
+        productionGeneration: outputGeneration
+      });
       const currentTexture = context.getCurrentTexture();
       const currentTextureView = currentTexture.createView();
       if (previousCurrentTexture === currentTexture ||
@@ -655,8 +756,45 @@ fn fsMain(in: VertexOut) -> @location(0) vec4f {
           outputHeight: currentTextureHeight
         })
       });
+      const latestSample = summary.presentationFrameSamples.at(-1);
+      recordFinalCanvasPresentationEvent(viewerCanvasState, {
+        writeToken: activeWriteToken,
+        presentationPathIdentity: FINAL_CANVAS_PRESENTATION_PATHS.TILE_COMPOSITOR,
+        eventKind:
+          readbackSummary.nonzeroPixelCount > 0
+            ? presentationSource.startsWith('cached-')
+              ? 'cached-production-presentation'
+              : 'production-presentation'
+            : 'black-fallback',
+        presentationSource,
+        sourceRequestIdentity,
+        presentingRequestIdentity:
+          viewerCanvasState?.schedulerFrameState?.requestIdentity ?? null,
+        scheduleSource:
+          viewerCanvasState?.schedulerFrameState?.requestSource ?? null,
+        productionGeneration: outputGeneration,
+        compositorGeneration: outputGeneration,
+        presentedGeneration: outputGeneration,
+        frameIdentity: latestSample?.frameIdentity ?? frameIdentity,
+        sourcePixelEvidenceIdentity: {
+          outputTextureIdentity,
+          generation: outputGeneration,
+          frameHash: readbackSummary.frameHash,
+          width: currentTextureWidth,
+          height: currentTextureHeight
+        },
+        sourcePixelResult:
+          readbackSummary.nonzeroPixelCount > 0 ? 'nonblank' : 'black',
+        sourcePixelStats: readbackSummary,
+        canvasWriteAttempted: true,
+        canvasWriteSubmitted: true,
+        canvasWriteCompleted: true,
+        staleSource: false,
+        presentationFailed: false
+      });
+      activeWriteToken = null;
       if (typeof onPresentedFrame === 'function') {
-        onPresentedFrame(summary.presentationFrameSamples.at(-1));
+        onPresentedFrame(latestSample);
       }
     }
     summary.currentTextureViewFreshPerPresentation =
@@ -705,6 +843,37 @@ fn fsMain(in: VertexOut) -> @location(0) vec4f {
     summary.staleTextureViewReuseDetected =
       summary.crossDeviceTextureViewUseDetected === true ||
       /stale.*TextureView/i.test(errorText);
+    recordFinalCanvasPresentationEvent(viewerCanvasState, {
+      writeToken: activeWriteToken,
+      presentationPathIdentity: FINAL_CANVAS_PRESENTATION_PATHS.TILE_COMPOSITOR,
+      eventKind: 'presentation-failure',
+      presentationSource,
+      sourceRequestIdentity,
+      presentingRequestIdentity:
+        viewerCanvasState?.schedulerFrameState?.requestIdentity ?? null,
+      scheduleSource:
+        viewerCanvasState?.schedulerFrameState?.requestSource ?? null,
+      productionGeneration: outputGeneration,
+      compositorGeneration: outputGeneration,
+      presentedGeneration: null,
+      frameIdentity,
+      sourcePixelEvidenceIdentity: {
+        outputTextureIdentity,
+        generation: outputGeneration
+      },
+      sourcePixelResult: 'unknown',
+      canvasWriteAttempted: true,
+      canvasWriteSubmitted:
+        summary.compositorCurrentTextureRenderPassSubmitted === true,
+      canvasWriteCompleted: false,
+      staleSource: null,
+      presentationFailed: true,
+      error: {
+        name: summary.presentationErrorName,
+        message: summary.presentationErrorMessage
+      },
+      blockedReason: summary.presentationErrorMessage
+    });
     return summary;
   }
 
@@ -767,6 +936,8 @@ function cacheTileCompositorOutputTexture({
   outputHeight,
   frameIdentity = null,
   requestedStateIdentity = null
+  ,
+  sourceRequestIdentity = null
 }) {
   if (!canvas || !device || !outputTexture) {
     return { cached: false, invalidatedOnDeviceChange: false };
@@ -803,13 +974,20 @@ function cacheTileCompositorOutputTexture({
           outputHeight
         })
       : null,
+    sourceRequestIdentity,
     presentedFrameIdentity: null,
     cachedAtMs:
       typeof performance !== 'undefined' && typeof performance.now === 'function'
         ? performance.now()
         : Date.now()
   });
-  return { cached: true, invalidatedOnDeviceChange, generation };
+  return {
+    cached: true,
+    invalidatedOnDeviceChange,
+    generation,
+    outputTextureIdentity:
+      `webgpu-tile-compositor-output:${generation}:${outputWidth}x${outputHeight}`
+  };
 }
 
 export async function presentCachedWebGpuTileCompositorOutputHeartbeat({
@@ -847,6 +1025,8 @@ export async function presentCachedWebGpuTileCompositorOutputHeartbeat({
     presentationSource: 'cached-webgpu-tile-compositor-output-texture',
     forceContextRefresh: false,
     outputGeneration: cached.generation ?? null,
+    outputTextureIdentity: cached.outputTextureIdentity ?? null,
+    sourceRequestIdentity: cached.sourceRequestIdentity ?? null,
     frameIdentity: cached.frameIdentity ?? null,
     onPresentedFrame: (sample) => {
       cached.presentedFrameIdentity = sample.frameIdentity ?? null;
@@ -1727,7 +1907,9 @@ fn finalizeSummary() {
       outputWidth,
       outputHeight,
       frameIdentity: compositorFrameIdentity,
-      requestedStateIdentity: compositorFrameIdentity
+      requestedStateIdentity: compositorFrameIdentity,
+      sourceRequestIdentity:
+        viewerCanvasState?.schedulerFrameState?.requestIdentity ?? null
     });
     outputTextureCachedForHeartbeat = cacheResult.cached === true;
     compositorOutputCacheInvalidatedOnDeviceChange =
@@ -1744,6 +1926,9 @@ fn finalizeSummary() {
       presentationSource: 'webgpu-tile-compositor-output-texture',
       forceContextRefresh: true,
       outputGeneration: cacheResult.generation ?? null,
+      outputTextureIdentity: cacheResult.outputTextureIdentity ?? null,
+      sourceRequestIdentity:
+        viewerCanvasState?.schedulerFrameState?.requestIdentity ?? null,
       frameIdentity: compositorFrameIdentity,
       onPresentedFrame: (sample) => {
         const cached = viewerCanvasTileCompositorOutputState.get(viewerCanvas);
@@ -3758,6 +3943,11 @@ fn finalizeSummary() {
           savedPngMatchesPresentedOutput: true
         }),
       captureFreshnessEvidence: {
+        productionSourceRequestIdentity:
+          outputTextureCachedForHeartbeat && viewerCanvas
+            ? viewerCanvasTileCompositorOutputState.get(viewerCanvas)
+                ?.sourceRequestIdentity ?? null
+            : null,
         productionOutputGeneration:
           outputTextureCachedForHeartbeat && viewerCanvas
             ? viewerCanvasTileCompositorOutputState.get(viewerCanvas)?.generation ?? null
@@ -3775,6 +3965,14 @@ fn finalizeSummary() {
           outputTextureCachedForHeartbeat && viewerCanvas
             ? viewerCanvasTileCompositorOutputState.get(viewerCanvas)
                 ?.presentedFrameIdentity ?? null
+            : null,
+        productionOutputCreatedAtMs:
+          outputTextureCachedForHeartbeat && viewerCanvas
+            ? viewerCanvasTileCompositorOutputState.get(viewerCanvas)?.cachedAtMs ?? null
+            : null,
+        presentationTimestampMs:
+          outputTextureCachedForHeartbeat && viewerCanvas
+            ? viewerCanvasTileCompositorOutputState.get(viewerCanvas)?.lastPresentedAtMs ?? null
             : null,
         captureFreshnessKnown: null,
         captureFreshnessClassification:

@@ -3,6 +3,12 @@ import {
   buildPresentationBridgeContract,
   buildUnavailableGuardedPresentationAdapterContract
 } from './common_4dgs_backend_output_contracts.js';
+import {
+  beginFinalCanvasPresentationWrite,
+  FINAL_CANVAS_PRESENTATION_PATHS,
+  registerFinalCanvasPresentationPath,
+  recordFinalCanvasPresentationEvent
+} from './common_4dgs_final_canvas_presentation.js';
 
 function clamp01(value) {
   const n = Number(value);
@@ -33,6 +39,19 @@ function buildExpectedTextureReadbackBytes(rgbaBytes, textureFormat) {
     bgraBytes[i + 3] = rgbaBytes[i + 3];
   }
   return bgraBytes;
+}
+
+function hasNonzeroRgb(rgbaBytes) {
+  for (let offset = 0; offset + 2 < rgbaBytes.length; offset += 4) {
+    if (
+      rgbaBytes[offset] !== 0 ||
+      rgbaBytes[offset + 1] !== 0 ||
+      rgbaBytes[offset + 2] !== 0
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function bytesMatch(actual, expected) {
@@ -66,6 +85,18 @@ export async function runWebGpuOnlyGuardedPresentationAdapter({
   viewerCanvasState = null,
   targetFormat = 'rgba8unorm'
 } = {}) {
+  registerFinalCanvasPresentationPath(viewerCanvasState, {
+    pathIdentity: FINAL_CANVAS_PRESENTATION_PATHS.GUARDED_PRESENTATION,
+    source: 'webgpu_guarded_presentation_adapter',
+    supportedEventKinds: [
+      'production-presentation',
+      'cached-production-presentation',
+      'clear',
+      'black-fallback',
+      'diagnostic-presentation',
+      'presentation-failure'
+    ]
+  });
   if (!device || !handoffBuffer) {
     return buildUnavailableGuardedPresentationAdapterContract(
       'presentation-adapter-input-resource-unavailable'
@@ -136,6 +167,7 @@ export async function runWebGpuOnlyGuardedPresentationAdapter({
   let currentTextureRenderPassSubmitted = false;
   let currentTextureReadbackCompleted = false;
   let currentTextureReadbackMatchesAdapterOutput = false;
+  let currentTextureWriteToken = null;
   let currentTextureReadback = new Uint8Array(0);
   let currentTextureBlockedReason = currentTextureGuardAllowed
     ? 'viewer-canvas-currentTexture-render-pass-not-submitted'
@@ -236,6 +268,12 @@ fn main(@builtin(global_invocation_id) globalId: vec3<u32>) {
     try {
       currentTextureContext = viewerCanvas.getContext?.('webgpu') ?? null;
       if (currentTextureContext) {
+        currentTextureWriteToken = beginFinalCanvasPresentationWrite(
+          viewerCanvasState,
+          {
+            pathIdentity: FINAL_CANVAS_PRESENTATION_PATHS.GUARDED_PRESENTATION
+          }
+        );
         currentTextureContext.configure({
           device,
           format: currentTextureFormat,
@@ -459,6 +497,44 @@ fn fsMain(in: VertexOut) -> @location(0) vec4f {
     submittedWorkDone,
     epsilon: 0
   });
+  if (currentTextureRenderPassSubmitted || currentTextureBlockedReason) {
+    const sourcePixelResult = currentTextureReadbackCompleted
+      ? hasNonzeroRgb(currentTextureReadback)
+        ? 'nonblank'
+        : 'black'
+      : 'unknown';
+    recordFinalCanvasPresentationEvent(viewerCanvasState, {
+      writeToken: currentTextureWriteToken,
+      presentationPathIdentity:
+        FINAL_CANVAS_PRESENTATION_PATHS.GUARDED_PRESENTATION,
+      eventKind:
+        sourcePixelResult === 'black'
+          ? 'black-fallback'
+          : currentTextureBlockedReason
+            ? 'presentation-failure'
+            : 'production-presentation',
+      presentationSource: 'webgpu-guarded-presentation-adapter-current-texture',
+      sourceRequestIdentity: null,
+      presentingRequestIdentity:
+        viewerCanvasState?.schedulerFrameState?.requestIdentity ?? null,
+      scheduleSource:
+        viewerCanvasState?.schedulerFrameState?.requestSource ?? null,
+      sourcePixelEvidenceIdentity: {
+        source: 'guarded-presentation-current-texture-readback',
+        width,
+        height,
+        byteLength: currentTextureReadback.length
+      },
+      sourcePixelResult,
+      canvasWriteAttempted: true,
+      canvasWriteSubmitted: currentTextureRenderPassSubmitted,
+      canvasWriteCompleted:
+        currentTextureRenderPassSubmitted && submittedWorkDone,
+      staleSource: false,
+      presentationFailed: !!currentTextureBlockedReason,
+      blockedReason: currentTextureBlockedReason
+    });
+  }
   if (typeof readbackBuffer.destroy === 'function') {
     readbackBuffer.destroy();
   }

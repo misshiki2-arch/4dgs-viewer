@@ -13,6 +13,7 @@ const QUERY_FRAME_POLICY_VALUES = new Set([
   'force-draw-throughput'
 ]);
 const QUERY_GPU_CANDIDATE_RUNTIME_VALUES = new Set(['off', 'cpu-reference', 'shadow-compare', 'limited-draw']);
+const QUERY_VIEWER_RUNTIME_VALUES = new Set(['webgl2', 'webgpu']);
 const QUERY_GPU_CANDIDATE_FALLBACK_VALUES = new Set(['cpu-on-error', 'cpu-always', 'none']);
 const QUERY_GPU_CANDIDATE_SUBSET_MODE_VALUES = new Set([
   'firstN',
@@ -183,6 +184,7 @@ function buildDeterministicQueryString(state) {
   appendDeterministicQueryParam(params, 'useNativeMarginal', state?.useNativeMarginal, formatDeterministicBoolean);
   appendDeterministicQueryParam(params, 'usePackedVisiblePath', state?.usePackedVisiblePath, formatDeterministicBoolean);
   appendDeterministicQueryParam(params, 'gpuCandidateRuntime', state?.gpuCandidateRuntime);
+  appendDeterministicQueryParam(params, 'viewerRuntime', state?.viewerRuntime);
   appendDeterministicQueryParam(params, 'gpuCandidateFallback', state?.gpuCandidateFallback);
   appendDeterministicQueryParam(params, 'gpuCandidateRequireCompare', state?.gpuCandidateRequireCompare, formatDeterministicBoolean);
   appendDeterministicQueryParam(params, 'gpuCandidateRequireShadowOk', state?.gpuCandidateRequireShadowOk, formatDeterministicBoolean);
@@ -244,6 +246,7 @@ export function parseViewerQueryState(search = window.location.search) {
   const cameraOrientationPolicy = params.get('cameraOrientationPolicy');
   const datasetPixelXSign = parseInteger(params.get('datasetPixelXSign'), null);
   const gpuCandidateRuntime = params.get('gpuCandidateRuntime');
+  const viewerRuntime = params.get('viewerRuntime');
   const gpuCandidateFallback = params.get('gpuCandidateFallback');
   const gpuCandidateSubsetMode = params.get('gpuCandidateSubsetMode');
   const gpuCandidateFilterMode = params.get('gpuCandidateFilterMode');
@@ -329,6 +332,9 @@ export function parseViewerQueryState(search = window.location.search) {
     usePackedVisiblePath: parseBoolean(params.get('usePackedVisiblePath'), null),
     gpuCandidateRuntime: QUERY_GPU_CANDIDATE_RUNTIME_VALUES.has(gpuCandidateRuntime)
       ? (gpuCandidateRuntime === 'off' ? 'cpu-reference' : gpuCandidateRuntime)
+      : null,
+    viewerRuntime: QUERY_VIEWER_RUNTIME_VALUES.has(viewerRuntime)
+      ? viewerRuntime
       : null,
     gpuCandidateFallback: QUERY_GPU_CANDIDATE_FALLBACK_VALUES.has(gpuCandidateFallback)
       ? gpuCandidateFallback
@@ -457,6 +463,7 @@ export function parseViewerQueryState(search = window.location.search) {
     'useNativeMarginal',
     'usePackedVisiblePath',
     'gpuCandidateRuntime',
+    'viewerRuntime',
     'gpuCandidateFallback',
     'gpuCandidateRequireCompare',
     'gpuCandidateRequireShadowOk',
@@ -560,6 +567,7 @@ export function buildViewerDeterministicSummary(queryState) {
     bgGray: Number.isFinite(state.bgGray) ? Number(state.bgGray) : null,
     time: Number.isFinite(state.time) ? Number(state.time) : null,
     gpuCandidateRuntime: state.gpuCandidateRuntime ?? 'cpu-reference',
+    viewerRuntime: state.viewerRuntime ?? null,
     gpuCandidateFallback: state.gpuCandidateFallback ?? null,
     gpuCandidateRequireCompare: typeof state.gpuCandidateRequireCompare === 'boolean'
       ? state.gpuCandidateRequireCompare

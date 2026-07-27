@@ -105,12 +105,28 @@ def build_base_params(args: argparse.Namespace) -> dict[str, str]:
 
 def build_gpu_candidate_params(args: argparse.Namespace) -> dict[str, str]:
     params = {
-        "gpuCandidateRuntime": args.runtime,
+        "gpuCandidateRuntime": (
+            "cpu-reference" if args.runtime == "webgpu" else args.runtime
+        ),
         "gpuCandidateAllowReadbackInDraw": parse_bool(args.allow_readback_in_draw),
         "gpuCandidatePromotePolicy": args.promote_policy,
         "gpuCandidateCoverageCompare": parse_bool(args.coverage_compare),
         "gpuCandidateCompare": parse_bool(args.candidate_compare),
     }
+    if args.runtime == "webgpu":
+        params.update(
+            {
+                "viewerRuntime": "webgpu",
+                "webgpuBackendMode": args.webgpu_backend_mode,
+                "webgpuBackendImplementation": args.webgpu_backend_implementation,
+                "webgpuAllowViewerCanvasPresentation": parse_bool(
+                    args.webgpu_allow_viewer_canvas_presentation
+                ),
+                "webgpuBackendViewerLoopHook": parse_bool(
+                    args.webgpu_backend_viewer_loop_hook
+                ),
+            }
+        )
     if parse_bool(args.visible_record_dry_run) == "true":
         params.update(
             {
@@ -485,6 +501,20 @@ def parse_args() -> argparse.Namespace:
 
     # GPU candidate options.
     parser.add_argument("--runtime", default="limited-draw")
+    parser.add_argument(
+        "--webgpu-backend-mode",
+        default="webgpu-exclusive",
+        choices=["webgl2-fallback", "webgpu-dry-run", "webgpu-exclusive"],
+    )
+    parser.add_argument(
+        "--webgpu-backend-implementation",
+        default="webgpu-tile-compositor-frame-implementation",
+    )
+    parser.add_argument(
+        "--webgpu-allow-viewer-canvas-presentation",
+        default="true",
+    )
+    parser.add_argument("--webgpu-backend-viewer-loop-hook", default="true")
     parser.add_argument(
         "--source-mode",
         default="screenCoarse",
