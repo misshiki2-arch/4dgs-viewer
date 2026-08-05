@@ -27,6 +27,12 @@ from pathlib import Path
 from typing import List
 
 
+CAPTURE_LIFECYCLE_LEGACY = "legacy"
+CAPTURE_LIFECYCLE_FRESH_PRODUCTION_DIAGNOSTIC_JSON_PNG = (
+    "fresh-production-diagnostic-json-png"
+)
+
+
 STEP114_CAPTURE_CONTRACTS = (
     (
         "step114_fix10_fix6_fix1",
@@ -498,6 +504,10 @@ def build_webgpu_visible_record_dryrun_command(args: argparse.Namespace) -> str:
     elif "step99" in args.step:
         phase_step = "phase3-step99"
         comparison_mode = "phase3-step99-interactive-camera-viewport-dirty-runtime"
+    if args.phase_step is not None:
+        phase_step = args.phase_step
+    if args.comparison_mode is not None:
+        comparison_mode = args.comparison_mode
     phase_step_line = (
         f"\n    phaseStep: {quote(phase_step)},"
         if phase_step
@@ -1179,6 +1189,171 @@ step114FixedTimeCaptureIsolation.initialAndCaptureGenerationSeparated =
 """
 
 
+def build_generic_fresh_production_capture_preamble(
+    args: argparse.Namespace,
+) -> str:
+    expected_runtime_contract = {
+        "requestedRuntime": args.expected_runtime,
+        "effectiveDisplayRuntime": args.expected_effective_display_runtime,
+        "backendMode": args.expected_webgpu_backend_mode,
+        "backendImplementation": args.expected_webgpu_backend_implementation,
+        "canvasPresentationEnabled": (
+            js_bool(args.expected_webgpu_canvas_presentation) == "true"
+        ),
+        "viewerLoopHookEnabled": (
+            js_bool(args.expected_webgpu_viewer_loop_hook) == "true"
+        ),
+    }
+    expected_json = json.dumps(expected_runtime_contract, separators=(",", ":"))
+    return f"""var genericCaptureCommandStartFence =
+  typeof window.gpuViewerDebug.getSynchronousCommandStartFence === 'function'
+    ? window.gpuViewerDebug.getSynchronousCommandStartFence()
+    : null;
+if (genericCaptureCommandStartFence?.synchronousReadOnlyFence !== true) {{
+  throw new Error('capture-blocked-synchronous-command-start-fence-unavailable');
+}}
+var genericExpectedProductionRuntimeContract = {expected_json};
+var genericProductionRuntimeValidation =
+  typeof window.gpuViewerDebug.validateExpectedProductionRuntimeContract === 'function'
+    ? window.gpuViewerDebug.validateExpectedProductionRuntimeContract(
+        genericCaptureCommandStartFence.productionRuntimeContract ?? null,
+        genericExpectedProductionRuntimeContract
+      )
+    : null;
+if (genericProductionRuntimeValidation?.ready !== true) {{
+  throw new Error('capture-blocked-production-runtime-mismatch');
+}}
+var genericViewerDebugDataReadiness =
+  typeof window.gpuViewerDebug.waitForViewerDebugDataReady === 'function'
+    ? await window.gpuViewerDebug.waitForViewerDebugDataReady({{
+        timeoutMs: {args.viewer_data_ready_timeout_ms},
+        retryDefaultScene: false,
+        requireRaw: true
+      }})
+    : null;
+if (genericViewerDebugDataReadiness?.ready !== true) {{
+  throw new Error('capture-blocked-viewer-data-not-ready-without-retry');
+}}
+var genericFreshProductionCaptureLifecycle = {{
+  policy: {quote(CAPTURE_LIFECYCLE_FRESH_PRODUCTION_DIAGNOSTIC_JSON_PNG)},
+  phaseStep: {quote(args.phase_step)},
+  comparisonMode: {quote(args.comparison_mode)},
+  requestedTimeFromUrl:
+    Number(new URLSearchParams(window.location.search).get('time')),
+  requestedDatasetTimeFromUrl:
+    Number(new URLSearchParams(window.location.search).get('datasetTime')),
+  commandStartFence: genericCaptureCommandStartFence,
+  runtimePreflight: genericProductionRuntimeValidation,
+  viewerDataReadiness: genericViewerDebugDataReadiness,
+  baselineProductionGeneration:
+    genericCaptureCommandStartFence.initialPresentationSnapshot
+      ?.latestProductionGeneration ?? null,
+  freshProductionRequestCount: 0,
+  productionCompletionFence: null
+}};
+var genericFreshProductionRequest = null;
+if (typeof window.gpuViewerDebug.scheduleRender !== 'function') {{
+  throw new Error('capture-blocked-production-scheduler-api-unavailable');
+}}
+genericFreshProductionCaptureLifecycle.freshProductionRequestCount += 1;
+genericFreshProductionRequest = await window.gpuViewerDebug.scheduleRender({{
+  source: 'generic-fresh-production-artifact-capture',
+  forceProductionUpdate: true,
+  metadata: {{
+    policy: {quote(CAPTURE_LIFECYCLE_FRESH_PRODUCTION_DIAGNOSTIC_JSON_PNG)},
+    phaseStep: {quote(args.phase_step)},
+    comparisonMode: {quote(args.comparison_mode)}
+  }}
+}});
+if (genericFreshProductionRequest?.requestIdentity == null ||
+    genericFreshProductionCaptureLifecycle.freshProductionRequestCount !== 1) {{
+  throw new Error('capture-blocked-fresh-production-request-not-exactly-once');
+}}
+genericFreshProductionCaptureLifecycle.freshProductionRequest = {{
+  requestIdentity: genericFreshProductionRequest.requestIdentity,
+  source: genericFreshProductionRequest.source ?? null,
+  disposition: genericFreshProductionRequest.disposition ?? null,
+  forceProductionUpdate: genericFreshProductionRequest.forceProductionUpdate ?? null
+}};
+var genericProductionCompletionWaitStartedAtMs = performance.now();
+var genericProductionPresentationTrace = null;
+var genericProductionFrameEvidence = null;
+var genericProductionGenerationIsFresh = false;
+while (performance.now() - genericProductionCompletionWaitStartedAtMs <
+  {args.viewer_data_ready_timeout_ms}) {{
+  genericProductionPresentationTrace =
+    window.gpuViewerDebug.getInitialProductionPresentationSnapshot?.() ?? null;
+  genericProductionFrameEvidence =
+    genericProductionPresentationTrace?.frameHistory?.find(
+      frame => frame.requestIdentity === genericFreshProductionRequest.requestIdentity
+    ) ?? null;
+  var genericProductionGeneration =
+    genericProductionFrameEvidence?.productionGeneration ?? null;
+  var genericBaselineProductionGeneration =
+    genericFreshProductionCaptureLifecycle.baselineProductionGeneration;
+  genericProductionGenerationIsFresh =
+    Number.isFinite(Number(genericProductionGeneration)) &&
+    (genericBaselineProductionGeneration == null ||
+      !Number.isFinite(Number(genericBaselineProductionGeneration)) ||
+      Number(genericProductionGeneration) >
+        Number(genericBaselineProductionGeneration));
+  if (genericProductionFrameEvidence?.productionFrameCompleted === true &&
+      genericProductionGenerationIsFresh) {{
+    break;
+  }}
+  await new Promise(resolve => setTimeout(resolve, 16));
+}}
+var genericProductionFrameReady =
+  genericProductionFrameEvidence?.productionFrameCompleted === true &&
+  genericProductionGenerationIsFresh === true &&
+  genericProductionFrameEvidence?.productionSourceRequestIdentity ===
+    genericFreshProductionRequest.requestIdentity &&
+  genericProductionFrameEvidence?.compositorOutputGenerated === true &&
+  genericProductionFrameEvidence?.viewerCanvasPresented === true &&
+  genericProductionFrameEvidence?.logicalPresentationSucceeded === true;
+if (!genericProductionFrameReady) {{
+  throw new Error('capture-blocked-fresh-production-frame-incomplete');
+}}
+var genericFinalPresentationBoundary =
+  typeof window.gpuViewerDebug.waitForFinalCanvasPresentationQuiescence === 'function'
+    ? await window.gpuViewerDebug.waitForFinalCanvasPresentationQuiescence({{
+        boundaryKind: 'generic-fresh-production-capture',
+        expectedRequestIdentity: genericFreshProductionRequest.requestIdentity,
+        expectedGeneration: genericProductionFrameEvidence.productionGeneration,
+        expectedFrameIdentity:
+          genericProductionFrameEvidence.productionFrameIdentity,
+        requiredConsecutive: 3,
+        pollIntervalMs: 25,
+        timeoutMs: 2000
+      }})
+    : null;
+var genericProductionPresentationReady =
+  genericFinalPresentationBoundary?.browserVisibleResult === true &&
+  genericFinalPresentationBoundary?.quiescenceObservation?.quiescent === true &&
+  genericFinalPresentationBoundary?.finalSourceRequestIdentity ===
+    genericFreshProductionRequest.requestIdentity;
+genericFreshProductionCaptureLifecycle.productionCompletionFence = {{
+  requestIdentity: genericFreshProductionRequest.requestIdentity,
+  productionGeneration:
+    genericProductionFrameEvidence.productionGeneration ?? null,
+  compositorGeneration:
+    genericProductionFrameEvidence.compositorGeneration ?? null,
+  presentedGeneration:
+    genericProductionFrameEvidence.presentedGeneration ?? null,
+  productionFrameIdentity:
+    genericProductionFrameEvidence.productionFrameIdentity ?? null,
+  productionFrameCompleted: genericProductionFrameReady,
+  finalPresentationCompleted: genericProductionPresentationReady,
+  finalPresentationBoundary: genericFinalPresentationBoundary
+}};
+if (!genericProductionPresentationReady) {{
+  throw new Error('capture-blocked-fresh-production-presentation-incomplete');
+}}
+window.__phase3GenericFreshProductionCaptureLifecycle =
+  genericFreshProductionCaptureLifecycle;
+"""
+
+
 def build_fixed_time_capture_preamble(
     args: argparse.Namespace,
     phase_step: str,
@@ -1511,6 +1686,12 @@ def build_preamble(args: argparse.Namespace) -> str:
     if not args.include_preamble:
         return ""
 
+    if (
+        args.capture_lifecycle ==
+        CAPTURE_LIFECYCLE_FRESH_PRODUCTION_DIAGNOSTIC_JSON_PNG
+    ):
+        return build_generic_fresh_production_capture_preamble(args)
+
     fixed_time_contract = resolve_step114_capture_contract(args.step)
     if (
         fixed_time_contract
@@ -1623,6 +1804,15 @@ def build_commands(args: argparse.Namespace) -> str:
     preamble = build_preamble(args)
     if preamble:
         parts.append(preamble)
+
+    if (
+        args.capture_lifecycle ==
+        CAPTURE_LIFECYCLE_FRESH_PRODUCTION_DIAGNOSTIC_JSON_PNG
+    ):
+        parts.append(build_webgpu_visible_record_dryrun_command(args))
+        parts.append(build_runtime_summary_command(args))
+        parts.append(build_png_command(args))
+        return "\n\n".join(parts)
 
     fixed_time_capture_selected = (
         resolve_step114_capture_contract(args.step) is not None
@@ -1826,6 +2016,29 @@ def parse_args() -> argparse.Namespace:
         help="Optional capture preset. Individual CLI arguments override preset values.",
     )
     parser.add_argument(
+        "--capture-lifecycle",
+        choices=[
+            CAPTURE_LIFECYCLE_LEGACY,
+            CAPTURE_LIFECYCLE_FRESH_PRODUCTION_DIAGNOSTIC_JSON_PNG,
+        ],
+        default=CAPTURE_LIFECYCLE_LEGACY,
+        help=(
+            "Capture command lifecycle policy. The fresh-production policy "
+            "runs one forced production request, waits for presentation, then "
+            "saves diagnostic JSON, runtime JSON, and PNG in that order."
+        ),
+    )
+    parser.add_argument(
+        "--phase-step",
+        default=None,
+        help="Explicit phase-step vocabulary, independent of the artifact prefix.",
+    )
+    parser.add_argument(
+        "--comparison-mode",
+        default=None,
+        help="Explicit comparison-mode vocabulary, independent of the artifact prefix.",
+    )
+    parser.add_argument(
         "--source-mode",
         default="screenCoarse",
         choices=["screenCoarse", "range", "visibleSrcIndices"],
@@ -2016,6 +2229,81 @@ def parse_args() -> argparse.Namespace:
         js_bool(args.include_webgpu_render_state_manifest) == "true"
     )
     args.include_camera_control_debug = js_bool(args.include_camera_control_debug) == "true"
+
+    if (
+        args.capture_lifecycle ==
+        CAPTURE_LIFECYCLE_FRESH_PRODUCTION_DIAGNOSTIC_JSON_PNG
+    ):
+        required_true = {
+            "--include-preamble": args.include_preamble,
+            "--include-webgpu-visible-record-dryrun": (
+                args.include_webgpu_visible_record_dryrun
+            ),
+            "--include-runtime": args.include_runtime,
+            "--include-png": args.include_png,
+        }
+        missing = [name for name, enabled in required_true.items() if not enabled]
+        forbidden_true = {
+            "--include-source-compare": args.include_source_compare,
+            "--include-coverage": args.include_coverage,
+            "--include-dryrun-visible": args.include_dryrun_visible,
+            "--include-sweep": args.include_sweep,
+            "--include-visible-record-dryrun": args.include_visible_record_dryrun,
+            "--include-raw-visible-record-dryrun": (
+                args.include_raw_visible_record_dryrun
+            ),
+            "--include-visible-compare": args.include_visible_compare,
+            "--include-live-same-state": args.include_live_same_state,
+            "--include-webgpu-render-state-manifest": (
+                args.include_webgpu_render_state_manifest
+            ),
+            "--include-camera-control-debug": args.include_camera_control_debug,
+        }
+        enabled_forbidden = [
+            name for name, enabled in forbidden_true.items() if enabled
+        ]
+        if missing:
+            parser.error(
+                "fresh-production capture lifecycle requires: " + ", ".join(missing)
+            )
+        if enabled_forbidden:
+            parser.error(
+                "fresh-production capture lifecycle does not allow extra capture "
+                "stages: " + ", ".join(enabled_forbidden)
+            )
+        if args.source_mode != "screenCoarse":
+            parser.error(
+                "fresh-production capture lifecycle requires --source-mode screenCoarse"
+            )
+        if args.phase_step is None or args.comparison_mode is None:
+            parser.error(
+                "fresh-production capture lifecycle requires --phase-step and "
+                "--comparison-mode"
+            )
+        expected_runtime_fields = {
+            "--expected-runtime": args.expected_runtime,
+            "--expected-effective-display-runtime": (
+                args.expected_effective_display_runtime
+            ),
+            "--expected-webgpu-backend-mode": args.expected_webgpu_backend_mode,
+            "--expected-webgpu-backend-implementation": (
+                args.expected_webgpu_backend_implementation
+            ),
+            "--expected-webgpu-canvas-presentation": (
+                args.expected_webgpu_canvas_presentation
+            ),
+            "--expected-webgpu-viewer-loop-hook": (
+                args.expected_webgpu_viewer_loop_hook
+            ),
+        }
+        missing_runtime = [
+            name for name, value in expected_runtime_fields.items() if value is None
+        ]
+        if missing_runtime:
+            parser.error(
+                "fresh-production capture lifecycle requires runtime preflight "
+                "expectations: " + ", ".join(missing_runtime)
+            )
 
     return args
 

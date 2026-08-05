@@ -37,6 +37,8 @@ from png_pixel_evidence import build_saved_png_evidence, inspect_png_file
 
 
 KNOWN_SUFFIXES = [
+    "capture_command_contract",
+    "capture_command_boundary_smoke",
     "gpu_candidate_screen_coarse_compare",
     "gpu_candidate_screen_coarse_dryrun_visible_compare",
     "gpu_candidate_screen_coarse_sweep_summary",
@@ -66,6 +68,10 @@ KNOWN_SUFFIXES = [
 
 WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION = (
     "phase3-step2-webgpu-visible-record-dry-run-v1"
+)
+CAPTURE_COMMAND_CONTRACT_SCHEMA_VERSION = "phase3-capture-command-contract-v1"
+CAPTURE_COMMAND_REGRESSION_SCHEMA_VERSION = (
+    "phase3-capture-command-boundary-regression-v1"
 )
 
 
@@ -132,6 +138,36 @@ def load_json_if_exists(path: Path) -> Tuple[Optional[Dict[str, Any]], Optional[
         return {"_value": value}, None
     except Exception as exc:  # noqa: BLE001
         return None, str(exc)
+
+
+def extract_capture_command_contract(data: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "policy": data.get("policy"),
+        "phaseStep": data.get("phaseStep"),
+        "comparisonMode": data.get("comparisonMode"),
+        "runtimePreflight": data.get("runtimePreflight"),
+        "stages": data.get("stages"),
+        "counts": data.get("counts"),
+        "predicates": data.get("predicates"),
+        "verificationErrors": data.get("verificationErrors"),
+        "decision": data.get("decision"),
+    }
+
+
+def extract_capture_command_regression(data: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "checks": data.get("checks"),
+        "legacyByteEquivalent": data.get("legacyByteEquivalent"),
+        "step114FixedTimeOrderingPreserved": data.get(
+            "step114FixedTimeOrderingPreserved"
+        ),
+        "step114ArtifactNamingPreserved": data.get(
+            "step114ArtifactNamingPreserved"
+        ),
+        "genericLifecycleChecks": data.get("genericLifecycleChecks"),
+        "decision": data.get("decision"),
+        "failureMessages": data.get("failureMessages"),
+    }
 
 
 def get_path(obj: Any, paths: Iterable[str], default: Any = None) -> Any:
@@ -22938,6 +22974,8 @@ def summarize_step(base_dir: Path, prefix: str) -> Dict[str, Any]:
         "missingKnownSuffixes": [
             suffix for suffix in KNOWN_SUFFIXES if suffix not in files
         ],
+        "captureCommandContract": None,
+        "captureCommandRegression": None,
         "candidate": None,
         "coverage": None,
         "runtime": None,
@@ -22969,6 +23007,33 @@ def summarize_step(base_dir: Path, prefix: str) -> Dict[str, Any]:
             result["loadErrors"][suffix] = error
         elif data is not None:
             loaded[suffix] = data
+
+    if "capture_command_contract" in loaded:
+        capture_contract = loaded["capture_command_contract"]
+        if capture_contract.get("schemaVersion") != CAPTURE_COMMAND_CONTRACT_SCHEMA_VERSION:
+            result["loadErrors"]["capture_command_contract"] = (
+                "invalid schemaVersion: "
+                f"{capture_contract.get('schemaVersion')!r}"
+            )
+        else:
+            result["captureCommandContract"] = extract_capture_command_contract(
+                capture_contract
+            )
+
+    if "capture_command_boundary_smoke" in loaded:
+        capture_regression = loaded["capture_command_boundary_smoke"]
+        if (
+            capture_regression.get("schemaVersion")
+            != CAPTURE_COMMAND_REGRESSION_SCHEMA_VERSION
+        ):
+            result["loadErrors"]["capture_command_boundary_smoke"] = (
+                "invalid schemaVersion: "
+                f"{capture_regression.get('schemaVersion')!r}"
+            )
+        else:
+            result["captureCommandRegression"] = (
+                extract_capture_command_regression(capture_regression)
+            )
 
     if "gpu_candidate_screen_coarse_compare" in loaded:
         result["candidate"] = extract_candidate_compare(
@@ -23342,6 +23407,11 @@ def print_human_summary(summary: Dict[str, Any]) -> None:
     if summary.get("webgpuVisibleRecordDryRun") is None:
         summary["webgpuVisibleRecordDryRun"] = {}
 
+    print_section("Capture command contract", summary.get("captureCommandContract"))
+    print_section(
+        "Capture command regression",
+        summary.get("captureCommandRegression"),
+    )
     print_section("Candidate compare", summary.get("candidate"))
     print_section("Coverage", summary.get("coverage"))
     print_section("Runtime", summary.get("runtime"))
