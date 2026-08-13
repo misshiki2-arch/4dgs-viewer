@@ -82,6 +82,10 @@ import {
 import { runGpuVisibleRecordDryRun } from './gpu_visible_record_dry_run_runtime.js';
 import { runGpuRawVisibleRecordDryRun } from './gpu_visible_record_raw_dry_run_runtime.js';
 import { runWebGpuVisibleRecordDryRun } from './webgpu_visible_record_dry_run_runtime.js';
+import {
+  buildWebGpuVisibleRecordDiagnosticArtifactBundle,
+  normalizeWebGpuDiagnosticDetailSelection
+} from './common_4dgs_diagnostic_artifact_contracts.js';
 import { shouldUseWebGpuExclusiveFrameLifecycle } from './webgpu_exclusive_frame_lifecycle_switch.js';
 import {
   buildWebGpuBackendViewerLifecycleControlledExecution,
@@ -120,7 +124,9 @@ import {
   FINAL_CANVAS_PRESENTATION_PATHS
 } from './common_4dgs_final_canvas_presentation.js';
 import {
+  buildProductionPresentationMutationPolicy,
   buildProductionRuntimeSelectionContract,
+  PRODUCTION_DIAGNOSTIC_OBSERVER_ROLE,
   PRODUCTION_WEBGPU_TILE_COMPOSITOR_IMPLEMENTATION,
   validateExpectedProductionRuntimeContract
 } from './common_4dgs_production_runtime_contract.js';
@@ -1426,6 +1432,10 @@ function buildRawAssetLineageSummary() {
 
 function buildStep114PreCullEvidenceMap(webgpuVisibleRecordDryRunResult) {
   const evidence =
+    (webgpuVisibleRecordDryRunResult?.artifactRole ===
+    'optional-bounded-detailed-lineage'
+      ? webgpuVisibleRecordDryRunResult
+      : null) ??
     webgpuVisibleRecordDryRunResult?.step114PreCullDirectEvidence ??
     webgpuVisibleRecordDryRunResult?.webgpuPreCullDirectGaussianEvidence ??
     null;
@@ -1832,9 +1842,11 @@ function captureWebGpuRenderStateManifestDebug(options = {}) {
     canonicalComparisonSrcIndices,
     {
       webgpuVisibleRecordDryRunResult:
+        input.webgpuDetailedLineageArtifact ??
         input.webgpuVisibleRecordDryRunResult ??
         (typeof window !== 'undefined'
-          ? window.__phase3LatestWebGpuVisibleRecordDryRunResult
+          ? window.__phase3LatestWebGpuVisibleRecordDetailedLineageArtifact ??
+            window.__phase3LatestWebGpuVisibleRecordDryRunResult
           : null)
     }
   );
@@ -2575,25 +2587,6 @@ function resolveCandidateInfoForWebGpuDryRun({
   candidateArgs = null,
   options = {}
 } = {}) {
-  const explicitCanonicalIndices = normalizeRepresentativeIndexList(
-    options.canonicalComparisonSrcIndices ??
-    options.selectedSrcIndices ??
-    options.indices
-  );
-  if (explicitCanonicalIndices.length > 0) {
-    return {
-      candidateInfo: {
-        candidateIndices: Uint32Array.from(explicitCanonicalIndices),
-        candidateCount: explicitCanonicalIndices.length,
-        sourceMode: 'canonical-src-index-set',
-        source: 'step114-canonical-cuda-direct-rasterizer-index-set',
-        comparisonMode:
-          options.comparisonMode ??
-          'phase3-step114-fix4-canonical-index-lineage-pre-cull-production-evidence'
-      },
-      source: 'step114-canonical-src-index-set'
-    };
-  }
   if (existingCandidateInfo?.candidateIndices?.length > 0) {
     return {
       candidateInfo: existingCandidateInfo,
@@ -2662,6 +2655,51 @@ function resolveCandidateInfoForWebGpuDryRun({
             : null
         }
       : null
+  };
+}
+
+function includeDetailedLineageCandidates(candidateInput, selection, maxRecords) {
+  const normalizedSelection = normalizeWebGpuDiagnosticDetailSelection(selection);
+  const explicitIndices = normalizedSelection.explicitSrcIndices;
+  const candidateIndices = candidateInput?.candidateInfo?.candidateIndices;
+  if (explicitIndices.length <= 0 || !candidateIndices?.length) {
+    return candidateInput;
+  }
+  const targetCount = Math.min(
+    Math.max(0, Number.isFinite(maxRecords) ? Math.floor(maxRecords) : 65536),
+    Math.max(candidateIndices.length, explicitIndices.length)
+  );
+  const combined = [];
+  const seen = new Set();
+  const appendIndex = (index) => {
+    const normalized = Number(index) | 0;
+    if (normalized < 0 || seen.has(normalized) || combined.length >= targetCount) {
+      return;
+    }
+    seen.add(normalized);
+    combined.push(normalized);
+  };
+  for (const index of explicitIndices) appendIndex(index);
+  for (const index of candidateIndices) {
+    appendIndex(index);
+    if (combined.length >= targetCount) break;
+  }
+  return {
+    ...candidateInput,
+    candidateInfo: {
+      ...candidateInput.candidateInfo,
+      candidateIndices: Uint32Array.from(combined),
+      candidateCount: Math.max(
+        Number(candidateInput.candidateInfo.candidateCount) || 0,
+        combined.length
+      ),
+      detailSelectionCandidateInclusion: {
+        mode: normalizedSelection.mode,
+        explicitSrcIndices: [...explicitIndices],
+        computeRecordCountPreserved: combined.length === targetCount
+      }
+    },
+    source: `${candidateInput.source}+generic-detail-selection-inclusion`
   };
 }
 
@@ -3007,6 +3045,7 @@ async function runWebGpuVisibleRecordDryRunFromViewerState({
   allowViewerCanvasPresentation = false,
   enableViewerLoopHook = false,
   useExclusiveWebGpuFrameLifecycle = false,
+  productionPresentationMutationPolicy = null,
   debugRender = { renderResult: null, attempts: [] },
   metadataOverrides = {}
 } = {}) {
@@ -3021,7 +3060,16 @@ async function runWebGpuVisibleRecordDryRunFromViewerState({
   const tileGrid = computeTileGrid(canvas.width, canvas.height, 32);
   const screenSpaceCamera = buildScreenSpaceCameraProxy(camera, deterministicState);
   const runtimeSummary = debugRender.renderResult?.limitedDrawRuntimeSummary ?? {};
-  const candidateInput = resolveCandidateInfoForWebGpuDryRun({
+  const detailedLineageSelection = normalizeWebGpuDiagnosticDetailSelection(
+    options.diagnosticDetailSelection ??
+    (options.canonicalComparisonSrcIndices
+      ? {
+          mode: 'explicit-src-indices',
+          srcIndices: options.canonicalComparisonSrcIndices
+        }
+      : null)
+  );
+  const baseCandidateInput = resolveCandidateInfoForWebGpuDryRun({
     existingCandidateInfo: runtimeSummary?.candidateSourceComparison?.gpuCandidateInfo ?? null,
     gl: getGpu()?.gl,
     raw,
@@ -3038,6 +3086,11 @@ async function runWebGpuVisibleRecordDryRunFromViewerState({
       allowCpuReferenceCandidateFallback: useExclusiveWebGpuFrameLifecycle
     }
   });
+  const candidateInput = includeDetailedLineageCandidates(
+    baseCandidateInput,
+    detailedLineageSelection,
+    Number.isFinite(options.maxRecords) ? options.maxRecords : 65536
+  );
   const gpu = getGpu();
   const viewerCanvasContextMode = gpu?.gl
     ? 'webgl2-active'
@@ -3073,6 +3126,7 @@ async function runWebGpuVisibleRecordDryRunFromViewerState({
     maxRecords: Number.isFinite(options.maxRecords) ? options.maxRecords : 65536,
     epsilon: Number.isFinite(options.epsilon) ? options.epsilon : 1e-3,
     maxMismatches: Number.isFinite(options.maxMismatches) ? options.maxMismatches : 32,
+    detailedLineageSelection,
     viewerCanvasState: {
       provided: true,
       canvas,
@@ -3083,7 +3137,8 @@ async function runWebGpuVisibleRecordDryRunFromViewerState({
       finalCanvasPresentationTraceRecorder,
       schedulerFrameState: schedulerFrameStateForDryRun,
       viewerTimeState: viewerTimeStateForDryRun,
-      viewerCameraState: viewerCameraStateForDryRun
+      viewerCameraState: viewerCameraStateForDryRun,
+      productionPresentationMutationPolicy
     },
     metadata: {
       comparisonMode: options.comparisonMode ?? 'webgpu-storage-buffer-compute-fixed-record-vs-cpu-fixed-record',
@@ -3174,6 +3229,13 @@ async function captureWebGpuVisibleRecordDryRunDebug(options = {}) {
   });
   const ensureCurrentFrame =
     options.ensureCurrentFrame !== false && !useExclusiveWebGpuFrameLifecycle;
+  const productionPresentationMutationPolicy =
+    useExclusiveWebGpuFrameLifecycle &&
+    captureBackendImplementation === WEBGPU_TILE_COMPOSITOR_FRAME_IMPLEMENTATION
+      ? buildProductionPresentationMutationPolicy({
+          executionRole: PRODUCTION_DIAGNOSTIC_OBSERVER_ROLE
+        })
+      : null;
   const debugRender = useExclusiveWebGpuFrameLifecycle
     ? {
         renderResult: latestRenderResult,
@@ -3191,15 +3253,26 @@ async function captureWebGpuVisibleRecordDryRunDebug(options = {}) {
           renderResult: latestRenderResult,
           attempts: [{ stage: 'reuse-latest-render-result' }]
         };
-  return runWebGpuVisibleRecordDryRunFromViewerState({
+  const detailedLineageSelection = normalizeWebGpuDiagnosticDetailSelection(
+    options.diagnosticDetailSelection ??
+    (options.canonicalComparisonSrcIndices
+      ? {
+          mode: 'explicit-src-indices',
+          srcIndices: options.canonicalComparisonSrcIndices
+        }
+      : null)
+  );
+  const runtimeResult = await runWebGpuVisibleRecordDryRunFromViewerState({
     options: {
       ...options,
+      diagnosticDetailSelection: detailedLineageSelection,
       webgpuBackendImplementation: captureBackendImplementation
     },
     requestedWebGpuBackendMode,
     allowViewerCanvasPresentation,
     enableViewerLoopHook,
     useExclusiveWebGpuFrameLifecycle,
+    productionPresentationMutationPolicy,
     debugRender,
     metadataOverrides: {
       viewerDataReadiness,
@@ -3233,6 +3306,12 @@ async function captureWebGpuVisibleRecordDryRunDebug(options = {}) {
       selectedBackendImplementationKind: captureBackendImplementation,
       webgpuBackendImplementation: captureBackendImplementation
     }
+  });
+  return buildWebGpuVisibleRecordDiagnosticArtifactBundle({
+    runtimeResult,
+    detailSelection: detailedLineageSelection,
+    artifactSetIdentity: options.artifactSetIdentity ?? null,
+    artifactProvenance: options.artifactProvenance ?? null
   });
 }
 

@@ -45,6 +45,7 @@ KNOWN_SUFFIXES = [
     "gpu_visible_record_dryrun_compare",
     "gpu_raw_visible_record_dryrun_compare",
     "webgpu_visible_record_dryrun_compare",
+    "webgpu_visible_record_lineage",
     "webgpu_visible_record_dryrun_capture_status",
     "fixed_condition_visual_comparison",
     "cuda_reference_manifest",
@@ -69,9 +70,21 @@ KNOWN_SUFFIXES = [
 WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION = (
     "phase3-step2-webgpu-visible-record-dry-run-v1"
 )
+WEBGPU_VISIBLE_RECORD_DIAGNOSTIC_SCHEMA_VERSION = (
+    "phase3-webgpu-visible-record-diagnostic-result-v2"
+)
+WEBGPU_VISIBLE_RECORD_LINEAGE_SCHEMA_VERSION = (
+    "phase3-webgpu-visible-record-detailed-lineage-v1"
+)
 CAPTURE_COMMAND_CONTRACT_SCHEMA_VERSION = "phase3-capture-command-contract-v1"
 CAPTURE_COMMAND_REGRESSION_SCHEMA_VERSION = (
     "phase3-capture-command-boundary-regression-v1"
+)
+PRODUCTION_PNG_CAPTURE_STATUS_SCHEMA_VERSION = (
+    "phase3-production-png-capture-status-v1"
+)
+FRESH_PRODUCTION_CAPTURE_LIFECYCLE_POLICY = (
+    "fresh-production-diagnostic-json-png"
 )
 
 
@@ -15796,6 +15809,22 @@ def extract_capture_status(data: Dict[str, Any]) -> Dict[str, Any]:
         "captureErrorMessage": get_path(data, ["captureErrorMessage"]),
         "captureErrorString": get_path(data, ["captureErrorString"]),
         "captureErrorStack": get_path(data, ["captureErrorStack"]),
+        "canonicalDiagnosticSchemaVersion": get_path(
+            data, ["canonicalDiagnosticSchemaVersion"]
+        ),
+        "canonicalDiagnosticSerializationSucceeded": get_path(
+            data, ["canonicalDiagnosticSerializationSucceeded"]
+        ),
+        "detailedLineageRequested": get_path(
+            data, ["detailedLineageRequested"]
+        ),
+        "detailedLineagePresent": get_path(data, ["detailedLineagePresent"]),
+        "detailedLineageSchemaVersion": get_path(
+            data, ["detailedLineageSchemaVersion"]
+        ),
+        "detailedLineageSerializationSucceeded": get_path(
+            data, ["detailedLineageSerializationSucceeded"]
+        ),
     }
 
 
@@ -15989,6 +16018,39 @@ def extract_runtime(data: Dict[str, Any]) -> Dict[str, Any]:
         else None,
         "actualProductionPresentationPath": production_runtime.get(
             "actualProductionPresentationPath"
+        )
+        if production_runtime_available
+        else None,
+        "productionSelectionReady": production_runtime.get(
+            "productionSelectionReady"
+        )
+        if production_runtime_available
+        else None,
+        "runtimeEvidenceReadOnly": production_runtime.get("readOnlySnapshot")
+        if production_runtime_available
+        else None,
+        "runtimeEvidenceCurrent": production_runtime.get(
+            "runtimeEvidenceCurrent"
+        )
+        if production_runtime_available
+        else None,
+        "actualPresentationSource": production_runtime.get(
+            "actualPresentationSource"
+        )
+        if production_runtime_available
+        else None,
+        "actualPresentationEventIdentity": production_runtime.get(
+            "actualPresentationEventIdentity"
+        )
+        if production_runtime_available
+        else None,
+        "actualPresentationSourceRequestIdentity": production_runtime.get(
+            "actualPresentationSourceRequestIdentity"
+        )
+        if production_runtime_available
+        else None,
+        "actualPresentedGeneration": production_runtime.get(
+            "actualPresentedGeneration"
         )
         if production_runtime_available
         else None,
@@ -16385,7 +16447,852 @@ def extract_gpu_raw_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any
     }
 
 
-def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]:
+def validate_webgpu_visible_record_v2(data: Dict[str, Any]) -> List[str]:
+    errors: List[str] = []
+    if data.get("artifactRole") != "canonical-compact-diagnostic-result":
+        errors.append("canonical-artifact-role-invalid")
+    for field in (
+        "input",
+        "cardinality",
+        "execution",
+        "comparison",
+        "validation",
+        "serializationPolicy",
+        "detailedLineageArtifact",
+    ):
+        if not isinstance(data.get(field), dict):
+            errors.append(f"canonical-field-missing-or-invalid:{field}")
+    cardinality = data.get("cardinality", {})
+    serialization_policy = data.get("serializationPolicy", {})
+    detail = data.get("detailedLineageArtifact", {})
+    if cardinality.get("computeCountIndependentFromSerializedDetail") is not True:
+        errors.append("compute-detail-cardinality-independence-not-established")
+    if cardinality.get("serializedDetailedLineageRecordCount") != 0:
+        errors.append("canonical-contains-serialized-detailed-lineage")
+    if serialization_policy.get("canonicalCardinalityMode") != (
+        "aggregate-plus-fixed-bounded-evidence"
+    ):
+        errors.append("canonical-cardinality-mode-invalid")
+    if serialization_policy.get("legacyPayloadAliasesSerialized") is not False:
+        errors.append("legacy-payload-alias-separation-not-established")
+    for field in ("requested", "required", "present"):
+        if not isinstance(detail.get(field), bool):
+            errors.append(f"detail-descriptor-field-invalid:{field}")
+    if detail.get("required") is True and detail.get("requested") is not True:
+        errors.append("detail-required-without-request")
+    if detail.get("present") is True and detail.get("requested") is not True:
+        errors.append("detail-present-without-request")
+    comparison = data.get("comparison", {})
+    first_mismatches = comparison.get("firstMismatches")
+    first_mismatch_limit = comparison.get("firstMismatchLimit")
+    if not isinstance(first_mismatches, list):
+        errors.append("comparison-first-mismatches-invalid")
+    elif not isinstance(first_mismatch_limit, int) or (
+        len(first_mismatches) > first_mismatch_limit
+    ):
+        errors.append("comparison-first-mismatches-bound-violated")
+    return errors
+
+
+def extract_webgpu_visible_record_v2(data: Dict[str, Any]) -> Dict[str, Any]:
+    cardinality = data.get("cardinality", {})
+    comparison = data.get("comparison", {})
+    execution = data.get("execution", {})
+    input_contract = data.get("input", {})
+    validation = data.get("validation", {})
+    detail = data.get("detailedLineageArtifact", {})
+    serialization_policy = data.get("serializationPolicy", {})
+    status = data.get("status")
+    validation_status = validation.get("status")
+    execution_decision = (
+        "ready"
+        if status == "ok" and validation_status == "completed"
+        else "blocked"
+    )
+    any_mismatch = comparison.get("anyMismatch")
+    comparison_decision = (
+        "match"
+        if any_mismatch is False
+        else "mismatch"
+        if any_mismatch is True
+        else "blocked"
+    )
+    return {
+        "schemaVersion": data.get("schemaVersion"),
+        "artifactRole": data.get("artifactRole"),
+        "artifactSetIdentity": data.get("artifactSetIdentity"),
+        "artifactProvenance": data.get("artifactProvenance"),
+        "sourceRuntimeResultSchemaVersion": data.get(
+            "sourceRuntimeResultSchemaVersion"
+        ),
+        "phaseStep": data.get("phaseStep"),
+        "status": status,
+        "reason": data.get("reason"),
+        "computeMode": input_contract.get("computeMode"),
+        "scaffoldMode": input_contract.get("scaffoldMode"),
+        "comparisonMode": input_contract.get("comparisonMode"),
+        "candidateInputSource": input_contract.get("candidateInputSource"),
+        "candidateInputReason": input_contract.get("candidateInputReason"),
+        "inputContract": input_contract.get("inputContract", {}),
+        "inputBufferModes": input_contract.get("inputBufferModes", {}),
+        "recordFloats": input_contract.get("recordFloats"),
+        "recordLayout": input_contract.get("recordLayout"),
+        "candidateCount": cardinality.get("candidateCount"),
+        "recordCount": cardinality.get("computedRecordCount"),
+        "computedRecordCount": cardinality.get("computedRecordCount"),
+        "validRecordCount": cardinality.get("validRecordCount"),
+        "cpuReferenceValidRecordCount": cardinality.get(
+            "cpuReferenceValidRecordCount"
+        ),
+        "comparedRecordCount": cardinality.get("comparedRecordCount"),
+        "serializedFirstMismatchCount": cardinality.get(
+            "serializedFirstMismatchCount"
+        ),
+        "serializedDetailedLineageRecordCount": cardinality.get(
+            "serializedDetailedLineageRecordCount"
+        ),
+        "computeCountIndependentFromSerializedDetail": cardinality.get(
+            "computeCountIndependentFromSerializedDetail"
+        ),
+        "comparisonContract": comparison.get("contract", {}),
+        "comparisonTolerance": comparison.get("tolerance", {}),
+        "anyMismatch": any_mismatch,
+        "recordAnyMismatch": any_mismatch,
+        "fieldMismatchCount": comparison.get("fieldMismatchCount"),
+        "maxAbsError": comparison.get("maxAbsError"),
+        "mismatchClassification": comparison.get("mismatchClassification"),
+        "firstMismatches": compact_list(comparison.get("firstMismatches", [])),
+        "firstMismatchCount": comparison.get("firstMismatchCount"),
+        "firstMismatchLimit": comparison.get("firstMismatchLimit"),
+        "firstMismatchesTruncated": comparison.get(
+            "firstMismatchesTruncated"
+        ),
+        "adapterInfoAvailable": execution.get("adapterInfoAvailable"),
+        "projectionParamMode": execution.get("projectionParamMode"),
+        "statePositionUploadMode": execution.get("statePositionUploadMode"),
+        "candidateBufferCount": execution.get("candidateBufferCount"),
+        "outputBufferBytes": execution.get("outputBufferBytes"),
+        "diagnosticExecutionStatus": validation_status,
+        "diagnosticValidationSemanticsPreserved": validation.get(
+            "diagnosticValidationSemanticsPreserved"
+        ),
+        "diagnosticExecutionDecision": execution_decision,
+        "diagnosticComparisonDecision": comparison_decision,
+        "stageSummaries": data.get("stageSummaries", {}),
+        "diagnosticStageAggregates": data.get(
+            "diagnosticStageAggregates", {}
+        ),
+        "timing": data.get("timing", {}),
+        "serializationPolicy": serialization_policy,
+        "detailedLineageArtifact": {
+            "requested": detail.get("requested"),
+            "required": detail.get("required"),
+            "producerReportedPresent": detail.get("present"),
+            "schemaVersion": detail.get("schemaVersion"),
+            "selectedRecordCount": detail.get("selectedRecordCount"),
+            "selectedSrcIndices": compact_list(
+                detail.get("selectedSrcIndices", []), 32
+            ),
+            "suggestedSuffix": detail.get("suggestedSuffix"),
+        },
+        "diagnosticEvidenceSource": "compact-canonical-diagnostic-result-v2",
+        "productionRuntimeEvidenceSource": "separate-runtime-artifact",
+        "captureOrchestrationEvidenceSource": "separate-capture-status-artifact",
+    }
+
+
+def extract_webgpu_visible_record_lineage(data: Dict[str, Any]) -> Dict[str, Any]:
+    selection = data.get("selection", {})
+    records = data.get("records", [])
+    return {
+        "schemaVersion": data.get("schemaVersion"),
+        "artifactRole": data.get("artifactRole"),
+        "artifactSetIdentity": data.get("artifactSetIdentity"),
+        "artifactProvenance": data.get("artifactProvenance"),
+        "sourceDiagnosticSchemaVersion": data.get(
+            "sourceDiagnosticSchemaVersion"
+        ),
+        "selectionMode": selection.get("mode"),
+        "requestedExplicitSrcIndexCount": selection.get(
+            "requestedExplicitSrcIndexCount"
+        ),
+        "effectiveLimit": selection.get("effectiveLimit"),
+        "hardLimit": selection.get("hardLimit"),
+        "selectedRecordCount": selection.get("selectedRecordCount"),
+        "selectedSrcIndices": compact_list(
+            selection.get("selectedSrcIndices", []), 32
+        ),
+        "missingExplicitSrcIndices": compact_list(
+            selection.get("missingExplicitSrcIndices", []), 32
+        ),
+        "selectionTruncated": selection.get("selectionTruncated"),
+        "recordCount": data.get("recordCount"),
+        "serializedRecordArrayCount": len(records)
+        if isinstance(records, list)
+        else None,
+        "actualEvidenceSource": data.get("actualEvidenceSource"),
+        "actualEvidenceDispatch": data.get("actualEvidenceDispatch"),
+        "fieldAvailabilitySummary": data.get("fieldAvailabilitySummary"),
+        "productionDiagnosticSeparation": data.get(
+            "productionDiagnosticSeparation"
+        ),
+        "rawRecordsCopiedToSummary": False,
+    }
+
+
+def validate_webgpu_visible_record_lineage(data: Dict[str, Any]) -> List[str]:
+    errors: List[str] = []
+    if data.get("artifactRole") != "optional-bounded-detailed-lineage":
+        errors.append("lineage-artifact-role-invalid")
+    selection = data.get("selection")
+    records = data.get("records")
+    if not isinstance(selection, dict):
+        errors.append("lineage-selection-missing-or-invalid")
+        return errors
+    if not isinstance(records, list):
+        errors.append("lineage-records-missing-or-invalid")
+        return errors
+    hard_limit = selection.get("hardLimit")
+    effective_limit = selection.get("effectiveLimit")
+    record_count = data.get("recordCount")
+    selected_record_count = selection.get("selectedRecordCount")
+    if not isinstance(hard_limit, int) or hard_limit < 0:
+        errors.append("lineage-hard-limit-invalid")
+    elif len(records) > hard_limit:
+        errors.append("lineage-hard-limit-violated")
+    if not isinstance(effective_limit, int) or effective_limit < 0:
+        errors.append("lineage-effective-limit-invalid")
+    elif len(records) > effective_limit:
+        errors.append("lineage-effective-limit-violated")
+    if record_count != len(records) or selected_record_count != len(records):
+        errors.append("lineage-record-count-inconsistent")
+    return errors
+
+
+def validate_design_c_capture_status(data: Dict[str, Any]) -> List[str]:
+    errors: List[str] = []
+    if data.get("schemaVersion") != "phase3-capture-status-v1":
+        errors.append("capture-status-schema-version-invalid")
+    if data.get("captureTarget") != "webgpu-visible-record-dry-run":
+        errors.append("capture-status-target-invalid")
+    if data.get("status") not in {"ok", "error"}:
+        errors.append("capture-status-value-invalid")
+    for field in (
+        "captureFatalError",
+        "captureExceptionRecorded",
+        "canonicalDiagnosticSerializationSucceeded",
+        "detailedLineageRequested",
+        "detailedLineagePresent",
+        "detailedLineageSerializationSucceeded",
+    ):
+        if not isinstance(data.get(field), bool):
+            errors.append(f"capture-status-field-invalid:{field}")
+    return errors
+
+
+def build_design_c_summary(
+    canonical: Dict[str, Any],
+    lineage: Optional[Dict[str, Any]],
+    capture_status: Optional[Dict[str, Any]],
+    runtime: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    detail_contract = canonical.get("detailedLineageArtifact", {})
+    detail_requested = detail_contract.get("requested") is True
+    detail_required = detail_contract.get("required") is True
+    detail_present = isinstance(lineage, dict)
+    producer_reported_present = (
+        detail_contract.get("producerReportedPresent") is True
+    )
+    canonical_identity = canonical.get("artifactSetIdentity")
+    lineage_identity = lineage.get("artifactSetIdentity") if detail_present else None
+    identity_match = (
+        canonical_identity == lineage_identity
+        if detail_present and canonical_identity is not None
+        else None
+    )
+    descriptor_count = detail_contract.get("selectedRecordCount")
+    lineage_count = lineage.get("recordCount") if detail_present else None
+    count_match = (
+        descriptor_count == lineage_count if detail_present else None
+    )
+    descriptor_src_indices = detail_contract.get("selectedSrcIndices")
+    lineage_src_indices = (
+        lineage.get("selectedSrcIndices") if detail_present else None
+    )
+    selected_src_indices_match = (
+        descriptor_src_indices == lineage_src_indices if detail_present else None
+    )
+    descriptor_schema = detail_contract.get("schemaVersion")
+    lineage_schema = lineage.get("schemaVersion") if detail_present else None
+    schema_match = (
+        descriptor_schema == lineage_schema if detail_present else None
+    )
+    status_detail_requested = get_path(
+        capture_status or {}, ["detailedLineageRequested"]
+    )
+    status_detail_present = get_path(
+        capture_status or {}, ["detailedLineagePresent"]
+    )
+    canonical_serialized = get_path(
+        capture_status or {}, ["canonicalDiagnosticSerializationSucceeded"]
+    )
+    lineage_serialized = get_path(
+        capture_status or {}, ["detailedLineageSerializationSucceeded"]
+    )
+    capture_decision = (
+        "ready"
+        if capture_status is not None
+        and capture_status.get("captureStatus") == "ok"
+        and capture_status.get("captureFatalError") is False
+        and capture_status.get("captureExceptionRecorded") is False
+        else "blocked"
+    )
+    blocked_reasons: List[str] = []
+    if canonical.get("diagnosticExecutionDecision") != "ready":
+        blocked_reasons.append("diagnostic-execution-or-readback-not-ready")
+    if capture_status is None:
+        blocked_reasons.append("capture-status-artifact-missing")
+    else:
+        if capture_decision != "ready":
+            blocked_reasons.append("capture-artifact-status-not-ready")
+        if canonical_serialized is not True:
+            blocked_reasons.append(
+                "canonical-diagnostic-serialization-not-confirmed"
+            )
+        if capture_status.get("canonicalDiagnosticSchemaVersion") != (
+            canonical.get("schemaVersion")
+        ):
+            blocked_reasons.append("canonical-diagnostic-schema-status-mismatch")
+    if runtime is None:
+        blocked_reasons.append("production-runtime-artifact-missing")
+    if status_detail_requested is not None and (
+        status_detail_requested != detail_requested
+    ):
+        blocked_reasons.append("detail-request-state-contradiction")
+    if producer_reported_present != detail_present:
+        blocked_reasons.append("detail-presence-descriptor-contradiction")
+    if detail_required and not detail_present:
+        blocked_reasons.append("required-detailed-lineage-artifact-missing")
+    if detail_present and lineage_serialized is not True:
+        blocked_reasons.append("detailed-lineage-serialization-not-confirmed")
+    if detail_present and identity_match is not True:
+        blocked_reasons.append("detail-artifact-set-identity-mismatch")
+    if detail_present and count_match is not True:
+        blocked_reasons.append("detail-selected-record-count-mismatch")
+    if detail_present and selected_src_indices_match is not True:
+        blocked_reasons.append("detail-selected-src-indices-mismatch")
+    if detail_present and schema_match is not True:
+        blocked_reasons.append("detail-schema-descriptor-mismatch")
+    if detail_present and capture_status is not None and (
+        capture_status.get("detailedLineageSchemaVersion") != lineage_schema
+    ):
+        blocked_reasons.append("detail-schema-status-mismatch")
+    if status_detail_present is not None and status_detail_present != detail_present:
+        blocked_reasons.append("detail-presence-status-contradiction")
+    detail_decision = (
+        "not-requested"
+        if not detail_requested and not detail_present
+        else "ready"
+        if detail_present
+        and identity_match is True
+        and count_match is True
+        and selected_src_indices_match is True
+        and schema_match is True
+        and lineage_serialized is True
+        else "blocked"
+    )
+    decision = "ready" if not blocked_reasons else "blocked"
+    return {
+        "schemaVersion": "phase3-design-c-summary-consumer-v1",
+        "canonicalDiagnosticSchemaVersion": canonical.get("schemaVersion"),
+        "canonicalDiagnosticSource": "webgpu_visible_record_dryrun_compare",
+        "detailedLineageSource": (
+            "webgpu_visible_record_lineage" if detail_present else None
+        ),
+        "runtimeArtifactSource": (
+            "runtime_mismatch"
+            if runtime is not None
+            and runtime.get("runtimeEvidenceSource")
+            == "runtime-mismatch-command-start-fence"
+            else "gpu_candidate_runtime_summary"
+            if runtime is not None
+            else None
+        ),
+        "runtimeEvidenceSource": (
+            runtime.get("runtimeEvidenceSource") if runtime is not None else None
+        ),
+        "captureStatusSource": (
+            "webgpu_visible_record_dryrun_capture_status"
+            if capture_status is not None
+            else None
+        ),
+        "diagnosticExecutionDecision": canonical.get(
+            "diagnosticExecutionDecision"
+        ),
+        "comparisonDecision": canonical.get("diagnosticComparisonDecision"),
+        "captureArtifactDecision": capture_decision,
+        "canonicalSerializationSucceeded": canonical_serialized,
+        "detailRequested": detail_requested,
+        "detailRequired": detail_required,
+        "detailPresent": detail_present,
+        "detailSerializationSucceeded": lineage_serialized,
+        "detailArtifactSetIdentityMatch": identity_match,
+        "detailSelectedRecordCountMatch": count_match,
+        "detailSelectedSrcIndicesMatch": selected_src_indices_match,
+        "detailSchemaMatch": schema_match,
+        "detailDecision": detail_decision,
+        "productionRuntimeEvidenceAvailable": runtime is not None,
+        "browserObservationInferred": False,
+        "rawDetailedRecordsCopiedToSummary": False,
+        "blockedReasons": list(dict.fromkeys(blocked_reasons)),
+        "decision": decision,
+    }
+
+
+def validate_production_png_capture_status(data: Dict[str, Any]) -> List[str]:
+    errors: List[str] = []
+    if data.get("schemaVersion") != PRODUCTION_PNG_CAPTURE_STATUS_SCHEMA_VERSION:
+        errors.append("png-capture-status-schema-version-invalid")
+    if data.get("artifactRole") != "compact-production-png-capture-status":
+        errors.append("png-capture-status-artifact-role-invalid")
+    if data.get("captureLifecyclePolicy") != (
+        FRESH_PRODUCTION_CAPTURE_LIFECYCLE_POLICY
+    ):
+        errors.append("png-capture-lifecycle-policy-invalid")
+    if data.get("status") != "success":
+        errors.append("png-capture-status-not-success")
+    if data.get("requestedCaptureSource") != (
+        "last-valid-webgpu-tile-compositor-output"
+    ):
+        errors.append("png-production-capture-source-invalid")
+    if data.get("encodedBlobRetainedForFinalDownload") is not True:
+        errors.append("png-encoded-blob-retention-not-confirmed")
+    blob_identity = data.get("captureBlobIdentity")
+    if not isinstance(blob_identity, dict):
+        errors.append("png-capture-blob-identity-missing-or-invalid")
+    else:
+        for field in ("fileName", "mimeType", "sizeBytes", "sha256"):
+            if blob_identity.get(field) is None:
+                errors.append(f"png-capture-blob-identity-field-missing:{field}")
+        if blob_identity.get("fileName") != data.get("fileName"):
+            errors.append("png-capture-file-name-identity-mismatch")
+        if blob_identity.get("schemaVersion") != (
+            "phase3-capture-png-blob-identity-v1"
+        ):
+            errors.append("png-capture-blob-identity-schema-invalid")
+        if blob_identity.get("mimeType") != "image/png":
+            errors.append("png-capture-blob-mime-type-invalid")
+        if not isinstance(blob_identity.get("sizeBytes"), int) or (
+            blob_identity.get("sizeBytes", 0) <= 0
+        ):
+            errors.append("png-capture-blob-size-invalid")
+        if not isinstance(blob_identity.get("sha256"), str) or re.fullmatch(
+            r"[0-9a-fA-F]{64}", blob_identity.get("sha256", "")
+        ) is None:
+            errors.append("png-capture-blob-sha256-invalid")
+    for field in (
+        "encodedPngPixelEvidence",
+        "outputStats",
+        "requestedStateIdentity",
+        "presentedFrameIdentity",
+        "capturedFrameIdentity",
+        "captureVsPresentedFrameIdentity",
+        "captureVsRequestedStateIdentity",
+    ):
+        if not isinstance(data.get(field), dict):
+            errors.append(f"png-capture-evidence-field-missing-or-invalid:{field}")
+    for field in (
+        "productionOutputGeneration",
+        "presentedOutputGeneration",
+        "capturedOutputGeneration",
+    ):
+        if not isinstance(data.get(field), (int, float)) or isinstance(
+            data.get(field), bool
+        ):
+            errors.append(f"png-capture-generation-field-invalid:{field}")
+    for field in (
+        "captureMatchesPresentedFrame",
+        "captureMatchesRequestedState",
+        "staleCaptureDetected",
+        "captureFreshnessKnown",
+    ):
+        if not isinstance(data.get(field), bool):
+            errors.append(f"png-capture-freshness-field-invalid:{field}")
+    return errors
+
+
+def build_step117_cross_artifact_confirmation(
+    *,
+    prefix: str,
+    canonical: Optional[Dict[str, Any]],
+    design_c: Optional[Dict[str, Any]],
+    runtime: Optional[Dict[str, Any]],
+    capture_contract: Optional[Dict[str, Any]],
+    png_capture_status: Optional[Dict[str, Any]],
+    saved_png_evidence: Dict[str, Any],
+) -> Dict[str, Any]:
+    blocked_reasons: List[str] = []
+
+    canonical = canonical if isinstance(canonical, dict) else {}
+    provenance = canonical.get("artifactProvenance")
+    provenance = provenance if isinstance(provenance, dict) else {}
+    diagnostic_frame_identity = provenance.get("frameIdentity")
+    diagnostic_request_identity = provenance.get("requestIdentity")
+    diagnostic_generation = provenance.get("productionGeneration")
+    diagnostic_identity_ready = all(
+        (
+            canonical.get("artifactSetIdentity") == prefix,
+            provenance.get("schemaVersion")
+            == "phase3-diagnostic-artifact-provenance-v1",
+            provenance.get("capturePrefix") == prefix,
+            diagnostic_request_identity is not None,
+            diagnostic_generation is not None,
+            isinstance(diagnostic_frame_identity, dict),
+        )
+    )
+    diagnostic_ready = (
+        canonical.get("schemaVersion")
+        == WEBGPU_VISIBLE_RECORD_DIAGNOSTIC_SCHEMA_VERSION
+        and isinstance(design_c, dict)
+        and design_c.get("decision") == "ready"
+        and design_c.get("diagnosticExecutionDecision") == "ready"
+        and design_c.get("canonicalSerializationSucceeded") is True
+        and diagnostic_identity_ready
+    )
+    if not diagnostic_ready:
+        blocked_reasons.append("canonical-diagnostic-evidence-not-ready")
+
+    production_runtime = get_path(runtime or {}, ["productionRuntimeContract"], {})
+    runtime_request_identity = get_path(
+        production_runtime, ["actualPresentationSourceRequestIdentity"]
+    )
+    runtime_generation = get_path(
+        production_runtime, ["actualPresentedGeneration"]
+    )
+    runtime_ready = all(
+        (
+            get_path(production_runtime, ["schemaVersion"])
+            == "phase3-production-runtime-selection-contract-v1",
+            get_path(production_runtime, ["requestedRuntime"]) == "webgpu",
+            get_path(production_runtime, ["effectiveDisplayRuntime"])
+            == "webgpu-production",
+            get_path(production_runtime, ["backendMode"]) == "webgpu-exclusive",
+            get_path(production_runtime, ["backendImplementation"])
+            == "webgpu-tile-compositor-frame-implementation",
+            get_path(production_runtime, ["canvasPresentationEnabled"]) is True,
+            get_path(production_runtime, ["viewerLoopHookEnabled"]) is True,
+            get_path(production_runtime, ["productionSelectionReady"]) is True,
+            get_path(production_runtime, ["readOnlySnapshot"]) is True,
+            get_path(production_runtime, ["runtimeEvidenceCurrent"]) is True,
+            get_path(production_runtime, ["actualProductionPresentationPath"])
+            == "webgpu-tile-compositor-current-texture",
+            get_path(production_runtime, ["actualPresentationSource"])
+            == "cached-webgpu-tile-compositor-output-texture",
+            get_path(production_runtime, ["actualPresentationEventIdentity"])
+            is not None,
+            runtime_request_identity is not None,
+            runtime_generation is not None,
+        )
+    )
+    if not runtime_ready:
+        blocked_reasons.append("production-runtime-presentation-evidence-not-ready")
+
+    lifecycle_counts = get_path(capture_contract or {}, ["counts"], {})
+    lifecycle_predicates = get_path(capture_contract or {}, ["predicates"], {})
+    required_lifecycle_predicates = (
+        "freshProductionRequestExactlyOnce",
+        "forceProductionUpdateExactlyOnce",
+        "duplicateProductionScheduleAbsent",
+        "completionFenceBeforeDiagnostic",
+        "stagesOrdered",
+        "pngBeforeDiagnosticAbsent",
+        "productionPngCapturePathUsed",
+        "pngCaptureDownloadDeferred",
+        "pngFallbackDisabled",
+        "pngCaptureResultRetained",
+        "pngStatusArtifactPresent",
+        "pngStatusBeforePngDownload",
+        "pngDownloadUsesCapturedBlob",
+        "pngIsLastArtifactSave",
+        "pngRenderBeforeCaptureFalse",
+        "pngAfterProductionMutationAbsent",
+    )
+    lifecycle_ready = (
+        isinstance(capture_contract, dict)
+        and capture_contract.get("decision") == "ready"
+        and capture_contract.get("policy")
+        == FRESH_PRODUCTION_CAPTURE_LIFECYCLE_POLICY
+        and all(
+            lifecycle_predicates.get(name) is True
+            for name in required_lifecycle_predicates
+        )
+        and lifecycle_counts.get("freshProductionRequest") == 1
+        and lifecycle_counts.get("forceProductionUpdateTrue") == 1
+        and lifecycle_counts.get("productionScheduleCall") == 1
+        and lifecycle_counts.get("pngCaptureCall") == 1
+        and lifecycle_counts.get("pngStatusArtifactSave") == 1
+        and lifecycle_counts.get("pngSaveCall") == 1
+    )
+    if not lifecycle_ready:
+        blocked_reasons.append("capture-lifecycle-contract-not-ready")
+
+    png_status_errors = (
+        validate_production_png_capture_status(png_capture_status)
+        if isinstance(png_capture_status, dict)
+        else ["png-capture-status-artifact-missing"]
+    )
+    png_capture_status = (
+        png_capture_status if isinstance(png_capture_status, dict) else {}
+    )
+    png_generations = {
+        "production": png_capture_status.get("productionOutputGeneration"),
+        "presented": png_capture_status.get("presentedOutputGeneration"),
+        "captured": png_capture_status.get("capturedOutputGeneration"),
+    }
+    png_generation_identity_ready = (
+        all(value is not None for value in png_generations.values())
+        and len(set(png_generations.values())) == 1
+    )
+    png_freshness_ready = all(
+        (
+            png_capture_status.get("captureMatchesPresentedFrame") is True,
+            png_capture_status.get("captureMatchesRequestedState") is True,
+            png_capture_status.get("staleCaptureDetected") is False,
+            png_capture_status.get("captureFreshnessKnown") is True,
+            png_capture_status.get("captureFreshnessClassification")
+            == "captured-current-presented-fixed-reference-frame",
+        )
+    )
+    encoded_png_evidence = png_capture_status.get("encodedPngPixelEvidence")
+    encoded_png_evidence = (
+        encoded_png_evidence if isinstance(encoded_png_evidence, dict) else {}
+    )
+    encoded_png_ready = (
+        encoded_png_evidence.get("decodeCompleted") is True
+        and encoded_png_evidence.get("pixelClassification") == "nonblank"
+        and numeric_value(
+            encoded_png_evidence.get("rgbNonzeroPixelCount"), 0
+        )
+        > 0
+    )
+    production_output_stats = png_capture_status.get("outputStats")
+    production_output_stats = (
+        production_output_stats
+        if isinstance(production_output_stats, dict)
+        else {}
+    )
+    production_output_nonblank = numeric_value(
+        get_path(
+            production_output_stats,
+            ["rgbNonzeroPixelCount", "nonzeroPixelCount"],
+        ),
+        0,
+    ) > 0
+    png_dimensions_match = all(
+        (
+            png_capture_status.get("outputWidth")
+            == encoded_png_evidence.get("width"),
+            png_capture_status.get("outputHeight")
+            == encoded_png_evidence.get("height"),
+            png_capture_status.get("outputWidth")
+            == get_path(
+                png_capture_status,
+                ["capturedFrameIdentity.outputWidth"],
+            ),
+            png_capture_status.get("outputHeight")
+            == get_path(
+                png_capture_status,
+                ["capturedFrameIdentity.outputHeight"],
+            ),
+        )
+    )
+    saved_png_ready = all(
+        (
+            saved_png_evidence.get("evidenceDecision") == "ready",
+            saved_png_evidence.get("candidateCount") == 1,
+            saved_png_evidence.get("duplicateFileDetected") is False,
+            saved_png_evidence.get("ambiguousFileDetected") is False,
+            saved_png_evidence.get("staleFileDetected") is False,
+            saved_png_evidence.get("blobSavedFileIdentityMatch") is True,
+            saved_png_evidence.get("canonicalSavedPngResult") == "nonblank",
+        )
+    )
+    png_ready = (
+        not png_status_errors
+        and png_generation_identity_ready
+        and png_freshness_ready
+        and production_output_nonblank
+        and encoded_png_ready
+        and png_dimensions_match
+        and saved_png_ready
+    )
+    if not png_ready:
+        blocked_reasons.append("production-png-identity-or-freshness-not-ready")
+        blocked_reasons.extend(png_status_errors)
+
+    png_captured_frame_identity = png_capture_status.get("capturedFrameIdentity")
+    diagnostic_vs_png_frame = compare_frame_identity(
+        diagnostic_frame_identity,
+        png_captured_frame_identity,
+        required_keys=(
+            "generation",
+            "datasetCameraLabel",
+            "datasetFrameNumber",
+            "datasetTime",
+            "referenceCameraLabel",
+            "outputWidth",
+            "outputHeight",
+        ),
+    )
+    request_identity_match = (
+        diagnostic_request_identity is not None
+        and diagnostic_request_identity == runtime_request_identity
+    )
+    generation_identity_match = (
+        diagnostic_generation is not None
+        and diagnostic_generation == runtime_generation
+        and diagnostic_generation == png_generations["production"]
+        and diagnostic_generation == png_generations["presented"]
+        and diagnostic_generation == png_generations["captured"]
+    )
+    frame_identity_match = diagnostic_vs_png_frame.get("matches") is True
+    cross_artifact_identity_ready = (
+        request_identity_match
+        and generation_identity_match
+        and frame_identity_match
+    )
+    if not cross_artifact_identity_ready:
+        blocked_reasons.append("production-cross-artifact-identity-mismatch")
+
+    preservation_ready = all(
+        (
+            diagnostic_ready,
+            runtime_ready,
+            lifecycle_ready,
+            png_ready,
+            cross_artifact_identity_ready,
+        )
+    )
+    if not preservation_ready:
+        blocked_reasons.append(
+            "production-ownership-presentation-preservation-not-confirmed"
+        )
+    blocked_reasons = list(dict.fromkeys(blocked_reasons))
+    machine_decision = "ready" if not blocked_reasons else "blocked"
+    return {
+        "schemaVersion": "phase3-step117-cross-artifact-confirmation-v1",
+        "canonicalSources": {
+            "diagnostic": "webgpu_visible_record_dryrun_compare",
+            "diagnosticSerialization": (
+                "webgpu_visible_record_dryrun_capture_status"
+            ),
+            "productionRuntimePresentation": (
+                "gpu_candidate_runtime_summary.productionRuntimeContract"
+            ),
+            "captureLifecycle": "capture_command_contract",
+            "pngCaptureIdentityFreshness": "png_capture_status",
+            "savedPngIdentityPixels": "saved-png-canonical-evidence",
+        },
+        "diagnostic": {
+            "schemaVersion": canonical.get("schemaVersion"),
+            "executionDecision": get_path(
+                design_c or {}, ["diagnosticExecutionDecision"]
+            ),
+            "comparisonDecision": get_path(
+                design_c or {}, ["comparisonDecision"]
+            ),
+            "serializationSucceeded": get_path(
+                design_c or {}, ["canonicalSerializationSucceeded"]
+            ),
+            "artifactSetIdentity": canonical.get("artifactSetIdentity"),
+            "requestIdentity": diagnostic_request_identity,
+            "productionGeneration": diagnostic_generation,
+            "decision": "ready" if diagnostic_ready else "blocked",
+        },
+        "productionRuntimePresentation": {
+            "requestedRuntime": get_path(
+                production_runtime, ["requestedRuntime"]
+            ),
+            "effectiveDisplayRuntime": get_path(
+                production_runtime, ["effectiveDisplayRuntime"]
+            ),
+            "backendMode": get_path(production_runtime, ["backendMode"]),
+            "backendImplementation": get_path(
+                production_runtime, ["backendImplementation"]
+            ),
+            "presentationPath": get_path(
+                production_runtime, ["actualProductionPresentationPath"]
+            ),
+            "presentationSource": get_path(
+                production_runtime, ["actualPresentationSource"]
+            ),
+            "requestIdentity": runtime_request_identity,
+            "presentedGeneration": runtime_generation,
+            "decision": "ready" if runtime_ready else "blocked",
+        },
+        "captureLifecycle": {
+            "policy": get_path(capture_contract or {}, ["policy"]),
+            "freshProductionRequestCount": lifecycle_counts.get(
+                "freshProductionRequest"
+            ),
+            "pngCaptureCallCount": lifecycle_counts.get("pngCaptureCall"),
+            "pngStatusSaveCount": lifecycle_counts.get(
+                "pngStatusArtifactSave"
+            ),
+            "pngSaveCallCount": lifecycle_counts.get("pngSaveCall"),
+            "decision": "ready" if lifecycle_ready else "blocked",
+        },
+        "png": {
+            "statusSchemaVersion": png_capture_status.get("schemaVersion"),
+            "status": png_capture_status.get("status"),
+            "captureSourceKind": png_capture_status.get("captureSourceKind"),
+            "generations": png_generations,
+            "captureFreshnessKnown": png_capture_status.get(
+                "captureFreshnessKnown"
+            ),
+            "staleCaptureDetected": png_capture_status.get(
+                "staleCaptureDetected"
+            ),
+            "encodedPixelResult": encoded_png_evidence.get(
+                "pixelClassification"
+            ),
+            "productionOutputNonblank": production_output_nonblank,
+            "encodedBlobNonblank": encoded_png_ready,
+            "savedPixelResult": saved_png_evidence.get(
+                "canonicalSavedPngResult"
+            ),
+            "dimensionIdentityMatch": png_dimensions_match,
+            "blobSavedFileIdentityMatch": saved_png_evidence.get(
+                "blobSavedFileIdentityMatch"
+            ),
+            "candidateCount": saved_png_evidence.get("candidateCount"),
+            "decision": "ready" if png_ready else "blocked",
+        },
+        "crossArtifactIdentity": {
+            "requestIdentityMatch": request_identity_match,
+            "generationIdentityMatch": generation_identity_match,
+            "diagnosticVsCapturedFrameIdentity": diagnostic_vs_png_frame,
+            "frameIdentityMatch": frame_identity_match,
+            "decision": (
+                "ready" if cross_artifact_identity_ready else "blocked"
+            ),
+        },
+        "productionOwnershipPresentationPreservationDecision": (
+            "ready" if preservation_ready else "blocked"
+        ),
+        "comparisonMismatchBlocksPreservation": False,
+        "browserObservationInferred": False,
+        "machineReadableStep117Decision": machine_decision,
+        "step117OverallDecision": (
+            "browser-user-observation-pending"
+            if machine_decision == "ready"
+            else "blocked"
+        ),
+        "blockedReasons": blocked_reasons,
+    }
+
+
+def extract_webgpu_visible_record_dryrun_v1(data: Dict[str, Any]) -> Dict[str, Any]:
     summary = get_path(
         data,
         [
@@ -21727,6 +22634,22 @@ def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]
     }
 
 
+def extract_webgpu_visible_record_dryrun(data: Dict[str, Any]) -> Dict[str, Any]:
+    schema_version = data.get("schemaVersion")
+    if schema_version == WEBGPU_VISIBLE_RECORD_DIAGNOSTIC_SCHEMA_VERSION:
+        return extract_webgpu_visible_record_v2(data)
+    result = extract_webgpu_visible_record_dryrun_v1(data)
+    result["schemaVersion"] = schema_version
+    result["diagnosticEvidenceSource"] = "legacy-visible-record-dry-run-v1"
+    result["productionRuntimeEvidenceSource"] = (
+        "legacy-diagnostic-embedded-contracts"
+    )
+    result["captureOrchestrationEvidenceSource"] = (
+        "legacy-compare-presence-or-capture-status"
+    )
+    return result
+
+
 def extract_association(data: Dict[str, Any]) -> Dict[str, Any]:
     summary = get_path(data, ["summary"], data)
 
@@ -22992,6 +23915,10 @@ def summarize_step(base_dir: Path, prefix: str) -> Dict[str, Any]:
         "gpuVisibleRecordDryRun": None,
         "gpuRawVisibleRecordDryRun": None,
         "webgpuVisibleRecordDryRun": None,
+        "webgpuVisibleRecordCaptureStatus": None,
+        "webgpuVisibleRecordLineage": None,
+        "designCDiagnosticArtifacts": None,
+        "step117CrossArtifactConfirmation": None,
         "outputCaptureDiagnostic": None,
         "runtimeMismatch": None,
         "fixedConditionVisualComparison": None,
@@ -23007,6 +23934,70 @@ def summarize_step(base_dir: Path, prefix: str) -> Dict[str, Any]:
             result["loadErrors"][suffix] = error
         elif data is not None:
             loaded[suffix] = data
+
+    canonical_data = loaded.get("webgpu_visible_record_dryrun_compare")
+    if isinstance(canonical_data, dict):
+        canonical_schema = canonical_data.get("schemaVersion")
+        supported_canonical_schemas = {
+            WEBGPU_VISIBLE_RECORD_DRY_RUN_SCHEMA_VERSION,
+            WEBGPU_VISIBLE_RECORD_DIAGNOSTIC_SCHEMA_VERSION,
+        }
+        if canonical_schema not in supported_canonical_schemas:
+            result["loadErrors"]["webgpu_visible_record_dryrun_compare"] = (
+                f"invalid schemaVersion: {canonical_schema!r}"
+            )
+            loaded.pop("webgpu_visible_record_dryrun_compare", None)
+        elif canonical_schema == WEBGPU_VISIBLE_RECORD_DIAGNOSTIC_SCHEMA_VERSION:
+            canonical_errors = validate_webgpu_visible_record_v2(canonical_data)
+            if canonical_errors:
+                result["loadErrors"]["webgpu_visible_record_dryrun_compare"] = (
+                    "invalid Design C canonical diagnostic: "
+                    + ",".join(canonical_errors)
+                )
+                loaded.pop("webgpu_visible_record_dryrun_compare", None)
+
+    lineage_data = loaded.get("webgpu_visible_record_lineage")
+    if isinstance(lineage_data, dict):
+        lineage_schema = lineage_data.get("schemaVersion")
+        if lineage_schema != WEBGPU_VISIBLE_RECORD_LINEAGE_SCHEMA_VERSION:
+            result["loadErrors"]["webgpu_visible_record_lineage"] = (
+                f"invalid schemaVersion: {lineage_schema!r}"
+            )
+            loaded.pop("webgpu_visible_record_lineage", None)
+        else:
+            lineage_errors = validate_webgpu_visible_record_lineage(lineage_data)
+            if lineage_errors:
+                result["loadErrors"]["webgpu_visible_record_lineage"] = (
+                    "invalid Design C detailed lineage: "
+                    + ",".join(lineage_errors)
+                )
+                loaded.pop("webgpu_visible_record_lineage", None)
+            elif get_path(
+                loaded.get("webgpu_visible_record_dryrun_compare", {}),
+                ["schemaVersion"],
+            ) != WEBGPU_VISIBLE_RECORD_DIAGNOSTIC_SCHEMA_VERSION:
+                result["loadErrors"]["webgpu_visible_record_lineage"] = (
+                    "Design C detailed lineage has no compatible canonical "
+                    "diagnostic artifact"
+                )
+                loaded.pop("webgpu_visible_record_lineage", None)
+
+    png_capture_status_data = loaded.get("png_capture_status")
+    if isinstance(png_capture_status_data, dict) and (
+        png_capture_status_data.get("schemaVersion")
+        == PRODUCTION_PNG_CAPTURE_STATUS_SCHEMA_VERSION
+        or png_capture_status_data.get("artifactRole")
+        == "compact-production-png-capture-status"
+    ):
+        png_status_errors = validate_production_png_capture_status(
+            png_capture_status_data
+        )
+        if png_status_errors:
+            result["loadErrors"]["png_capture_status"] = (
+                "invalid production PNG capture status: "
+                + ",".join(png_status_errors)
+            )
+            loaded.pop("png_capture_status", None)
 
     if "capture_command_contract" in loaded:
         capture_contract = loaded["capture_command_contract"]
@@ -23122,16 +24113,65 @@ def summarize_step(base_dir: Path, prefix: str) -> Dict[str, Any]:
 
     webgpu_visible_capture_status = None
     if "webgpu_visible_record_dryrun_capture_status" in loaded:
-        webgpu_visible_capture_status = extract_capture_status(
-            loaded["webgpu_visible_record_dryrun_capture_status"]
+        capture_status_data = loaded["webgpu_visible_record_dryrun_capture_status"]
+        canonical_is_v2 = get_path(
+            loaded.get("webgpu_visible_record_dryrun_compare", {}),
+            ["schemaVersion"],
+        ) == WEBGPU_VISIBLE_RECORD_DIAGNOSTIC_SCHEMA_VERSION
+        if canonical_is_v2 and capture_status_data.get("schemaVersion") != (
+            "phase3-capture-status-v1"
+        ):
+            result["loadErrors"][
+                "webgpu_visible_record_dryrun_capture_status"
+            ] = (
+                "invalid schemaVersion for Design C capture status: "
+                f"{capture_status_data.get('schemaVersion')!r}"
+            )
+        elif canonical_is_v2 and (
+            capture_status_errors := validate_design_c_capture_status(
+                capture_status_data
+            )
+        ):
+            result["loadErrors"][
+                "webgpu_visible_record_dryrun_capture_status"
+            ] = (
+                "invalid Design C capture status: "
+                + ",".join(capture_status_errors)
+            )
+        else:
+            webgpu_visible_capture_status = extract_capture_status(
+                capture_status_data
+            )
+            result["webgpuVisibleRecordCaptureStatus"] = (
+                webgpu_visible_capture_status
+            )
+
+    webgpu_visible_lineage = None
+    if "webgpu_visible_record_lineage" in loaded:
+        webgpu_visible_lineage = extract_webgpu_visible_record_lineage(
+            loaded["webgpu_visible_record_lineage"]
         )
+        result["webgpuVisibleRecordLineage"] = webgpu_visible_lineage
 
     if "webgpu_visible_record_dryrun_compare" in loaded:
         result["webgpuVisibleRecordDryRun"] = extract_webgpu_visible_record_dryrun(
             loaded["webgpu_visible_record_dryrun_compare"]
         )
-        if webgpu_visible_capture_status is not None:
+        if webgpu_visible_capture_status is not None and (
+            result["webgpuVisibleRecordDryRun"].get("schemaVersion")
+            != WEBGPU_VISIBLE_RECORD_DIAGNOSTIC_SCHEMA_VERSION
+        ):
             result["webgpuVisibleRecordDryRun"].update(webgpu_visible_capture_status)
+        if (
+            result["webgpuVisibleRecordDryRun"].get("schemaVersion")
+            == WEBGPU_VISIBLE_RECORD_DIAGNOSTIC_SCHEMA_VERSION
+        ):
+            result["designCDiagnosticArtifacts"] = build_design_c_summary(
+                result["webgpuVisibleRecordDryRun"],
+                webgpu_visible_lineage,
+                webgpu_visible_capture_status,
+                result.get("runtime"),
+            )
     elif webgpu_visible_capture_status is not None:
         result["webgpuVisibleRecordDryRun"] = {
             "status": webgpu_visible_capture_status.get("captureStatus"),
@@ -23321,6 +24361,25 @@ def summarize_step(base_dir: Path, prefix: str) -> Dict[str, Any]:
     elif fixed_condition_visual_comparison is not None:
         result["fixedConditionVisualComparison"] = fixed_condition_visual_comparison
 
+    should_build_step117_confirmation = (
+        get_path(result.get("captureCommandContract") or {}, ["policy"])
+        == FRESH_PRODUCTION_CAPTURE_LIFECYCLE_POLICY
+        or get_path(png_capture_status_data or {}, ["artifactRole"])
+        == "compact-production-png-capture-status"
+    )
+    if should_build_step117_confirmation:
+        result["step117CrossArtifactConfirmation"] = (
+            build_step117_cross_artifact_confirmation(
+                prefix=prefix,
+                canonical=result.get("webgpuVisibleRecordDryRun"),
+                design_c=result.get("designCDiagnosticArtifacts"),
+                runtime=result.get("runtime"),
+                capture_contract=result.get("captureCommandContract"),
+                png_capture_status=png_capture_status,
+                saved_png_evidence=saved_png_evidence,
+            )
+        )
+
     if should_build_step114_summary:
         apply_step114_fix10_fix2_evidence(
             result.get("step114CudaReferenceProvenance"),
@@ -23440,6 +24499,22 @@ def print_human_summary(summary: Dict[str, Any]) -> None:
     print_section("GPU visible record dry-run", summary.get("gpuVisibleRecordDryRun"))
     print_section("GPU raw visible record dry-run", summary.get("gpuRawVisibleRecordDryRun"))
     print_section("Output capture diagnostic", summary.get("outputCaptureDiagnostic"))
+    print_section(
+        "WebGPU visible-record capture status",
+        summary.get("webgpuVisibleRecordCaptureStatus"),
+    )
+    print_section(
+        "Design C diagnostic artifacts",
+        summary.get("designCDiagnosticArtifacts"),
+    )
+    print_section(
+        "Step117 cross-artifact confirmation",
+        summary.get("step117CrossArtifactConfirmation"),
+    )
+    print_section(
+        "WebGPU visible-record detailed lineage",
+        summary.get("webgpuVisibleRecordLineage"),
+    )
     print_section(
         "Step75 camera-aware visible output",
         summary.get("webgpuVisibleRecordDryRun", {}).get(

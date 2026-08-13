@@ -521,9 +521,27 @@ def build_webgpu_visible_record_dryrun_command(args: argparse.Namespace) -> str:
     selected_indices = args.canonical_src_indices
     if not selected_indices and args.cuda_reference_manifest:
         selected_indices = load_cuda_manifest_selected_indices(args.cuda_reference_manifest)
-    canonical_indices_line = (
-        f"\n    canonicalComparisonSrcIndices: {js_int_array(selected_indices)},"
-        if selected_indices and "step114" in args.step
+    detail_selection_line = (
+        "\n    diagnosticDetailSelection: {"
+        "\n      mode: 'explicit-src-indices',"
+        f"\n      srcIndices: {js_int_array(selected_indices)},"
+        f"\n      limit: {args.diagnostic_detail_limit}"
+        "\n    },"
+        if selected_indices
+        else ""
+    )
+    detail_download = (
+        f"""
+  if (!webgpuVisibleRecordDetailedLineageArtifact) {{
+    throw new Error('capture-blocked-requested-detailed-lineage-missing');
+  }}
+  await window.gpuViewerDebug.downloadJsonDebug(
+    webgpuVisibleRecordDetailedLineageArtifact,
+    {quote(args.step + '_webgpu_visible_record_lineage.json')}
+  );
+  webgpuDetailedLineageSerializationSucceeded = true;
+"""
+        if selected_indices
         else ""
     )
 
@@ -533,16 +551,47 @@ def build_webgpu_visible_record_dryrun_command(args: argparse.Namespace) -> str:
     productionFrameRequested: false
   }});
 }}
+var webgpuCanonicalDiagnosticSerializationSucceeded = false;
+var webgpuDetailedLineageSerializationSucceeded = false;
 try {{
-  var webgpuVisibleRecordDryRunResult =
+  var webgpuVisibleRecordDiagnosticArtifacts =
     await window.gpuViewerDebug.captureWebGpuVisibleRecordDryRunDebug({{
     ensureCurrentFrame: false,
+    artifactSetIdentity: {quote(args.step)},
+    artifactProvenance: {{
+      schemaVersion: 'phase3-diagnostic-artifact-provenance-v1',
+      capturePrefix: {quote(args.step)},
+      requestIdentity:
+        typeof genericFreshProductionRequest !== 'undefined'
+          ? genericFreshProductionRequest?.requestIdentity ?? null
+          : (typeof captureScheduleRequest !== 'undefined'
+              ? captureScheduleRequest?.requestIdentity ?? null
+              : null),
+      productionGeneration:
+        typeof genericProductionFrameEvidence !== 'undefined'
+          ? genericProductionFrameEvidence?.productionGeneration ?? null
+          : (typeof captureProductionFrameEvidence !== 'undefined'
+              ? captureProductionFrameEvidence?.productionGeneration ?? null
+              : null),
+      frameIdentity:
+        typeof genericProductionFrameEvidence !== 'undefined'
+          ? genericProductionFrameEvidence?.productionFrameIdentity ?? null
+          : (typeof captureProductionFrameEvidence !== 'undefined'
+              ? captureProductionFrameEvidence?.productionFrameIdentity ?? null
+              : null)
+    }},
     maxRecords: {args.webgpu_visible_record_max_count},
     epsilon: {args.webgpu_visible_record_epsilon},
-    maxMismatches: {args.max_mismatches},{backend_implementation_line}{phase_step_line}{comparison_mode_line}{canonical_indices_line}{fixed_reference_camera_mode_line}
+    maxMismatches: {args.max_mismatches},{backend_implementation_line}{phase_step_line}{comparison_mode_line}{detail_selection_line}{fixed_reference_camera_mode_line}
   }});
+  var webgpuVisibleRecordDryRunResult =
+    webgpuVisibleRecordDiagnosticArtifacts?.canonicalDiagnosticResult ?? null;
+  var webgpuVisibleRecordDetailedLineageArtifact =
+    webgpuVisibleRecordDiagnosticArtifacts?.detailedLineageArtifact ?? null;
   window.__phase3LatestWebGpuVisibleRecordDryRunResult =
     webgpuVisibleRecordDryRunResult;
+  window.__phase3LatestWebGpuVisibleRecordDetailedLineageArtifact =
+    webgpuVisibleRecordDetailedLineageArtifact;
   if (typeof recordStep114CommandCausalStage === 'function') {{
     recordStep114CommandCausalStage('diagnostic-dry-run-completed', false, {{
       status: webgpuVisibleRecordDryRunResult?.status ?? null,
@@ -554,6 +603,8 @@ try {{
     webgpuVisibleRecordDryRunResult,
     {quote(args.step + '_webgpu_visible_record_dryrun_compare.json')}
   );
+  webgpuCanonicalDiagnosticSerializationSucceeded = true;
+{detail_download}
 
   await window.gpuViewerDebug.downloadJsonDebug(
     {{
@@ -565,7 +616,18 @@ try {{
       captureExceptionRecorded: false,
       captureErrorName: null,
       captureErrorMessage: null,
-      captureErrorStack: null
+      captureErrorStack: null,
+      canonicalDiagnosticSchemaVersion:
+        webgpuVisibleRecordDryRunResult?.schemaVersion ?? null,
+      canonicalDiagnosticSerializationSucceeded:
+        webgpuCanonicalDiagnosticSerializationSucceeded,
+      detailedLineageRequested: {js_bool(bool(selected_indices))},
+      detailedLineagePresent:
+        webgpuVisibleRecordDetailedLineageArtifact !== null,
+      detailedLineageSchemaVersion:
+        webgpuVisibleRecordDetailedLineageArtifact?.schemaVersion ?? null,
+      detailedLineageSerializationSucceeded:
+        webgpuDetailedLineageSerializationSucceeded
     }},
     {quote(args.step + '_webgpu_visible_record_dryrun_capture_status.json')}
   );
@@ -587,7 +649,15 @@ try {{
       captureErrorName: error?.name ?? 'Error',
       captureErrorMessage: error?.message ?? String(error),
       captureErrorStack: error?.stack ?? null,
-      captureErrorString: String(error)
+      captureErrorString: String(error),
+      canonicalDiagnosticSerializationSucceeded:
+        webgpuCanonicalDiagnosticSerializationSucceeded,
+      detailedLineageRequested: {js_bool(bool(selected_indices))},
+      detailedLineagePresent:
+        typeof webgpuVisibleRecordDetailedLineageArtifact !== 'undefined' &&
+        webgpuVisibleRecordDetailedLineageArtifact !== null,
+      detailedLineageSerializationSucceeded:
+        webgpuDetailedLineageSerializationSucceeded
     }},
     {quote(args.step + '_webgpu_visible_record_dryrun_capture_status.json')}
   );
@@ -640,6 +710,114 @@ def build_live_same_state_command(args: argparse.Namespace) -> str:
 
 
 def build_png_command(args: argparse.Namespace) -> str:
+    if (
+        args.capture_lifecycle
+        == CAPTURE_LIFECYCLE_FRESH_PRODUCTION_DIAGNOSTIC_JSON_PNG
+    ):
+        return f"""var genericProductionPngCaptureResult =
+  await window.gpuViewerDebug.saveCurrentCanvasPng({{
+    name: {quote(args.step + '_canvas.png')},
+    captureSource: 'last-valid-webgpu-tile-compositor-output',
+    fallbackToCanvasOnCaptureFailure: false,
+    renderBeforeCapture: false,
+    download: false
+  }});
+var genericProductionPngBlob =
+  genericProductionPngCaptureResult?.blob ?? null;
+var genericProductionPngFileName =
+  genericProductionPngCaptureResult?.fileName ?? null;
+if (genericProductionPngCaptureResult?.status !== 'success' ||
+    !(genericProductionPngBlob instanceof Blob) ||
+    genericProductionPngCaptureResult?.captureBlobIdentity?.sha256 == null ||
+    genericProductionPngFileName !== {quote(args.step + '_canvas.png')} ||
+    genericProductionPngCaptureResult?.captureBlobIdentity?.fileName !==
+      genericProductionPngFileName) {{
+  throw new Error('capture-blocked-production-png-evidence-incomplete');
+}}
+var genericProductionPngCaptureStatus = {{
+  schemaVersion: 'phase3-production-png-capture-status-v1',
+  artifactRole: 'compact-production-png-capture-status',
+  captureLifecyclePolicy:
+    {quote(CAPTURE_LIFECYCLE_FRESH_PRODUCTION_DIAGNOSTIC_JSON_PNG)},
+  sourceResultSchemaVersion:
+    genericProductionPngCaptureResult.schemaVersion ?? null,
+  status: genericProductionPngCaptureResult.status,
+  reason: genericProductionPngCaptureResult.reason ?? null,
+  source: genericProductionPngCaptureResult.source ?? null,
+  captureSourceKind:
+    genericProductionPngCaptureResult.captureSourceKind ?? null,
+  requestedCaptureSource:
+    genericProductionPngCaptureResult.requestedCaptureSource ?? null,
+  fileName: genericProductionPngFileName,
+  outputWidth: genericProductionPngCaptureResult.outputWidth ?? null,
+  outputHeight: genericProductionPngCaptureResult.outputHeight ?? null,
+  captureBlobIdentity:
+    genericProductionPngCaptureResult.captureBlobIdentity ?? null,
+  encodedPngPixelEvidence:
+    genericProductionPngCaptureResult.encodedPngPixelEvidence ?? null,
+  outputStats: genericProductionPngCaptureResult.outputStats ?? null,
+  captureAlphaPolicy:
+    genericProductionPngCaptureResult.captureAlphaPolicy ?? null,
+  captureAlphaForcedOpaque:
+    genericProductionPngCaptureResult.captureAlphaForcedOpaque ?? null,
+  alphaNormalizationEvidence:
+    genericProductionPngCaptureResult.alphaNormalizationEvidence ?? null,
+  cacheGeneration:
+    genericProductionPngCaptureResult.cacheGeneration ?? null,
+  cachedAtMs: genericProductionPngCaptureResult.cachedAtMs ?? null,
+  productionOutputGeneration:
+    genericProductionPngCaptureResult.productionOutputGeneration ?? null,
+  presentedOutputGeneration:
+    genericProductionPngCaptureResult.presentedOutputGeneration ?? null,
+  capturedOutputGeneration:
+    genericProductionPngCaptureResult.capturedOutputGeneration ?? null,
+  outputTextureIdentity:
+    genericProductionPngCaptureResult.outputTextureIdentity ?? null,
+  requestedStateIdentity:
+    genericProductionPngCaptureResult.requestedStateIdentity ?? null,
+  presentedFrameIdentity:
+    genericProductionPngCaptureResult.presentedFrameIdentity ?? null,
+  capturedFrameIdentity:
+    genericProductionPngCaptureResult.capturedFrameIdentity ?? null,
+  captureVsPresentedFrameIdentity:
+    genericProductionPngCaptureResult.captureVsPresentedFrameIdentity ?? null,
+  captureVsRequestedStateIdentity:
+    genericProductionPngCaptureResult.captureVsRequestedStateIdentity ?? null,
+  capturePresentedFrameMismatchedFields:
+    genericProductionPngCaptureResult.capturePresentedFrameMismatchedFields ?? [],
+  capturePresentedFrameMissingFields:
+    genericProductionPngCaptureResult.capturePresentedFrameMissingFields ?? [],
+  captureRequestedStateMismatchedFields:
+    genericProductionPngCaptureResult.captureRequestedStateMismatchedFields ?? [],
+  captureRequestedStateMissingFields:
+    genericProductionPngCaptureResult.captureRequestedStateMissingFields ?? [],
+  captureMatchesPresentedFrame:
+    genericProductionPngCaptureResult.captureMatchesPresentedFrame ?? null,
+  captureMatchesRequestedState:
+    genericProductionPngCaptureResult.captureMatchesRequestedState ?? null,
+  staleCaptureDetected:
+    genericProductionPngCaptureResult.staleCaptureDetected ?? null,
+  captureFreshnessKnown:
+    genericProductionPngCaptureResult.captureFreshnessKnown ?? null,
+  captureFreshnessClassification:
+    genericProductionPngCaptureResult.captureFreshnessClassification ?? null,
+  orientationEvidence:
+    genericProductionPngCaptureResult.orientationEvidence ?? null,
+  encodedBlobRetainedForFinalDownload: true
+}};
+await window.gpuViewerDebug.downloadJsonDebug(
+  genericProductionPngCaptureStatus,
+  {quote(args.step + '_png_capture_status.json')}
+);
+var genericProductionPngObjectUrl =
+  URL.createObjectURL(genericProductionPngBlob);
+var genericProductionPngDownloadLink = document.createElement('a');
+genericProductionPngDownloadLink.href = genericProductionPngObjectUrl;
+genericProductionPngDownloadLink.download = genericProductionPngFileName;
+document.body.appendChild(genericProductionPngDownloadLink);
+genericProductionPngDownloadLink.click();
+genericProductionPngDownloadLink.remove();
+setTimeout(() => URL.revokeObjectURL(genericProductionPngObjectUrl), 0);"""
     if (
         "step111" in args.step
         or "step112" in args.step
@@ -707,10 +885,10 @@ def build_webgpu_render_state_manifest_command(args: argparse.Namespace) -> str:
         ? step114FixedTimeCaptureIsolation
         : (window.__phase3Step114FixedTimeCaptureIsolation ?? null)
     ),
-    webgpuVisibleRecordDryRunResult: (
-      typeof webgpuVisibleRecordDryRunResult !== 'undefined'
-        ? webgpuVisibleRecordDryRunResult
-        : (window.__phase3LatestWebGpuVisibleRecordDryRunResult ?? null)
+    webgpuDetailedLineageArtifact: (
+      typeof webgpuVisibleRecordDetailedLineageArtifact !== 'undefined'
+        ? webgpuVisibleRecordDetailedLineageArtifact
+        : (window.__phase3LatestWebGpuVisibleRecordDetailedLineageArtifact ?? null)
     ),
     pngCaptureStatus: (typeof pngCaptureStatus !== 'undefined' ? pngCaptureStatus : null)
   }}),
@@ -2174,7 +2352,13 @@ def parse_args() -> argparse.Namespace:
         "--canonical-src-indices",
         type=parse_int_list,
         default=[],
-        help="Comma-separated canonical srcIndex set for Step114 direct comparison.",
+        help="Comma-separated srcIndex set for bounded detailed lineage evidence.",
+    )
+    parser.add_argument(
+        "--diagnostic-detail-limit",
+        type=int,
+        default=8,
+        help="Maximum detailed lineage records to serialize. Hard-capped by the runtime contract.",
     )
     parser.add_argument("--visible-record-readback", default="sync-debug")
     parser.add_argument("--visible-record-max-count", type=int, default=65536)

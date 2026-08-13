@@ -7,6 +7,9 @@ import {
   WEBGPU_TILE_COMPOSITOR_FRAME_IMPLEMENTATION_MODE
 } from './webgpu_tile_compositor_frame_implementation.js';
 import {
+  canMutateProductionPresentationState
+} from './common_4dgs_production_runtime_contract.js';
+import {
   DEFAULT_MAX_BOUNDED_COLOR_SAMPLES,
   normalizeBoundedColorSamples
 } from './common_4dgs_sample_contracts.js';
@@ -227,8 +230,13 @@ function buildValidationSummary({
     webgpuViewerCanvasBoundedColorPresent?.colorOutputContract ?? {};
   const validationSummary =
     webgpuViewerCanvasBoundedColorPresent?.validationSummary ?? {};
-  const currentTexturePathReady =
+  const currentTexturePathAcquired =
     webgpuViewerCanvasCurrentTexturePath?.viewerCanvasCurrentTexturePathReady === true;
+  const currentTexturePathMutationSuppressed =
+    webgpuViewerCanvasCurrentTexturePath
+      ?.viewerCanvasContextMutationSuppressed === true;
+  const currentTexturePathReady =
+    currentTexturePathAcquired || currentTexturePathMutationSuppressed;
   const boundedFirstPresentSucceeded =
     webgpuViewerCanvasBoundedFirstPresent?.boundedViewerCanvasFirstPresentSucceeded === true;
   const nativeBoundedSamplesReady =
@@ -331,6 +339,8 @@ function buildValidationSummary({
   return {
     backendFrameReady,
     currentTexturePathReady,
+    currentTexturePathAcquired,
+    currentTexturePathMutationSuppressed,
     boundedFirstPresentSucceeded,
     nativeBoundedSamplesReady,
     selectorReady,
@@ -367,11 +377,15 @@ export async function buildWebGpuBackendFramePrototype({
 } = {}) {
   const startMs = nowMs();
   const diagnosticCanvasPresentationAllowed =
-    shouldAllowDiagnosticCanvasPresentation(backendImplementationKind);
+    shouldAllowDiagnosticCanvasPresentation(backendImplementationKind) &&
+    canMutateProductionPresentationState(
+      viewerCanvasState?.productionPresentationMutationPolicy ?? null
+    );
   const webgpuViewerCanvasCurrentTexturePath =
     await buildWebGpuViewerCanvasCurrentTexturePathReadiness({
       device,
-      viewerCanvasState
+      viewerCanvasState,
+      canvasContextMutationAllowed: diagnosticCanvasPresentationAllowed
     });
   const webgpuViewerCanvasBoundedFirstPresent =
     await buildWebGpuViewerCanvasBoundedFirstPresent({

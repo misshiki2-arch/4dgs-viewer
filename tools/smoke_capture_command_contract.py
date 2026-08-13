@@ -127,6 +127,17 @@ def build_negative_sources(source: str) -> dict[str, str]:
         "render-before-capture-true": source.replace(
             "renderBeforeCapture: false", "renderBeforeCapture: true", 1
         ),
+        "png-download-not-deferred": source.replace(
+            "download: false", "download: true", 1
+        ),
+        "png-status-deleted": source.replace(
+            "_png_capture_status.json", "_png_capture_status_removed.json", 1
+        ),
+        "png-different-blob-download": source.replace(
+            "URL.createObjectURL(genericProductionPngBlob)",
+            "URL.createObjectURL(new Blob())",
+            1,
+        ),
         "schedule-after-png": source
         + "\nawait window.gpuViewerDebug.scheduleRender({"
         + " forceProductionUpdate: true });\n",
@@ -193,9 +204,19 @@ def main() -> int:
             assert contract["predicates"]["completionFenceBeforeDiagnostic"] is True
             assert contract["predicates"]["pngIsLastArtifactSave"] is True
             assert contract["predicates"]["pngRenderBeforeCaptureFalse"] is True
+            assert contract["predicates"]["productionPngCapturePathUsed"] is True
+            assert contract["predicates"]["pngCaptureDownloadDeferred"] is True
+            assert contract["predicates"]["pngFallbackDisabled"] is True
+            assert contract["predicates"]["pngCaptureResultRetained"] is True
+            assert contract["predicates"]["pngStatusArtifactPresent"] is True
+            assert contract["predicates"]["pngStatusBeforePngDownload"] is True
+            assert contract["predicates"]["pngDownloadUsesCapturedBlob"] is True
             assert (
                 contract["predicates"]["pngAfterProductionMutationAbsent"] is True
             )
+            assert contract["counts"]["pngCaptureCall"] == 1
+            assert contract["counts"]["pngStatusArtifactSave"] == 1
+            assert contract["counts"]["pngSaveCall"] == 1
             smoke_path = directory / f"{prefix}_capture_command_boundary_smoke.json"
             subprocess.run(
                 [

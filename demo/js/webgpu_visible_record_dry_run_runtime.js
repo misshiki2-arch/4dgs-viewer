@@ -49,6 +49,10 @@ import {
   cloneWebGpuVisibleRecordFieldComputeModes
 } from './common_4dgs_record_contracts.js';
 import {
+  normalizeWebGpuDiagnosticDetailSelection,
+  resolveWebGpuDiagnosticDetailRows
+} from './common_4dgs_diagnostic_artifact_contracts.js';
+import {
   WEBGPU_INPUT_BUFFER_MODES,
   createWebGpuInputBufferContract,
   createWebGpuInputBufferModes
@@ -2011,8 +2015,17 @@ function buildRawXyzOpacityForCandidates(raw, candidateIndices) {
   return out;
 }
 
-function buildStep114TemporalEvaluationInputs({ raw, candidateIndices, statePositions, buildConfig } = {}) {
-  const count = candidateIndices?.length ?? 0;
+function buildStep114TemporalEvaluationInputs({
+  raw,
+  candidateIndices,
+  statePositions,
+  buildConfig,
+  rowIndices = []
+} = {}) {
+  const availableRowCount = candidateIndices?.length ?? 0;
+  const selectedRows = Array.isArray(rowIndices)
+    ? rowIndices.filter((row) => row >= 0 && row < availableRowCount)
+    : [];
   const records = [];
   const timestamp = Number(buildConfig?.timestamp);
   const timeDuration = Number(buildConfig?.timeDuration);
@@ -2022,7 +2035,7 @@ function buildStep114TemporalEvaluationInputs({ raw, candidateIndices, statePosi
   const sigmaScale = Number.isFinite(Number(buildConfig?.sigmaScale))
     ? Number(buildConfig.sigmaScale)
     : 1;
-  for (let row = 0; row < count; row += 1) {
+  for (const row of selectedRows) {
     const srcIndex = Number(candidateIndices[row]);
     if (!Number.isFinite(srcIndex)) continue;
     const index = srcIndex | 0;
@@ -2203,7 +2216,7 @@ function buildStep114TemporalEvaluationInputs({ raw, candidateIndices, statePosi
         available: postTemporalWorldPosition !== null
       }
     ];
-    records[row] = {
+    records.push({
       srcIndex: index,
       actualEvidenceSource:
         'webgpu-production-statepositions-buffer-consumed-by-visible-record-dispatch',
@@ -2257,7 +2270,7 @@ function buildStep114TemporalEvaluationInputs({ raw, candidateIndices, statePosi
         temporalMotionDelta: temporalMotionDelta !== null,
         temporalValidity: true
       }
-    };
+    });
   }
   return {
     schemaVersion: 'phase3-step114-fix7-webgpu-temporal-evaluation-evidence-v1',
@@ -2266,7 +2279,7 @@ function buildStep114TemporalEvaluationInputs({ raw, candidateIndices, statePosi
     actualEvidenceDispatch:
       'same-webgpu-visible-record-production-dispatch-consumed-statepositions-buffer',
     recordCount: records.filter(Boolean).length,
-    requestedRecordCount: count,
+    requestedRecordCount: selectedRows.length,
     records,
     fieldAvailabilitySummary: {
       requestedTimestampCount: records.filter((record) => record?.actualFieldAvailability.requestedTimestamp).length,
@@ -3997,14 +4010,24 @@ function buildStep114PreCullDirectEvidence({
   directEvidenceLayout,
   footprintPayload,
   projectionParams,
-  projectionContractSummary = {}
+  projectionContractSummary = {},
+  rowIndices = []
 } = {}) {
-  const count = Math.min(
+  const availableRowCount = Math.min(
     candidateIndices?.length ?? 0,
     Math.floor((webgpuRecords?.length ?? 0) / RECORD_FLOATS)
   );
+  const selectedRows = Array.isArray(rowIndices)
+    ? rowIndices.filter((row) => row >= 0 && row < availableRowCount)
+    : [];
+  const temporalEvaluationBySrcIndex = new Map(
+    (temporalEvaluationEvidence?.records ?? []).map((record) => [
+      Number(record?.srcIndex),
+      record
+    ])
+  );
   const records = [];
-  for (let row = 0; row < count; row += 1) {
+  for (const row of selectedRows) {
     const recordBase = row * RECORD_FLOATS;
     const srcIndex = Number(candidateIndices[row]);
     if (!Number.isFinite(srcIndex)) continue;
@@ -4024,7 +4047,7 @@ function buildStep114PreCullDirectEvidence({
     const directClip = vector4OrNull(directEvidenceRecords, directBase + 16);
     const directNdcScreen = vector4OrNull(directEvidenceRecords, directBase + 20);
     const temporalEvaluation =
-      temporalEvaluationEvidence?.records?.[row] ?? null;
+      temporalEvaluationBySrcIndex.get(srcIndex | 0) ?? null;
     const productionFootprint = readWebGpuFootprintPayload(footprintPayload, row);
     const screenCenter = [
       finiteOrNull(webgpuRecords[recordBase + 2]),
@@ -4168,7 +4191,7 @@ function buildStep114PreCullDirectEvidence({
         }
       : null,
     recordCount: records.length,
-    requestedRecordCount: candidateIndices?.length ?? 0,
+    requestedRecordCount: selectedRows.length,
     validRecordCount: records.filter((record) => record.valid === true).length,
     culledRecordCount: records.filter((record) => record.culled === true).length,
     records,
@@ -5861,6 +5884,7 @@ export async function runWebGpuVisibleRecordDryRun({
   maxRecords = DEFAULT_MAX_RECORDS,
   epsilon = DEFAULT_EPSILON,
   maxMismatches = DEFAULT_MAX_MISMATCHES,
+  detailedLineageSelection = null,
   viewerCanvasState = null,
   metadata = null
 } = {}) {
@@ -5915,12 +5939,6 @@ export async function runWebGpuVisibleRecordDryRun({
   const { statePositions } = webgpu4DStateSource;
   const statePositionAvailabilitySummary =
     summarizeStatePositionAvailability(statePositions);
-  const step114TemporalEvaluationEvidence = buildStep114TemporalEvaluationInputs({
-    raw,
-    candidateIndices: cpuReference.candidateIndices,
-    statePositions,
-    buildConfig
-  });
   const radiusContract = createWebGpuRadiusContract();
   const covarianceContract = createWebGpuCovarianceContract();
   const conicContract = createWebGpuConicContract();
@@ -6021,18 +6039,6 @@ export async function runWebGpuVisibleRecordDryRun({
       candidateIndices: cpuReference.candidateIndices,
       projectionContractSummary: projectionContract.summary
     });
-  const step114PreCullDirectEvidence = buildStep114PreCullDirectEvidence({
-    candidateIndices: cpuReference.candidateIndices,
-    rawXyzOpacity,
-    statePositions,
-    temporalEvaluationEvidence: step114TemporalEvaluationEvidence,
-    webgpuRecords: computeResult.records,
-    directEvidenceRecords: computeResult.directEvidenceRecords,
-    directEvidenceLayout: computeResult.directEvidenceLayout,
-    footprintPayload: webgpu4DStateSource.footprintPayload,
-    projectionParams: projectionContract.data,
-    projectionContractSummary: projectionContract.summary
-  });
   const step112CoordinateTransformStageMap =
     buildStep112CoordinateTransformStageMap(projectionContract.summary);
   const step112ProjectionParityEvidence = {
@@ -6610,6 +6616,33 @@ export async function runWebGpuVisibleRecordDryRun({
   const recordComparison = compareRecords(cpuReference.records, computeResult.records, cpuReference.count, {
     epsilon,
     maxMismatches
+  });
+  const normalizedDetailedLineageSelection =
+    normalizeWebGpuDiagnosticDetailSelection(detailedLineageSelection);
+  const detailedLineageRows = resolveWebGpuDiagnosticDetailRows({
+    candidateIndices: cpuReference.candidateIndices,
+    selection: normalizedDetailedLineageSelection,
+    firstMismatches: recordComparison.firstMismatches
+  });
+  const step114TemporalEvaluationEvidence = buildStep114TemporalEvaluationInputs({
+    raw,
+    candidateIndices: cpuReference.candidateIndices,
+    statePositions,
+    buildConfig,
+    rowIndices: detailedLineageRows.rows
+  });
+  const step114PreCullDirectEvidence = buildStep114PreCullDirectEvidence({
+    candidateIndices: cpuReference.candidateIndices,
+    rawXyzOpacity,
+    statePositions,
+    temporalEvaluationEvidence: step114TemporalEvaluationEvidence,
+    webgpuRecords: computeResult.records,
+    directEvidenceRecords: computeResult.directEvidenceRecords,
+    directEvidenceLayout: computeResult.directEvidenceLayout,
+    footprintPayload: webgpu4DStateSource.footprintPayload,
+    projectionParams: projectionContract.data,
+    projectionContractSummary: projectionContract.summary,
+    rowIndices: detailedLineageRows.rows
   });
   const compareMs = nowMs() - compareStartMs;
   const mismatchClassification = classifyComparison(recordComparison);

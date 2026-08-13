@@ -165,8 +165,11 @@ def build_capture_command_contract(command_path: Path) -> Dict[str, Any]:
         code,
         r"window\.gpuViewerDebug\.captureGpuCandidateRuntimeSummaryDebug\s*\(",
     )
-    png_positions = find_positions(
+    png_capture_positions = find_positions(
         code, r"window\.gpuViewerDebug\.saveCurrentCanvasPng\s*\("
+    )
+    png_download_positions = find_positions(
+        code, r"genericProductionPngDownloadLink\.click\s*\("
     )
     completion_fence_positions = find_positions(
         code,
@@ -177,6 +180,9 @@ def build_capture_command_contract(command_path: Path) -> Dict[str, Any]:
         "diagnostic-result-json": find_artifact_positions(
             code, "_webgpu_visible_record_dryrun_compare.json"
         ),
+        "diagnostic-detail-json": find_artifact_positions(
+            code, "_webgpu_visible_record_lineage.json"
+        ),
         "diagnostic-status-json": find_artifact_positions(
             code, "_webgpu_visible_record_dryrun_capture_status.json"
         ),
@@ -185,6 +191,9 @@ def build_capture_command_contract(command_path: Path) -> Dict[str, Any]:
         ),
         "limited-draw-json": find_artifact_positions(
             code, "_limited_draw_summary.json"
+        ),
+        "png-status-json": find_artifact_positions(
+            code, "_png_capture_status.json"
         ),
     }
     stage_positions: Dict[str, Optional[int]] = {
@@ -195,6 +204,9 @@ def build_capture_command_contract(command_path: Path) -> Dict[str, Any]:
         "diagnostic-result-json": first_position(
             position for position, _ in artifact_markers["diagnostic-result-json"]
         ),
+        "diagnostic-detail-json": first_position(
+            position for position, _ in artifact_markers["diagnostic-detail-json"]
+        ),
         "diagnostic-status-json": first_position(
             position for position, _ in artifact_markers["diagnostic-status-json"]
         ),
@@ -204,14 +216,25 @@ def build_capture_command_contract(command_path: Path) -> Dict[str, Any]:
         "limited-draw-json": first_position(
             position for position, _ in artifact_markers["limited-draw-json"]
         ),
-        "png": first_position(png_positions),
+        "png-capture": first_position(png_capture_positions),
+        "png-status-json": first_position(
+            position for position, _ in artifact_markers["png-status-json"]
+        ),
+        "png": first_position(png_download_positions),
     }
-    ordered_stage_names = list(stage_positions)
+    ordered_stage_names = [
+        name for name, position in stage_positions.items() if position is not None
+    ]
     stages = [
         {"name": name, "position": stage_positions[name]}
         for name in ordered_stage_names
     ]
-    missing_stages = [name for name, position in stage_positions.items() if position is None]
+    required_stage_names = [
+        name for name in stage_positions if name != "diagnostic-detail-json"
+    ]
+    missing_stages = [
+        name for name in required_stage_names if stage_positions[name] is None
+    ]
     if missing_stages:
         verification_errors.append("ordered-stages-missing:" + ",".join(missing_stages))
     stage_values = [stage_positions[name] for name in ordered_stage_names]
@@ -235,7 +258,23 @@ def build_capture_command_contract(command_path: Path) -> Dict[str, Any]:
     png_render_before_capture_false = bool(
         re.search(r"\brenderBeforeCapture\s*:\s*false\b", png_body)
     )
-    png_position = first_position(png_positions)
+    png_download_deferred = bool(re.search(r"\bdownload\s*:\s*false\b", png_body))
+    png_fallback_disabled = bool(
+        re.search(r"\bfallbackToCanvasOnCaptureFailure\s*:\s*false\b", png_body)
+    )
+    production_png_capture_source = bool(
+        re.search(
+            r"\bcaptureSource\s*:\s*"
+            r"['\"]last-valid-webgpu-tile-compositor-output['\"]",
+            png_body,
+        )
+    )
+    png_capture_position = first_position(png_capture_positions)
+    png_status_position = stage_positions["png-status-json"]
+    png_position = first_position(png_download_positions)
+    code_after_png_capture = (
+        code[png_capture_position:] if png_capture_position is not None else ""
+    )
     code_after_png = code[png_position:] if png_position is not None else ""
     png_after_mutation_patterns = {
         "production-schedule": r"window\.gpuViewerDebug\.scheduleRender\s*\(",
@@ -249,13 +288,13 @@ def build_capture_command_contract(command_path: Path) -> Dict[str, Any]:
     png_after_mutations = [
         name
         for name, pattern in png_after_mutation_patterns.items()
-        if re.search(pattern, code_after_png, re.IGNORECASE)
+        if re.search(pattern, code_after_png_capture, re.IGNORECASE)
     ]
     artifact_save_positions = [
         position
         for markers in artifact_markers.values()
         for position, _ in markers
-    ] + png_positions
+    ] + png_download_positions
     png_last_artifact = (
         png_position is not None
         and artifact_save_positions
@@ -263,6 +302,34 @@ def build_capture_command_contract(command_path: Path) -> Dict[str, Any]:
         and not re.search(
             r"window\.gpuViewerDebug\.downloadJsonDebug\s*\(", code_after_png
         )
+    )
+    png_capture_result_retained = all(
+        marker in code
+        for marker in (
+            "var genericProductionPngCaptureResult =",
+            "genericProductionPngCaptureResult?.blob ?? null",
+            "captureBlobIdentity?.sha256",
+            "genericProductionPngCaptureResult.productionOutputGeneration",
+            "genericProductionPngCaptureResult.presentedOutputGeneration",
+            "genericProductionPngCaptureResult.capturedOutputGeneration",
+            "genericProductionPngCaptureResult.staleCaptureDetected",
+            "genericProductionPngCaptureResult.captureFreshnessKnown",
+            "genericProductionPngCaptureResult.captureFreshnessClassification",
+        )
+    )
+    png_download_uses_captured_blob = all(
+        marker in code
+        for marker in (
+            "URL.createObjectURL(genericProductionPngBlob)",
+            "genericProductionPngDownloadLink.href = genericProductionPngObjectUrl",
+            "genericProductionPngDownloadLink.download = genericProductionPngFileName",
+        )
+    )
+    png_status_before_download = (
+        png_capture_position is not None
+        and png_status_position is not None
+        and png_position is not None
+        and int(png_capture_position) < int(png_status_position) < int(png_position)
     )
 
     viewer_debug_api_calls = sorted(
@@ -348,6 +415,36 @@ def build_capture_command_contract(command_path: Path) -> Dict[str, Any]:
             < int(first_position(diagnostic_positions))
         ),
         "stagesOrdered": stages_ordered,
+        "canonicalDiagnosticArtifactSelectedFromBundle": all(
+            marker in code
+            for marker in (
+                "webgpuVisibleRecordDiagnosticArtifacts",
+                ".canonicalDiagnosticResult",
+                ".detailedLineageArtifact",
+            )
+        ),
+        "diagnosticArtifactProvenancePresent": all(
+            marker in code
+            for marker in (
+                "phase3-diagnostic-artifact-provenance-v1",
+                "artifactSetIdentity",
+                "artifactProvenance",
+                "capturePrefix",
+                "requestIdentity",
+                "productionGeneration",
+                "frameIdentity",
+            )
+        ),
+        "detailArtifactBeforeDiagnosticStatus": (
+            stage_positions["diagnostic-detail-json"] is None
+            or (
+                stage_positions["diagnostic-result-json"] is not None
+                and stage_positions["diagnostic-status-json"] is not None
+                and int(stage_positions["diagnostic-result-json"])
+                < int(stage_positions["diagnostic-detail-json"])
+                < int(stage_positions["diagnostic-status-json"])
+            )
+        ),
         "diagnosticBeforeProductionRequestAbsent": (
             first_position(diagnostic_positions) is not None
             and first_position(fresh_request_positions) is not None
@@ -355,12 +452,20 @@ def build_capture_command_contract(command_path: Path) -> Dict[str, Any]:
             < int(first_position(diagnostic_positions))
         ),
         "pngBeforeDiagnosticAbsent": (
-            png_position is not None
+            png_capture_position is not None
             and first_position(diagnostic_positions) is not None
-            and int(first_position(diagnostic_positions)) < int(png_position)
+            and int(first_position(diagnostic_positions))
+            < int(png_capture_position)
         ),
         "pngIsLastArtifactSave": png_last_artifact,
         "pngRenderBeforeCaptureFalse": png_render_before_capture_false,
+        "productionPngCapturePathUsed": production_png_capture_source,
+        "pngCaptureDownloadDeferred": png_download_deferred,
+        "pngFallbackDisabled": png_fallback_disabled,
+        "pngCaptureResultRetained": png_capture_result_retained,
+        "pngStatusArtifactPresent": png_status_position is not None,
+        "pngStatusBeforePngDownload": png_status_before_download,
+        "pngDownloadUsesCapturedBlob": png_download_uses_captured_blob,
         "pngAfterProductionMutationAbsent": not png_after_mutations,
         "stateMutatingReadinessRetryAbsent": (
             not re.search(r"\bretryDefaultScene\s*:\s*true\b", code)
@@ -393,12 +498,19 @@ def build_capture_command_contract(command_path: Path) -> Dict[str, Any]:
         "forceProductionUpdateTrue": len(force_update_positions),
         "diagnosticCaptureCall": len(diagnostic_positions),
         "runtimeSummaryCaptureCall": len(runtime_summary_positions),
-        "pngSaveCall": len(png_positions),
+        "diagnosticDetailArtifactSave": len(
+            artifact_markers["diagnostic-detail-json"]
+        ),
+        "pngCaptureCall": len(png_capture_positions),
+        "pngStatusArtifactSave": len(artifact_markers["png-status-json"]),
+        "pngSaveCall": len(png_download_positions),
         "productionScheduleCall": len(production_schedule_positions),
     }
     for name in (
         "diagnosticCaptureCall",
         "runtimeSummaryCaptureCall",
+        "pngCaptureCall",
+        "pngStatusArtifactSave",
         "pngSaveCall",
     ):
         if counts[name] != 1:

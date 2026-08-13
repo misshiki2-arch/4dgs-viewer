@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import subprocess
 import tempfile
@@ -13,9 +12,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 GENERIC_CAPTURE_LIFECYCLE = "fresh-production-diagnostic-json-png"
 REGRESSION_SCHEMA_VERSION = "phase3-capture-command-boundary-regression-v1"
-STEP114_LEGACY_FIXTURE_SHA256 = (
-    "68794d066cb3fe180d718bec34a4cdeff5da68435a5ce5f4ce8b0b9a1d4dea1b"
-)
 
 
 def build_generic_capture_command(
@@ -96,7 +92,13 @@ def assert_generic_capture_lifecycle(
     runtime_json_index = source.index(
         f"'{prefix}_gpu_candidate_runtime_summary.json'"
     )
-    png_index = source.index("await window.gpuViewerDebug.saveCurrentCanvasPng(")
+    png_capture_index = source.index(
+        "await window.gpuViewerDebug.saveCurrentCanvasPng("
+    )
+    png_status_index = source.index(f"'{prefix}_png_capture_status.json'")
+    png_download_index = source.index(
+        "genericProductionPngDownloadLink.click()"
+    )
     assert (
         preflight_index
         < readiness_index
@@ -106,7 +108,9 @@ def assert_generic_capture_lifecycle(
         < diagnostic_json_index
         < diagnostic_status_index
         < runtime_json_index
-        < png_index
+        < png_capture_index
+        < png_status_index
+        < png_download_index
     )
     assert source.count("window.gpuViewerDebug.scheduleRender(") == 1
     assert source.count("forceProductionUpdate: true") == 1
@@ -114,9 +118,27 @@ def assert_generic_capture_lifecycle(
     assert source.count("await window.gpuViewerDebug.saveCurrentCanvasPng(") == 1
     assert "retryDefaultScene: false" in source
     assert "retryDefaultScene: true" not in source
-    assert "renderBeforeCapture: false" in source[png_index:]
-    assert "scheduleRender(" not in source[png_index:]
-    assert "forceProductionUpdate: true" not in source[png_index:]
+    png_source = source[png_capture_index:]
+    assert "captureSource: 'last-valid-webgpu-tile-compositor-output'" in png_source
+    assert "fallbackToCanvasOnCaptureFailure: false" in png_source
+    assert "renderBeforeCapture: false" in png_source
+    assert "download: false" in png_source
+    assert "var genericProductionPngCaptureResult =" in source
+    assert "genericProductionPngCaptureResult?.blob ?? null" in png_source
+    assert "captureBlobIdentity?.sha256" in png_source
+    for evidence_field in (
+        "productionOutputGeneration",
+        "presentedOutputGeneration",
+        "capturedOutputGeneration",
+        "staleCaptureDetected",
+        "captureFreshnessKnown",
+        "captureFreshnessClassification",
+    ):
+        assert f"genericProductionPngCaptureResult.{evidence_field}" in png_source
+    assert "URL.createObjectURL(genericProductionPngBlob)" in png_source
+    assert "genericProductionPngDownloadLink.click()" in png_source
+    assert "scheduleRender(" not in png_source
+    assert "forceProductionUpdate: true" not in png_source
     assert f"phaseStep: '{phase_step}'" in source
     assert f"comparisonMode: '{comparison_mode}'" in source
     for suffix in (
@@ -124,6 +146,7 @@ def assert_generic_capture_lifecycle(
         "_webgpu_visible_record_dryrun_capture_status.json",
         "_gpu_candidate_runtime_summary.json",
         "_limited_draw_summary.json",
+        "_png_capture_status.json",
         "_canvas.png",
     ):
         assert f"'{prefix}{suffix}'" in source
@@ -151,6 +174,8 @@ def run_checks() -> dict:
             if fix == "fix6_fix1":
                 command.extend(
                     [
+                        "--canonical-src-indices",
+                        "0,1,2,3,4,5,6,7",
                         "--expected-runtime",
                         "webgpu",
                         "--expected-effective-display-runtime",
@@ -218,6 +243,8 @@ def run_checks() -> dict:
                 "true",
                 "--include-webgpu-visible-record-dryrun",
                 "true",
+                "--canonical-src-indices",
+                "0,1,2,3,4,5,6,7",
                 "--include-png",
                 "true",
                 "--expected-runtime",
@@ -311,11 +338,22 @@ def run_checks() -> dict:
     assert "step114FixedTimeCaptureIsolation" not in generic_policy_source
     assert GENERIC_CAPTURE_LIFECYCLE not in legacy_step117_source
     assert "genericFreshProductionCaptureLifecycle" not in legacy_step117_source
-    legacy_byte_equivalent = (
-        hashlib.sha256(fix1_source.encode("utf-8")).hexdigest()
-        == STEP114_LEGACY_FIXTURE_SHA256
+    step114_semantic_detail_compatibility = all(
+        marker in step114_order_source
+        for marker in (
+            "diagnosticDetailSelection",
+            "mode: 'explicit-src-indices'",
+            "_webgpu_visible_record_lineage.json",
+            "webgpuVisibleRecordDetailedLineageArtifact",
+        )
     )
-    assert legacy_byte_equivalent
+    step114_manifest_uses_detailed_lineage = (
+        "webgpuDetailedLineageArtifact" in fix1_source
+        and "__phase3LatestWebGpuVisibleRecordDetailedLineageArtifact"
+        in fix1_source
+    )
+    assert step114_semantic_detail_compatibility
+    assert step114_manifest_uses_detailed_lineage
     step114_request_index = step114_order_source.index(
         "captureScheduleRequest = await window.gpuViewerDebug.scheduleRender("
     )
@@ -325,8 +363,14 @@ def run_checks() -> dict:
     step114_diagnostic_index = step114_order_source.index(
         "await window.gpuViewerDebug.captureWebGpuVisibleRecordDryRunDebug("
     )
+    step114_detail_index = step114_order_source.index(
+        "_webgpu_visible_record_lineage.json"
+    )
     step114_fixed_time_ordering_preserved = (
-        step114_request_index < step114_png_index < step114_diagnostic_index
+        step114_request_index
+        < step114_png_index
+        < step114_diagnostic_index
+        < step114_detail_index
     )
     assert step114_fixed_time_ordering_preserved
     step114_artifact_naming_preserved = all(
@@ -334,6 +378,7 @@ def run_checks() -> dict:
         for name in (
             "phase3_step114_fix10_fix6_fix1_000151_v13_canvas.png",
             "phase3_step114_fix10_fix6_fix1_000151_v13_webgpu_visible_record_dryrun_compare.json",
+            "phase3_step114_fix10_fix6_fix1_000151_v13_webgpu_visible_record_lineage.json",
             "phase3_step114_fix10_fix6_fix1_000151_v13_webgpu_visible_record_dryrun_capture_status.json",
         )
     )
@@ -373,7 +418,8 @@ def run_checks() -> dict:
         "checks": [
             {"name": "step114-runtime-preflight-boundary", "passed": True},
             {"name": "step114-synchronous-command-fence", "passed": True},
-            {"name": "step114-legacy-command-byte-equivalence", "passed": True},
+            {"name": "step114-generic-detail-semantic-compatibility", "passed": True},
+            {"name": "step114-manifest-detail-adapter", "passed": True},
             {"name": "step114-fixed-time-ordering", "passed": True},
             {"name": "step114-artifact-naming", "passed": True},
             {"name": "generic-lifecycle-canonical-prefix", "passed": True},
@@ -381,7 +427,13 @@ def run_checks() -> dict:
             {"name": "generic-lifecycle-explicit-selection", "passed": True},
             {"name": "summary-overlay-schema-selection", "passed": True},
         ],
-        "legacyByteEquivalent": legacy_byte_equivalent,
+        "legacyByteEquivalent": False,
+        "step114SemanticDetailCompatibility": (
+            step114_semantic_detail_compatibility
+        ),
+        "step114ManifestUsesDetailedLineage": (
+            step114_manifest_uses_detailed_lineage
+        ),
         "step114FixedTimeOrderingPreserved": (
             step114_fixed_time_ordering_preserved
         ),

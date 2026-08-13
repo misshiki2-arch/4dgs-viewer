@@ -114,7 +114,8 @@ export function canProbeViewerCanvasCurrentTexturePath({
 
 export async function buildWebGpuViewerCanvasCurrentTexturePathReadiness({
   device,
-  viewerCanvasState = null
+  viewerCanvasState = null,
+  canvasContextMutationAllowed = true
 } = {}) {
   const startMs = nowMs();
   if (!device) return buildUnavailable('webgpu-device-unavailable');
@@ -167,6 +168,93 @@ export async function buildWebGpuViewerCanvasCurrentTexturePathReadiness({
     GPUTextureUsage.COPY_DST;
   const width = Math.max(1, Math.round(canvas.width ?? canvas.clientWidth ?? 1));
   const height = Math.max(1, Math.round(canvas.height ?? canvas.clientHeight ?? 1));
+
+  if (canvasContextMutationAllowed !== true) {
+    return {
+      mode: WEBGPU_VIEWER_CANVAS_CURRENT_TEXTURE_PATH_MODE,
+      status: 'ok',
+      reason: 'live-viewer-canvas-owned-by-production-presentation',
+      source: 'viewerCanvasState + production diagnostic ownership isolation',
+      viewerCanvasCurrentTexturePathImplemented: true,
+      viewerCanvasCurrentTexturePathReady: false,
+      viewerCanvasContextConfigured: false,
+      viewerCanvasCurrentTextureAcquired: false,
+      viewerCanvasContextMutationSuppressed: true,
+      viewerCanvasPresentationImplemented: false,
+      productionDisplayConnectionImplemented: false,
+      displayConnectionAllowed: false,
+      webgl2HybridRenderingAllowed: false,
+      requestedBackendMode,
+      canvasContextKind: null,
+      textureFormat,
+      requestedPreferredFormat: preferredFormat,
+      usage: ['render_attachment', 'copy_src', 'copy_dst'],
+      outputExtent: { canvasWidth: width, canvasHeight: height },
+      viewerCanvasOwnershipContract: {
+        viewerCanvasProvided,
+        contextMode,
+        allowViewerCanvasPresentation,
+        requestedOwner: exclusiveBackendModeRequested ? 'webgpu' : 'webgl2-fallback',
+        currentOwner: 'production-presentation-owner',
+        webgl2FrameLifecycleSuppressed,
+        requiresExclusiveBackendMode: true,
+        requiresPresentationGuard: true,
+        requiresNoActiveWebGL2Context: true,
+        handoffPolicy:
+          'production diagnostic does not configure or acquire the live viewer canvas currentTexture'
+      },
+      currentTextureContract: {
+        adapterLineage:
+          'production diagnostic currentTexture access is isolated from the live viewer canvas',
+        readinessDefinition:
+          'production presentation owner retains context and currentTexture ownership',
+        firstPresentPolicy:
+          'diagnostic path does not configure, acquire, encode, or submit live canvas work',
+        resizePolicy:
+          'production presentation validates device, format, and extent'
+      },
+      cameraProjectionContract: {
+        fixedReferenceCapture:
+          'diagnostic ownership isolation does not change fixed-reference camera/projection data',
+        interactiveViewer:
+          'Three.js camera and OrbitControls remain input adapters',
+        controlsImpact: 'no interactive camera behavior is changed'
+      },
+      shPolicy: {
+        requiredForThisCurrentTexturePath: false,
+        status: 'deferred',
+        fallbackColorSource: null,
+        displayImpact: 'diagnostic isolation does not change production color output'
+      },
+      anyMismatch: false,
+      mismatchClassification: 'none',
+      validationSummary: {
+        deviceAvailable: true,
+        viewerCanvasProvided,
+        exclusiveBackendModeRequested,
+        viewerCanvasPresentationGuardEnabled: allowViewerCanvasPresentation,
+        viewerCanvasWebgl2Active,
+        webgl2FrameLifecycleSuppressed,
+        probeAllowed: false,
+        viewerCanvasContextMutationSuppressed: true,
+        webgpuCanvasContextAvailable: null,
+        viewerCanvasContextConfigured: false,
+        currentTextureAvailable: false,
+        currentTextureExtentValid: null,
+        viewerCanvasCurrentTexturePathReady: false,
+        webgl2HybridRenderingPrevented: !viewerCanvasWebgl2Active,
+        displayConnectionPrevented: true,
+        cameraProjectionContractUnchanged: true,
+        firstValidationFailures: []
+      },
+      blockers: [],
+      nextBackendPrototypeStep:
+        'reuse the production presentation owner without diagnostic canvas mutation',
+      timing: {
+        viewerCanvasCurrentTexturePathMs: nowMs() - startMs
+      }
+    };
+  }
 
   if (probeAllowed) {
     try {

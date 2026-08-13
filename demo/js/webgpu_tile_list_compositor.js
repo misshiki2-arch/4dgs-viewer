@@ -18,6 +18,9 @@ import {
   registerFinalCanvasPresentationPath,
   recordFinalCanvasPresentationEvent
 } from './common_4dgs_final_canvas_presentation.js';
+import {
+  canMutateProductionPresentationState
+} from './common_4dgs_production_runtime_contract.js';
 
 const COMPOSITOR_SUMMARY_FLOAT_COUNT = 40;
 const ORDERING_SUMMARY_UINT_COUNT = 28;
@@ -25,6 +28,21 @@ const BOUNDED_SORT_CAPACITY_LIMIT = 64;
 const PARALLEL_SORT_STAGE_COUNT = 21;
 const viewerCanvasWebGpuContextState = new WeakMap();
 const viewerCanvasTileCompositorOutputState = new WeakMap();
+
+export function canOwnProductionTileCompositorPresentation(
+  viewerCanvasState = null
+) {
+  return (
+    viewerCanvasState?.requestedBackendMode === 'webgpu-exclusive' &&
+    viewerCanvasState?.allowViewerCanvasPresentation === true &&
+    viewerCanvasState?.webgl2FrameLifecycleSuppressed === true &&
+    viewerCanvasState?.provided === true &&
+    canMutateProductionPresentationState(
+      viewerCanvasState?.productionPresentationMutationPolicy ?? null
+    ) &&
+    !!viewerCanvasState?.canvas
+  );
+}
 
 function alignTo(value, alignment) {
   return Math.ceil(value / alignment) * alignment;
@@ -557,11 +575,7 @@ async function presentTileCompositorTextureToCurrentTexture({
     })
   };
   const currentTextureGuardAllowed =
-    viewerCanvasState?.requestedBackendMode === 'webgpu-exclusive' &&
-    viewerCanvasState?.allowViewerCanvasPresentation === true &&
-    viewerCanvasState?.webgl2FrameLifecycleSuppressed === true &&
-    viewerCanvasState?.provided === true &&
-    !!viewerCanvas;
+    canOwnProductionTileCompositorPresentation(viewerCanvasState);
   if (
     !currentTextureGuardAllowed ||
     !device ||
@@ -1848,11 +1862,7 @@ fn finalizeSummary() {
   });
   const viewerCanvas = viewerCanvasState?.canvas ?? null;
   const currentTextureGuardAllowed =
-    viewerCanvasState?.requestedBackendMode === 'webgpu-exclusive' &&
-    viewerCanvasState?.allowViewerCanvasPresentation === true &&
-    viewerCanvasState?.webgl2FrameLifecycleSuppressed === true &&
-    viewerCanvasState?.provided === true &&
-    !!viewerCanvas;
+    canOwnProductionTileCompositorPresentation(viewerCanvasState);
   let compositorOutputPresentedToCurrentTexture = false;
   let compositorCurrentTextureRenderPassSubmitted = false;
   let compositorCurrentTextureReadbackCompleted = false;

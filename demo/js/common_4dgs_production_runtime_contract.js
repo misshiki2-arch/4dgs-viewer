@@ -6,6 +6,10 @@ export const PRODUCTION_WEBGPU_EFFECTIVE_DISPLAY_RUNTIME = 'webgpu-production';
 export const PRODUCTION_WEBGPU_BACKEND_MODE = 'webgpu-exclusive';
 export const PRODUCTION_WEBGPU_TILE_COMPOSITOR_IMPLEMENTATION =
   'webgpu-tile-compositor-frame-implementation';
+export const PRODUCTION_PRESENTATION_OWNER_ROLE =
+  'production-presentation-owner';
+export const PRODUCTION_DIAGNOSTIC_OBSERVER_ROLE =
+  'production-diagnostic-observer';
 
 function nowMs() {
   return typeof performance !== 'undefined' && typeof performance.now === 'function'
@@ -15,6 +19,43 @@ function nowMs() {
 
 function normalizeBoolean(value) {
   return value === true ? true : value === false ? false : null;
+}
+
+export function buildProductionPresentationMutationPolicy({
+  executionRole = PRODUCTION_PRESENTATION_OWNER_ROLE
+} = {}) {
+  const productionPresentationOwner =
+    executionRole === PRODUCTION_PRESENTATION_OWNER_ROLE;
+  return {
+    schemaVersion: 'phase3-production-presentation-mutation-policy-v1',
+    source: 'common-production-runtime-selection-contract',
+    executionRole,
+    diagnosticComputationAllowed: true,
+    diagnosticReadbackAllowed: true,
+    liveProductionCanvasMutationAllowed: productionPresentationOwner,
+    productionOutputMutationAllowed: productionPresentationOwner,
+    lastValidProductionCacheMutationAllowed: productionPresentationOwner,
+    productionRequestMutationAllowed: productionPresentationOwner,
+    productionGenerationMutationAllowed: productionPresentationOwner,
+    compositorGenerationMutationAllowed: productionPresentationOwner,
+    presentedGenerationMutationAllowed: productionPresentationOwner,
+    finalProductionWriterMutationAllowed: productionPresentationOwner
+  };
+}
+
+export function canMutateProductionPresentationState(policy = null) {
+  if (!policy) return true;
+  return (
+    policy.executionRole === PRODUCTION_PRESENTATION_OWNER_ROLE &&
+    policy.liveProductionCanvasMutationAllowed === true &&
+    policy.productionOutputMutationAllowed === true &&
+    policy.lastValidProductionCacheMutationAllowed === true &&
+    policy.productionRequestMutationAllowed === true &&
+    policy.productionGenerationMutationAllowed === true &&
+    policy.compositorGenerationMutationAllowed === true &&
+    policy.presentedGenerationMutationAllowed === true &&
+    policy.finalProductionWriterMutationAllowed === true
+  );
 }
 
 export function buildProductionRuntimeSelectionContract({
