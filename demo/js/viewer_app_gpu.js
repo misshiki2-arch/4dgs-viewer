@@ -83,6 +83,9 @@ import { runGpuVisibleRecordDryRun } from './gpu_visible_record_dry_run_runtime.
 import { runGpuRawVisibleRecordDryRun } from './gpu_visible_record_raw_dry_run_runtime.js';
 import { runWebGpuVisibleRecordDryRun } from './webgpu_visible_record_dry_run_runtime.js';
 import {
+  runNativeWebGpuProductionFrameDataPath
+} from './webgpu_production_frame_data_path.js';
+import {
   buildWebGpuVisibleRecordDiagnosticArtifactBundle,
   normalizeWebGpuDiagnosticDetailSelection
 } from './common_4dgs_diagnostic_artifact_contracts.js';
@@ -215,11 +218,7 @@ const finalCanvasPresentationTraceRecorder =
           WEBGPU_TILE_COMPOSITOR_FRAME_IMPLEMENTATION &&
         deterministicQueryState.webgpuBackendViewerLoopHook === true &&
         deterministicQueryState.webgpuAllowViewerCanvasPresentation === true
-        ? [
-            FINAL_CANVAS_PRESENTATION_PATHS.TILE_COMPOSITOR,
-            FINAL_CANVAS_PRESENTATION_PATHS.BOUNDED_FIRST_PRESENT,
-            FINAL_CANVAS_PRESENTATION_PATHS.BOUNDED_COLOR_PRESENT
-          ]
+        ? [FINAL_CANVAS_PRESENTATION_PATHS.TILE_COMPOSITOR]
         : [FINAL_CANVAS_PRESENTATION_PATHS.GUARDED_PRESENTATION]
   });
 let appliedCameraPresetName = deterministicQueryState.cameraPresetName ?? 'none';
@@ -3201,6 +3200,87 @@ async function runWebGpuVisibleRecordDryRunFromViewerState({
   });
 }
 
+async function runNativeWebGpuProductionFrameFromViewerState({
+  options = {},
+  requestedWebGpuBackendMode = 'webgl2-fallback',
+  allowViewerCanvasPresentation = false,
+  enableViewerLoopHook = false,
+  metadataOverrides = {}
+} = {}) {
+  camera.updateMatrixWorld(true);
+  const baseDeterministicState = buildDeterministicStateSummary();
+  const fixedReferenceCameraModeRequested =
+    isFixedReferenceCameraActivationRequested(options);
+  const deterministicState = fixedReferenceCameraModeRequested
+    ? buildFixedReferenceCameraDeterministicStateSummary(baseDeterministicState)
+    : baseDeterministicState;
+  const buildConfig = getVisibleBuildConfig(ui, buildRenderOverrides());
+  const screenSpaceCamera = buildScreenSpaceCameraProxy(camera, deterministicState);
+  const gpu = getGpu();
+  const viewerTimeState =
+    buildViewerConnectedSchedulerViewerTimeStateForDryRun();
+  const viewerCameraStateBase =
+    buildViewerConnectedSchedulerViewerCameraStateForDryRun();
+  const viewerCameraState = fixedReferenceCameraModeRequested
+    ? buildFixedReferenceCameraStateForDryRun(
+        deterministicState,
+        viewerCameraStateBase
+      )
+    : viewerCameraStateBase;
+  return runNativeWebGpuProductionFrameDataPath({
+    raw,
+    camera,
+    screenSpaceCamera,
+    canvasWidth: canvas.width,
+    canvasHeight: canvas.height,
+    buildConfig,
+    viewerCanvasState: {
+      provided: true,
+      canvas,
+      contextMode: gpu?.gl
+        ? 'webgl2-active'
+        : 'webgpu-exclusive-lifecycle-requested',
+      requestedBackendMode: requestedWebGpuBackendMode,
+      allowViewerCanvasPresentation,
+      webgl2FrameLifecycleSuppressed: true,
+      finalCanvasPresentationTraceRecorder,
+      schedulerFrameState:
+        latestViewerConnectedSchedulerRuntimeState?.schedulerFrameState ??
+        latestViewerConnectedSchedulerTimeControlEvidence?.schedulerFrameState ??
+        null,
+      viewerTimeState,
+      viewerCameraState
+    },
+    metadata: {
+      deterministicState: buildSlimDeterministicStateSummary(deterministicState),
+      captureSource:
+        metadataOverrides.captureSource ?? 'viewer-backend-frame-executor',
+      phase: metadataOverrides.phase ?? 'phase3-step118',
+      viewerLifecycleIntegrationRequest: {
+        requestedBackendMode: requestedWebGpuBackendMode,
+        allowViewerCanvasPresentation,
+        webgpuBackendViewerLoopHook: enableViewerLoopHook,
+        backendImplementationKind:
+          metadataOverrides.selectedBackendImplementationKind ??
+          WEBGPU_TILE_COMPOSITOR_FRAME_IMPLEMENTATION,
+        renderLifecycleStage:
+          metadataOverrides.renderLifecycleStage ?? 'renderCurrentFrame',
+        invocationSource:
+          metadataOverrides.invocationSource ??
+          'renderCurrentFrame-viewer-backend-executor',
+        backendExecutorRequest:
+          metadataOverrides.backendExecutorRequest ?? null,
+        lastRenderTileCompositorViewerLoopPersistence:
+          latestRenderResult?.webgpuTileCompositorViewerLoopPersistence ?? null,
+        lastRenderSchedulerFatalError:
+          scheduler?.state?.lastRenderFailed === true
+            ? scheduler.state.lastRenderError ?? null
+            : null
+      }
+    }
+  });
+}
+
 async function captureWebGpuVisibleRecordDryRunDebug(options = {}) {
   const viewerDataReadiness = await waitForViewerDebugDataReady({
     timeoutMs: Number.isFinite(options.viewerDataReadyTimeoutMs)
@@ -4891,6 +4971,10 @@ function buildRenderResultInspectionSummary(renderResult) {
       renderResult?.webgpuBackendViewerLifecycleControlledExecution ?? null,
     webgpuBackendViewerFrameExecutor:
       renderResult?.webgpuBackendViewerFrameExecutor ?? null,
+    productionResidentWorksetContract:
+      renderResult?.productionResidentWorksetContract ?? null,
+    webgpuProductionFrameDataPathContract:
+      renderResult?.webgpuProductionFrameDataPathContract ?? null,
     tileAccumulationPayloadSummary: renderResult?.tileAccumulationPayloadSummary
       ? {
           payloadContract: renderResult.tileAccumulationPayloadSummary.payloadContract ?? 'none',
@@ -6650,7 +6734,32 @@ async function renderCurrentFrame(options = {}) {
               uniformResourcePreparationContract,
               uniformResourceLifecycleContract
             }) =>
-              runWebGpuVisibleRecordDryRunFromViewerState({
+              selectedBackendImplementationKind ===
+              WEBGPU_TILE_COMPOSITOR_FRAME_IMPLEMENTATION
+                ? runNativeWebGpuProductionFrameFromViewerState({
+                    options,
+                    requestedWebGpuBackendMode: requestedBackendMode,
+                    allowViewerCanvasPresentation,
+                    enableViewerLoopHook: true,
+                    metadataOverrides: {
+                      captureSource: 'viewer-backend-frame-executor',
+                      phase: 'phase3-step118',
+                      renderLifecycleStage: 'renderCurrentFrame',
+                      invocationSource:
+                        'renderCurrentFrame-viewer-backend-executor',
+                      selectedBackendImplementationKind,
+                      backendExecutorRequest: {
+                        executorContract,
+                        runnerContract,
+                        implementationContract,
+                        frameInputContract,
+                        frameConstantsContract,
+                        uniformResourcePreparationContract,
+                        uniformResourceLifecycleContract
+                      }
+                    }
+                  })
+                : runWebGpuVisibleRecordDryRunFromViewerState({
                 options: {
                   ...options,
                   ensureCurrentFrame: false,
@@ -6746,7 +6855,32 @@ async function renderCurrentFrame(options = {}) {
           uniformResourcePreparationContract,
           uniformResourceLifecycleContract
         }) =>
-          runWebGpuVisibleRecordDryRunFromViewerState({
+          selectedBackendImplementationKind ===
+          WEBGPU_TILE_COMPOSITOR_FRAME_IMPLEMENTATION
+            ? runNativeWebGpuProductionFrameFromViewerState({
+                options,
+                requestedWebGpuBackendMode: requestedBackendMode,
+                allowViewerCanvasPresentation,
+                enableViewerLoopHook: true,
+                metadataOverrides: {
+                  captureSource: 'viewer-loop-tile-compositor-persistence',
+                  phase: 'phase3-step118',
+                  renderLifecycleStage: 'renderCurrentFrame',
+                  invocationSource:
+                    'renderCurrentFrame-viewer-loop-tile-compositor-persistence',
+                  selectedBackendImplementationKind,
+                  backendExecutorRequest: {
+                    executorContract,
+                    runnerContract,
+                    implementationContract,
+                    frameInputContract,
+                    frameConstantsContract,
+                    uniformResourcePreparationContract,
+                    uniformResourceLifecycleContract
+                  }
+                }
+              })
+            : runWebGpuVisibleRecordDryRunFromViewerState({
             options: {
               ...options,
               ensureCurrentFrame: false,
@@ -6993,6 +7127,12 @@ async function renderCurrentFrame(options = {}) {
       webgpuBackendViewerFramePresentationPass,
       webgpuTileCompositorViewerLoopPersistence:
         tileCompositorViewerLoopPersistence,
+      productionResidentWorksetContract:
+        backendFrameExecutorResult?.backendFrameResult
+          ?.productionResidentWorksetContract ?? null,
+      webgpuProductionFrameDataPathContract:
+        backendFrameExecutorResult?.backendFrameResult
+          ?.webgpuProductionFrameDataPathContract ?? null,
       drawPathSummary: {
         requestedPath: 'webgpu-exclusive',
         actualPath:

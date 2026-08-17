@@ -13,7 +13,7 @@ export const WEBGPU_TILE_AWARE_RENDER_INPUT_CONTRACT_VERSION =
   'phase3-step83-webgpu-tile-aware-render-input-v1';
 
 export const WEBGPU_GPU_OWNED_TILE_LIST_LAYOUT_CONTRACT_VERSION =
-  'phase3-step84-webgpu-gpu-owned-tile-list-layout-v1';
+  'phase3-production-compact-gpu-owned-tile-list-layout-v2';
 
 export const WEBGPU_TILE_LIST_COMPOSITOR_CONTRACT_VERSION =
   'phase3-step109-fixed-reference-camera-activation-v1';
@@ -553,11 +553,20 @@ export function buildWebGpuTileAwareRenderInputContract({
 
 export function buildWebGpuGpuOwnedTileListLayoutContract({
   status = 'ok',
-  layoutMode = 'fixed-capacity-gpu-owned-offset-count-reference-list',
+  layoutMode = 'compact-capacity-gpu-owned-offset-count-reference-list',
   candidateTileRecordCount = 0,
   tileCount = 0,
   tileSize = 16,
   maxRefsPerTile = 64,
+  allocatedReferenceCapacity = 0,
+  requiredPaddedReferenceCapacity = 0,
+  recordAndReferenceCapacitySeparated = false,
+  compactOffsetsGenerated = false,
+  capacityOverflowFailClosed = false,
+  silentDropAllowed = false,
+  tileReferenceCapacityContract = null,
+  boundedExecutionContract = null,
+  gpuExecutionPlanContract = null,
   offsetCountTableCreated = false,
   splatReferenceListCreated = false,
   referenceListStoresDepthKey = false,
@@ -592,15 +601,40 @@ export function buildWebGpuGpuOwnedTileListLayoutContract({
     consumerFollowedOffsetCountTable === true &&
     offsetCountTableCreated === true &&
     splatReferenceListCreated === true &&
-    totalTileReferenceCount > 0;
+    recordAndReferenceCapacitySeparated === true &&
+    compactOffsetsGenerated === true &&
+    capacityOverflowFailClosed === true &&
+    silentDropAllowed === false &&
+    (
+      tileReferenceCapacityContract?.tileReferenceCapacityReady === true ||
+      gpuExecutionPlanContract?.gpuExecutionPlanReady === true
+    ) &&
+    (
+      boundedExecutionContract?.boundedExecutionReady === true ||
+      gpuExecutionPlanContract?.gpuExecutionPlanReady === true
+    ) &&
+    (
+      totalTileReferenceCount > 0 ||
+      gpuExecutionPlanContract?.gpuExecutionPlanReady === true
+    );
   return {
     contractVersion: WEBGPU_GPU_OWNED_TILE_LIST_LAYOUT_CONTRACT_VERSION,
-    status: ready ? 'ok' : status,
+    status: ready ? 'ok' : status === 'ok' ? 'blocked' : status,
     layoutMode,
     candidateTileRecordCount,
     tileCount,
     tileSize,
     maxRefsPerTile,
+    allocatedReferenceCapacity,
+    requiredPaddedReferenceCapacity,
+    recordAndReferenceCapacitySeparated:
+      recordAndReferenceCapacitySeparated === true,
+    compactOffsetsGenerated: compactOffsetsGenerated === true,
+    capacityOverflowFailClosed: capacityOverflowFailClosed === true,
+    silentDropAllowed: silentDropAllowed === true,
+    tileReferenceCapacityContract,
+    boundedExecutionContract,
+    gpuExecutionPlanContract,
     offsetCountTableCreated,
     splatReferenceListCreated,
     referenceListStoresDepthKey,
@@ -633,6 +667,7 @@ export function buildWebGpuTileListCompositorContract({
   status = 'ok',
   compositorMode = 'partial-webgpu-tile-list-compositor',
   tileCompositorReady = false,
+  boundedExecutionContract = null,
   compositorPassSubmitted = false,
   compositorReadbackCompleted = false,
   compositorReadOffsetCountTable = false,
@@ -1135,6 +1170,7 @@ export function buildWebGpuTileListCompositorContract({
   const ready =
     status === 'ok' &&
     tileCompositorReady === true &&
+    boundedExecutionContract?.boundedExecutionReady === true &&
     compositorPassSubmitted === true &&
     compositorReadOffsetCountTable === true &&
     compositorTraversedReferenceList === true &&
@@ -2153,6 +2189,7 @@ export function buildWebGpuTileListCompositorContract({
     contractVersion: WEBGPU_TILE_LIST_COMPOSITOR_CONTRACT_VERSION,
     status: ready ? 'ok' : status,
     compositorMode,
+    boundedExecutionContract,
     tileCompositorReady: ready,
     compositorPassSubmitted,
     compositorReadbackCompleted,

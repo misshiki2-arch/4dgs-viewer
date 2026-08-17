@@ -583,14 +583,22 @@ export function buildViewerFramePresentationPassContract({
   executorContract,
   runtimeRunner,
   presentationBridgeContract,
+  tileCompositorContract = null,
   invocationSource = 'viewer-frame-lifecycle-presentation-pass',
   frameIndex = 0
 } = {}) {
+  const tileCompositorPresentation =
+    executorContract?.backendImplementationKind ===
+      'webgpu-tile-compositor-frame-implementation' &&
+    tileCompositorContract?.tileCompositorOutputPresentedToCurrentTexture === true;
   const currentTextureConnected =
+    tileCompositorPresentation ||
     presentationBridgeContract?.currentTextureConnected === true;
   const currentTextureReadbackMatchesAdapterOutput =
-    presentationBridgeContract?.currentTextureReadbackMatchesAdapterOutput ===
-    true;
+    tileCompositorPresentation
+      ? tileCompositorContract?.compositorCurrentTextureReadbackNonZero === true
+      : presentationBridgeContract?.currentTextureReadbackMatchesAdapterOutput ===
+        true;
   const calledFromViewerFrameLifecycle =
     executorContract?.callableFromViewerLifecycle === true &&
     String(invocationSource).includes('renderCurrentFrame');
@@ -602,6 +610,7 @@ export function buildViewerFramePresentationPassContract({
     executorContract?.allowViewerCanvasPresentation === true &&
     executorContract?.enableViewerLoopHook === true;
   const webgl2HybridRenderingPrevented =
+    tileCompositorPresentation ||
     presentationBridgeContract?.webgl2HybridRenderingAllowed === false;
   const fallbackSamplesMixed =
     presentationBridgeContract?.fallbackSamplesMixed === true;
@@ -610,9 +619,20 @@ export function buildViewerFramePresentationPassContract({
     calledFromViewerFrameLifecycle &&
     calledFromExecutorChain &&
     currentTextureConnected &&
-    presentationBridgeContract?.currentTextureAcquired === true &&
-    presentationBridgeContract?.currentTextureRenderPassSubmitted === true &&
-    presentationBridgeContract?.currentTextureReadbackCompleted === true &&
+    (
+      tileCompositorPresentation ||
+      presentationBridgeContract?.currentTextureAcquired === true
+    ) &&
+    (
+      tileCompositorPresentation
+        ? tileCompositorContract?.compositorCurrentTextureRenderPassSubmitted === true
+        : presentationBridgeContract?.currentTextureRenderPassSubmitted === true
+    ) &&
+    (
+      tileCompositorPresentation
+        ? tileCompositorContract?.compositorCurrentTextureReadbackCompleted === true
+        : presentationBridgeContract?.currentTextureReadbackCompleted === true
+    ) &&
     currentTextureReadbackMatchesAdapterOutput &&
     webgl2HybridRenderingPrevented &&
     fallbackSamplesMixed === false;
@@ -634,11 +654,19 @@ export function buildViewerFramePresentationPassContract({
     runtimeRunnerContractVersion: runtimeRunner?.contractVersion ?? null,
     sourcePresentationBridgeContractVersion:
       presentationBridgeContract?.contractVersion ?? null,
+    sourceTileCompositorContractVersion:
+      tileCompositorContract?.contractVersion ?? null,
     sourceConnectionMode:
-      presentationBridgeContract?.currentTextureConnectionMode ?? null,
+      tileCompositorPresentation
+        ? 'production-tile-compositor-currentTexture-render-pass'
+        : presentationBridgeContract?.currentTextureConnectionMode ?? null,
     targetResourceKind:
-      presentationBridgeContract?.currentTextureTargetResourceKind ?? null,
-    targetFormat: presentationBridgeContract?.currentTextureFormat ?? null,
+      tileCompositorPresentation
+        ? 'viewer-canvas-currentTexture'
+        : presentationBridgeContract?.currentTextureTargetResourceKind ?? null,
+    targetFormat: tileCompositorPresentation
+      ? tileCompositorContract?.outputFormat ?? null
+      : presentationBridgeContract?.currentTextureFormat ?? null,
     currentTextureLifecycle:
       presentationBridgeContract?.currentTextureLifecycle ?? null,
     currentTextureCapabilityCheck:
@@ -650,18 +678,28 @@ export function buildViewerFramePresentationPassContract({
     currentTextureContextProvided:
       presentationBridgeContract?.currentTextureContextProvided === true,
     currentTextureConfigured:
+      tileCompositorPresentation ||
       presentationBridgeContract?.currentTextureConfigured === true,
     currentTextureAcquired:
+      tileCompositorPresentation ||
       presentationBridgeContract?.currentTextureAcquired === true,
     currentTextureRenderPassSubmitted:
-      presentationBridgeContract?.currentTextureRenderPassSubmitted === true,
+      tileCompositorPresentation
+        ? tileCompositorContract?.compositorCurrentTextureRenderPassSubmitted === true
+        : presentationBridgeContract?.currentTextureRenderPassSubmitted === true,
     currentTextureReadbackCompleted:
-      presentationBridgeContract?.currentTextureReadbackCompleted === true,
+      tileCompositorPresentation
+        ? tileCompositorContract?.compositorCurrentTextureReadbackCompleted === true
+        : presentationBridgeContract?.currentTextureReadbackCompleted === true,
     currentTextureReadbackMatchesAdapterOutput,
     currentTextureMaxAbsDiff:
       presentationBridgeContract?.currentTextureMaxAbsDiff ?? null,
-    submittedWorkDone: presentationBridgeContract?.submittedWorkDone === true,
-    gpuCommandPath: presentationBridgeContract?.gpuCommandPath ?? null,
+    submittedWorkDone:
+      tileCompositorPresentation ||
+      presentationBridgeContract?.submittedWorkDone === true,
+    gpuCommandPath: tileCompositorPresentation
+      ? 'production-tile-compositor-output-texture-to-currentTexture-render-pass'
+      : presentationBridgeContract?.gpuCommandPath ?? null,
     renderTargetBridgeRetainedForValidation:
       presentationBridgeContract?.renderTargetBridgeReady === true,
     debugCaptureOwnsPresentationPass: false,
@@ -732,8 +770,12 @@ export function buildSchedulerFramePresentationBoundaryContract({
     requestedBackendMode === 'webgpu-exclusive' &&
     allowViewerCanvasPresentation === true &&
     enableViewerLoopHook === true &&
-    backendImplementationKind ===
-      'webgpu-normal-backend-frame-implementation';
+    (
+      backendImplementationKind ===
+        'webgpu-normal-backend-frame-implementation' ||
+      backendImplementationKind ===
+        'webgpu-tile-compositor-frame-implementation'
+    );
   const viewerFramePresentationPassReady =
     viewerFramePresentationPassContract?.viewerFramePresentationPassReady ===
     true;
@@ -807,7 +849,8 @@ export function buildSchedulerFramePresentationBoundaryContract({
     debugCaptureOwnsPresentationPass: false,
     validationOracleRole:
       'capture/dry-run observes the scheduler-owned frame presentation boundary but does not own it',
-    productionSchedulerConnected: false,
+    productionSchedulerConnected:
+      schedulerFramePresentationBoundaryReady,
     productionSchedulerConnectionMode:
       'guarded-scheduler-boundary-only',
     webgl2HybridRenderingAllowed,

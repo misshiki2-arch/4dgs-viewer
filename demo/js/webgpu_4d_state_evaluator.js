@@ -4,6 +4,8 @@ import {
   buildWebGpuGaussianFootprintEvaluationContract
 } from './common_4dgs_record_contracts.js';
 
+let nextProductionStateResourceIdentity = 1;
+
 function toFiniteNumber(value, fallback = 0) {
   const n = Number(value);
   return Number.isFinite(n) ? n : fallback;
@@ -214,8 +216,12 @@ export async function buildWebGpu4DStatePositionsForCandidates({
   candidateIndices,
   rawXyzOpacity,
   buildConfig,
-  projectionParams = null
+  projectionParams = null,
+  readbackPolicy = 'diagnostic',
+  keepGpuResources = false,
+  sourceWorksetResourceIdentity = null
 }) {
+  const productionGpuOnly = readbackPolicy === 'none';
   const count = candidateIndices?.length ?? 0;
   if (!device || !raw || !candidateIndices || !rawXyzOpacity || count <= 0) {
     return {
@@ -632,17 +638,19 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     4,
     footprintVec4Count * 4 * Float32Array.BYTES_PER_ELEMENT
   );
+  const outputUsage = GPUBufferUsage.STORAGE |
+    (productionGpuOnly ? 0 : GPUBufferUsage.COPY_SRC);
   const outputBuffer = device.createBuffer({
     size: outputByteLength,
-    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
+    usage: outputUsage
   });
   const attributeOutputBuffer = device.createBuffer({
     size: attributeOutputByteLength,
-    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
+    usage: outputUsage
   });
   const footprintOutputBuffer = device.createBuffer({
     size: footprintOutputByteLength,
-    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
+    usage: outputUsage
   });
   const paramsBuffer = createBuffer(
     device,
@@ -652,15 +660,15 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     }),
     GPUBufferUsage.UNIFORM
   );
-  const readbackBuffer = device.createBuffer({
+  const readbackBuffer = productionGpuOnly ? null : device.createBuffer({
     size: outputByteLength,
     usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
   });
-  const attributeReadbackBuffer = device.createBuffer({
+  const attributeReadbackBuffer = productionGpuOnly ? null : device.createBuffer({
     size: attributeOutputByteLength,
     usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
   });
-  const footprintReadbackBuffer = device.createBuffer({
+  const footprintReadbackBuffer = productionGpuOnly ? null : device.createBuffer({
     size: footprintOutputByteLength,
     usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
   });
@@ -685,23 +693,129 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   pass.setBindGroup(0, bindGroup);
   pass.dispatchWorkgroups(Math.ceil(count / 64));
   pass.end();
-  encoder.copyBufferToBuffer(outputBuffer, 0, readbackBuffer, 0, outputByteLength);
-  encoder.copyBufferToBuffer(
-    attributeOutputBuffer,
-    0,
-    attributeReadbackBuffer,
-    0,
-    attributeOutputByteLength
-  );
-  encoder.copyBufferToBuffer(
-    footprintOutputBuffer,
-    0,
-    footprintReadbackBuffer,
-    0,
-    footprintOutputByteLength
-  );
+  if (!productionGpuOnly) {
+    encoder.copyBufferToBuffer(outputBuffer, 0, readbackBuffer, 0, outputByteLength);
+    encoder.copyBufferToBuffer(
+      attributeOutputBuffer,
+      0,
+      attributeReadbackBuffer,
+      0,
+      attributeOutputByteLength
+    );
+    encoder.copyBufferToBuffer(
+      footprintOutputBuffer,
+      0,
+      footprintReadbackBuffer,
+      0,
+      footprintOutputByteLength
+    );
+  }
   device.queue.submit([encoder.finish()]);
   await device.queue.onSubmittedWorkDone();
+
+  if (productionGpuOnly) {
+    const resourceIdentity =
+      `production-state-resource-${nextProductionStateResourceIdentity++}`;
+    for (const buffer of [
+      rawBuffer,
+      timeScaleBuffer,
+      attributeInputBuffer,
+      rotationInputBuffer,
+      projectionParamsBuffer,
+      paramsBuffer
+    ]) {
+      if (typeof buffer.destroy === 'function') buffer.destroy();
+    }
+    return {
+      statePositions: new Float32Array(0),
+      renderAttributes: new Float32Array(0),
+      footprintPayload: new Float32Array(0),
+      productionReadbackPerformed: false,
+      gpuResources: keepGpuResources
+        ? {
+            resourceIdentity,
+            sourceWorksetResourceIdentity,
+            statePositionBuffer: outputBuffer,
+            renderAttributeBuffer: attributeOutputBuffer,
+            footprintPayloadBuffer: footprintOutputBuffer,
+            recordCount: count,
+            statePositionByteLength: outputByteLength,
+            renderAttributeByteLength: attributeOutputByteLength,
+            footprintPayloadByteLength: footprintOutputByteLength
+          }
+        : null,
+      contract: buildWebGpu4DStateSourceContract({
+        stateSourceMode: 'native-webgpu-production-4d-state-resource',
+        candidateCount: count,
+        statePositionCount: count,
+        computed4DStatePositionCount: count,
+        baselineStatePositionCount: 0,
+        unavailableStatePositionCount: 0,
+        timestamp: buildConfig?.timestamp ?? null,
+        stateParameterMode: 'viewer-build-config-webgpu-uniform',
+        webgpuComputedStatePositions: true,
+        webgpu4DStateEvaluationMode:
+          'cuda-style-conditional-temporal-mean-position-eval',
+        full4DStateEvaluationInWgsl: false,
+        rawXyzRepairInVisibleRecordComputeRequired: false,
+        reason: null
+      }),
+      gaussianAttributeEvaluationContract:
+        buildWebGpuGaussianAttributeEvaluationContract({
+          candidateCount: count,
+          computedRenderAttributeCount: count,
+          webgpuComputedRenderAttributes: true,
+          computedAttributeFields: [
+            'radiusPx',
+            'colorAlpha.rgb',
+            'colorAlpha.a',
+            'temporalWeight'
+          ],
+          partialAttributeFields: [
+            'radiusPx-from-scale-mean',
+            'colorAlpha.rgb-from-f_dc-l0',
+            'colorAlpha.a-from-opacity-and-temporal-weight'
+          ],
+          referenceAssistedAttributeFields: [],
+          deferredAttributeFields: ['full-SH-color'],
+          renderAttributeClassification: 'native-webgpu-production-resource',
+          renderPayloadClassification:
+            'native-webgpu-production-gaussian-render-attributes',
+          fullGaussianAttributeEvaluationInWgsl: false,
+          reason: null
+        }),
+      gaussianFootprintEvaluationContract:
+        buildWebGpuGaussianFootprintEvaluationContract({
+          candidateCount: count,
+          computedFootprintPayloadCount: count,
+          webgpuComputedFootprintPayload: true,
+          computedFootprintFields: [
+            'conic',
+            'covariance2D',
+            'radiusPx',
+            'depth',
+            'sortKey'
+          ],
+          partialFootprintFields: [
+            '4d-conditional-covariance-temporal-marginal-deferred',
+            'full-cuda-front-to-back-radius-clamp-parity-deferred'
+          ],
+          baselineFootprintFields: [],
+          fallbackFootprintFields: [],
+          deferredFootprintFields: [
+            'gpu-tileRange-from-aabb',
+            'full-4d-conditional-covariance'
+          ],
+          footprintPayloadClassification:
+            'native-webgpu-production-camera-jacobian-conic-resource',
+          fullGaussianFootprintEvaluationInWgsl: false,
+          rotationAwareCovarianceCount: count,
+          cameraJacobianConicCount: count,
+          scaleOnlyFallbackCount: 0,
+          reason: null
+        })
+    };
+  }
 
   await readbackBuffer.mapAsync(GPUMapMode.READ);
   const statePositions = new Float32Array(readbackBuffer.getMappedRange().slice(0));

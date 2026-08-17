@@ -70,6 +70,25 @@ function buildRunnerContract({
 }
 
 function buildCanonicalPresentSummary(backendFrameResult) {
+  const tileCompositorContract =
+    backendFrameResult?.webgpuTileListCompositorContract ?? null;
+  if (tileCompositorContract) {
+    return {
+      selectedSourceKind: 'webgpu-production-tile-compositor',
+      selectionMode: 'native-production-gpu-resource-lineage',
+      colorPresentSampleCount: null,
+      selectorSelectedSamplesUsed: false,
+      fallbackSuppressedBySelectorSamples: true,
+      commandBufferSubmitted:
+        tileCompositorContract.compositorCurrentTextureRenderPassSubmitted === true,
+      submittedWorkDone:
+        tileCompositorContract.tileCompositorOutputPresentedToCurrentTexture === true,
+      presentedSampleCount: 0,
+      sampleSources: [],
+      presentedSamples: [],
+      containsRenderHandoffFallback: false
+    };
+  }
   const present =
     backendFrameResult?.webgpuViewerCanvasBoundedColorPresent ?? {};
   const colorOutputContract = present?.colorOutputContract ?? {};
@@ -105,6 +124,21 @@ function buildCanonicalPresentSummary(backendFrameResult) {
 }
 
 function buildResourceLifecycleSummary(backendFrameResult) {
+  const tileCompositorContract =
+    backendFrameResult?.webgpuTileListCompositorContract ?? null;
+  if (tileCompositorContract) {
+    const submitted = tileCompositorContract.compositorPassSubmitted === true;
+    return {
+      requestedFrameCount: 1,
+      executedBackendFrameSubmissions: submitted ? 1 : 0,
+      repeatedSubmitCount: 0,
+      allFramesSubmitted: submitted,
+      frameIndices: [],
+      perFrameCurrentTextureAcquired:
+        tileCompositorContract.tileCompositorOutputPresentedToCurrentTexture === true,
+      perFrameSubmitCompleted: submitted
+    };
+  }
   const repeated =
     backendFrameResult?.webgpuBackendFrameControlledRepeatedExecution ?? {};
   const frameSummaries = Array.isArray(repeated.frameSummaries)
@@ -135,27 +169,43 @@ function buildValidationSummary({
   executionError,
   normalBackendImplementation
 }) {
+  const tileCompositorImplementationRequested =
+    runnerContract.backendImplementationKind ===
+    WEBGPU_TILE_COMPOSITOR_FRAME_IMPLEMENTATION_MODE;
   const guardAllowed =
     runnerContract.requestedBackendMode === 'webgpu-exclusive' &&
     runnerContract.allowViewerCanvasPresentation === true &&
     runnerContract.enableViewerLoopHook === true;
   const backendFrameResultProvided = !!backendFrameResult;
   const adapterReady =
-    backendFrameResult?.webgpuBackendViewerLoopAdapter?.viewerLoopAdapterReady === true;
+    tileCompositorImplementationRequested
+      ? backendFrameResult?.webgpuProductionFrameDataPathContract
+          ?.nativeProductionFrameDataPathReady === true
+      : backendFrameResult?.webgpuBackendViewerLoopAdapter
+          ?.viewerLoopAdapterReady === true;
   const selectedTrueNativeSource =
-    canonicalPresentSummary.selectedSourceKind ===
-    'step40-constrained-display-adapter';
+    tileCompositorImplementationRequested
+      ? canonicalPresentSummary.selectedSourceKind ===
+        'webgpu-production-tile-compositor'
+      : canonicalPresentSummary.selectedSourceKind ===
+        'step40-constrained-display-adapter';
   const presentReady =
     canonicalPresentSummary.commandBufferSubmitted &&
     canonicalPresentSummary.submittedWorkDone &&
-    canonicalPresentSummary.colorPresentSampleCount === 2;
+    (
+      tileCompositorImplementationRequested ||
+      canonicalPresentSummary.colorPresentSampleCount === 2
+    );
   const noFallbackMixing =
     canonicalPresentSummary.containsRenderHandoffFallback === false &&
     canonicalPresentSummary.fallbackSuppressedBySelectorSamples === true;
   const resourceLifecycleReady =
-    resourceLifecycleSummary.executedBackendFrameSubmissions === 3 &&
-    resourceLifecycleSummary.repeatedSubmitCount === 3 &&
-    resourceLifecycleSummary.allFramesSubmitted === true;
+    tileCompositorImplementationRequested
+      ? resourceLifecycleSummary.executedBackendFrameSubmissions === 1 &&
+        resourceLifecycleSummary.allFramesSubmitted === true
+      : resourceLifecycleSummary.executedBackendFrameSubmissions === 3 &&
+        resourceLifecycleSummary.repeatedSubmitCount === 3 &&
+        resourceLifecycleSummary.allFramesSubmitted === true;
   const webgl2HybridRenderingPrevented =
     runnerContract.webgl2FrameLifecycleSuppressed === true;
   const normalBackendImplementationRequested =
@@ -250,6 +300,7 @@ function buildValidationSummary({
     webgl2HybridRenderingPrevented,
     normalBackendImplementationRequested,
     normalBackendImplementationReady,
+    tileCompositorImplementationRequested,
     firstValidationFailures
   };
 }

@@ -15979,6 +15979,7 @@ def extract_runtime(data: Dict[str, Any]) -> Dict[str, Any]:
         ["limitedDrawSummary", "runtimeSummary.limitedDrawSummary"],
         {},
     )
+    last_render_result = get_path(data, ["lastRenderResultSummary"], {})
 
     return {
         "requestedRuntime": (
@@ -16103,6 +16104,284 @@ def extract_runtime(data: Dict[str, Any]) -> Dict[str, Any]:
                 "runtimeSummary.limitedDrawSummary.promotionDecision",
             ],
         ),
+        "productionResidentWorksetContract": get_path(
+            last_render_result,
+            ["productionResidentWorksetContract"],
+            {},
+        ),
+        "webgpuProductionFrameDataPathContract": get_path(
+            last_render_result,
+            ["webgpuProductionFrameDataPathContract"],
+            {},
+        ),
+    }
+
+
+def build_step118_native_production_frame_data_path_summary(
+    runtime: Dict[str, Any],
+    step117_confirmation: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    workset = get_path(runtime, ["productionResidentWorksetContract"], {})
+    data_path = get_path(runtime, ["webgpuProductionFrameDataPathContract"], {})
+    execution_plan = get_path(data_path, ["gpuExecutionPlanContract"], {})
+    terminal_observer = get_path(
+        data_path, ["terminalExecutionPlanObserver"], {}
+    )
+    bounded_execution = get_path(data_path, ["boundedExecutionContract"], {})
+    blockers: List[str] = []
+    if workset.get("contractVersion") != "phase3-production-resident-workset-v1":
+        blockers.append("production-resident-workset-contract-missing-or-incompatible")
+    if data_path.get("contractVersion") != (
+        "phase3-native-webgpu-production-frame-data-path-v1"
+    ):
+        blockers.append("production-frame-data-path-contract-missing-or-incompatible")
+    required_true = {
+        "residentWorksetReady": workset.get("residentWorksetReady"),
+        "nonResidentRecordsExplicit": workset.get("nonResidentRecordsExplicit"),
+        "nativeProductionFrameDataPathReady": data_path.get(
+            "nativeProductionFrameDataPathReady"
+        ),
+        "diagnosticIndependent": data_path.get("diagnosticIndependent"),
+        "gpuResourceLineagePreserved": data_path.get(
+            "gpuResourceLineagePreserved"
+        ),
+        "countsMatch": data_path.get("countsMatch"),
+        "allResourceIdentitiesPresent": data_path.get(
+            "allResourceIdentitiesPresent"
+        ),
+        "capacityReady": data_path.get("capacityReady"),
+        "compositorSubmitted": data_path.get("compositorSubmitted"),
+    }
+    for field, value in required_true.items():
+        if value is not True:
+            blockers.append(field)
+    required_false = {
+        "diagnosticMaxRecordsUsed": workset.get("diagnosticMaxRecordsUsed"),
+        "diagnosticCandidateSourceUsed": workset.get(
+            "diagnosticCandidateSourceUsed"
+        ),
+        "cpuReferenceUsedAsProductionInput": data_path.get(
+            "cpuReferenceUsedAsProductionInput"
+        ),
+        "diagnosticReadbackUsedAsProductionInput": data_path.get(
+            "diagnosticReadbackUsedAsProductionInput"
+        ),
+        "javascriptVisibleSamplesUsedAsProductionInput": data_path.get(
+            "javascriptVisibleSamplesUsedAsProductionInput"
+        ),
+        "diagnosticMaxRecordsUsedAsProductionLimit": data_path.get(
+            "diagnosticMaxRecordsUsedAsProductionLimit"
+        ),
+        "capacityOverflowDetected": data_path.get("capacityOverflowDetected"),
+        "silentDropAllowed": data_path.get("silentDropAllowed"),
+    }
+    for field, value in required_false.items():
+        if value is not False:
+            blockers.append(field)
+    execution_plan_ready = all(
+        (
+            execution_plan.get("contractVersion")
+            == "phase3-production-tile-execution-plan-v1",
+            execution_plan.get("gpuExecutionPlanReady") is True,
+            execution_plan.get("resourceIdentity") is not None,
+        )
+    )
+    plan_consumers_ready = all(
+        execution_plan.get(field) is True
+        for field in (
+            "scatterConsumesPlan",
+            "sortConsumesPlan",
+            "compositorConsumesPlan",
+        )
+    )
+    terminal_observer_ready = all(
+        (
+            terminal_observer.get("schemaVersion")
+            == "phase3-production-tile-execution-plan-terminal-observer-v1",
+            terminal_observer.get("evidenceRole")
+            == "terminal-post-production-submission-observer",
+            terminal_observer.get("observerReady") is True,
+            terminal_observer.get("productionControlInput") is False,
+            terminal_observer.get("rawPlanWordsPublished") is False,
+        )
+    )
+    declared_plan_identity = numeric_value(
+        execution_plan.get("planIdentity"), 0
+    )
+    observed_plan_identity = numeric_value(
+        terminal_observer.get("planIdentity"), 0
+    )
+    plan_identity_matches = (
+        declared_plan_identity > 0
+        and observed_plan_identity == declared_plan_identity
+    )
+    reference_counts = {
+        "required": terminal_observer.get("requiredReferenceCount"),
+        "scattered": terminal_observer.get("scatteredReferenceCount"),
+        "sorted": terminal_observer.get("sortedReferenceCount"),
+        "composited": terminal_observer.get("compositedReferenceCount"),
+    }
+    required_reference_count = numeric_value(reference_counts["required"], 0)
+    reference_counts_match = (
+        required_reference_count > 0
+        and all(
+            numeric_value(value, -1) == required_reference_count
+            for value in reference_counts.values()
+        )
+    )
+    production_cpu_dependency_absent = all(
+        (
+            execution_plan.get("productionCriticalReadbackUsed") is False,
+            execution_plan.get("intermediateCpuControlRoundTripUsed") is False,
+            execution_plan.get("sceneDependentCpuPlanMaterialized") is False,
+            execution_plan.get("schedulerContinuationUsed") is False,
+            terminal_observer.get("productionControlInput") is False,
+        )
+    )
+    bounded_execution_ready = all(
+        (
+            bounded_execution.get("contractVersion")
+            == "phase3-production-gpu-bounded-execution-v1",
+            bounded_execution.get("boundedExecutionReady") is True,
+            bounded_execution.get("allStagesCompleted") is True,
+            bounded_execution.get("gpuResourceLineageMaintained") is True,
+            bounded_execution.get("recordReferenceCapacitySeparated") is True,
+            bounded_execution.get("silentDropAllowed") is False,
+            bounded_execution.get("schedulerContinuationUsed") is False,
+            numeric_value(
+                bounded_execution.get("inputReferenceCount"), -1
+            )
+            == required_reference_count,
+            numeric_value(
+                bounded_execution.get("completedReferenceCount"), -1
+            )
+            == numeric_value(reference_counts["composited"], -2),
+        )
+    )
+    observer_overflow_detected = terminal_observer.get(
+        "capacityOverflowDetected"
+    )
+    overflow_counts_fail_closed = (
+        all(
+            numeric_value(terminal_observer.get(field), -1) == 0
+            for field in (
+                "scatteredReferenceCount",
+                "sortedReferenceCount",
+                "compositedReferenceCount",
+            )
+        )
+        if observer_overflow_detected is True
+        else numeric_value(
+            terminal_observer.get("overflowReferenceCount"), -1
+        )
+        == 0
+    )
+    overflow_fail_closed_ready = all(
+        (
+            data_path.get("capacityOverflowFailClosed") is True,
+            data_path.get("silentDropAllowed") is False,
+            isinstance(observer_overflow_detected, bool),
+            data_path.get("capacityOverflowDetected")
+            is observer_overflow_detected,
+            terminal_observer.get("capacityOverflowFailClosed") is True,
+            overflow_counts_fail_closed,
+        )
+    )
+    step117_preservation_ready = all(
+        (
+            get_path(
+                step117_confirmation or {},
+                ["machineReadableStep117Decision"],
+            )
+            == "ready",
+            get_path(
+                step117_confirmation or {},
+                ["productionOwnershipPresentationPreservationDecision"],
+            )
+            == "ready",
+            get_path(
+                step117_confirmation or {},
+                ["productionRuntimePresentation.decision"],
+            )
+            == "ready",
+        )
+    )
+    acceptance_checks = {
+        "gpu-execution-plan-not-ready": execution_plan_ready,
+        "production-plan-consumption-not-ready": plan_consumers_ready,
+        "terminal-execution-plan-evidence-not-ready": terminal_observer_ready,
+        "terminal-execution-plan-identity-mismatch": plan_identity_matches,
+        "terminal-reference-counts-mismatch": reference_counts_match,
+        "production-critical-cpu-dependency-detected": (
+            production_cpu_dependency_absent
+        ),
+        "bounded-production-execution-not-ready": bounded_execution_ready,
+        "production-overflow-fail-closed-not-ready": (
+            overflow_fail_closed_ready
+        ),
+        "step117-production-preservation-not-ready": (
+            step117_preservation_ready
+        ),
+    }
+    blockers.extend(
+        reason for reason, ready in acceptance_checks.items() if ready is not True
+    )
+    blockers = list(dict.fromkeys(blockers))
+    fix4_acceptance_ready = all(acceptance_checks.values())
+    return {
+        "schemaVersion": "phase3-step118-summary-v2",
+        "step118Decision": "ready" if not blockers else "blocked",
+        "blockedReasons": blockers,
+        "residentWorkset": workset,
+        "productionFrameDataPath": data_path,
+        "residentRecordCount": workset.get("residentRecordCount"),
+        "sceneRecordCount": workset.get("sceneRecordCount"),
+        "nonResidentRecordCount": workset.get("nonResidentRecordCount"),
+        "diagnosticIndependent": data_path.get("diagnosticIndependent"),
+        "gpuResourceLineagePreserved": data_path.get(
+            "gpuResourceLineagePreserved"
+        ),
+        "capacityOverflowDetected": data_path.get("capacityOverflowDetected"),
+        "capacityOverflowFailClosed": data_path.get(
+            "capacityOverflowFailClosed"
+        ),
+        "silentDropAllowed": data_path.get("silentDropAllowed"),
+        "fix4Acceptance": {
+            "executionPlan": {
+                "schemaVersion": execution_plan.get("contractVersion"),
+                "resourceIdentity": execution_plan.get("resourceIdentity"),
+                "declaredPlanIdentity": execution_plan.get("planIdentity"),
+                "observedPlanIdentity": terminal_observer.get("planIdentity"),
+                "identityMatches": plan_identity_matches,
+                "consumersReady": plan_consumers_ready,
+                "terminalObserverReady": terminal_observer_ready,
+                "decision": (
+                    "ready"
+                    if execution_plan_ready
+                    and plan_consumers_ready
+                    and terminal_observer_ready
+                    and plan_identity_matches
+                    else "blocked"
+                ),
+            },
+            "referenceCounts": {
+                **reference_counts,
+                "allMatch": reference_counts_match,
+            },
+            "productionCpuDependencyAbsent": (
+                production_cpu_dependency_absent
+            ),
+            "boundedExecutionDecision": (
+                "ready" if bounded_execution_ready else "blocked"
+            ),
+            "overflowFailClosedDecision": (
+                "ready" if overflow_fail_closed_ready else "blocked"
+            ),
+            "step117PreservationDecision": (
+                "ready" if step117_preservation_ready else "blocked"
+            ),
+            "decision": "ready" if fix4_acceptance_ready else "blocked",
+        },
     }
 
 
@@ -24380,6 +24659,24 @@ def summarize_step(base_dir: Path, prefix: str) -> Dict[str, Any]:
             )
         )
 
+    step118_workset = get_path(
+        result.get("runtime") or {},
+        ["productionResidentWorksetContract"],
+        {},
+    )
+    step118_data_path = get_path(
+        result.get("runtime") or {},
+        ["webgpuProductionFrameDataPathContract"],
+        {},
+    )
+    if step118_workset or step118_data_path:
+        result["step118NativeWebGpuProductionFrameDataPath"] = (
+            build_step118_native_production_frame_data_path_summary(
+                result.get("runtime") or {},
+                result.get("step117CrossArtifactConfirmation"),
+            )
+        )
+
     if should_build_step114_summary:
         apply_step114_fix10_fix2_evidence(
             result.get("step114CudaReferenceProvenance"),
@@ -24510,6 +24807,10 @@ def print_human_summary(summary: Dict[str, Any]) -> None:
     print_section(
         "Step117 cross-artifact confirmation",
         summary.get("step117CrossArtifactConfirmation"),
+    )
+    print_section(
+        "Step118 native WebGPU production frame data path",
+        summary.get("step118NativeWebGpuProductionFrameDataPath"),
     )
     print_section(
         "WebGPU visible-record detailed lineage",

@@ -59,6 +59,14 @@ function buildValidationSummary({
   viewerFramePresentationPassContract,
   executionError
 }) {
+  const tileCompositorImplementationRequested =
+    executorContract.backendImplementationKind ===
+    'webgpu-tile-compositor-frame-implementation';
+  const tileCompositorPresentationReady =
+    backendFrameResult?.webgpuTileListCompositorContract
+      ?.tileCompositorOutputPresentedToCurrentTexture === true &&
+    backendFrameResult?.webgpuTileListCompositorContract
+      ?.compositorCurrentTextureRenderPassSubmitted === true;
   const guardAllowed =
     executorContract.requestedBackendMode === 'webgpu-exclusive' &&
     executorContract.allowViewerCanvasPresentation === true &&
@@ -67,13 +75,20 @@ function buildValidationSummary({
     integrationBoundary?.integrationBoundaryReady === true;
   const backendFrameResultProvided = !!backendFrameResult;
   const adapterReady =
-    backendFrameResult?.webgpuBackendViewerLoopAdapter?.viewerLoopAdapterReady === true;
+    tileCompositorImplementationRequested
+      ? tileCompositorPresentationReady
+      : backendFrameResult?.webgpuBackendViewerLoopAdapter
+          ?.viewerLoopAdapterReady === true;
   const controlledExecutionReady =
-    controlledExecution?.controlledExecutionReady === true;
+    tileCompositorImplementationRequested
+      ? tileCompositorPresentationReady
+      : controlledExecution?.controlledExecutionReady === true;
   const webgl2HybridRenderingPrevented =
     integrationBoundary?.validationSummary?.webgl2HybridRenderingPrevented === true;
   const fallbackPolicyPreserved =
-    controlledExecution?.validationSummary?.fallbackPolicyPreserved === true;
+    tileCompositorImplementationRequested
+      ? true
+      : controlledExecution?.validationSummary?.fallbackPolicyPreserved === true;
   const viewerFramePresentationPassReady =
     viewerFramePresentationPassContract?.viewerFramePresentationPassReady === true;
   const executorReady =
@@ -153,6 +168,8 @@ function buildValidationSummary({
     viewerFramePresentationPassReady,
     webgl2HybridRenderingPrevented,
     fallbackPolicyPreserved,
+    tileCompositorImplementationRequested,
+    tileCompositorPresentationReady,
     firstValidationFailures
   };
 }
@@ -221,6 +238,8 @@ export async function executeWebGpuBackendViewerFrame({
       runtimeRunner: runtimeRunner?.summary ?? null,
       presentationBridgeContract:
         normalBackendImplementation?.presentationBridgeContract ?? null,
+      tileCompositorContract:
+        backendFrameResult?.webgpuTileListCompositorContract ?? null,
       invocationSource,
       frameIndex
     });

@@ -21,11 +21,14 @@ import {
 import {
   canMutateProductionPresentationState
 } from './common_4dgs_production_runtime_contract.js';
+import {
+  executeBoundedProductionTileSortAndCompositor
+} from './webgpu_bounded_tile_sort_and_compositor.js';
+import {
+  buildProductionTileReferenceCapacityContract
+} from './common_4dgs_production_tile_reference_contracts.js';
 
-const COMPOSITOR_SUMMARY_FLOAT_COUNT = 40;
 const ORDERING_SUMMARY_UINT_COUNT = 28;
-const BOUNDED_SORT_CAPACITY_LIMIT = 64;
-const PARALLEL_SORT_STAGE_COUNT = 21;
 const viewerCanvasWebGpuContextState = new WeakMap();
 const viewerCanvasTileCompositorOutputState = new WeakMap();
 
@@ -68,19 +71,6 @@ function vector3MaxAbsDelta(a, b) {
     Math.abs(left[1] - right[1]),
     Math.abs(left[2] - right[2])
   );
-}
-
-function createBuffer(device, data, usage) {
-  const buffer = device.createBuffer({
-    size: Math.max(4, Math.ceil(data.byteLength / 4) * 4),
-    usage,
-    mappedAtCreation: true
-  });
-  new Uint8Array(buffer.getMappedRange()).set(
-    new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
-  );
-  buffer.unmap();
-  return buffer;
 }
 
 function readCompositorSummary(summary) {
@@ -172,6 +162,7 @@ function readOrderingSummary(summary) {
     sortOrderViolationCount: Math.round(finiteNumberOr(summary[20], 0)),
     parallelSortStageCount: Math.round(finiteNumberOr(summary[21], 0)),
     sortWorkgroupCount: Math.round(finiteNumberOr(summary[22], 0)),
+    sortWorkItemCount: Math.round(finiteNumberOr(summary[9], 0)),
     parallelSortCompareSwapPassCount: Math.round(finiteNumberOr(summary[23], 0))
   };
 }
@@ -1123,638 +1114,142 @@ export async function buildWebGpuTileListCompositor({
   const outputWidth = Math.max(1, Math.round(finiteNumberOr(canvasWidth, resources.tileCols)));
   const outputHeight = Math.max(1, Math.round(finiteNumberOr(canvasHeight, resources.tileRows)));
   const deterministicState = metadata?.deterministicState ?? null;
+  const viewerCanvas = viewerCanvasState?.canvas ?? null;
+  const currentTextureGuardAllowed =
+    canOwnProductionTileCompositorPresentation(viewerCanvasState);
+  const previousCachedOutput = viewerCanvas
+    ? viewerCanvasTileCompositorOutputState.get(viewerCanvas) ?? null
+    : null;
+  const reusableOutputTexture =
+    previousCachedOutput?.device === device &&
+    previousCachedOutput?.outputWidth === outputWidth &&
+    previousCachedOutput?.outputHeight === outputHeight
+      ? previousCachedOutput.outputTexture
+      : null;
+  const compositorFrameIdentity = summarizeWebGpuPresentationFrameIdentity({
+    datasetCameraLabel:
+      deterministicState?.datasetCameraLabel ??
+      deterministicState?.imageName ??
+      deterministicState?.cudaReferenceLabel ??
+      null,
+    datasetFrameNumber:
+      deterministicState?.datasetFrameNumber ??
+      deterministicState?.frameNumber ??
+      null,
+    datasetTime: deterministicState?.datasetTime ?? deterministicState?.time ?? null,
+    referenceCameraLabel:
+      deterministicState?.cudaReferenceLabel ??
+      deterministicState?.datasetCameraLabel ??
+      deterministicState?.imageName ??
+      null,
+    outputWidth,
+    outputHeight
+  });
   const step112ProjectionParityEvidence =
     metadata?.step112ProjectionParityEvidence ?? {};
   const step113CovarianceJacobianConicEvidence =
     metadata?.step113CovarianceJacobianConicEvidence ?? {};
-  const outputTexture = device.createTexture({
-    label: 'phase3-step85-webgpu-tile-list-compositor-output-texture',
-    size: { width: outputWidth, height: outputHeight },
-    format: 'rgba8unorm',
-    usage:
-      GPUTextureUsage.STORAGE_BINDING |
-      GPUTextureUsage.COPY_SRC |
-      GPUTextureUsage.TEXTURE_BINDING
-  });
-  const bytesPerRow = alignTo(outputWidth * 4, 256);
-  const textureReadbackBuffer = device.createBuffer({
-    size: bytesPerRow * outputHeight,
-    usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
-  });
-  const summaryData = new Float32Array(COMPOSITOR_SUMMARY_FLOAT_COUNT);
-  const summaryBuffer = createBuffer(
+  const boundedExecution = await executeBoundedProductionTileSortAndCompositor({
     device,
-    summaryData,
-    GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC
-  );
-  const params = new Float32Array([
-    resources.tileCount,
-    resources.tileCols,
-    resources.tileRows,
-    resources.maxRefsPerTile,
+    resources,
     outputWidth,
     outputHeight,
-    finiteNumberOr(canvasWidth, outputWidth),
-    finiteNumberOr(canvasHeight, outputHeight)
-  ]);
-  const paramsBuffer = createBuffer(device, params, GPUBufferUsage.UNIFORM);
-  const summaryReadbackBuffer = device.createBuffer({
-    size: summaryData.byteLength,
-    usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
-  });
-  const referenceCapacity = Math.max(1, resources.tileCount * resources.maxRefsPerTile);
-  const sortCapacityLimit = Math.max(
-    1,
-    Math.min(resources.maxRefsPerTile, BOUNDED_SORT_CAPACITY_LIMIT)
-  );
-  const orderedReferenceBufferBytes = Math.max(16, referenceCapacity * 4 * 4);
-  const orderedReferenceBuffer = device.createBuffer({
-    label: 'phase3-step92-webgpu-depth-sorted-reference-buffer',
-    size: orderedReferenceBufferBytes,
-    usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST
-  });
-  const orderingSummaryData = new Uint32Array(ORDERING_SUMMARY_UINT_COUNT);
-  const orderingSummaryBuffer = createBuffer(
-    device,
-    orderingSummaryData,
-    GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC | GPUBufferUsage.COPY_DST
-  );
-  const orderingParams = new Uint32Array([
-    resources.tileCount,
-    referenceCapacity,
-    resources.maxRefsPerTile,
-    94
-  ]);
-  const orderingParamsBuffer = createBuffer(device, orderingParams, GPUBufferUsage.UNIFORM);
-  const orderingSummaryReadbackBuffer = device.createBuffer({
-    size: orderingSummaryData.byteLength,
-    usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
-  });
-  const orderingShader = device.createShaderModule({
-    label: 'phase3-step94-webgpu-parallel-per-tile-depth-sort-wgsl',
-    code: `
-struct OrderingParams {
-  tileCount: u32,
-  referenceCapacity: u32,
-  maxRefsPerTile: u32,
-  statusCode: u32,
-};
-
-@group(0) @binding(0) var<storage, read> tileTable: array<vec4f>;
-@group(0) @binding(1) var<storage, read> sourceReferences: array<vec4f>;
-@group(0) @binding(2) var<storage, read_write> orderedReferences: array<vec4f>;
-@group(0) @binding(3) var<storage, read_write> orderingSummary: array<atomic<u32>>;
-@group(0) @binding(4) var<uniform> orderingParams: OrderingParams;
-
-var<workgroup> localRefs: array<vec4f, 64>;
-var<workgroup> localKeys: array<f32, 64>;
-
-@compute @workgroup_size(64)
-fn seedOrderedReferences(@builtin(global_invocation_id) globalId: vec3u) {
-  let referenceIndex = globalId.x;
-  if (referenceIndex >= orderingParams.referenceCapacity) {
-    return;
-  }
-  orderedReferences[referenceIndex] = sourceReferences[referenceIndex];
-}
-
-@compute @workgroup_size(64)
-fn prepareOrderedReferences(
-  @builtin(workgroup_id) workgroupId: vec3u,
-  @builtin(local_invocation_id) localId: vec3u
-) {
-  let tile = workgroupId.x;
-  let slot = localId.x;
-  if (tile >= orderingParams.tileCount) {
-    return;
-  }
-  let table = tileTable[tile];
-  let tileValid = table.w == 84.0 && table.y > 0.0;
-  let offset = u32(max(table.x, 0.0));
-  let rawCount = select(0u, min(u32(max(table.y, 0.0)), orderingParams.maxRefsPerTile), tileValid);
-  let overflowRefs = select(0u, u32(max(table.z, 0.0)), tileValid);
-  let sortLimit = min(orderingParams.maxRefsPerTile, 64u);
-  let count = min(rawCount, sortLimit);
-
-  if (tileValid && slot == 0u) {
-    atomicAdd(&orderingSummary[1], 1u);
-    atomicAdd(&orderingSummary[8], 1u);
-    atomicAdd(&orderingSummary[12], rawCount);
-    atomicAdd(&orderingSummary[13], (rawCount - count) + overflowRefs);
-    atomicAdd(&orderingSummary[15], overflowRefs);
-    atomicStore(&orderingSummary[16], sortLimit);
-    atomicStore(&orderingSummary[21], 21u);
-    atomicAdd(&orderingSummary[22], 1u);
-    atomicStore(&orderingSummary[23], 21u);
-    if (rawCount > count || overflowRefs > 0u) {
-      atomicAdd(&orderingSummary[10], 1u);
-      atomicAdd(&orderingSummary[14], 1u);
-    }
-    atomicMax(&orderingSummary[11], count);
-    let hasSortLimit = sortLimit > 0u;
-    let utilization = select(0u, (count * 100000u) / max(sortLimit, 1u), hasSortLimit);
-    atomicMax(&orderingSummary[17], utilization);
-    atomicAdd(&orderingSummary[18], utilization);
-    atomicAdd(&orderingSummary[19], 1u);
-  }
-
-  let sourceIndex = offset + slot;
-  if (slot < count && sourceIndex < orderingParams.referenceCapacity) {
-    let splatRef = sourceReferences[sourceIndex];
-    localRefs[slot] = splatRef;
-    localKeys[slot] = splatRef.w;
-  } else {
-    localRefs[slot] = vec4f(0.0, 0.0, 0.0, 0.0);
-    localKeys[slot] = -340282346638528859811704183484516925440.0;
-  }
-  workgroupBarrier();
-
-  for (var k: u32 = 2u; k <= 64u; k = k * 2u) {
-    var j = k / 2u;
-    loop {
-      let partnerSlot = slot ^ j;
-      if (partnerSlot > slot && partnerSlot < 64u) {
-        let selfKey = localKeys[slot];
-        let partnerKey = localKeys[partnerSlot];
-        let ascending = (slot & k) != 0u;
-        let selfLess = selfKey < partnerKey;
-        let selfGreater = selfKey > partnerKey;
-        let shouldSwap = select(selfLess, selfGreater, ascending);
-        if (shouldSwap) {
-          let tempKey = localKeys[slot];
-          let tempRef = localRefs[slot];
-          localKeys[slot] = localKeys[partnerSlot];
-          localRefs[slot] = localRefs[partnerSlot];
-          localKeys[partnerSlot] = tempKey;
-          localRefs[partnerSlot] = tempRef;
-        }
-      }
-      workgroupBarrier();
-      if (j == 1u) {
-        break;
-      }
-      j = j / 2u;
-    }
-  }
-
-  if (slot < count) {
-    let orderedIndex = offset + slot;
-    if (orderedIndex < orderingParams.referenceCapacity) {
-      let splatRef = localRefs[slot];
-      orderedReferences[orderedIndex] = splatRef;
-      atomicAdd(&orderingSummary[0], 1u);
-      atomicAdd(&orderingSummary[4], 1u);
-      atomicAdd(&orderingSummary[9], 1u);
-      if (splatRef.z != 0.0) {
-        atomicStore(&orderingSummary[2], 1u);
-      }
-      if (splatRef.w != 0.0) {
-        atomicStore(&orderingSummary[3], 1u);
-      }
-      atomicStore(&orderingSummary[7], 1u);
-    }
-  }
-  if (slot + 1u < count && localKeys[slot] < localKeys[slot + 1u]) {
-    atomicAdd(&orderingSummary[20], 1u);
-  }
-  if (tileValid && slot == 0u) {
-    atomicStore(&orderingSummary[5], orderingParams.referenceCapacity);
-    atomicStore(&orderingSummary[6], orderingParams.statusCode);
-  }
-}
-`
-  });
-  const orderingBindGroupLayout = device.createBindGroupLayout({
-    entries: [
-      {
-        binding: 0,
-        visibility: GPUShaderStage.COMPUTE,
-        buffer: { type: 'read-only-storage' }
-      },
-      {
-        binding: 1,
-        visibility: GPUShaderStage.COMPUTE,
-        buffer: { type: 'read-only-storage' }
-      },
-      {
-        binding: 2,
-        visibility: GPUShaderStage.COMPUTE,
-        buffer: { type: 'storage' }
-      },
-      {
-        binding: 3,
-        visibility: GPUShaderStage.COMPUTE,
-        buffer: { type: 'storage' }
-      },
-      {
-        binding: 4,
-        visibility: GPUShaderStage.COMPUTE,
-        buffer: { type: 'uniform' }
-      }
-    ]
-  });
-  const orderingPipelineLayout = device.createPipelineLayout({
-    bindGroupLayouts: [orderingBindGroupLayout]
-  });
-  const orderingPipeline = device.createComputePipeline({
-    layout: orderingPipelineLayout,
-    compute: { module: orderingShader, entryPoint: 'prepareOrderedReferences' }
-  });
-  const referenceSeedPipeline = device.createComputePipeline({
-    layout: orderingPipelineLayout,
-    compute: { module: orderingShader, entryPoint: 'seedOrderedReferences' }
-  });
-  const orderingBindGroup = device.createBindGroup({
-    layout: orderingBindGroupLayout,
-    entries: [
-      { binding: 0, resource: { buffer: resources.tileTableBuffer } },
-      { binding: 1, resource: { buffer: resources.referenceListBuffer } },
-      { binding: 2, resource: { buffer: orderedReferenceBuffer } },
-      { binding: 3, resource: { buffer: orderingSummaryBuffer } },
-      { binding: 4, resource: { buffer: orderingParamsBuffer } }
-    ]
-  });
-  const shader = device.createShaderModule({
-    label: 'phase3-step85-webgpu-tile-list-compositor-wgsl',
-    code: `
-struct Params {
-  tileCount: f32,
-  tileCols: f32,
-  tileRows: f32,
-  maxRefsPerTile: f32,
-  outputWidth: f32,
-  outputHeight: f32,
-  canvasWidth: f32,
-  canvasHeight: f32,
-};
-
-@group(0) @binding(0) var<storage, read> tileInputs: array<vec4f>;
-@group(0) @binding(1) var<storage, read> tileTable: array<vec4f>;
-@group(0) @binding(2) var<storage, read> referenceList: array<vec4f>;
-@group(0) @binding(3) var outputTexture: texture_storage_2d<rgba8unorm, write>;
-@group(0) @binding(4) var<storage, read_write> compositorSummary: array<vec4f>;
-@group(0) @binding(5) var<uniform> params: Params;
-
-fn sampleConic(conicAndSort: vec4f, radius: f32) -> vec3f {
-  let fallbackConic = 1.0 / max(radius * radius, 1.0);
-  let conicXAvailable = abs(conicAndSort.x) > 0.0;
-  let conicX = select(fallbackConic, abs(conicAndSort.x), conicXAvailable);
-  let conicY = conicAndSort.y;
-  let conicZAvailable = abs(conicAndSort.w) > 0.0;
-  let conicZ = select(fallbackConic, abs(conicAndSort.w), conicZAvailable);
-  return vec3f(conicX, conicY, conicZ);
-}
-
-fn gaussianWeight(pixel: vec2f, center: vec2f, conic: vec3f) -> f32 {
-  let d = pixel - center;
-  let power = conic.x * d.x * d.x + 2.0 * conic.y * d.x * d.y + conic.z * d.y * d.y;
-  return exp(-0.5 * clamp(power, 0.0, 80.0));
-}
-
-@compute @workgroup_size(8, 8)
-fn clearProductionBackground(@builtin(global_invocation_id) id: vec3u) {
-  if (id.x >= u32(params.outputWidth) || id.y >= u32(params.outputHeight)) {
-    return;
-  }
-  textureStore(outputTexture, vec2i(i32(id.x), i32(id.y)), vec4f(0.0, 0.0, 0.0, 0.0));
-}
-
-@compute @workgroup_size(8, 8)
-fn compositeActiveTiles(
-  @builtin(workgroup_id) workgroupId: vec3u,
-  @builtin(local_invocation_id) localId: vec3u
-) {
-  let tileSizeX = max(params.outputWidth / max(params.tileCols, 1.0), 1.0);
-  let tileSizeY = max(params.outputHeight / max(params.tileRows, 1.0), 1.0);
-  let subtileCols = u32(max(ceil(tileSizeX / 8.0), 1.0));
-  let subtileRows = u32(max(ceil(tileSizeY / 8.0), 1.0));
-  let tileX = workgroupId.x / subtileCols;
-  let tileY = workgroupId.y / subtileRows;
-  if (tileX >= u32(params.tileCols) || tileY >= u32(params.tileRows)) {
-    return;
-  }
-  let tile = tileY * u32(params.tileCols) + tileX;
-  let table = tileTable[tile];
-  if (table.w != 84.0 || table.y <= 0.0) {
-    return;
-  }
-  let subtileX = workgroupId.x % subtileCols;
-  let subtileY = workgroupId.y % subtileRows;
-  let tileStartX = u32(floor(f32(tileX) * tileSizeX));
-  let tileStartY = u32(floor(f32(tileY) * tileSizeY));
-  let tileEndX = min(u32(ceil(f32(tileX + 1u) * tileSizeX)), u32(params.outputWidth));
-  let tileEndY = min(u32(ceil(f32(tileY + 1u) * tileSizeY)), u32(params.outputHeight));
-  let pixelX = tileStartX + subtileX * 8u + localId.x;
-  let pixelY = tileStartY + subtileY * 8u + localId.y;
-  if (pixelX >= tileEndX || pixelY >= tileEndY) {
-    return;
-  }
-  var color = vec3f(0.0, 0.0, 0.0);
-  var accumAlpha = 0.0;
-  var refs = 0.0;
-  var readTable = 0.0;
-  var traversedList = 0.0;
-  let pixel = vec2f(f32(pixelX) + 0.5, f32(pixelY) + 0.5);
-  readTable = 1.0;
-  let offset = u32(table.x);
-  let count = min(u32(table.y), min(u32(params.maxRefsPerTile), 64u));
-  for (var orderSlot: u32 = 0u; orderSlot < count; orderSlot = orderSlot + 1u) {
-    let splatRef = referenceList[offset + orderSlot];
-    let sampleRow = u32(max(splatRef.x, 0.0));
-    let sampleBase = sampleRow * 3u;
-    let a = tileInputs[sampleBase + 0u];
-    let b = tileInputs[sampleBase + 1u];
-    let c = tileInputs[sampleBase + 2u];
-    let conic = sampleConic(b, max(a.z, 1.0));
-    let weight = gaussianWeight(pixel, a.xy, conic);
-    let sampleAlpha = clamp(c.w * weight, 0.0, 0.98);
-    let remaining = max(1.0 - accumAlpha, 0.0);
-    color = color + remaining * clamp(c.xyz, vec3f(0.0), vec3f(1.0)) * sampleAlpha;
-    accumAlpha = accumAlpha + remaining * sampleAlpha;
-    refs = refs + 1.0;
-    traversedList = 1.0;
-  }
-  let outColor = vec4f(color, clamp(accumAlpha, 0.0, 1.0));
-  textureStore(outputTexture, vec2i(i32(pixelX), i32(pixelY)), outColor);
-}
-
-@compute @workgroup_size(1)
-fn finalizeSummary() {
-  var nonEmpty = 0.0;
-  var totalRefs = 0.0;
-  var maxRefs = 0.0;
-  var overflow = 0.0;
-  var readTable = 0.0;
-  var traversedList = 0.0;
-  var orderedRefs = 0.0;
-  var depthKeyConsumed = 0.0;
-  var sortKeyConsumed = 0.0;
-  var orderAwareUsed = 0.0;
-  var gaussianAttributeConsumed = 0.0;
-  var footprintPayloadConsumed = 0.0;
-  var scaleAwareConicPayloadConsumed = 0.0;
-  var anisotropicFootprintRefs = 0.0;
-  var conicFallbackRefs = 0.0;
-  for (var tile: u32 = 0u; tile < u32(params.tileCount); tile = tile + 1u) {
-    let table = tileTable[tile];
-    if (table.w == 84.0) {
-      readTable = 1.0;
-    }
-    if (table.w == 84.0 && table.y > 0.0) {
-      nonEmpty = nonEmpty + 1.0;
-      let count = min(u32(table.y), min(u32(params.maxRefsPerTile), 64u));
-      totalRefs = totalRefs + f32(count);
-      maxRefs = max(maxRefs, f32(count));
-      overflow = overflow + table.z + max(table.y - f32(count), 0.0);
-      let offset = u32(table.x);
-      for (var slot: u32 = 0u; slot < count; slot = slot + 1u) {
-        let splatRef = referenceList[offset + slot];
-        orderedRefs = orderedRefs + 1.0;
-        if (splatRef.z != 0.0 || splatRef.w != 0.0) {
-          traversedList = 1.0;
-        }
-        if (splatRef.z != 0.0) {
-          depthKeyConsumed = 1.0;
-        }
-        if (splatRef.w != 0.0) {
-          sortKeyConsumed = 1.0;
-        }
-        let sampleRow = u32(max(splatRef.x, 0.0));
-        let sampleBase = sampleRow * 3u;
-        let a = tileInputs[sampleBase + 0u];
-        let b = tileInputs[sampleBase + 1u];
-        let c = tileInputs[sampleBase + 2u];
-        if (c.w > 0.0 || c.x != 0.0 || c.y != 0.0 || c.z != 0.0) {
-          gaussianAttributeConsumed = 1.0;
-        }
-        if (a.z > 0.0 || b.x != 0.0 || b.y != 0.0 || b.w != 0.0) {
-          footprintPayloadConsumed = 1.0;
-        }
-        if (a.z > 0.0 && b.x > 0.0 && b.w > 0.0) {
-          if (abs(b.x - b.w) > 0.000001 || abs(b.y) > 0.000001) {
-            scaleAwareConicPayloadConsumed = 1.0;
-            anisotropicFootprintRefs = anisotropicFootprintRefs + 1.0;
-          } else {
-            conicFallbackRefs = conicFallbackRefs + 1.0;
+    outputTextureOverride: reusableOutputTexture,
+    onProductionSubmitted: async ({ outputTexture: submittedOutputTexture }) => {
+      if (!currentTextureGuardAllowed) return null;
+      const cacheResult = cacheTileCompositorOutputTexture({
+        canvas: viewerCanvas,
+        device,
+        outputTexture: submittedOutputTexture,
+        outputWidth,
+        outputHeight,
+        frameIdentity: compositorFrameIdentity,
+        requestedStateIdentity: compositorFrameIdentity,
+        sourceRequestIdentity:
+          viewerCanvasState?.schedulerFrameState?.requestIdentity ?? null
+      });
+      const presentation = await presentTileCompositorTextureToCurrentTexture({
+        device,
+        outputTexture: submittedOutputTexture,
+        outputWidth,
+        outputHeight,
+        viewerCanvasState,
+        canvasWidth,
+        canvasHeight,
+        frameCount: 1,
+        presentationSource: 'webgpu-tile-compositor-output-texture',
+        forceContextRefresh: true,
+        outputGeneration: cacheResult.generation ?? null,
+        outputTextureIdentity: cacheResult.outputTextureIdentity ?? null,
+        sourceRequestIdentity:
+          viewerCanvasState?.schedulerFrameState?.requestIdentity ?? null,
+        frameIdentity: compositorFrameIdentity,
+        onPresentedFrame: (sample) => {
+          const cached = viewerCanvasTileCompositorOutputState.get(viewerCanvas);
+          if (cached) {
+            cached.presentedFrameIdentity = sample.frameIdentity ?? null;
+            cached.lastPresentedAtMs =
+              typeof performance !== 'undefined' &&
+              typeof performance.now === 'function'
+                ? performance.now()
+                : Date.now();
           }
-        } else {
-          conicFallbackRefs = conicFallbackRefs + 1.0;
         }
-      }
+      });
+      return { cacheResult, presentation };
     }
-  }
-  let totalRefsAvailable = totalRefs > 0.0;
-  let orderedRefsMatchTotal = orderedRefs == totalRefs && totalRefsAvailable;
-  let orderAwareReady = orderedRefsMatchTotal && sortKeyConsumed == 1.0;
-  let gaussianAttributeReady = gaussianAttributeConsumed == 1.0 && totalRefsAvailable;
-  let outputIsCanvasSized =
-    params.outputWidth > params.tileCols || params.outputHeight > params.tileRows;
-  let fullScreenPixelWork = max(params.outputWidth * params.outputHeight, 1.0);
-  let tileSizeX = max(params.outputWidth / max(params.tileCols, 1.0), 1.0);
-  let tileSizeY = max(params.outputHeight / max(params.tileRows, 1.0), 1.0);
-  let activeTilePixelWork = nonEmpty * tileSizeX * tileSizeY;
-  let fullScreenPixelWorkAvoided = max(fullScreenPixelWork - activeTilePixelWork, 0.0);
-  let workReductionRatio = fullScreenPixelWorkAvoided / fullScreenPixelWork;
-  let productionPathUsed = orderAwareReady && gaussianAttributeReady && outputIsCanvasSized;
-  let inactiveTileCount = max(params.tileCount - nonEmpty, 0.0);
-  orderAwareUsed = select(0.0, 1.0, orderAwareReady);
-  compositorSummary[0] = vec4f(params.tileCount, nonEmpty, totalRefs, totalRefs);
-  compositorSummary[1] = vec4f(readTable, traversedList, select(0.0, 1.0, totalRefsAvailable), maxRefs);
-  compositorSummary[2] = vec4f(overflow, 87.0, orderedRefs, totalRefs);
-  compositorSummary[3] = vec4f(
-    depthKeyConsumed,
-    sortKeyConsumed,
-    orderAwareUsed,
-    select(0.0, 1.0, orderedRefsMatchTotal)
-  );
-  compositorSummary[4] = vec4f(
-    gaussianAttributeConsumed,
-    footprintPayloadConsumed,
-    select(0.0, 1.0, orderedRefsMatchTotal),
-    orderAwareUsed
-  );
-  compositorSummary[5] = vec4f(
-    select(0.0, 1.0, gaussianAttributeReady),
-    select(0.0, 1.0, gaussianAttributeReady),
-    totalRefs,
-    select(0.0, 1.0, outputIsCanvasSized)
-  );
-  compositorSummary[6] = vec4f(
-    select(0.0, 1.0, productionPathUsed),
-    select(0.0, 1.0, orderAwareReady),
-    select(0.0, 1.0, nonEmpty > 0.0),
-    1.0
-  );
-  compositorSummary[7] = vec4f(
-    nonEmpty,
-    inactiveTileCount,
-    activeTilePixelWork,
-    fullScreenPixelWorkAvoided
-  );
-  compositorSummary[8] = vec4f(
-    workReductionRatio,
-    select(0.0, 1.0, productionPathUsed),
-    select(0.0, 1.0, productionPathUsed),
-    select(0.0, 1.0, nonEmpty > 0.0)
-  );
-  compositorSummary[9] = vec4f(
-    scaleAwareConicPayloadConsumed,
-    anisotropicFootprintRefs,
-    anisotropicFootprintRefs / max(totalRefs, 1.0),
-    conicFallbackRefs
-  );
-}
-`
   });
-  const bindGroupLayout = device.createBindGroupLayout({
-    entries: [
-      {
-        binding: 0,
-        visibility: GPUShaderStage.COMPUTE,
-        buffer: { type: 'read-only-storage' }
-      },
-      {
-        binding: 1,
-        visibility: GPUShaderStage.COMPUTE,
-        buffer: { type: 'read-only-storage' }
-      },
-      {
-        binding: 2,
-        visibility: GPUShaderStage.COMPUTE,
-        buffer: { type: 'read-only-storage' }
-      },
-      {
-        binding: 3,
-        visibility: GPUShaderStage.COMPUTE,
-        storageTexture: { access: 'write-only', format: 'rgba8unorm' }
-      },
-      {
-        binding: 4,
-        visibility: GPUShaderStage.COMPUTE,
-        buffer: { type: 'storage' }
-      },
-      {
-        binding: 5,
-        visibility: GPUShaderStage.COMPUTE,
-        buffer: { type: 'uniform' }
-      }
-    ]
-  });
-  const pipelineLayout = device.createPipelineLayout({
-    bindGroupLayouts: [bindGroupLayout]
-  });
-  const backgroundPipeline = device.createComputePipeline({
-    layout: pipelineLayout,
-    compute: { module: shader, entryPoint: 'clearProductionBackground' }
-  });
-  const compositorPipeline = device.createComputePipeline({
-    layout: pipelineLayout,
-    compute: { module: shader, entryPoint: 'compositeActiveTiles' }
-  });
-  const finalizePipeline = device.createComputePipeline({
-    layout: pipelineLayout,
-    compute: { module: shader, entryPoint: 'finalizeSummary' }
-  });
-  const bindGroup = device.createBindGroup({
-    layout: bindGroupLayout,
-    entries: [
-      { binding: 0, resource: { buffer: resources.inputBuffer } },
-      { binding: 1, resource: { buffer: resources.tileTableBuffer } },
-      { binding: 2, resource: { buffer: orderedReferenceBuffer } },
-      { binding: 3, resource: outputTexture.createView() },
-      { binding: 4, resource: { buffer: summaryBuffer } },
-      { binding: 5, resource: { buffer: paramsBuffer } }
-    ]
-  });
-  const dirtyProductionRuntimeFrameCount = 2;
+  const {
+    outputTexture,
+    bytesPerRow,
+    textureReadback,
+    compositorSummary,
+    orderingSummaryRaw,
+    orderingSummaryData,
+    orderedReferenceBuffer,
+    orderedReferenceBufferBytes,
+    sortCapacityLimit,
+    transientBuffers,
+    boundedExecutionContract,
+    executionPlanObserver
+  } = boundedExecution;
+  const referenceCapacity = Math.max(1, resources.referenceCapacity);
+  const dirtyProductionRuntimeFrameCount = 1;
   const cleanProductionRuntimeFrameCount = 1;
   const productionRuntimeFrameCount =
     dirtyProductionRuntimeFrameCount + cleanProductionRuntimeFrameCount;
-  const encoder = device.createCommandEncoder({
-    label: 'phase3-step85-webgpu-tile-list-compositor-encoder'
-  });
-  const tileSizeXForDispatch = Math.max(outputWidth / Math.max(resources.tileCols, 1), 1);
-  const tileSizeYForDispatch = Math.max(outputHeight / Math.max(resources.tileRows, 1), 1);
-  const tileSubtileCols = Math.max(1, Math.ceil(tileSizeXForDispatch / 8));
-  const tileSubtileRows = Math.max(1, Math.ceil(tileSizeYForDispatch / 8));
-  let pass = encoder.beginComputePass({
-    label: 'phase3-step97-webgpu-time-driven-production-runtime-pass-0'
-  });
-  for (
-    let runtimeFrameIndex = 0;
-    runtimeFrameIndex < dirtyProductionRuntimeFrameCount;
-    runtimeFrameIndex += 1
-  ) {
-    if (runtimeFrameIndex > 0) {
-      pass.end();
-      encoder.clearBuffer(orderingSummaryBuffer);
-      pass = encoder.beginComputePass({
-        label: `phase3-step97-webgpu-time-driven-production-runtime-pass-${runtimeFrameIndex}`
-      });
-    }
-    pass.setBindGroup(0, orderingBindGroup);
-    pass.setPipeline(referenceSeedPipeline);
-    pass.dispatchWorkgroups(Math.max(1, Math.ceil(referenceCapacity / 64)));
-    pass.setPipeline(orderingPipeline);
-    pass.dispatchWorkgroups(Math.max(1, resources.tileCount));
-    pass.setBindGroup(0, bindGroup);
-    pass.setPipeline(backgroundPipeline);
-    pass.dispatchWorkgroups(
-      Math.max(1, Math.ceil(outputWidth / 8)),
-      Math.max(1, Math.ceil(outputHeight / 8))
-    );
-    pass.setPipeline(compositorPipeline);
-    pass.dispatchWorkgroups(
-      Math.max(1, resources.tileCols * tileSubtileCols),
-      Math.max(1, resources.tileRows * tileSubtileRows)
-    );
-  }
-  pass.setPipeline(finalizePipeline);
-  pass.dispatchWorkgroups(1);
-  pass.end();
-  encoder.copyTextureToBuffer(
-    { texture: outputTexture },
-    {
-      buffer: textureReadbackBuffer,
-      bytesPerRow,
-      rowsPerImage: outputHeight
-    },
-    { width: outputWidth, height: outputHeight, depthOrArrayLayers: 1 }
-  );
-  encoder.copyBufferToBuffer(
-    summaryBuffer,
-    0,
-    summaryReadbackBuffer,
-    0,
-    summaryData.byteLength
-  );
-  encoder.copyBufferToBuffer(
-    orderingSummaryBuffer,
-    0,
-    orderingSummaryReadbackBuffer,
-    0,
-    orderingSummaryData.byteLength
-  );
-  device.queue.submit([encoder.finish()]);
-  if (typeof device.queue.onSubmittedWorkDone === 'function') {
-    await device.queue.onSubmittedWorkDone();
-  }
-  await summaryReadbackBuffer.mapAsync(GPUMapMode.READ);
-  const compositorSummary = new Float32Array(summaryReadbackBuffer.getMappedRange().slice(0));
-  summaryReadbackBuffer.unmap();
-  await orderingSummaryReadbackBuffer.mapAsync(GPUMapMode.READ);
-  const orderingSummaryRaw = new Uint32Array(
-    orderingSummaryReadbackBuffer.getMappedRange().slice(0)
-  );
-  orderingSummaryReadbackBuffer.unmap();
-  await textureReadbackBuffer.mapAsync(GPUMapMode.READ);
-  const textureReadback = new Uint8Array(textureReadbackBuffer.getMappedRange().slice(0));
-  textureReadbackBuffer.unmap();
 
   const summary = readCompositorSummary(compositorSummary);
   const orderingSummary = readOrderingSummary(orderingSummaryRaw);
   summary.sourceTotalTileReferenceCount =
-    sourceContract?.totalTileReferenceCount ?? summary.compositedReferenceCount;
+    executionPlanObserver?.requiredReferenceCount ??
+    (sourceContract?.totalTileReferenceCount > 0
+      ? sourceContract.totalTileReferenceCount
+      : summary.compositedReferenceCount);
+  const tileReferenceCapacityContract =
+    buildProductionTileReferenceCapacityContract({
+      recordCount: resources.recordCount,
+      tileCount: resources.tileCount,
+      allocatedReferenceCapacity: resources.referenceCapacity,
+      requiredReferenceCount:
+        executionPlanObserver?.requiredReferenceCount ?? 0,
+      requiredPaddedReferenceCapacity:
+        executionPlanObserver?.requiredPaddedReferenceCapacity ?? 0,
+      writtenReferenceCount:
+        executionPlanObserver?.scatteredReferenceCount ?? 0,
+      maxReferencesPerTile:
+        executionPlanObserver?.maxReferencesPerTile ?? 0,
+      compactOffsetsGenerated:
+        executionPlanObserver?.compactOffsetTableReady === true,
+      recordAndReferenceCapacitySeparated: true,
+      capacityOverflowDetected:
+        executionPlanObserver?.capacityOverflowDetected === true,
+      capacityOverflowFailClosed:
+        executionPlanObserver?.capacityOverflowFailClosed === true,
+      silentDropAllowed: false,
+      allocationPolicy:
+        'gpu-execution-plan-device-capacity-bounded-reference-allocation'
+    });
   const diagnosticTextureReadbackNonZero = hasNonZeroTextureByte(
       textureReadback,
       bytesPerRow,
@@ -1778,6 +1273,17 @@ fn finalizeSummary() {
     summary.traversedReferenceList &&
     outputTextureWritten &&
     summary.compositedReferenceCount > 0;
+  if (
+    executionPlanObserver?.observerReady !== true &&
+    boundedExecution.productionPresentation?.cacheResult?.cached === true &&
+    viewerCanvas
+  ) {
+    if (previousCachedOutput) {
+      viewerCanvasTileCompositorOutputState.set(viewerCanvas, previousCachedOutput);
+    } else {
+      viewerCanvasTileCompositorOutputState.delete(viewerCanvas);
+    }
+  }
   const orderedReferenceCountMatchesSource =
     summary.orderedReferenceCountMatchesSource &&
     summary.orderedReferenceCount === summary.sourceTotalTileReferenceCount;
@@ -1799,7 +1305,7 @@ fn finalizeSummary() {
     textureStats.nonzeroPixelRatio > 0 &&
     summary.debugPatternBypassedForCompositor;
   const step89RealCompositorOutputPreserved = realTileCompositorOutputReady;
-  const sortOrOrderingDispatchCount = dirtyProductionRuntimeFrameCount;
+  const sortOrOrderingDispatchCount = boundedExecution.sortSubmissionCount;
   const fullScreenPixelWorkItemCount = Math.max(1, outputWidth * outputHeight);
   const activeTilePixelWorkItemCount =
     Math.max(1, summary.activeTilePixelWorkItemCount);
@@ -1809,7 +1315,7 @@ fn finalizeSummary() {
     summary.activeTileCount > 0;
   const activeTileDispatchUsed =
     summary.activeTileDispatchUsed === true && activeTileDispatchReady;
-  const compositorDispatchCount = dirtyProductionRuntimeFrameCount * 4 + 1;
+  const compositorDispatchCount = boundedExecution.compositorSubmissionCount;
   const compositorWorkItemCount =
     fullScreenPixelWorkItemCount +
     activeTilePixelWorkItemCount;
@@ -1851,7 +1357,7 @@ fn finalizeSummary() {
     sourceReferenceCount: summary.sourceTotalTileReferenceCount,
     orderedReferenceCountMatchesSource,
     orderHandling: 'depth-aware-compositor-sort-key-descending',
-    fullParallelPerTileSortInWgsl: false,
+    fullParallelPerTileSortInWgsl: true,
     fullCudaDepthParity: false,
     finalProductionCompositor: false,
     step85TileCompositorPathPreserved: ready,
@@ -1860,9 +1366,6 @@ fn finalizeSummary() {
       ? null
       : 'webgpu-tile-depth-ordering-did-not-consume-depth-aware-reference-order'
   });
-  const viewerCanvas = viewerCanvasState?.canvas ?? null;
-  const currentTextureGuardAllowed =
-    canOwnProductionTileCompositorPresentation(viewerCanvasState);
   let compositorOutputPresentedToCurrentTexture = false;
   let compositorCurrentTextureRenderPassSubmitted = false;
   let compositorCurrentTextureReadbackCompleted = false;
@@ -1890,68 +1393,15 @@ fn finalizeSummary() {
   let presentationErrorName = null;
   let presentationErrorMessage = null;
   let outputTextureCachedForHeartbeat = false;
-  const compositorFrameIdentity = summarizeWebGpuPresentationFrameIdentity({
-    datasetCameraLabel:
-      deterministicState?.datasetCameraLabel ??
-      deterministicState?.imageName ??
-      deterministicState?.cudaReferenceLabel ??
-      null,
-    datasetFrameNumber:
-      deterministicState?.datasetFrameNumber ??
-      deterministicState?.frameNumber ??
-      null,
-    datasetTime: deterministicState?.datasetTime ?? deterministicState?.time ?? null,
-    referenceCameraLabel:
-      deterministicState?.cudaReferenceLabel ??
-      deterministicState?.datasetCameraLabel ??
-      deterministicState?.imageName ??
-      null,
-    outputWidth,
-    outputHeight
-  });
-  if (currentTextureGuardAllowed && outputTextureWritten) {
-    const cacheResult = cacheTileCompositorOutputTexture({
-      canvas: viewerCanvas,
-      device,
-      outputTexture,
-      outputWidth,
-      outputHeight,
-      frameIdentity: compositorFrameIdentity,
-      requestedStateIdentity: compositorFrameIdentity,
-      sourceRequestIdentity:
-        viewerCanvasState?.schedulerFrameState?.requestIdentity ?? null
-    });
+  if (
+    executionPlanObserver?.observerReady === true &&
+    boundedExecution.productionPresentation?.presentation
+  ) {
+    const cacheResult = boundedExecution.productionPresentation.cacheResult;
     outputTextureCachedForHeartbeat = cacheResult.cached === true;
     compositorOutputCacheInvalidatedOnDeviceChange =
       cacheResult.invalidatedOnDeviceChange === true;
-    const presentation = await presentTileCompositorTextureToCurrentTexture({
-      device,
-      outputTexture,
-      outputWidth,
-      outputHeight,
-      viewerCanvasState,
-      canvasWidth,
-      canvasHeight,
-      frameCount: 2,
-      presentationSource: 'webgpu-tile-compositor-output-texture',
-      forceContextRefresh: true,
-      outputGeneration: cacheResult.generation ?? null,
-      outputTextureIdentity: cacheResult.outputTextureIdentity ?? null,
-      sourceRequestIdentity:
-        viewerCanvasState?.schedulerFrameState?.requestIdentity ?? null,
-      frameIdentity: compositorFrameIdentity,
-      onPresentedFrame: (sample) => {
-        const cached = viewerCanvasTileCompositorOutputState.get(viewerCanvas);
-        if (cached) {
-          cached.presentedFrameIdentity = sample.frameIdentity ?? null;
-          cached.lastPresentedAtMs =
-            typeof performance !== 'undefined' &&
-            typeof performance.now === 'function'
-              ? performance.now()
-              : Date.now();
-        }
-      }
-    });
+    const presentation = boundedExecution.productionPresentation.presentation;
     compositorOutputPresentedToCurrentTexture =
       presentation.compositorOutputPresentedToCurrentTexture === true;
     compositorCurrentTextureRenderPassSubmitted =
@@ -2057,9 +1507,9 @@ fn finalizeSummary() {
         orderingSummary.capacityTelemetryTileCount
       : 0;
   const sortedReferenceCountMatchesSourceOrCapacityPolicy =
-    sortedReferenceCount === summary.sourceTotalTileReferenceCount ||
-    sortedReferenceCount + droppedReferenceCount >=
-      summary.sourceTotalTileReferenceCount;
+    sortedReferenceCount === summary.sourceTotalTileReferenceCount &&
+    droppedReferenceCount === 0 &&
+    overflowReferenceCount === 0;
   const sortScratchBufferReady =
     orderedReferenceBufferBytes > 0 &&
     orderingSummaryData.byteLength >= ORDERING_SUMMARY_UINT_COUNT * 4;
@@ -2074,8 +1524,10 @@ fn finalizeSummary() {
     orderingSummary.sortCapacityLimit === sortCapacityLimit;
   const sortedAccumulationCapacityPolicyUsed =
     sortedReferenceCountMatchesSourceOrCapacityPolicy &&
-    unsortedFallbackTileCount === overflowTileCount &&
-    droppedReferenceCount >= overflowReferenceCount;
+    unsortedFallbackTileCount === 0 &&
+    overflowTileCount === 0 &&
+    droppedReferenceCount === 0 &&
+    overflowReferenceCount === 0;
   const productionOrderedReferenceLifecycleReady =
     tileReferenceBufferLifecycleReady &&
     sortScratchBufferReady &&
@@ -2098,9 +1550,10 @@ fn finalizeSummary() {
     depthSortedOrderedReferencesGenerated &&
     orderedReferencesConsumedByProductionAccumulation;
   const boundedPerTileSortUsed =
+    boundedExecutionContract?.boundedExecutionReady === true &&
     sortOrOrderingDispatchCount > 0 &&
     maxReferencesPerTile <= sortCapacityLimit &&
-    unsortedFallbackTileCount === overflowTileCount;
+    unsortedFallbackTileCount === 0;
   const sortedAccumulationPathUsed =
     boundedPerTileSortUsed &&
     depthSortedReferencesConsumedByAccumulation &&
@@ -2130,9 +1583,10 @@ fn finalizeSummary() {
     orderingSummary.sortKeyObserved === true &&
     sortOrderViolationCount === 0;
   const workgroupParallelSortUsed =
+    boundedExecutionContract?.boundedExecutionReady === true &&
     perTileOrderingRuntimePathUsed &&
     sortWorkgroupCount === sortedTileCount &&
-    parallelSortStageCount === PARALLEL_SORT_STAGE_COUNT &&
+    parallelSortStageCount > 0 &&
     sortOrderSampleCheckReady;
   const parallelSortedBufferReady =
     workgroupParallelSortUsed &&
@@ -3361,28 +2815,26 @@ fn finalizeSummary() {
     earlyTerminationOnPathExecuted === false;
   const lodStreamingRemainsDisabled = true;
 
-  for (const buffer of [
-    summaryBuffer,
-    paramsBuffer,
-    summaryReadbackBuffer,
-    textureReadbackBuffer,
-    orderingSummaryBuffer,
-    orderingParamsBuffer,
-    orderingSummaryReadbackBuffer,
-    orderedReferenceBuffer
-  ]) {
+  for (const buffer of [...transientBuffers, orderedReferenceBuffer]) {
     if (typeof buffer.destroy === 'function') {
       buffer.destroy();
     }
   }
-  if (!outputTextureCachedForHeartbeat && typeof outputTexture.destroy === 'function') {
+  if (
+    !outputTextureCachedForHeartbeat &&
+    boundedExecution.outputTextureReused !== true &&
+    typeof outputTexture.destroy === 'function'
+  ) {
     outputTexture.destroy();
   }
 
   return {
     compositorSummary,
+    executionPlanObserver,
+    tileReferenceCapacityContract,
     contract: buildWebGpuTileListCompositorContract({
       tileCompositorReady: ready,
+      boundedExecutionContract,
       compositorPassSubmitted: true,
       compositorReadbackCompleted: true,
       compositorReadOffsetCountTable: summary.readOffsetCountTable,
@@ -3414,17 +2866,18 @@ fn finalizeSummary() {
         'splat-reference-list-traversal',
         'depth-aware-reference-selection',
         'gpu-side-ordered-reference-buffer-update',
-        'workgroup-parallel-bitonic-per-tile-depth-sort-v1',
-        'reference-list-compute-seed-pass',
+        'bounded-global-bitonic-compare-stage-submissions-v1',
+        'bounded-reference-chunk-production-accumulation-v1',
+        'complete-per-tile-reference-and-padding-seed-across-bounded-submissions',
         'copy-free-reference-seed-guard',
         'parallel-sorted-buffer-readiness-guard',
         'production-tile-compositor-v1-main-path',
         'active-tile-subtile-accumulation-dispatch',
         'production-background-clear-pass',
         'inactive-background-handling-in-compositor',
-        'bounded-gpu-per-tile-depth-sort-v1',
-        'overflow-aware-tile-ordering-capacity-policy',
-        'scalable-sort-scratch-buffer-boundary',
+        'compact-capacity-gpu-per-tile-depth-sort-v1',
+        'no-silent-drop-tile-reference-capacity-policy',
+        'device-limit-bounded-sort-resource-boundary',
         'tile-histogram-capacity-table-telemetry',
         'sort-order-violation-sampled-evidence',
         'depth-sorted-ordered-reference-buffer-consumed-by-accumulation',
@@ -3491,7 +2944,7 @@ fn finalizeSummary() {
       ],
       compositorClassification:
         'production-webgpu-tile-compositor-v1-integration',
-      fullDepthSortInWgsl: false,
+      fullDepthSortInWgsl: true,
       fullCudaParity: false,
       finalProductionTileCompositor: false,
       normalBackendFallbackMaintained: true,
@@ -3656,10 +3109,10 @@ fn finalizeSummary() {
       sortOrOrderingBufferBytes:
         orderedReferenceBufferBytes + orderingSummaryData.byteLength,
       step91OrderedReferenceRuntimePathPreserved: gpuSideTileOrderingReady,
-      step92SortMode: 'bounded-gpu-workgroup-bitonic-sort-per-tile-descending-sort-key',
+      step92SortMode: 'compact-storage-bounded-global-bitonic-stage-descending-sort-key',
       gpuParallelPerTileSortReady,
       workgroupParallelSortUsed,
-      parallelSortAlgorithm: 'workgroup-bitonic-sort-v1-descending-sort-key',
+      parallelSortAlgorithm: 'bounded-global-bitonic-stage-v1-descending-sort-key',
       parallelSortStageCount,
       sortWorkgroupCount,
       sortOrderViolationCount,
@@ -4081,7 +3534,7 @@ fn finalizeSummary() {
       overflowReferenceCount,
       droppedReferenceCount,
       overflowHandlingPolicy:
-        'capacity-capped-sort-with-explicit-overflow-and-dropped-reference-telemetry',
+        'complete-reference-sort-or-frame-fail-closed-with-zero-silent-drop',
       sortedReferenceCountMatchesSourceOrCapacityPolicy,
       capacityUtilizationMax: orderingSummary.capacityUtilizationMax,
       capacityUtilizationAvg,

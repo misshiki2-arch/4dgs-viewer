@@ -3084,3 +3084,144 @@ one normalized deterministic-query runtime contract. This normalizes contract
 vocabulary only and does not change camera matrices, projection, orientation,
 Y flip, temporal deformation, or footprint math. Summary overlays are selected
 by evidence schema availability rather than Step-name strings.
+
+## Step118 Native WebGPU Production Frame Data Path
+
+Step118 separates production frame data ownership from the bounded diagnostic
+visible-record path. The production tile-compositor implementation no longer
+uses the diagnostic CPU reference, diagnostic `maxRecords`, mapped WebGPU
+record output, or JavaScript-materialized visible samples as compositor input.
+The diagnostic dry-run remains an observer used by capture/comparison and keeps
+its existing v1/v2 artifact responsibilities.
+
+The production path is:
+
+```text
+scene resource owner
+-> active resident workset contract
+-> WebGPU 4D state / attribute / footprint buffers
+-> WebGPU projected tile-input buffer
+-> GPU-owned tile offset/count and reference buffers
+-> production tile sort/compositor
+-> last-valid output and currentTexture presentation
+```
+
+`common_4dgs_production_frame_data_contracts.js` is the common builder boundary
+for the resident workset, native tile input, and end-to-end production resource
+lineage. Runtime and validation consume these contracts instead of rebuilding
+the same vocabulary. Resource identities cover workset, state, attribute,
+footprint, tile-input, tile-list, and compositor input, and record counts must
+match across the handoff.
+
+`webgpu_production_workset_owner.js` owns the single active resident range for
+the current scene. Its record capacity is derived from WebGPU resource limits,
+independently of both the diagnostic record limit and the number of tile
+references produced by those records. Records
+outside that resident range are reported explicitly; they are not silently
+classified as culled or diagnostic-only. Step118 does not implement chunk
+streaming or LOD and does not require the entire scene to be resident.
+
+The shared 4D evaluator now has two consumption policies. Diagnostic calls keep
+the existing readback and comparison output. Production calls use
+`readbackPolicy: none`, retain the state/attribute/footprint GPU buffers, and
+hand those buffers to the native production tile-input compute pass. The
+projection, temporal, covariance, conic, radius, camera, and Y-orientation math
+is unchanged. The tile-input pass emits invalid rows as non-contributing GPU
+records so they do not create tile-zero references.
+
+The production tile-reference owner counts references on GPU. Step118 fix4
+keeps the scene-dependent execution plan on GPU: a bounded Hillis-Steele scan
+builds compact per-tile offsets, actual counts, power-of-two sort spans, chunk
+offsets, total counts, maximum counts, and overflow status in one canonical
+GPU execution-plan lineage. Scatter, sort, and compositor bind that same plan
+resource instead of reconstructing its vocabulary in JavaScript. The reference
+buffer capacity is derived from WebGPU storage-buffer limits. Gaussian
+record capacity and tile-reference capacity are separate canonical quantities.
+The per-tile GPU sort consumes each compact span and the compositor consumes the
+full actual count; the former fixed 64-reference cap is not part of production
+semantics. If the required padded reference span exceeds the allocated device
+capacity, scatter and compositor promotion fail closed for the whole frame.
+Partial scatter and silent reference drop are forbidden. This changes resource
+capacity ownership only and does not claim final CUDA sort/compositor parity.
+The compact capacity vocabulary remains in
+`common_4dgs_production_tile_reference_contracts.js`. The GPU plan schema,
+status vocabulary, topology builder, and observer normalization are owned by
+`common_4dgs_production_tile_execution_plan_contracts.js`; the GPU producer is
+`webgpu_production_tile_execution_plan.js`. The CPU tile-count implementation
+is retained only as a focused-test oracle and is not a production consumer.
+
+Before fix4, the tile-count readback was incorrectly described as observer-only:
+runtime mapped it, assembled the offset/span table on CPU, and wrote that table
+back before scatter. Fix4 removes that production-critical round trip. Compact
+plan, ordering, compositor, texture, and currentTexture readbacks may remain as
+terminal observer evidence only after production and presentation commands have
+already been submitted; no mapped value selects a later production dispatch,
+offset, span, sort range, compositor range, or output write. Chunk streaming and
+LOD remain separate future responsibilities.
+
+Production resource capacity and production execution capacity are separate
+contracts. `common_4dgs_production_gpu_execution_contracts.js` derives the
+execution batches from `maxComputeWorkgroupsPerDimension` and the canonical
+64-invocation production workgroup topology. It is the common builder used by
+tile-reference generation, ordering, compositor execution, and runtime frame
+lineage. It reports compact submission/count completion evidence and never
+copies reference payloads into the contract.
+
+Tile-reference count and scatter cover the complete resident record range in
+record batches. The batch size bounds the worst-case record/tile visits in one
+submission. GPU queue order connects count, scan, plan finalization, count reset,
+and scatter without an intermediate completion wait. The plan status prevents
+scatter, sort, compositor accumulation, and candidate output writes after
+capacity overflow. A successful terminal observer has equal required,
+scattered, sorted, and composited actual reference counts; padding is never
+promoted as an actual reference.
+
+Production ordering uses a GPU global-storage bitonic sequence split into one
+compare/swap stage and a device-limited reference range per submission. Static
+stage topology comes from device allocation capacity, while shaders read the
+GPU plan for the scene-dependent padded range and tile spans. No
+workgroup contains the complete per-tile sort loop. Padding remains local to
+each compact tile span and is never promoted as a real reference. Production
+composition retains per-pixel accumulation in a GPU storage buffer and consumes
+at most one workgroup-width reference chunk per pixel invocation and dispatch.
+The GPU plan writes the indirect dispatch dimensions for each possible chunk;
+chunks outside the scene-dependent maximum dispatch zero work. Command batches
+are bounded from WebGPU dispatch limits and the canonical 64-invocation
+topology. All chunks finish inside the same production frame call; the
+scheduler, RAF, heartbeat, and capture lifecycle do not own continuation.
+
+Candidate output clear/write is guarded by the GPU plan status. The existing
+Step117 tile-compositor owner remains the only final writer and reuses its
+last-valid output texture; an invalid or overflow plan cannot partially replace
+that texture. Production presentation is queued before terminal observer mapping,
+so observer evidence does not become a GPU-to-CPU-to-GPU promotion decision.
+Generation, currentTexture, diagnostic observer, and capture ownership remain
+the Step117 contracts rather than a second Fix4 lifecycle.
+
+This bounded execution structure preserves the complete active/resident
+reference semantics and GPU resource lineage. It does not reinstate a fixed
+references-per-tile limit, silently drop overflow, shrink the resident workset,
+or introduce LOD/streaming. It is a correctness and device-progress boundary;
+FPS optimization and final CUDA sort/compositor parity remain later work.
+
+The viewer selects this native path only for the canonical production tile
+compositor implementation. Diagnostic capture continues to call the diagnostic
+dry-run under the observer mutation policy. Runtime-runner and viewer-frame
+presentation contracts recognize the tile compositor's canonical
+`currentTexture` submission directly instead of requiring the legacy bounded
+diagnostic adapter. No Step label, camera label, frame, time, or representative
+source index selects the production data policy.
+
+Step117 generation identity, final-writer/currentTexture ownership, last-valid
+presentation, diagnostic isolation, Design C JSON artifacts, and PNG
+identity/freshness remain unchanged. Step118 validation requires contract/count
+lineage, diagnostic independence, no silent capacity drop, existing ownership
+smokes, scheduler semantics, static syntax checks, and a successful demo build.
+Browser acceptance remains a separate run and must confirm a nonblocked
+resident workset, zero tile-list overflow, nonblank production output, stable
+presentation, and unchanged diagnostic/capture/PNG behavior.
+
+The existing GPU runtime summary artifact carries the compact workset and frame
+data-path contracts from the last production render. `summarize_step_json.py`
+normalizes those contracts into the Step118 decision; it does not infer browser
+visibility and does not copy GPU data or diagnostic detail into Summary.
