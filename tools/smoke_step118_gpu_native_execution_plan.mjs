@@ -89,7 +89,16 @@ function observerWords({ overflow = false } = {}) {
   return words;
 }
 
-const readyObserver = readProductionTileExecutionPlanObserver(observerWords());
+const readyObserver = readProductionTileExecutionPlanObserver(
+  observerWords(),
+  {
+    ...contract,
+    planIdentity: 1,
+    recordCount: 100,
+    tileCount: 3,
+    referenceCapacity: 16
+  }
+);
 assert.equal(
   readyObserver.schemaVersion,
   PRODUCTION_TILE_EXECUTION_PLAN_OBSERVER_SCHEMA_VERSION
@@ -101,15 +110,34 @@ assert.equal(
 assert.equal(readyObserver.productionControlInput, false);
 assert.equal(readyObserver.rawPlanWordsPublished, false);
 assert.equal(readyObserver.observerReady, true);
+assert.equal(
+  readyObserver.executionCompletionContract.executionCompletionReady,
+  true
+);
+assert.equal(
+  readyObserver.executionCompletionContract.staticPlanShapeMatches,
+  true
+);
 assert.equal(readyObserver.requiredReferenceCount, 9);
 assert.equal(readyObserver.scatteredReferenceCount, 9);
 assert.equal(readyObserver.sortedReferenceCount, 9);
 assert.equal(readyObserver.compositedReferenceCount, 9);
 
 const overflowObserver = readProductionTileExecutionPlanObserver(
-  observerWords({ overflow: true })
+  observerWords({ overflow: true }),
+  {
+    ...contract,
+    planIdentity: 1,
+    recordCount: 100,
+    tileCount: 3,
+    referenceCapacity: 16
+  }
 );
 assert.equal(overflowObserver.observerReady, false);
+assert.equal(
+  overflowObserver.executionCompletionContract.executionCompletionReady,
+  false
+);
 assert.equal(overflowObserver.capacityOverflowDetected, true);
 assert.equal(overflowObserver.capacityOverflowFailClosed, true);
 

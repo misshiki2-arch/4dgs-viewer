@@ -1,3 +1,5 @@
+> **Current project status:** Phase 2 is closed and Phase 3 Step118 is complete. The canonical current-state record, including Step118 claims and non-claims, is [docs/phase3_current_state.md](docs/phase3_current_state.md). Historical status or future-work wording below must not be used by itself to select the next implementation step.
+
 # 4dgs-viewer
 
 This repository is a fork of

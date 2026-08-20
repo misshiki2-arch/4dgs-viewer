@@ -63,6 +63,13 @@ function parseNumber(value, fallback = null) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function parseProductionResidentRangeValue(params, key) {
+  if (!params.has(key)) return null;
+  const rawValue = params.get(key);
+  const number = Number(rawValue);
+  return rawValue !== '' && Number.isFinite(number) ? number : rawValue;
+}
+
 function parseInteger(value, fallback = null) {
   const n = parseNumber(value, fallback);
   return Number.isFinite(n) ? (n | 0) : fallback;
@@ -194,6 +201,21 @@ function buildDeterministicQueryString(state) {
   appendDeterministicQueryParam(params, 'gpuCandidateSourceMode', state?.gpuCandidateSourceMode);
   appendDeterministicQueryParam(params, 'gpuCandidateRangeStart', state?.gpuCandidateRangeStart);
   appendDeterministicQueryParam(params, 'gpuCandidateRangeCount', state?.gpuCandidateRangeCount);
+  appendDeterministicQueryParam(
+    params,
+    'webgpuProductionResidentSelectionMode',
+    state?.webgpuProductionResidentSelectionMode
+  );
+  appendDeterministicQueryParam(
+    params,
+    'webgpuProductionResidentRangeStart',
+    state?.webgpuProductionResidentRangeStart
+  );
+  appendDeterministicQueryParam(
+    params,
+    'webgpuProductionResidentRangeCount',
+    state?.webgpuProductionResidentRangeCount
+  );
   appendDeterministicQueryParam(params, 'gpuCandidateScreenCoarseMaxCount', state?.gpuCandidateScreenCoarseMaxCount);
   appendDeterministicQueryParam(params, 'gpuCandidateScreenCoarseMinRadiusPx', state?.gpuCandidateScreenCoarseMinRadiusPx);
   appendDeterministicQueryParam(
@@ -353,6 +375,18 @@ export function parseViewerQueryState(search = window.location.search) {
       : null,
     gpuCandidateRangeStart: parseInteger(params.get('gpuCandidateRangeStart'), null),
     gpuCandidateRangeCount: parseInteger(params.get('gpuCandidateRangeCount'), null),
+    webgpuProductionResidentSelectionMode:
+      params.has('webgpuProductionResidentSelectionMode')
+        ? params.get('webgpuProductionResidentSelectionMode')
+        : null,
+    webgpuProductionResidentRangeStart: parseProductionResidentRangeValue(
+      params,
+      'webgpuProductionResidentRangeStart'
+    ),
+    webgpuProductionResidentRangeCount: parseProductionResidentRangeValue(
+      params,
+      'webgpuProductionResidentRangeCount'
+    ),
     gpuCandidateScreenCoarseMaxCount: parseInteger(params.get('gpuCandidateScreenCoarseMaxCount'), null),
     gpuCandidateScreenCoarseMinRadiusPx: parseNumber(params.get('gpuCandidateScreenCoarseMinRadiusPx'), null),
     gpuCandidateScreenCoarseRequireInViewport: parseBoolean(
@@ -473,6 +507,9 @@ export function parseViewerQueryState(search = window.location.search) {
     'gpuCandidateSourceMode',
     'gpuCandidateRangeStart',
     'gpuCandidateRangeCount',
+    'webgpuProductionResidentSelectionMode',
+    'webgpuProductionResidentRangeStart',
+    'webgpuProductionResidentRangeCount',
     'gpuCandidateScreenCoarseMaxCount',
     'gpuCandidateScreenCoarseMinRadiusPx',
     'gpuCandidateScreenCoarseRequireInViewport',
@@ -581,6 +618,12 @@ export function buildViewerDeterministicSummary(queryState) {
     gpuCandidateSourceMode: state.gpuCandidateSourceMode ?? null,
     gpuCandidateRangeStart: Number.isFinite(state.gpuCandidateRangeStart) ? Number(state.gpuCandidateRangeStart) : null,
     gpuCandidateRangeCount: Number.isFinite(state.gpuCandidateRangeCount) ? Number(state.gpuCandidateRangeCount) : null,
+    webgpuProductionResidentSelectionMode:
+      state.webgpuProductionResidentSelectionMode ?? null,
+    webgpuProductionResidentRangeStart:
+      state.webgpuProductionResidentRangeStart ?? null,
+    webgpuProductionResidentRangeCount:
+      state.webgpuProductionResidentRangeCount ?? null,
     gpuCandidateScreenCoarseMaxCount: Number.isFinite(state.gpuCandidateScreenCoarseMaxCount)
       ? Number(state.gpuCandidateScreenCoarseMaxCount)
       : null,

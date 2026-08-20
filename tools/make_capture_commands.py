@@ -32,6 +32,11 @@ CAPTURE_LIFECYCLE_FRESH_PRODUCTION_DIAGNOSTIC_JSON_PNG = (
     "fresh-production-diagnostic-json-png"
 )
 
+PRODUCTION_CAPTURE_EXPECTATION_NONBLANK = "production-nonblank"
+PRODUCTION_CAPTURE_EXPECTATION_ZERO_VISIBLE_BLACK = (
+    "zero-visible-production-black"
+)
+
 
 STEP114_CAPTURE_CONTRACTS = (
     (
@@ -734,6 +739,103 @@ if (genericProductionPngCaptureResult?.status !== 'success' ||
       genericProductionPngFileName) {{
   throw new Error('capture-blocked-production-png-evidence-incomplete');
 }}
+var genericProductionPngExpectedPixelClassification =
+  typeof genericCaptureExpectationContract !== 'undefined'
+    ? genericCaptureExpectationContract.expectedPixelClassification
+    : 'nonblank';
+var genericProductionPngEncodedPixelEvidence =
+  genericProductionPngCaptureResult.encodedPngPixelEvidence ?? null;
+var genericProductionPngPixelClassificationMatches =
+  genericProductionPngEncodedPixelEvidence?.decodeCompleted === true &&
+  genericProductionPngEncodedPixelEvidence?.pixelClassification ===
+    genericProductionPngExpectedPixelClassification;
+var genericProductionPngRawOutputClassificationMatches =
+  genericProductionPngExpectedPixelClassification === 'black'
+    ? genericProductionPngCaptureResult.outputStats?.rgbNonzeroPixelCount === 0 &&
+      genericProductionPngCaptureResult.outputStats?.rgbMax === 0
+    : Number(
+        genericProductionPngCaptureResult.outputStats?.rgbNonzeroPixelCount
+      ) > 0 &&
+      Number(genericProductionPngCaptureResult.outputStats?.rgbMax) > 0;
+var genericProductionPngGenerationMatchesFreshProduction =
+  typeof genericFreshProductionGeneration !== 'undefined' &&
+  Number.isFinite(Number(genericFreshProductionGeneration)) &&
+  Number(genericProductionPngCaptureResult.productionOutputGeneration) ===
+    Number(genericFreshProductionGeneration) &&
+  Number(genericProductionPngCaptureResult.presentedOutputGeneration) ===
+    Number(genericFreshProductionGeneration) &&
+  Number(genericProductionPngCaptureResult.capturedOutputGeneration) ===
+    Number(genericFreshProductionGeneration);
+var genericProductionPngDimensionsMatchTarget =
+  typeof genericCaptureTargetIdentity !== 'undefined' &&
+  Number(genericProductionPngCaptureResult.outputWidth) ===
+    Number(genericCaptureTargetIdentity.outputWidth) &&
+  Number(genericProductionPngCaptureResult.outputHeight) ===
+    Number(genericCaptureTargetIdentity.outputHeight) &&
+  Number(genericProductionPngEncodedPixelEvidence?.width) ===
+    Number(genericCaptureTargetIdentity.outputWidth) &&
+  Number(genericProductionPngEncodedPixelEvidence?.height) ===
+    Number(genericCaptureTargetIdentity.outputHeight);
+var genericProductionPngFreshnessReady =
+  genericProductionPngCaptureResult.captureFreshnessKnown === true &&
+  genericProductionPngCaptureResult.staleCaptureDetected === false &&
+  genericProductionPngCaptureResult.captureMatchesPresentedFrame === true &&
+  genericProductionPngCaptureResult.captureMatchesRequestedState === true &&
+  genericProductionPngGenerationMatchesFreshProduction === true &&
+  genericProductionPngDimensionsMatchTarget === true;
+var genericProductionPngEvidence = {{
+  ready:
+    genericProductionPngFreshnessReady === true &&
+    genericProductionPngPixelClassificationMatches === true &&
+    genericProductionPngRawOutputClassificationMatches === true,
+  expectedPixelClassification:
+    genericProductionPngExpectedPixelClassification,
+  pixelClassification:
+    genericProductionPngEncodedPixelEvidence?.pixelClassification ?? null,
+  encodedPixelDecodeCompleted:
+    genericProductionPngEncodedPixelEvidence?.decodeCompleted ?? null,
+  rawOutputClassificationMatches:
+    genericProductionPngRawOutputClassificationMatches,
+  outputWidth: genericProductionPngCaptureResult.outputWidth ?? null,
+  outputHeight: genericProductionPngCaptureResult.outputHeight ?? null,
+  dimensionsMatchTarget: genericProductionPngDimensionsMatchTarget,
+  productionOutputGeneration:
+    genericProductionPngCaptureResult.productionOutputGeneration ?? null,
+  presentedOutputGeneration:
+    genericProductionPngCaptureResult.presentedOutputGeneration ?? null,
+  capturedOutputGeneration:
+    genericProductionPngCaptureResult.capturedOutputGeneration ?? null,
+  generationMatchesFreshProduction:
+    genericProductionPngGenerationMatchesFreshProduction,
+  captureFreshnessKnown:
+    genericProductionPngCaptureResult.captureFreshnessKnown ?? null,
+  staleCaptureDetected:
+    genericProductionPngCaptureResult.staleCaptureDetected ?? null,
+  captureMatchesPresentedFrame:
+    genericProductionPngCaptureResult.captureMatchesPresentedFrame ?? null,
+  captureMatchesRequestedState:
+    genericProductionPngCaptureResult.captureMatchesRequestedState ?? null,
+  blobSha256:
+    genericProductionPngCaptureResult.captureBlobIdentity?.sha256 ?? null,
+  fileName: genericProductionPngFileName
+}};
+if (typeof genericCaptureExpectationContract !== 'undefined') {{
+  genericCaptureExpectationContract = {{
+    ...genericCaptureExpectationContract,
+    pngEvidence: genericProductionPngEvidence,
+    ready:
+      genericCaptureExpectationContract.readyBeforePng === true &&
+      genericProductionPngEvidence.ready === true,
+    blockedReason:
+      genericCaptureExpectationContract.readyBeforePng !== true
+        ? genericCaptureExpectationContract.blockedReason
+        : genericProductionPngEvidence.ready === true
+          ? null
+          : 'production-png-expectation-incomplete'
+  }};
+  genericFreshProductionCaptureLifecycle.captureExpectation =
+    genericCaptureExpectationContract;
+}}
 var genericProductionPngCaptureStatus = {{
   schemaVersion: 'phase3-production-png-capture-status-v1',
   artifactRole: 'compact-production-png-capture-status',
@@ -803,12 +905,30 @@ var genericProductionPngCaptureStatus = {{
     genericProductionPngCaptureResult.captureFreshnessClassification ?? null,
   orientationEvidence:
     genericProductionPngCaptureResult.orientationEvidence ?? null,
+  captureExpectationContract:
+    typeof genericCaptureExpectationContract !== 'undefined'
+      ? genericCaptureExpectationContract
+      : null,
   encodedBlobRetainedForFinalDownload: true
 }};
+var genericProductionPngCaptureStatusFileName =
+  {quote(args.step + '_png_capture_status.json')};
+var genericProductionCaptureArtifactNames = [
+  {quote(args.step + '_webgpu_visible_record_dryrun_compare.json')},
+  {quote(args.step + '_webgpu_visible_record_dryrun_capture_status.json')},
+  {quote(args.step + '_gpu_candidate_runtime_summary.json')},
+  {quote(args.step + '_limited_draw_summary.json')},
+  genericProductionPngCaptureStatusFileName,
+  genericProductionPngFileName
+];
 await window.gpuViewerDebug.downloadJsonDebug(
   genericProductionPngCaptureStatus,
-  {quote(args.step + '_png_capture_status.json')}
+  genericProductionPngCaptureStatusFileName
 );
+if (typeof genericCaptureExpectationContract !== 'undefined' &&
+    genericCaptureExpectationContract.ready !== true) {{
+  throw new Error('capture-blocked-production-png-expectation-incomplete');
+}}
 var genericProductionPngObjectUrl =
   URL.createObjectURL(genericProductionPngBlob);
 var genericProductionPngDownloadLink = document.createElement('a');
@@ -817,7 +937,38 @@ genericProductionPngDownloadLink.download = genericProductionPngFileName;
 document.body.appendChild(genericProductionPngDownloadLink);
 genericProductionPngDownloadLink.click();
 genericProductionPngDownloadLink.remove();
-setTimeout(() => URL.revokeObjectURL(genericProductionPngObjectUrl), 0);"""
+setTimeout(() => URL.revokeObjectURL(genericProductionPngObjectUrl), 0);
+var genericProductionCaptureResult = {{
+  schemaVersion: 'phase3-production-capture-result-v1',
+  captureLifecyclePolicy:
+    {quote(CAPTURE_LIFECYCLE_FRESH_PRODUCTION_DIAGNOSTIC_JSON_PNG)},
+  expectationPolicy:
+    typeof genericCaptureExpectationContract !== 'undefined'
+      ? genericCaptureExpectationContract.expectationPolicy
+      : {quote(PRODUCTION_CAPTURE_EXPECTATION_NONBLANK)},
+  ready:
+    typeof genericCaptureExpectationContract !== 'undefined'
+      ? genericCaptureExpectationContract.ready === true
+      : true,
+  captureExpectationContract:
+    typeof genericCaptureExpectationContract !== 'undefined'
+      ? genericCaptureExpectationContract
+      : null,
+  png: {{
+    fileName: genericProductionPngFileName,
+    blobSha256:
+      genericProductionPngCaptureResult.captureBlobIdentity?.sha256 ?? null,
+    pixelClassification:
+      genericProductionPngEncodedPixelEvidence?.pixelClassification ?? null,
+    outputWidth: genericProductionPngCaptureResult.outputWidth ?? null,
+    outputHeight: genericProductionPngCaptureResult.outputHeight ?? null
+  }},
+  artifacts: genericProductionCaptureArtifactNames
+}};
+var genericProductionCaptureResultText =
+  JSON.stringify(genericProductionCaptureResult, null, 2);
+console.log(genericProductionCaptureResultText);
+if (typeof copy === 'function') copy(genericProductionCaptureResultText);"""
     if (
         "step111" in args.step
         or "step112" in args.step
@@ -1510,6 +1661,315 @@ var genericProductionPresentationReady =
   genericFinalPresentationBoundary?.quiescenceObservation?.quiescent === true &&
   genericFinalPresentationBoundary?.finalSourceRequestIdentity ===
     genericFreshProductionRequest.requestIdentity;
+var genericProductionCaptureExpectation =
+  {quote(args.production_capture_expectation)};
+var genericZeroVisibleCaptureOptIn =
+  genericProductionCaptureExpectation ===
+    {quote(PRODUCTION_CAPTURE_EXPECTATION_ZERO_VISIBLE_BLACK)};
+var genericFreshProductionRuntimeResult =
+  window.gpuViewerDebug.getLastRenderResult?.() ?? null;
+var genericProductionFrameDataPath =
+  genericFreshProductionRuntimeResult?.webgpuProductionFrameDataPathContract ?? null;
+var genericTerminalExecutionPlanObserver =
+  genericProductionFrameDataPath?.terminalExecutionPlanObserver ?? null;
+var genericCanonicalExecutionCompletion =
+  genericTerminalExecutionPlanObserver?.executionCompletionContract ?? null;
+var genericTileReferenceCapacity =
+  genericProductionFrameDataPath?.tileReferenceCapacityContract ?? null;
+var genericPolicyNeutralPresentationFacts =
+  genericFinalPresentationBoundary?.policyNeutralPresentationFacts ?? null;
+var genericFinalPresentationEvent =
+  genericFinalPresentationBoundary?.finalCanvasEvent ?? null;
+var genericUrlCaptureParams = new URLSearchParams(window.location.search);
+var genericCaptureTargetIdentity = {{
+  datasetCameraLabel:
+    genericUrlCaptureParams.get('datasetCameraLabel') ??
+    genericUrlCaptureParams.get('datasetImageName'),
+  datasetFrameNumber:
+    Number(genericUrlCaptureParams.get('datasetFrameNumber')),
+  datasetTime:
+    Number(
+      genericUrlCaptureParams.get('datasetTime') ??
+      genericUrlCaptureParams.get('time')
+    ),
+  outputWidth:
+    Number(genericUrlCaptureParams.get('fixedCanvasWidth')),
+  outputHeight:
+    Number(genericUrlCaptureParams.get('fixedCanvasHeight'))
+}};
+var genericCaptureTargetIdentityKnown =
+  typeof genericCaptureTargetIdentity.datasetCameraLabel === 'string' &&
+  genericCaptureTargetIdentity.datasetCameraLabel.length > 0 &&
+  Number.isFinite(genericCaptureTargetIdentity.datasetFrameNumber) &&
+  Number.isFinite(genericCaptureTargetIdentity.datasetTime) &&
+  Number.isFinite(genericCaptureTargetIdentity.outputWidth) &&
+  Number.isFinite(genericCaptureTargetIdentity.outputHeight);
+var genericFrameIdentityMatchesCaptureTarget = frame =>
+  genericCaptureTargetIdentityKnown === true &&
+  frame?.datasetCameraLabel === genericCaptureTargetIdentity.datasetCameraLabel &&
+  Number(frame?.datasetFrameNumber) ===
+    genericCaptureTargetIdentity.datasetFrameNumber &&
+  Number(frame?.datasetTime) === genericCaptureTargetIdentity.datasetTime &&
+  Number(frame?.outputWidth) === genericCaptureTargetIdentity.outputWidth &&
+  Number(frame?.outputHeight) === genericCaptureTargetIdentity.outputHeight;
+var genericProductionFrameIdentityMatchesTarget =
+  genericFrameIdentityMatchesCaptureTarget(
+    genericProductionFrameEvidence?.productionFrameIdentity
+  );
+var genericFreshProductionGeneration =
+  Number(genericProductionFrameEvidence?.productionGeneration);
+var genericFreshGenerationChainMatches =
+  Number.isFinite(genericFreshProductionGeneration) &&
+  Number(genericProductionFrameEvidence?.compositorGeneration) ===
+    genericFreshProductionGeneration &&
+  Number(genericProductionFrameEvidence?.presentedGeneration) ===
+    genericFreshProductionGeneration &&
+  Number(genericFinalPresentationBoundary?.finalProductionGeneration) ===
+    genericFreshProductionGeneration &&
+  Number(genericFinalPresentationBoundary?.finalCompositorGeneration) ===
+    genericFreshProductionGeneration &&
+  Number(genericFinalPresentationBoundary?.finalPresentedGeneration) ===
+    genericFreshProductionGeneration;
+var genericFreshProductionIdentityReady =
+  genericProductionGenerationIsFresh === true &&
+  genericProductionFrameEvidence?.productionSourceRequestIdentity ===
+    genericFreshProductionRequest.requestIdentity &&
+  genericFinalPresentationBoundary?.finalSourceRequestIdentity ===
+    genericFreshProductionRequest.requestIdentity &&
+  genericFreshGenerationChainMatches === true &&
+  genericProductionFrameIdentityMatchesTarget === true &&
+  genericFinalPresentationBoundary?.finalSourceIdentityKnown === true &&
+  genericFinalPresentationBoundary?.finalSourceIdentityMatchesExpected === true;
+var genericExecutionCountsAreCanonicalZero =
+  genericTerminalExecutionPlanObserver?.requiredReferenceCount === 0 &&
+  genericTileReferenceCapacity?.writtenReferenceCount === 0 &&
+  genericTerminalExecutionPlanObserver?.scatteredReferenceCount === 0 &&
+  genericTerminalExecutionPlanObserver?.sortedReferenceCount === 0 &&
+  genericTerminalExecutionPlanObserver?.compositedReferenceCount === 0;
+var genericCanonicalZeroExecutionReady =
+  genericCanonicalExecutionCompletion?.contractVersion ===
+    'phase3-production-tile-execution-completion-v1' &&
+  genericCanonicalExecutionCompletion?.status === 'completed' &&
+  genericCanonicalExecutionCompletion?.executionCompletionReady === true &&
+  genericCanonicalExecutionCompletion?.workClassification === 'zero-reference' &&
+  genericCanonicalExecutionCompletion?.terminalObserverCompleted === true &&
+  genericCanonicalExecutionCompletion?.staticPlanShapeMatches === true &&
+  genericCanonicalExecutionCompletion?.stageCountsMatch === true &&
+  genericCanonicalExecutionCompletion?.capacityRangeReady === true &&
+  genericCanonicalExecutionCompletion?.workloadShapeReady === true &&
+  Number(genericTerminalExecutionPlanObserver?.recordCount) > 0 &&
+  Number(genericTerminalExecutionPlanObserver?.tileCount) > 0 &&
+  Number(genericTerminalExecutionPlanObserver?.referenceCapacity) > 0 &&
+  genericExecutionCountsAreCanonicalZero === true &&
+  genericTerminalExecutionPlanObserver?.compactOffsetTableReady === true &&
+  genericTerminalExecutionPlanObserver?.capacityOverflowDetected !== true &&
+  genericTerminalExecutionPlanObserver?.overflowReferenceCount === 0 &&
+  genericTileReferenceCapacity?.tileReferenceCapacityReady === true &&
+  genericTileReferenceCapacity?.recordCount > 0 &&
+  genericTileReferenceCapacity?.tileCount > 0 &&
+  genericTileReferenceCapacity?.allocatedReferenceCapacity > 0 &&
+  genericTileReferenceCapacity?.requiredPaddedReferenceCapacity === 0 &&
+  genericTileReferenceCapacity?.capacityOverflowDetected === false &&
+  genericTileReferenceCapacity?.silentDropAllowed === false;
+var genericExpectedPixelClassification =
+  genericZeroVisibleCaptureOptIn ? 'black' : 'nonblank';
+var genericFreshProductionPresentationEvent =
+  genericFinalPresentationBoundary?.eventHistory?.find(event =>
+    event?.eventKind === 'production-presentation' &&
+    event?.sourceRequestIdentity === genericFreshProductionRequest.requestIdentity &&
+    Number(event?.productionGeneration) === genericFreshProductionGeneration &&
+    Number(event?.compositorGeneration) === genericFreshProductionGeneration &&
+    Number(event?.presentedGeneration) === genericFreshProductionGeneration &&
+    genericFrameIdentityMatchesCaptureTarget(event?.frameIdentity) &&
+    event?.sourcePixelResult === genericExpectedPixelClassification &&
+    event?.canvasWriteAttempted === true &&
+    event?.canvasWriteSubmitted === true &&
+    event?.canvasWriteCompleted === true &&
+    event?.staleSource !== true &&
+    event?.presentationFailed !== true
+  ) ?? null;
+var genericCachedPresentationContinuesFreshProduction =
+  genericFinalPresentationBoundary?.finalPresentationEventKind ===
+    'cached-production-presentation'
+    ? genericFreshProductionPresentationEvent != null &&
+      Number(genericFreshProductionPresentationEvent?.eventSequence) <
+        Number(genericFinalPresentationEvent?.eventSequence)
+    : genericFinalPresentationBoundary?.finalPresentationEventKind ===
+        'production-presentation' &&
+      genericFreshProductionPresentationEvent != null;
+var genericPresentationErrorsAbsent =
+  genericPolicyNeutralPresentationFacts?.presentationFailed === false &&
+  genericPolicyNeutralPresentationFacts?.webgpuValidationErrorDetected === false &&
+  genericPolicyNeutralPresentationFacts?.invalidCommandBufferDetected === false &&
+  genericPolicyNeutralPresentationFacts?.queueSubmitFailureDetected === false &&
+  genericFinalPresentationEvent?.presentationFailed !== true &&
+  genericProductionFrameEvidence?.runtimeError == null &&
+  genericFreshProductionRuntimeResult?.webgpuBackendViewerFrameExecutor
+    ?.executionError == null;
+var genericActualRuntimeErrorText = [
+  genericProductionFrameEvidence?.runtimeError?.name,
+  genericProductionFrameEvidence?.runtimeError?.message,
+  genericFreshProductionRuntimeResult?.webgpuBackendViewerFrameExecutor
+    ?.executionError?.name,
+  genericFreshProductionRuntimeResult?.webgpuBackendViewerFrameExecutor
+    ?.executionError?.message,
+  genericFinalPresentationEvent?.error?.name,
+  genericFinalPresentationEvent?.error?.message
+].filter(Boolean).join(': ');
+var genericDeviceLostDetected =
+  /device[ -]?lost|GPUDevice.*lost/i.test(genericActualRuntimeErrorText);
+var genericZeroVisiblePresentationReady =
+  genericProductionFrameEvidence?.compositorOutputReady === true &&
+  genericPolicyNeutralPresentationFacts?.productionPresentationPath === true &&
+  genericPolicyNeutralPresentationFacts?.sourcePixelResult === 'black' &&
+  genericFinalPresentationBoundary?.finalSourcePixelResult === 'black' &&
+  genericFinalPresentationBoundary?.finalCanvasWriteAttempted === true &&
+  genericFinalPresentationBoundary?.finalCanvasWriteSubmitted === true &&
+  genericFinalPresentationBoundary?.finalCanvasWriteCompleted === true &&
+  genericPolicyNeutralPresentationFacts?.sameSourcePersistence === true &&
+  genericPolicyNeutralPresentationFacts?.samePixelResultPersistence === true &&
+  genericPolicyNeutralPresentationFacts?.laterSourceReplacement === false &&
+  genericPolicyNeutralPresentationFacts?.laterPixelResultChange === false &&
+  genericPolicyNeutralPresentationFacts?.laterClear === false &&
+  genericPolicyNeutralPresentationFacts?.laterFallback === false &&
+  genericPolicyNeutralPresentationFacts?.laterStaleSource === false &&
+  genericPolicyNeutralPresentationFacts?.laterDifferentGeneration === false &&
+  genericFinalPresentationBoundary?.laterOverwriteDetected === false &&
+  genericFinalPresentationEvent?.staleSource !== true &&
+  genericFinalPresentationBoundary?.quiescenceObservation?.quiescent === true &&
+  genericPolicyNeutralPresentationFacts?.quiescenceKnown === true &&
+  genericPolicyNeutralPresentationFacts?.quiescent === true &&
+  genericCachedPresentationContinuesFreshProduction === true &&
+  genericPresentationErrorsAbsent === true &&
+  genericDeviceLostDetected === false;
+var genericCaptureExpectationReadyBeforePng =
+  genericZeroVisibleCaptureOptIn
+    ? genericProductionFrameReady === true &&
+      genericFreshProductionIdentityReady === true &&
+      genericCanonicalZeroExecutionReady === true &&
+      genericZeroVisiblePresentationReady === true
+    : genericProductionPresentationReady === true;
+var genericCaptureExpectationContract = {{
+  schemaVersion: 'phase3-production-capture-expectation-v1',
+  artifactRole: 'compact-production-capture-expectation',
+  expectationPolicy: genericProductionCaptureExpectation,
+  explicitZeroVisibleOptIn: genericZeroVisibleCaptureOptIn,
+  expectedWorkClassification:
+    genericZeroVisibleCaptureOptIn ? 'zero-reference' : null,
+  expectedPixelClassification: genericExpectedPixelClassification,
+  freshIdentity: {{
+    ready: genericFreshProductionIdentityReady,
+    requestIdentity: genericFreshProductionRequest.requestIdentity,
+    productionSourceRequestIdentity:
+      genericProductionFrameEvidence?.productionSourceRequestIdentity ?? null,
+    baselineProductionGeneration:
+      genericFreshProductionCaptureLifecycle.baselineProductionGeneration,
+    productionGeneration:
+      genericProductionFrameEvidence?.productionGeneration ?? null,
+    compositorGeneration:
+      genericProductionFrameEvidence?.compositorGeneration ?? null,
+    presentedGeneration:
+      genericProductionFrameEvidence?.presentedGeneration ?? null,
+    generationChainMatches: genericFreshGenerationChainMatches,
+    targetIdentity: genericCaptureTargetIdentity,
+    frameIdentityMatchesTarget: genericProductionFrameIdentityMatchesTarget
+  }},
+  canonicalExecution: {{
+    contractVersion:
+      genericCanonicalExecutionCompletion?.contractVersion ?? null,
+    ready: genericCanonicalZeroExecutionReady,
+    status: genericCanonicalExecutionCompletion?.status ?? null,
+    workClassification:
+      genericCanonicalExecutionCompletion?.workClassification ?? null,
+    sourcePopulationPositive:
+      Number(genericTerminalExecutionPlanObserver?.recordCount) > 0,
+    requiredReferenceCount:
+      genericTerminalExecutionPlanObserver?.requiredReferenceCount ?? null,
+    writtenReferenceCount:
+      genericTileReferenceCapacity?.writtenReferenceCount ?? null,
+    scatteredReferenceCount:
+      genericTerminalExecutionPlanObserver?.scatteredReferenceCount ?? null,
+    sortedReferenceCount:
+      genericTerminalExecutionPlanObserver?.sortedReferenceCount ?? null,
+    compositedReferenceCount:
+      genericTerminalExecutionPlanObserver?.compositedReferenceCount ?? null,
+    overflowDetected:
+      genericTerminalExecutionPlanObserver?.capacityOverflowDetected === true ||
+      genericTileReferenceCapacity?.capacityOverflowDetected === true,
+    silentDropAllowed:
+      genericTileReferenceCapacity?.silentDropAllowed ?? null
+  }},
+  outputAndPresentation: {{
+    canonicalOutputCompletionReady:
+      genericProductionFrameEvidence?.compositorOutputReady ?? null,
+    ready: genericZeroVisibleCaptureOptIn
+      ? genericZeroVisiblePresentationReady
+      : genericProductionPresentationReady,
+    eventKind:
+      genericFinalPresentationBoundary?.finalPresentationEventKind ?? null,
+    presentationSource:
+      genericFinalPresentationBoundary?.finalPresentationSource ?? null,
+    pixelClassification:
+      genericFinalPresentationBoundary?.finalSourcePixelResult ?? null,
+    freshProductionEventObserved:
+      genericFreshProductionPresentationEvent != null,
+    cachedPresentationContinuesFreshProduction:
+      genericCachedPresentationContinuesFreshProduction,
+    sourceIdentityKnown:
+      genericFinalPresentationBoundary?.finalSourceIdentityKnown ?? null,
+    sourceIdentityMatchesExpected:
+      genericFinalPresentationBoundary?.finalSourceIdentityMatchesExpected ?? null,
+    sameSourcePersistence:
+      genericPolicyNeutralPresentationFacts?.sameSourcePersistence ?? null,
+    samePixelResultPersistence:
+      genericPolicyNeutralPresentationFacts?.samePixelResultPersistence ?? null,
+    quiescent:
+      genericFinalPresentationBoundary?.quiescenceObservation?.quiescent ?? null,
+    fallbackDetected:
+      genericPolicyNeutralPresentationFacts?.laterFallback === true ||
+      genericPolicyNeutralPresentationFacts?.fallbackPresentationPath === true,
+    clearDetected:
+      genericPolicyNeutralPresentationFacts?.laterClear === true ||
+      genericPolicyNeutralPresentationFacts?.clearPresentationPath === true,
+    presentationFailed:
+      genericPolicyNeutralPresentationFacts?.presentationFailed ?? null,
+    staleOrReplaced:
+      genericFinalPresentationEvent?.staleSource === true ||
+      genericPolicyNeutralPresentationFacts?.laterSourceReplacement === true ||
+      genericPolicyNeutralPresentationFacts?.laterStaleSource === true ||
+      genericPolicyNeutralPresentationFacts?.laterDifferentGeneration === true ||
+      genericFinalPresentationBoundary?.laterOverwriteDetected === true
+  }},
+  runtimeHealth: {{
+    ready: genericPresentationErrorsAbsent && !genericDeviceLostDetected,
+    actualRuntimeErrorName:
+      genericProductionFrameEvidence?.runtimeError?.name ??
+      genericFreshProductionRuntimeResult?.webgpuBackendViewerFrameExecutor
+        ?.executionError?.name ?? null,
+    actualRuntimeErrorMessage:
+      genericProductionFrameEvidence?.runtimeError?.message ??
+      genericFreshProductionRuntimeResult?.webgpuBackendViewerFrameExecutor
+        ?.executionError?.message ?? null,
+    legacyNonblankBlockedReason:
+      genericProductionFrameEvidence?.blockedReason ?? null,
+    legacyNonblankBlockedReasonUsedAsRuntimeError: false,
+    webgpuValidationErrorDetected:
+      genericPolicyNeutralPresentationFacts?.webgpuValidationErrorDetected ?? null,
+    invalidCommandBufferDetected:
+      genericPolicyNeutralPresentationFacts?.invalidCommandBufferDetected ?? null,
+    queueSubmitFailureDetected:
+      genericPolicyNeutralPresentationFacts?.queueSubmitFailureDetected ?? null,
+    deviceLostDetected: genericDeviceLostDetected
+  }},
+  pngEvidence: null,
+  readyBeforePng: genericCaptureExpectationReadyBeforePng,
+  ready: false,
+  blockedReason: genericCaptureExpectationReadyBeforePng
+    ? 'png-evidence-pending'
+    : genericZeroVisibleCaptureOptIn
+      ? 'zero-visible-production-expectation-incomplete'
+      : 'fresh-production-presentation-incomplete'
+}};
 genericFreshProductionCaptureLifecycle.productionCompletionFence = {{
   requestIdentity: genericFreshProductionRequest.requestIdentity,
   productionGeneration:
@@ -1522,10 +1982,17 @@ genericFreshProductionCaptureLifecycle.productionCompletionFence = {{
     genericProductionFrameEvidence.productionFrameIdentity ?? null,
   productionFrameCompleted: genericProductionFrameReady,
   finalPresentationCompleted: genericProductionPresentationReady,
-  finalPresentationBoundary: genericFinalPresentationBoundary
+  finalPresentationBoundary: genericFinalPresentationBoundary,
+  captureExpectationContract: genericCaptureExpectationContract
 }};
-if (!genericProductionPresentationReady) {{
-  throw new Error('capture-blocked-fresh-production-presentation-incomplete');
+genericFreshProductionCaptureLifecycle.captureExpectation =
+  genericCaptureExpectationContract;
+if (!genericCaptureExpectationReadyBeforePng) {{
+  throw new Error(
+    genericZeroVisibleCaptureOptIn
+      ? 'capture-blocked-zero-visible-production-expectation-incomplete'
+      : 'capture-blocked-fresh-production-presentation-incomplete'
+  );
 }}
 window.__phase3GenericFreshProductionCaptureLifecycle =
   genericFreshProductionCaptureLifecycle;
@@ -2207,6 +2674,19 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--production-capture-expectation",
+        choices=[
+            PRODUCTION_CAPTURE_EXPECTATION_NONBLANK,
+            PRODUCTION_CAPTURE_EXPECTATION_ZERO_VISIBLE_BLACK,
+        ],
+        default=PRODUCTION_CAPTURE_EXPECTATION_NONBLANK,
+        help=(
+            "Expected production outcome for the fresh-production capture. "
+            "Default: production-nonblank. The zero-visible-production-black "
+            "policy is an explicit opt-in."
+        ),
+    )
+    parser.add_argument(
         "--phase-step",
         default=None,
         help="Explicit phase-step vocabulary, independent of the artifact prefix.",
@@ -2488,6 +2968,14 @@ def parse_args() -> argparse.Namespace:
                 "fresh-production capture lifecycle requires runtime preflight "
                 "expectations: " + ", ".join(missing_runtime)
             )
+    elif (
+        args.production_capture_expectation ==
+        PRODUCTION_CAPTURE_EXPECTATION_ZERO_VISIBLE_BLACK
+    ):
+        parser.error(
+            "zero-visible-production-black expectation requires "
+            "--capture-lifecycle fresh-production-diagnostic-json-png"
+        )
 
     return args
 

@@ -11,6 +11,9 @@ export const WEBGPU_DIAGNOSTIC_DETAIL_DEFAULT_LIMIT = 8;
 export const WEBGPU_DIAGNOSTIC_DETAIL_HARD_LIMIT = 32;
 export const WEBGPU_DIAGNOSTIC_REPRESENTATIVE_LIMIT = 16;
 
+const WEBGPU_DIAGNOSTIC_DETAIL_SELECTION_SCHEMA_VERSION =
+  'phase3-webgpu-diagnostic-detail-selection-v1';
+
 const DETAIL_SELECTION_MODES = new Set([
   'none',
   'explicit-src-indices',
@@ -204,8 +207,16 @@ function buildStageSummaries(result) {
 
 export function normalizeWebGpuDiagnosticDetailSelection(input = null) {
   const source = input && typeof input === 'object' ? input : {};
+  const canonicalInput =
+    source.schemaVersion === WEBGPU_DIAGNOSTIC_DETAIL_SELECTION_SCHEMA_VERSION;
+  const rawExplicitSrcIndices =
+    source.srcIndices ?? source.selectedSrcIndices ?? source.indices;
+  const canonicalSelectionInput =
+    rawExplicitSrcIndices == null && canonicalInput;
+  const canonicalExplicitSrcIndices =
+    canonicalSelectionInput ? source.explicitSrcIndices : null;
   const explicitSrcIndices = uniqueIndices(
-    source.srcIndices ?? source.selectedSrcIndices ?? source.indices
+    rawExplicitSrcIndices ?? canonicalExplicitSrcIndices
   );
   const requestedMode = String(
     source.mode ?? (explicitSrcIndices.length > 0 ? 'explicit-src-indices' : 'none')
@@ -213,21 +224,43 @@ export function normalizeWebGpuDiagnosticDetailSelection(input = null) {
   const mode = DETAIL_SELECTION_MODES.has(requestedMode)
     ? requestedMode
     : 'none';
+  const rawConfiguredLimit = source.limit ?? source.maxRecords;
+  const canonicalConfiguredLimit =
+    canonicalSelectionInput && source.configuredLimit != null
+      ? source.configuredLimit
+      : undefined;
+  const canonicalEffectiveLimit =
+    canonicalSelectionInput && source.effectiveLimit != null
+      ? source.effectiveLimit
+      : undefined;
+  const configuredLimit = toNonNegativeInteger(
+    rawConfiguredLimit ?? canonicalConfiguredLimit
+  );
   const limit = boundedInteger(
-    source.limit ?? source.maxRecords,
+    rawConfiguredLimit ?? canonicalEffectiveLimit,
     WEBGPU_DIAGNOSTIC_DETAIL_DEFAULT_LIMIT,
     WEBGPU_DIAGNOSTIC_DETAIL_HARD_LIMIT
   );
   const boundedExplicitSrcIndices = explicitSrcIndices.slice(0, limit);
+  const canonicalRequestedCount =
+    canonicalSelectionInput
+      ? toNonNegativeInteger(source.requestedExplicitSrcIndexCount)
+      : null;
+  const requestedExplicitSrcIndexCount = Math.max(
+    explicitSrcIndices.length,
+    canonicalRequestedCount ?? 0
+  );
   return {
-    schemaVersion: 'phase3-webgpu-diagnostic-detail-selection-v1',
+    schemaVersion: WEBGPU_DIAGNOSTIC_DETAIL_SELECTION_SCHEMA_VERSION,
     mode,
-    requestedExplicitSrcIndexCount: explicitSrcIndices.length,
+    requestedExplicitSrcIndexCount,
     explicitSrcIndices: boundedExplicitSrcIndices,
-    configuredLimit: toNonNegativeInteger(source.limit ?? source.maxRecords),
+    configuredLimit,
     effectiveLimit: limit,
     hardLimit: WEBGPU_DIAGNOSTIC_DETAIL_HARD_LIMIT,
-    selectionTruncated: explicitSrcIndices.length > boundedExplicitSrcIndices.length,
+    selectionTruncated:
+      (canonicalSelectionInput && source.selectionTruncated === true) ||
+      requestedExplicitSrcIndexCount > boundedExplicitSrcIndices.length,
     computeRecordLimitIndependent: true
   };
 }

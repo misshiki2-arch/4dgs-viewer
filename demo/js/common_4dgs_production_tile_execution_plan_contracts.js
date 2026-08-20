@@ -4,6 +4,9 @@ export const PRODUCTION_TILE_EXECUTION_PLAN_CONTRACT_VERSION =
 export const PRODUCTION_TILE_EXECUTION_PLAN_OBSERVER_SCHEMA_VERSION =
   'phase3-production-tile-execution-plan-terminal-observer-v1';
 
+export const PRODUCTION_TILE_EXECUTION_COMPLETION_CONTRACT_VERSION =
+  'phase3-production-tile-execution-completion-v1';
+
 export const PRODUCTION_TILE_EXECUTION_PLAN_MAGIC = 1184;
 export const PRODUCTION_TILE_EXECUTION_PLAN_STATUS = Object.freeze({
   pending: 0,
@@ -230,10 +233,18 @@ export function buildProductionTileExecutionPlanContract({
   };
 }
 
-export function readProductionTileExecutionPlanObserver(words) {
+export function readProductionTileExecutionPlanObserver(
+  words,
+  expectedPlanContract = null
+) {
   const values = words ?? [];
   const word = PRODUCTION_TILE_EXECUTION_PLAN_WORD;
+  const magic = finiteInteger(values[word.magic]);
   const statusCode = finiteInteger(values[word.status]);
+  const planIdentity = finiteInteger(values[word.planIdentity]);
+  const recordCount = finiteInteger(values[word.recordCount]);
+  const tileCount = finiteInteger(values[word.tileCount]);
+  const referenceCapacity = finiteInteger(values[word.referenceCapacity]);
   const requiredReferenceCount = finiteInteger(
     values[word.requiredReferenceCount]
   );
@@ -247,45 +258,111 @@ export function readProductionTileExecutionPlanObserver(words) {
   const compositedReferenceCount = finiteInteger(
     values[word.compositedReferenceCount]
   );
-  const ready =
-    finiteInteger(values[word.magic]) === PRODUCTION_TILE_EXECUTION_PLAN_MAGIC &&
-    statusCode === PRODUCTION_TILE_EXECUTION_PLAN_STATUS.ready &&
-    requiredReferenceCount > 0 &&
-    requiredPaddedReferenceCapacity >= requiredReferenceCount &&
-    requiredPaddedReferenceCapacity <= finiteInteger(
-      values[word.referenceCapacity]
-    ) &&
+  const maxReferencesPerTile = finiteInteger(
+    values[word.maxReferencesPerTile]
+  );
+  const totalReferenceChunkCount = finiteInteger(
+    values[word.totalReferenceChunkCount]
+  );
+  const maxReferenceChunksPerTile = finiteInteger(
+    values[word.maxReferenceChunksPerTile]
+  );
+  const overflowReferenceCount = finiteInteger(
+    values[word.overflowReferenceCount]
+  );
+  const compactOffsetTableReady =
+    finiteInteger(values[word.compactOffsetTableReady]) === 1;
+  const expectedPlanAvailable =
+    expectedPlanContract?.gpuExecutionPlanReady === true;
+  const staticPlanShapeMatches =
+    expectedPlanAvailable &&
+    planIdentity > 0 &&
+    planIdentity === finiteInteger(expectedPlanContract.planIdentity) &&
+    recordCount > 0 &&
+    recordCount === finiteInteger(expectedPlanContract.recordCount) &&
+    tileCount > 0 &&
+    tileCount === finiteInteger(expectedPlanContract.tileCount) &&
+    referenceCapacity > 0 &&
+    referenceCapacity === finiteInteger(expectedPlanContract.referenceCapacity);
+  const stageCountsMatch =
     scatteredReferenceCount === requiredReferenceCount &&
     sortedReferenceCount === requiredReferenceCount &&
-    compositedReferenceCount === requiredReferenceCount &&
-    finiteInteger(values[word.compactOffsetTableReady]) === 1;
+    compositedReferenceCount === requiredReferenceCount;
+  const capacityRangeReady =
+    requiredPaddedReferenceCapacity >= requiredReferenceCount &&
+    requiredPaddedReferenceCapacity <= referenceCapacity;
+  const workloadShapeReady =
+    requiredReferenceCount === 0
+      ? (
+          requiredPaddedReferenceCapacity === 0 &&
+          maxReferencesPerTile === 0 &&
+          totalReferenceChunkCount === 0 &&
+          maxReferenceChunksPerTile === 0
+        )
+      : (
+          maxReferencesPerTile > 0 &&
+          totalReferenceChunkCount > 0 &&
+          maxReferenceChunksPerTile === Math.ceil(
+            maxReferencesPerTile / PRODUCTION_TILE_EXECUTION_PLAN_CHUNK_SIZE
+          ) &&
+          maxReferenceChunksPerTile <= finiteInteger(
+            expectedPlanContract?.maximumReferenceChunkCount
+          )
+        );
+  const commonReady =
+    values.length >= PRODUCTION_TILE_EXECUTION_PLAN_WORD_COUNT &&
+    magic === PRODUCTION_TILE_EXECUTION_PLAN_MAGIC &&
+    statusCode === PRODUCTION_TILE_EXECUTION_PLAN_STATUS.ready &&
+    capacityRangeReady &&
+    stageCountsMatch &&
+    compactOffsetTableReady &&
+    overflowReferenceCount === 0;
+  // Keep the v1/nonzero observer signal for presentation and cache consumers.
+  // Step119 presentation semantics are a separate responsibility.  The
+  // versioned completion contract below is the canonical execution fact for
+  // both zero and nonzero plans and requires the expected static plan identity
+  // and shape.
+  const observerReady = commonReady && requiredReferenceCount > 0;
+  const executionCompletionReady =
+    commonReady &&
+    staticPlanShapeMatches &&
+    workloadShapeReady;
+  const executionCompletionContract = {
+    contractVersion: PRODUCTION_TILE_EXECUTION_COMPLETION_CONTRACT_VERSION,
+    status: executionCompletionReady ? 'completed' : 'blocked',
+    executionCompletionReady,
+    workClassification:
+      requiredReferenceCount === 0 ? 'zero-reference' : 'nonzero-reference',
+    expectedPlanAvailable,
+    staticPlanShapeMatches,
+    stageCountsMatch,
+    capacityRangeReady,
+    workloadShapeReady,
+    terminalObserverCompleted: true
+  };
   return {
     schemaVersion: PRODUCTION_TILE_EXECUTION_PLAN_OBSERVER_SCHEMA_VERSION,
     evidenceRole: 'terminal-post-production-submission-observer',
     productionControlInput: false,
     rawPlanWordsPublished: false,
-    observerReady: ready,
-    magic: finiteInteger(values[word.magic]),
+    observerReady,
+    executionCompletionContract,
+    magic,
     statusCode,
-    planIdentity: finiteInteger(values[word.planIdentity]),
-    recordCount: finiteInteger(values[word.recordCount]),
-    tileCount: finiteInteger(values[word.tileCount]),
-    referenceCapacity: finiteInteger(values[word.referenceCapacity]),
+    planIdentity,
+    recordCount,
+    tileCount,
+    referenceCapacity,
     requiredReferenceCount,
     requiredPaddedReferenceCapacity,
-    maxReferencesPerTile: finiteInteger(values[word.maxReferencesPerTile]),
-    totalReferenceChunkCount: finiteInteger(
-      values[word.totalReferenceChunkCount]
-    ),
-    maxReferenceChunksPerTile: finiteInteger(
-      values[word.maxReferenceChunksPerTile]
-    ),
+    maxReferencesPerTile,
+    totalReferenceChunkCount,
+    maxReferenceChunksPerTile,
     scatteredReferenceCount,
     sortedReferenceCount,
     compositedReferenceCount,
-    overflowReferenceCount: finiteInteger(values[word.overflowReferenceCount]),
-    compactOffsetTableReady:
-      finiteInteger(values[word.compactOffsetTableReady]) === 1,
+    overflowReferenceCount,
+    compactOffsetTableReady,
     capacityOverflowDetected:
       statusCode === PRODUCTION_TILE_EXECUTION_PLAN_STATUS.capacityOverflow,
     capacityOverflowFailClosed: statusCode !== PRODUCTION_TILE_EXECUTION_PLAN_STATUS.ready

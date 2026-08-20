@@ -1,3 +1,5 @@
+> **Historical plan notice:** This document preserves the Phase 3 responsibility plan from its original planning stage. Its responsibility boundaries remain relevant, but its Current / Next and Step-number references are not the current project status. Use [phase3_current_state.md](phase3_current_state.md) for the canonical state through Step118.
+
 # Phase 3 Backend Responsibility Plan
 
 Date: 2026-05-22

@@ -7,14 +7,18 @@ import {
   downloadCanvasPng
 } from './debug_download_utils.js';
 import {
+  buildWebGpuProductionTexturePresentationUvWgsl,
   buildWebGpuPresentationCaptureOrientationEvidence,
   compareWebGpuPresentationFrameIdentity,
-  getWebGpuPresentationCaptureOrientationContract,
+  mapWebGpuProductionTextureRowToPngRow,
   summarizeWebGpuPresentationFrameIdentity
 } from './webgpu_presentation_capture_orientation_contract.js';
 import {
   beginFinalCanvasPresentationWrite,
+  buildLastValidProductionOutputCacheDecision,
+  buildPolicyNeutralProductionPresentationContract,
   FINAL_CANVAS_PRESENTATION_PATHS,
+  productionPresentationEventKindForSource,
   registerFinalCanvasPresentationPath,
   recordFinalCanvasPresentationEvent
 } from './common_4dgs_final_canvas_presentation.js';
@@ -188,8 +192,7 @@ function summarizeTextureReadback(
   readback,
   bytesPerRow,
   width,
-  height,
-  { flipY = false } = {}
+  height
 ) {
   let nonzeroPixelCount = 0;
   let alphaNonzeroPixelCount = 0;
@@ -201,8 +204,7 @@ function summarizeTextureReadback(
   let alphaHash = 2166136261;
   const pixelCount = Math.max(1, width * height);
   for (let y = 0; y < height; y += 1) {
-    const sourceY = flipY ? height - 1 - y : y;
-    const row = sourceY * bytesPerRow;
+    const row = y * bytesPerRow;
     for (let x = 0; x < width; x += 1) {
       const offset = row + x * 4;
       const r = readback[offset + 0] ?? 0;
@@ -256,7 +258,7 @@ function createCanvasFromRgbaReadback(
   bytesPerRow,
   width,
   height,
-  { flipY = false, forceOpaqueAlpha = false } = {}
+  { forceOpaqueAlpha = false } = {}
 ) {
   const snapshotCanvas = document.createElement('canvas');
   snapshotCanvas.width = width;
@@ -266,7 +268,7 @@ function createCanvasFromRgbaReadback(
   const rowStride = width * 4;
   for (let y = 0; y < height; y += 1) {
     const srcOffset = y * bytesPerRow;
-    const dstY = flipY ? height - 1 - y : y;
+    const dstY = mapWebGpuProductionTextureRowToPngRow(y, height);
     const dstOffset = dstY * rowStride;
     imageData.data.set(
       readback.subarray(srcOffset, srcOffset + rowStride),
@@ -328,13 +330,11 @@ export async function captureCachedWebGpuTileCompositorOutputPng({
     readbackBuffer.destroy();
   }
   const outputStats = summarizeTextureReadback(readback, bytesPerRow, width, height);
-  const orientationContract = getWebGpuPresentationCaptureOrientationContract();
   const preNormalizationPixelEvidence = summarizeTextureReadback(
     readback,
     bytesPerRow,
     width,
-    height,
-    { flipY: orientationContract.captureVerticalFlipApplied === true }
+    height
   );
   const snapshotCanvas = createCanvasFromRgbaReadback(
     readback,
@@ -342,7 +342,6 @@ export async function captureCachedWebGpuTileCompositorOutputPng({
     width,
     height,
     {
-      flipY: orientationContract.captureVerticalFlipApplied === true,
       forceOpaqueAlpha: true
     }
   );
@@ -405,14 +404,8 @@ export async function captureCachedWebGpuTileCompositorOutputPng({
     captureMatchesPresentedFrame && captureMatchesRequestedState;
   const staleCaptureDetected =
     presentedFrameIdentity != null && captureVsPresented.mismatchedKeys.length > 0;
-  const orientationEvidence = buildWebGpuPresentationCaptureOrientationEvidence({
-    captureVerticalFlipApplied: orientationContract.captureVerticalFlipApplied,
-    savedPngMatchesRawProductionOutput:
-      orientationContract.captureVerticalFlipApplied !== true,
-    savedPngMatchesPresentedOutput:
-      orientationContract.captureVerticalFlipApplied ===
-      orientationContract.presentationVerticalFlipApplied
-  });
+  const orientationEvidence =
+    buildWebGpuPresentationCaptureOrientationEvidence();
   return {
     ...result,
     status: 'success',
@@ -516,6 +509,8 @@ async function presentTileCompositorTextureToCurrentTexture({
   outputTextureIdentity = null,
   sourceRequestIdentity = null,
   frameIdentity = null,
+  canonicalOutputCompletionReady = null,
+  productionWorkClassification = null,
   onPresentedFrame = null
 }) {
   registerFinalCanvasPresentationPath(viewerCanvasState, {
@@ -528,7 +523,8 @@ async function presentTileCompositorTextureToCurrentTexture({
       'presentation-failure'
     ]
   });
-  const orientationContract = getWebGpuPresentationCaptureOrientationContract();
+  const presentationEventKind =
+    productionPresentationEventKindForSource(presentationSource);
   const viewerCanvas = viewerCanvasState?.canvas ?? null;
   const summary = {
     compositorOutputPresentedToCurrentTexture: false,
@@ -559,11 +555,16 @@ async function presentTileCompositorTextureToCurrentTexture({
     presentationErrorMessage: null,
     currentTextureSource: null,
     presentationSource,
-    orientationEvidence: buildWebGpuPresentationCaptureOrientationEvidence({
-      captureVerticalFlipApplied: orientationContract.captureVerticalFlipApplied,
-      savedPngMatchesRawProductionOutput: false,
-      savedPngMatchesPresentedOutput: true
-    })
+    presentationEventKind,
+    sourcePixelResult: 'unknown',
+    policyNeutralPresentationContract:
+      buildPolicyNeutralProductionPresentationContract({
+        canonicalOutputCompletionReady,
+        productionWorkClassification,
+        presentationEventKind,
+        presentationSource
+      }),
+    orientationEvidence: buildWebGpuPresentationCaptureOrientationEvidence()
   };
   const currentTextureGuardAllowed =
     canOwnProductionTileCompositorPresentation(viewerCanvasState);
@@ -629,6 +630,8 @@ async function presentTileCompositorTextureToCurrentTexture({
       magFilter: 'nearest',
       minFilter: 'nearest'
     });
+    const presentationUvExpression =
+      buildWebGpuProductionTexturePresentationUvWgsl('pos');
     const presentationShader = device.createShaderModule({
       label: 'phase3-step88-tile-compositor-current-texture-wgsl',
       code: `
@@ -647,7 +650,7 @@ fn vsMain(@builtin(vertex_index) vertexIndex: u32) -> VertexOut {
   var out: VertexOut;
   let pos = positions[vertexIndex];
   out.position = vec4f(pos, 0.0, 1.0);
-  out.uv = pos * 0.5 + vec2f(0.5, 0.5);
+  out.uv = ${presentationUvExpression};
   return out;
 }
 
@@ -765,12 +768,7 @@ fn fsMain(in: VertexOut) -> @location(0) vec4f {
       recordFinalCanvasPresentationEvent(viewerCanvasState, {
         writeToken: activeWriteToken,
         presentationPathIdentity: FINAL_CANVAS_PRESENTATION_PATHS.TILE_COMPOSITOR,
-        eventKind:
-          readbackSummary.nonzeroPixelCount > 0
-            ? presentationSource.startsWith('cached-')
-              ? 'cached-production-presentation'
-              : 'production-presentation'
-            : 'black-fallback',
+        eventKind: presentationEventKind,
         presentationSource,
         sourceRequestIdentity,
         presentingRequestIdentity:
@@ -824,6 +822,36 @@ fn fsMain(in: VertexOut) -> @location(0) vec4f {
         summary.staleTextureViewReuseDetected =
           summary.crossDeviceTextureViewUseDetected === true ||
           /stale.*TextureView/i.test(summary.presentationErrorMessage);
+        recordFinalCanvasPresentationEvent(viewerCanvasState, {
+          presentationPathIdentity: FINAL_CANVAS_PRESENTATION_PATHS.TILE_COMPOSITOR,
+          eventKind: 'presentation-failure',
+          presentationSource,
+          sourceRequestIdentity,
+          presentingRequestIdentity:
+            viewerCanvasState?.schedulerFrameState?.requestIdentity ?? null,
+          scheduleSource:
+            viewerCanvasState?.schedulerFrameState?.requestSource ?? null,
+          productionGeneration: outputGeneration,
+          compositorGeneration: outputGeneration,
+          presentedGeneration: null,
+          frameIdentity,
+          sourcePixelEvidenceIdentity: {
+            outputTextureIdentity,
+            generation: outputGeneration
+          },
+          sourcePixelResult: 'unknown',
+          canvasWriteAttempted: true,
+          canvasWriteSubmitted:
+            summary.compositorCurrentTextureRenderPassSubmitted === true,
+          canvasWriteCompleted: false,
+          staleSource: null,
+          presentationFailed: true,
+          error: {
+            name: summary.presentationErrorName,
+            message: summary.presentationErrorMessage
+          },
+          blockedReason: summary.presentationErrorMessage
+        });
       }
     }
   } catch (error) {
@@ -879,6 +907,31 @@ fn fsMain(in: VertexOut) -> @location(0) vec4f {
       },
       blockedReason: summary.presentationErrorMessage
     });
+    summary.policyNeutralPresentationContract =
+      buildPolicyNeutralProductionPresentationContract({
+        canonicalOutputCompletionReady,
+        productionWorkClassification,
+        presentationEventKind: 'presentation-failure',
+        presentationSource,
+        sourcePixelResult: 'unknown',
+        sourceIdentityKnown: false,
+        sourceIdentityMatchesExpected: false,
+        canvasWriteAttempted: true,
+        canvasWriteSubmitted:
+          summary.compositorCurrentTextureRenderPassSubmitted === true,
+        canvasWriteCompleted: false,
+        sameSourcePersistence: false,
+        samePixelResultPersistence: false,
+        persistenceObservedEventCount: summary.presentationFrameSamples.length,
+        staleSource: false,
+        presentationFailed: true,
+        webgpuValidationErrorDetected:
+          summary.webgpuValidationErrorDetected === true,
+        invalidCommandBufferDetected:
+          summary.invalidCommandBufferDetected === true,
+        queueSubmitFailureDetected:
+          summary.queueSubmitFailureDetected === true
+      });
     return summary;
   }
 
@@ -906,18 +959,6 @@ fn fsMain(in: VertexOut) -> @location(0) vec4f {
         sample.currentTextureUsesWebGpuTileCompositorOutput === true &&
         sample.nonzeroPixelCount > 0
     );
-  summary.compositorOutputPresentedToCurrentTexture =
-    summary.compositorCurrentTextureRenderPassSubmitted &&
-    summary.compositorCurrentTextureReadbackCompleted &&
-    summary.compositorCurrentTextureReadbackNonZero &&
-    summary.currentTextureUsesWebGpuTileCompositorOutput &&
-    summary.presentationStableUntilCapture &&
-    summary.currentTextureViewFreshPerPresentation &&
-    summary.crossDeviceTextureViewUseDetected === false &&
-    summary.staleTextureViewReuseDetected === false &&
-    summary.webgpuValidationErrorDetected === false &&
-    summary.invalidCommandBufferDetected === false &&
-    summary.queueSubmitFailureDetected === false;
   summary.webgpuDeviceConsistencyReady =
     summary.presentationDeviceMatchesCompositorDevice === true &&
     summary.currentTextureViewFreshPerPresentation === true &&
@@ -927,6 +968,92 @@ fn fsMain(in: VertexOut) -> @location(0) vec4f {
     summary.webgpuValidationErrorDetected === false &&
     summary.invalidCommandBufferDetected === false &&
     summary.queueSubmitFailureDetected === false;
+  const expectedPresentedFrameIdentity =
+    summarizeWebGpuPresentationFrameIdentity({
+      ...(frameIdentity ?? {}),
+      generation: outputGeneration,
+      outputWidth: Math.max(
+        1,
+        Math.round(viewerCanvas.width ?? canvasWidth ?? outputWidth)
+      ),
+      outputHeight: Math.max(
+        1,
+        Math.round(viewerCanvas.height ?? canvasHeight ?? outputHeight)
+      )
+    });
+  const sourceIdentityComparisons = summary.presentationFrameSamples.map(
+    (sample) => compareWebGpuPresentationFrameIdentity(
+      sample.frameIdentity,
+      expectedPresentedFrameIdentity,
+      { requiredKeys: ['generation', 'outputWidth', 'outputHeight'] }
+    )
+  );
+  const sourceIdentityKnown =
+    sourceRequestIdentity != null &&
+    outputGeneration != null &&
+    sourceIdentityComparisons.length > 0 &&
+    sourceIdentityComparisons.every(
+      (comparison) => comparison.missingKeys.length === 0
+    );
+  const sourceIdentityMatchesExpected =
+    sourceIdentityKnown &&
+    sourceIdentityComparisons.every((comparison) => comparison.matches === true);
+  const sampledPixelResults = summary.presentationFrameSamples.map(
+    (sample) => sample.nonzeroPixelCount > 0 ? 'nonblank' : 'black'
+  );
+  const sourcePixelResult = sampledPixelResults.length > 0 &&
+    sampledPixelResults.every((result) => result === sampledPixelResults[0])
+    ? sampledPixelResults[0]
+    : 'unknown';
+  const sameSourcePersistence =
+    sourceIdentityMatchesExpected &&
+    summary.presentationFrameSamples.every(
+      (sample) => sample.presentationSource === presentationSource
+    );
+  const samePixelResultPersistence =
+    sourcePixelResult !== 'unknown' &&
+    sampledPixelResults.length === summary.presentationFrameSamples.length;
+  summary.sourcePixelResult = sourcePixelResult;
+  summary.policyNeutralPresentationContract =
+    buildPolicyNeutralProductionPresentationContract({
+      canonicalOutputCompletionReady,
+      productionWorkClassification,
+      presentationEventKind,
+      presentationSource,
+      sourcePixelResult,
+      sourceIdentityKnown,
+      sourceIdentityMatchesExpected,
+      canvasWriteAttempted: summary.presentationFrameCount > 0,
+      canvasWriteSubmitted:
+        summary.compositorCurrentTextureRenderPassSubmitted === true,
+      canvasWriteCompleted:
+        summary.compositorCurrentTextureReadbackCompleted === true,
+      sameSourcePersistence,
+      samePixelResultPersistence,
+      persistenceObservedEventCount: summary.presentationFrameSamples.length,
+      laterPixelResultChange:
+        summary.presentationFrameHashChanges > 0 &&
+        samePixelResultPersistence === false,
+      staleSource: false,
+      presentationFailed: false,
+      webgpuValidationErrorDetected:
+        summary.webgpuValidationErrorDetected === true,
+      invalidCommandBufferDetected:
+        summary.invalidCommandBufferDetected === true,
+      queueSubmitFailureDetected:
+        summary.queueSubmitFailureDetected === true
+    });
+  summary.compositorOutputPresentedToCurrentTexture =
+    summary.policyNeutralPresentationContract.productionPresentationPath === true &&
+    summary.policyNeutralPresentationContract.currentTextureWriteCompleted === true &&
+    summary.policyNeutralPresentationContract.sourceIdentityKnown === true &&
+    summary.policyNeutralPresentationContract.sourceIdentityMatchesExpected === true &&
+    summary.policyNeutralPresentationContract.sameSourcePersistence === true &&
+    summary.policyNeutralPresentationContract.samePixelResultPersistence === true &&
+    summary.policyNeutralPresentationContract.runtimeErrorDetected === false &&
+    summary.policyNeutralPresentationContract.presentationFailed === false &&
+    summary.currentTextureUsesWebGpuTileCompositorOutput &&
+    summary.currentTextureViewFreshPerPresentation;
   summary.currentTextureSource = summary.compositorOutputPresentedToCurrentTexture
     ? presentationSource
     : null;
@@ -951,6 +1078,7 @@ function cacheTileCompositorOutputTexture({
   const invalidatedOnDeviceChange =
     !!previous?.device && previous.device !== device;
   if (
+    invalidatedOnDeviceChange &&
     previous?.outputTexture &&
     previous.outputTexture !== outputTexture &&
     typeof previous.outputTexture.destroy === 'function'
@@ -981,17 +1109,23 @@ function cacheTileCompositorOutputTexture({
       : null,
     sourceRequestIdentity,
     presentedFrameIdentity: null,
+    canonicalOutputCompletionReady: false,
+    productionWorkClassification: null,
+    lastValidProductionOutput: false,
+    cachePromotionState: 'pending-terminal-observer',
     cachedAtMs:
       typeof performance !== 'undefined' && typeof performance.now === 'function'
         ? performance.now()
         : Date.now()
   });
   return {
-    cached: true,
+    cached: false,
+    candidateCached: true,
     invalidatedOnDeviceChange,
     generation,
     outputTextureIdentity:
-      `webgpu-tile-compositor-output:${generation}:${outputWidth}x${outputHeight}`
+      `webgpu-tile-compositor-output:${generation}:${outputWidth}x${outputHeight}`,
+    cachePromotionState: 'pending-terminal-observer'
   };
 }
 
@@ -1008,7 +1142,11 @@ export async function presentCachedWebGpuTileCompositorOutputHeartbeat({
     : null;
   const heartbeatDevice = device ?? cached?.device ?? null;
   const lastValidCompositorOutputCached =
-    !!cached?.outputTexture && !!heartbeatDevice && cached?.device === heartbeatDevice;
+    !!cached?.outputTexture &&
+    !!heartbeatDevice &&
+    cached?.device === heartbeatDevice &&
+    cached?.canonicalOutputCompletionReady === true &&
+    cached?.lastValidProductionOutput === true;
   if (!lastValidCompositorOutputCached) {
     return {
       presentationHeartbeatReady: false,
@@ -1033,6 +1171,10 @@ export async function presentCachedWebGpuTileCompositorOutputHeartbeat({
     outputTextureIdentity: cached.outputTextureIdentity ?? null,
     sourceRequestIdentity: cached.sourceRequestIdentity ?? null,
     frameIdentity: cached.frameIdentity ?? null,
+    canonicalOutputCompletionReady:
+      cached.canonicalOutputCompletionReady === true,
+    productionWorkClassification:
+      cached.productionWorkClassification ?? null,
     onPresentedFrame: (sample) => {
       cached.presentedFrameIdentity = sample.frameIdentity ?? null;
       cached.lastPresentedAtMs =
@@ -1076,7 +1218,7 @@ export async function presentCachedWebGpuTileCompositorOutputHeartbeat({
       presentation.presentationFrameSamples.every(
         (sample) => sample.currentTextureUsesWebGpuTileCompositorOutput === true
       ),
-    canvasClearBetweenCompositorFramesDetected: presentationBlankFrameCount > 0,
+    canvasClearBetweenCompositorFramesDetected: false,
     reason: presentation.compositorOutputPresentedToCurrentTexture
       ? null
       : 'cached-compositor-output-heartbeat-presentation-failed'
@@ -1120,12 +1262,6 @@ export async function buildWebGpuTileListCompositor({
   const previousCachedOutput = viewerCanvas
     ? viewerCanvasTileCompositorOutputState.get(viewerCanvas) ?? null
     : null;
-  const reusableOutputTexture =
-    previousCachedOutput?.device === device &&
-    previousCachedOutput?.outputWidth === outputWidth &&
-    previousCachedOutput?.outputHeight === outputHeight
-      ? previousCachedOutput.outputTexture
-      : null;
   const compositorFrameIdentity = summarizeWebGpuPresentationFrameIdentity({
     datasetCameraLabel:
       deterministicState?.datasetCameraLabel ??
@@ -1154,7 +1290,10 @@ export async function buildWebGpuTileListCompositor({
     resources,
     outputWidth,
     outputHeight,
-    outputTextureOverride: reusableOutputTexture,
+    // A dirty production candidate must not mutate the last-valid texture
+    // before terminal execution/output completion is known.  Clean frames
+    // continue to present the cached texture through the heartbeat path.
+    outputTextureOverride: null,
     onProductionSubmitted: async ({ outputTexture: submittedOutputTexture }) => {
       if (!currentTextureGuardAllowed) return null;
       const cacheResult = cacheTileCompositorOutputTexture({
@@ -1241,6 +1380,9 @@ export async function buildWebGpuTileListCompositor({
         executionPlanObserver?.maxReferencesPerTile ?? 0,
       compactOffsetsGenerated:
         executionPlanObserver?.compactOffsetTableReady === true,
+      executionPlanCompletionReady:
+        executionPlanObserver?.executionCompletionContract
+          ?.executionCompletionReady === true,
       recordAndReferenceCapacitySeparated: true,
       capacityOverflowDetected:
         executionPlanObserver?.capacityOverflowDetected === true,
@@ -1259,27 +1401,109 @@ export async function buildWebGpuTileListCompositor({
   const runtimeOutputReadyWithoutTextureReadback =
     summary.outputTextureWritten === true &&
     summary.tileCompositorContributionCount > 0;
-  const outputTextureWritten =
-    runtimeOutputReadyWithoutTextureReadback &&
-    diagnosticTextureReadbackNonZero;
   const textureStats = summarizeTextureReadback(
     textureReadback,
     bytesPerRow,
     outputWidth,
     outputHeight
   );
-  const ready =
-    summary.readOffsetCountTable &&
-    summary.traversedReferenceList &&
+  const executionCompletionReady =
+    executionPlanObserver?.executionCompletionContract
+      ?.executionCompletionReady === true &&
+    boundedExecutionContract?.boundedExecutionReady === true &&
+    tileReferenceCapacityContract.tileReferenceCapacityReady === true;
+  const zeroReferenceWorkload =
+    executionCompletionReady &&
+    executionPlanObserver.requiredReferenceCount === 0 &&
+    executionPlanObserver.scatteredReferenceCount === 0 &&
+    executionPlanObserver.sortedReferenceCount === 0 &&
+    executionPlanObserver.compositedReferenceCount === 0;
+  const referenceTraversalCompleted =
+    summary.traversedReferenceList === true || zeroReferenceWorkload;
+  const outputTextureWritten =
+    boundedExecution.outputPassSubmitted === true &&
+    boundedExecution.outputTextureWriteCompleted === true;
+  const outputTextureReadbackMatchesSummary =
     outputTextureWritten &&
-    summary.compositedReferenceCount > 0;
-  if (
-    executionPlanObserver?.observerReady !== true &&
-    boundedExecution.productionPresentation?.cacheResult?.cached === true &&
-    viewerCanvas
-  ) {
-    if (previousCachedOutput) {
-      viewerCanvasTileCompositorOutputState.set(viewerCanvas, previousCachedOutput);
+    (
+      zeroReferenceWorkload
+        ? diagnosticTextureReadbackNonZero === false
+        : diagnosticTextureReadbackNonZero === true
+    );
+  const ready =
+    executionCompletionReady &&
+    summary.readOffsetCountTable &&
+    referenceTraversalCompleted &&
+    outputTextureWritten &&
+    outputTextureReadbackMatchesSummary &&
+    summary.processedTileCount === resources.tileCount &&
+    summary.compositedReferenceCount ===
+      executionPlanObserver.compositedReferenceCount &&
+    summary.sourceTotalTileReferenceCount ===
+      executionPlanObserver.requiredReferenceCount &&
+    summary.overflowCount === 0;
+  const submittedProductionPresentation =
+    boundedExecution.productionPresentation?.presentation ?? null;
+  const policyNeutralPresentationContract =
+    buildPolicyNeutralProductionPresentationContract({
+      ...(submittedProductionPresentation?.policyNeutralPresentationContract ?? {}),
+      canonicalOutputCompletionReady: ready,
+      productionWorkClassification:
+        zeroReferenceWorkload ? 'zero-reference' : 'nonzero-reference'
+    });
+  const cacheResult =
+    boundedExecution.productionPresentation?.cacheResult ?? null;
+  const currentCacheCandidate = viewerCanvas
+    ? viewerCanvasTileCompositorOutputState.get(viewerCanvas) ?? null
+    : null;
+  const cacheCandidateMatchesSubmittedOutput =
+    cacheResult?.candidateCached === true &&
+    currentCacheCandidate?.outputTexture === outputTexture &&
+    currentCacheCandidate?.generation === cacheResult?.generation;
+  const previousLastValidCacheAvailable =
+    previousCachedOutput?.outputTexture != null &&
+    previousCachedOutput?.canonicalOutputCompletionReady === true &&
+    previousCachedOutput?.lastValidProductionOutput === true;
+  const previousLastValidCacheReusable =
+    previousLastValidCacheAvailable && previousCachedOutput?.device === device;
+  const outputTextureCacheDecision =
+    buildLastValidProductionOutputCacheDecision({
+      presentationContract: cacheCandidateMatchesSubmittedOutput
+        ? policyNeutralPresentationContract
+        : null,
+      previousCacheAvailable: previousLastValidCacheAvailable,
+      deviceChanged: cacheResult?.invalidatedOnDeviceChange === true
+    });
+  let outputTextureCachedForHeartbeat = false;
+  if (viewerCanvas && outputTextureCacheDecision.promoteCandidate) {
+    currentCacheCandidate.canonicalOutputCompletionReady = true;
+    currentCacheCandidate.productionWorkClassification =
+      policyNeutralPresentationContract.productionWorkClassification;
+    currentCacheCandidate.lastValidProductionOutput = true;
+    currentCacheCandidate.cachePromotionState =
+      'canonical-production-output-promoted';
+    cacheResult.cached = true;
+    cacheResult.cachePromotionState = currentCacheCandidate.cachePromotionState;
+    cacheResult.policyNeutralPresentationContract =
+      policyNeutralPresentationContract;
+    outputTextureCachedForHeartbeat = true;
+    if (
+      previousLastValidCacheReusable &&
+      previousCachedOutput.outputTexture !== outputTexture &&
+      typeof previousCachedOutput.outputTexture.destroy === 'function'
+    ) {
+      previousCachedOutput.outputTexture.destroy();
+    }
+  } else if (viewerCanvas && cacheCandidateMatchesSubmittedOutput) {
+    cacheResult.cached = false;
+    cacheResult.cachePromotionState = 'terminal-candidate-rejected';
+    cacheResult.policyNeutralPresentationContract =
+      policyNeutralPresentationContract;
+    if (outputTextureCacheDecision.retainPrevious) {
+      viewerCanvasTileCompositorOutputState.set(
+        viewerCanvas,
+        previousCachedOutput
+      );
     } else {
       viewerCanvasTileCompositorOutputState.delete(viewerCanvas);
     }
@@ -1392,13 +1616,10 @@ export async function buildWebGpuTileListCompositor({
   let queueSubmitFailureDetected = false;
   let presentationErrorName = null;
   let presentationErrorMessage = null;
-  let outputTextureCachedForHeartbeat = false;
   if (
-    executionPlanObserver?.observerReady === true &&
+    ready &&
     boundedExecution.productionPresentation?.presentation
   ) {
-    const cacheResult = boundedExecution.productionPresentation.cacheResult;
-    outputTextureCachedForHeartbeat = cacheResult.cached === true;
     compositorOutputCacheInvalidatedOnDeviceChange =
       cacheResult.invalidatedOnDeviceChange === true;
     const presentation = boundedExecution.productionPresentation.presentation;
@@ -2838,10 +3059,10 @@ export async function buildWebGpuTileListCompositor({
       compositorPassSubmitted: true,
       compositorReadbackCompleted: true,
       compositorReadOffsetCountTable: summary.readOffsetCountTable,
-      compositorTraversedReferenceList: summary.traversedReferenceList,
+      compositorTraversedReferenceList: referenceTraversalCompleted,
       outputTextureCreated: true,
       outputTextureWritten,
-      outputTextureReadbackMatchesSummary: outputTextureWritten,
+      outputTextureReadbackMatchesSummary,
       outputWidth,
       outputHeight,
       processedTileCount: summary.processedTileCount,
@@ -2992,9 +3213,7 @@ export async function buildWebGpuTileListCompositor({
           (sample) =>
             sample.currentTextureUsesWebGpuTileCompositorOutput === true
         ),
-      canvasClearBetweenCompositorFramesDetected: presentationFrameSamples.some(
-        (sample) => sample.nonzeroPixelCount <= 0
-      ),
+      canvasClearBetweenCompositorFramesDetected: false,
       currentTextureContextReconfigured,
       webgpuDeviceConsistencyReady,
       presentationDeviceMatchesCompositorDevice,
@@ -3009,6 +3228,8 @@ export async function buildWebGpuTileListCompositor({
       queueSubmitFailureDetected,
       presentationErrorName,
       presentationErrorMessage,
+      policyNeutralPresentationContract,
+      lastValidOutputCacheDecision: outputTextureCacheDecision,
       presentationHeartbeatReady: compositorOutputPresentedToCurrentTexture,
       presentationDecoupledFromCompositorUpdate: true,
       lastValidCompositorOutputCached: outputTextureCachedForHeartbeat,
@@ -3398,13 +3619,7 @@ export async function buildWebGpuTileListCompositor({
       anisotropicFootprintRatio: summary.anisotropicFootprintRatio,
       conicFallbackReferenceCount: summary.conicFallbackReferenceCount,
       presentationCaptureOrientationEvidence:
-        buildWebGpuPresentationCaptureOrientationEvidence({
-          captureVerticalFlipApplied:
-            getWebGpuPresentationCaptureOrientationContract()
-              .captureVerticalFlipApplied,
-          savedPngMatchesRawProductionOutput: false,
-          savedPngMatchesPresentedOutput: true
-        }),
+        buildWebGpuPresentationCaptureOrientationEvidence(),
       captureFreshnessEvidence: {
         productionSourceRequestIdentity:
           outputTextureCachedForHeartbeat && viewerCanvas

@@ -277,6 +277,7 @@ struct Params {
 const STEP113_DIAGNOSTIC_ROW_COUNT: u32 = 8u;
 const STEP113_DIAGNOSTIC_VEC4_STRIDE: u32 = 8u;
 const STEP113_DIAGNOSTIC_ROW_SENTINEL: u32 = 0xffffffffu;
+const CUDA_TEMPORAL_VISIBILITY_THRESHOLD: f32 = 0.05;
 
 fn sigmoid(x: f32) -> f32 {
   return 1.0 / (1.0 + exp(-x));
@@ -439,6 +440,18 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     qRRaw
   );
   let temporalWeight = exp(-0.5 * dt * dt / max(temporalMean.w, 1e-8));
+  let temporalEligible = temporalWeight > CUDA_TEMPORAL_VISIBILITY_THRESHOLD;
+  if (!temporalEligible) {
+    statePositions[row] = vec4f(0.0);
+    let invalidAttributeBase = row * 2u;
+    renderAttributes[invalidAttributeBase + 0u] = vec4f(0.0);
+    renderAttributes[invalidAttributeBase + 1u] = vec4f(0.0);
+    let invalidFootprintBase = row * 3u;
+    footprintPayload[invalidFootprintBase + 0u] = vec4f(0.0);
+    footprintPayload[invalidFootprintBase + 1u] = vec4f(0.0);
+    footprintPayload[invalidFootprintBase + 2u] = vec4f(0.0);
+    return;
+  }
   let pos = raw0.xyz + temporalMean.xyz;
   statePositions[row] = vec4f(pos, 1.0);
   let alpha = clamp(sigmoid(raw0.w) * temporalWeight, 0.05, 0.99);

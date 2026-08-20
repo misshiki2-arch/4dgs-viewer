@@ -117,6 +117,124 @@ const detailSelection = {
   limit: 8
 };
 
+const impl8SrcIndices = [
+  658947,
+  771007,
+  788034,
+  826401,
+  835183,
+  852955,
+  863505,
+  906711
+];
+const immutableImpl8SrcIndices = Object.freeze([...impl8SrcIndices]);
+const immutableRawSelection = Object.freeze({
+  mode: 'explicit-src-indices',
+  srcIndices: immutableImpl8SrcIndices,
+  limit: 8
+});
+const canonicalImpl8Selection = normalizeWebGpuDiagnosticDetailSelection(
+  immutableRawSelection
+);
+assert.equal(canonicalImpl8Selection.mode, 'explicit-src-indices');
+assert.equal(canonicalImpl8Selection.requestedExplicitSrcIndexCount, 8);
+assert.deepEqual(canonicalImpl8Selection.explicitSrcIndices, impl8SrcIndices);
+assert.deepEqual(immutableRawSelection.srcIndices, impl8SrcIndices);
+
+const immutableCanonicalImpl8Selection = Object.freeze({
+  ...canonicalImpl8Selection,
+  explicitSrcIndices: Object.freeze([
+    ...canonicalImpl8Selection.explicitSrcIndices
+  ])
+});
+const renormalizedImpl8Selection = normalizeWebGpuDiagnosticDetailSelection(
+  immutableCanonicalImpl8Selection
+);
+assert.deepEqual(renormalizedImpl8Selection, canonicalImpl8Selection);
+assert.deepEqual(
+  immutableCanonicalImpl8Selection.explicitSrcIndices,
+  impl8SrcIndices
+);
+
+for (const [alias, expected] of [
+  ['srcIndices', [11, 12]],
+  ['selectedSrcIndices', [21, 22]],
+  ['indices', [31, 32]]
+]) {
+  assert.deepEqual(
+    normalizeWebGpuDiagnosticDetailSelection({
+      mode: 'explicit-src-indices',
+      [alias]: expected,
+      limit: 8
+    }).explicitSrcIndices,
+    expected
+  );
+}
+const rawAliasPrioritySelection = normalizeWebGpuDiagnosticDetailSelection({
+  schemaVersion: canonicalImpl8Selection.schemaVersion,
+  mode: 'explicit-src-indices',
+  srcIndices: [41],
+  selectedSrcIndices: [42],
+  indices: [43],
+  explicitSrcIndices: [44],
+  requestedExplicitSrcIndexCount: 99,
+  configuredLimit: 0,
+  effectiveLimit: 0,
+  selectionTruncated: true
+});
+assert.deepEqual(rawAliasPrioritySelection.explicitSrcIndices, [41]);
+assert.equal(rawAliasPrioritySelection.requestedExplicitSrcIndexCount, 1);
+assert.equal(rawAliasPrioritySelection.configuredLimit, null);
+assert.equal(rawAliasPrioritySelection.effectiveLimit, 8);
+assert.equal(rawAliasPrioritySelection.selectionTruncated, false);
+assert.deepEqual(
+  normalizeWebGpuDiagnosticDetailSelection({
+    mode: 'explicit-src-indices',
+    srcIndices: [51, -1, Number.NaN, 51, 52]
+  }).explicitSrcIndices,
+  [51, 52]
+);
+
+const impl8RuntimeResult = buildRuntimeResult(65536);
+const impl8LineageRecords = impl8SrcIndices.map(buildLineageRecord);
+impl8RuntimeResult.step114PreCullDirectEvidence.records = impl8LineageRecords;
+impl8RuntimeResult.webgpuPreCullDirectGaussianEvidence.records =
+  impl8LineageRecords;
+const impl8Bundle = buildWebGpuVisibleRecordDiagnosticArtifactBundle({
+  runtimeResult: impl8RuntimeResult,
+  detailSelection: renormalizedImpl8Selection,
+  artifactSetIdentity: 'phase3-step119-investigation6-fix1'
+});
+assert.equal(
+  impl8Bundle.detailedLineageArtifact.selection
+    .requestedExplicitSrcIndexCount,
+  8
+);
+assert.equal(
+  impl8Bundle.detailedLineageArtifact.selection.selectedRecordCount,
+  8
+);
+assert.equal(impl8Bundle.detailedLineageArtifact.recordCount, 8);
+assert.deepEqual(
+  impl8Bundle.detailedLineageArtifact.selection.explicitSrcIndices,
+  impl8SrcIndices
+);
+assert.deepEqual(
+  impl8Bundle.detailedLineageArtifact.selection.selectedSrcIndices,
+  impl8SrcIndices
+);
+assert.deepEqual(
+  impl8Bundle.detailedLineageArtifact.records.map((record) => record.srcIndex),
+  impl8SrcIndices
+);
+assert.deepEqual(
+  impl8Bundle.detailedLineageArtifact.productionDiagnosticSeparation,
+  {
+    productionOutputDependsOnDetailedLineage: false,
+    diagnosticReadbackIsProductionDependency: false
+  }
+);
+
 const serializedSizes = [];
 for (const recordCount of [8, 4096, 65536]) {
   const bundle = buildWebGpuVisibleRecordDiagnosticArtifactBundle({
@@ -167,6 +285,10 @@ assert.equal(
   WEBGPU_DIAGNOSTIC_DETAIL_HARD_LIMIT
 );
 assert.equal(hardBoundSelection.selectionTruncated, true);
+assert.deepEqual(
+  normalizeWebGpuDiagnosticDetailSelection(hardBoundSelection),
+  hardBoundSelection
+);
 
 const resolved = resolveWebGpuDiagnosticDetailRows({
   candidateIndices: Uint32Array.from([99, 10, 20, 30]),

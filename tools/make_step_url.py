@@ -206,6 +206,44 @@ def build_gpu_candidate_params(args: argparse.Namespace) -> dict[str, str]:
     return params
 
 
+def build_production_resident_selection_params(
+    args: argparse.Namespace,
+) -> dict[str, str]:
+    params: dict[str, str] = {}
+    production_selection_values = (
+        args.webgpu_production_resident_selection_mode,
+        args.webgpu_production_resident_range_start,
+        args.webgpu_production_resident_range_count,
+    )
+    if any(value is not None for value in production_selection_values):
+        if not all(value is not None for value in production_selection_values):
+            raise ValueError(
+                "production resident range requires mode, start, and count"
+            )
+        if args.webgpu_production_resident_selection_mode != "range":
+            raise ValueError(
+                "production resident selection mode must be 'range'"
+            )
+        if args.webgpu_production_resident_range_start < 0:
+            raise ValueError("production resident range start must be non-negative")
+        if args.webgpu_production_resident_range_count <= 0:
+            raise ValueError("production resident range count must be positive")
+        params.update(
+            {
+                "webgpuProductionResidentSelectionMode":
+                    args.webgpu_production_resident_selection_mode,
+                "webgpuProductionResidentRangeStart": str(
+                    args.webgpu_production_resident_range_start
+                ),
+                "webgpuProductionResidentRangeCount": str(
+                    args.webgpu_production_resident_range_count
+                ),
+            }
+        )
+
+    return params
+
+
 def build_url(args: argparse.Namespace) -> str:
     host = args.host.rstrip("/")
     viewer_path = args.viewer_path
@@ -214,6 +252,7 @@ def build_url(args: argparse.Namespace) -> str:
 
     params = build_base_params(args)
     params.update(build_gpu_candidate_params(args))
+    params.update(build_production_resident_selection_params(args))
 
     if args.extra:
         for item in args.extra:
@@ -556,6 +595,24 @@ def parse_args() -> argparse.Namespace:
     # Range options.
     parser.add_argument("--range-start", type=int, default=0)
     parser.add_argument("--range-count", type=int, default=65536)
+    parser.add_argument(
+        "--webgpu-production-resident-selection-mode",
+        choices=["range"],
+        default=None,
+        help="Opt-in production resident workset selection mode.",
+    )
+    parser.add_argument(
+        "--webgpu-production-resident-range-start",
+        type=int,
+        default=None,
+        help="Original SPL4 source index at the start of the production range.",
+    )
+    parser.add_argument(
+        "--webgpu-production-resident-range-count",
+        type=int,
+        default=None,
+        help="Record count in the production resident range.",
+    )
 
     # screenCoarse options.
     parser.add_argument("--screen-coarse-max-count", type=int, default=65536)

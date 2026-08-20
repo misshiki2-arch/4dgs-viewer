@@ -4,6 +4,12 @@ export const FINAL_CANVAS_PRESENTATION_TRACE_SCHEMA_VERSION =
 export const FINAL_CANVAS_PRESENTATION_BOUNDARY_SCHEMA_VERSION =
   'phase3-final-canvas-presentation-boundary-v1';
 
+export const FINAL_CANVAS_POLICY_NEUTRAL_PRESENTATION_SCHEMA_VERSION =
+  'phase3-final-canvas-policy-neutral-presentation-v1';
+
+export const FINAL_CANVAS_LAST_VALID_CACHE_DECISION_SCHEMA_VERSION =
+  'phase3-final-canvas-last-valid-cache-decision-v1';
+
 const DEFAULT_HISTORY_LIMIT = 256;
 const DEFAULT_STEADY_STATE_EVENT_COUNT = 8;
 
@@ -115,6 +121,183 @@ function isSuccessfulCanvasWrite(event) {
     event?.canvasWriteSubmitted === true &&
     event?.canvasWriteCompleted === true &&
     event?.presentationFailed !== true;
+}
+
+function isProductionPresentationEventKind(eventKind) {
+  return eventKind === 'production-presentation' ||
+    eventKind === 'cached-production-presentation';
+}
+
+export function productionPresentationEventKindForSource(presentationSource) {
+  return typeof presentationSource === 'string' &&
+    presentationSource.startsWith('cached-')
+    ? 'cached-production-presentation'
+    : 'production-presentation';
+}
+
+export function buildPolicyNeutralProductionPresentationContract({
+  canonicalOutputCompletionReady = null,
+  productionWorkClassification = null,
+  presentationEventKind = null,
+  presentationSource = null,
+  sourcePixelResult = 'unknown',
+  sourceIdentityKnown = false,
+  sourceIdentityMatchesExpected = false,
+  canvasWriteAttempted = false,
+  canvasWriteSubmitted = false,
+  canvasWriteCompleted = false,
+  sameSourcePersistence = false,
+  samePixelResultPersistence = false,
+  persistenceObservedEventCount = 0,
+  laterSourceReplacement = false,
+  laterPixelResultChange = false,
+  laterClear = false,
+  laterFallback = false,
+  laterStaleSource = false,
+  laterDifferentGeneration = false,
+  quiescenceKnown = false,
+  quiescent = false,
+  staleSource = false,
+  presentationFailed = false,
+  webgpuValidationErrorDetected = false,
+  invalidCommandBufferDetected = false,
+  queueSubmitFailureDetected = false
+} = {}) {
+  const normalizedPixelResult = normalizePixelResult(sourcePixelResult);
+  const productionPresentationPath =
+    isProductionPresentationEventKind(presentationEventKind);
+  const cachedProductionPresentationPath =
+    presentationEventKind === 'cached-production-presentation';
+  const fallbackPresentationPath = presentationEventKind === 'black-fallback';
+  const clearPresentationPath = presentationEventKind === 'clear';
+  const failurePresentationPath =
+    presentationEventKind === 'presentation-failure';
+  const currentTextureWriteCompleted =
+    canvasWriteAttempted === true &&
+    canvasWriteSubmitted === true &&
+    canvasWriteCompleted === true;
+  const runtimeErrorDetected =
+    webgpuValidationErrorDetected === true ||
+    invalidCommandBufferDetected === true ||
+    queueSubmitFailureDetected === true;
+  const laterInvalidationDetected =
+    laterSourceReplacement === true ||
+    laterClear === true ||
+    laterFallback === true ||
+    laterStaleSource === true ||
+    laterDifferentGeneration === true;
+  const genericPresentationCompletionReady =
+    canonicalOutputCompletionReady === true &&
+    productionPresentationPath &&
+    currentTextureWriteCompleted &&
+    sourceIdentityKnown === true &&
+    sourceIdentityMatchesExpected === true &&
+    normalizedPixelResult !== 'unknown' &&
+    sameSourcePersistence === true &&
+    samePixelResultPersistence === true &&
+    staleSource !== true &&
+    presentationFailed !== true &&
+    failurePresentationPath === false &&
+    runtimeErrorDetected === false &&
+    laterInvalidationDetected === false &&
+    laterPixelResultChange !== true;
+  return {
+    schemaVersion: FINAL_CANVAS_POLICY_NEUTRAL_PRESENTATION_SCHEMA_VERSION,
+    evidenceRole: 'policy-neutral-production-presentation-facts',
+    canonicalOutputCompletionReady:
+      booleanOrNull(canonicalOutputCompletionReady),
+    productionWorkClassification,
+    presentationEventKind,
+    presentationSource,
+    productionPresentationPath,
+    cachedProductionPresentationPath,
+    fallbackPresentationPath,
+    clearPresentationPath,
+    failurePresentationPath,
+    sourcePixelResult: normalizedPixelResult,
+    sourceIdentityKnown: sourceIdentityKnown === true,
+    sourceIdentityMatchesExpected: sourceIdentityMatchesExpected === true,
+    canvasWriteAttempted: canvasWriteAttempted === true,
+    canvasWriteSubmitted: canvasWriteSubmitted === true,
+    canvasWriteCompleted: canvasWriteCompleted === true,
+    currentTextureWriteCompleted,
+    sameSourcePersistence: sameSourcePersistence === true,
+    samePixelResultPersistence: samePixelResultPersistence === true,
+    persistenceObservedEventCount: Math.max(
+      0,
+      Math.floor(finiteNumberOrNull(persistenceObservedEventCount) ?? 0)
+    ),
+    laterSourceReplacement: laterSourceReplacement === true,
+    laterPixelResultChange: laterPixelResultChange === true,
+    laterClear: laterClear === true,
+    laterFallback: laterFallback === true,
+    laterStaleSource: laterStaleSource === true,
+    laterDifferentGeneration: laterDifferentGeneration === true,
+    laterInvalidationDetected,
+    quiescenceKnown: quiescenceKnown === true,
+    quiescent: quiescent === true,
+    staleSource: staleSource === true,
+    presentationFailed: presentationFailed === true,
+    webgpuValidationErrorDetected: webgpuValidationErrorDetected === true,
+    invalidCommandBufferDetected: invalidCommandBufferDetected === true,
+    queueSubmitFailureDetected: queueSubmitFailureDetected === true,
+    runtimeErrorDetected,
+    genericPresentationCompletionReady,
+    productionBlackPresentationReady:
+      genericPresentationCompletionReady && normalizedPixelResult === 'black',
+    productionNonblankPresentationReady:
+      genericPresentationCompletionReady && normalizedPixelResult === 'nonblank',
+    lastValidCachePromotionReady:
+      genericPresentationCompletionReady &&
+      presentationEventKind === 'production-presentation',
+    cachedProductionPresentationReady:
+      genericPresentationCompletionReady && cachedProductionPresentationPath
+  };
+}
+
+export function buildLastValidProductionOutputCacheDecision({
+  presentationContract = null,
+  previousCacheAvailable = false,
+  deviceChanged = false
+} = {}) {
+  const promoteCandidate =
+    presentationContract?.lastValidCachePromotionReady === true;
+  const invalidatePrevious =
+    previousCacheAvailable === true && deviceChanged === true;
+  const retainPrevious =
+    promoteCandidate === false &&
+    previousCacheAvailable === true &&
+    deviceChanged !== true;
+  return {
+    schemaVersion: FINAL_CANVAS_LAST_VALID_CACHE_DECISION_SCHEMA_VERSION,
+    evidenceRole: 'terminal-production-output-cache-promotion-decision',
+    promoteCandidate,
+    discardCandidate: promoteCandidate === false,
+    previousCacheAvailable: previousCacheAvailable === true,
+    retainPrevious,
+    replacePrevious:
+      promoteCandidate && previousCacheAvailable === true,
+    invalidatePrevious,
+    reason: promoteCandidate
+      ? 'canonical-production-output-and-presentation-completed'
+      : retainPrevious
+        ? 'candidate-not-canonical-previous-last-valid-retained'
+        : invalidatePrevious
+          ? 'candidate-not-canonical-previous-device-cache-invalidated'
+          : 'candidate-not-canonical-no-previous-last-valid-output'
+  };
+}
+
+function sourceIdentityExpectedFromEvent(event) {
+  const frameIdentity = normalizedIdentity(event?.frameIdentity);
+  if (frameIdentity) delete frameIdentity.frameHash;
+  return {
+    expectedRequestIdentity: event?.sourceRequestIdentity ?? null,
+    expectedGeneration: finiteNumberOrNull(
+      event?.presentedGeneration ?? event?.productionGeneration
+    ),
+    expectedFrameIdentity: frameIdentity
+  };
 }
 
 function eventOverwritesCandidate(event, candidate) {
@@ -291,6 +474,118 @@ export function buildFinalCanvasPresentationBoundaryEvidence({
     steadyStateEvents.every(
       (event) => event?.eventKind !== 'clear' && event?.eventKind !== 'black-fallback'
     );
+  const matchingProductionWrites = successfulWrites.filter(
+    (event) =>
+      eventMatchesExpectedSource(event, expectedSource).matches === true &&
+      isProductionPresentationEventKind(event?.eventKind)
+  );
+  const policyCandidate = matchingProductionWrites[0] ?? null;
+  const policyCandidateSequence = finiteNumberOrNull(
+    policyCandidate?.eventSequence
+  );
+  const policyEventsAfterCandidate = policyCandidateSequence == null
+    ? []
+    : eventHistory.filter(
+        (event) => finiteNumberOrNull(event?.eventSequence) > policyCandidateSequence
+      );
+  const policySuccessfulWritesAfterCandidate = policyEventsAfterCandidate.filter(
+    isSuccessfulCanvasWrite
+  );
+  const policyCandidateSource = sourceIdentityExpectedFromEvent(policyCandidate);
+  const persistentSourceWrites = policyCandidate
+    ? [policyCandidate, ...policySuccessfulWritesAfterCandidate].filter(
+        (event) =>
+          isProductionPresentationEventKind(event?.eventKind) &&
+          event?.staleSource !== true &&
+          eventMatchesExpectedSource(event, policyCandidateSource).known === true &&
+          eventMatchesExpectedSource(event, policyCandidateSource).matches === true
+      )
+    : [];
+  const sameSourcePersistence =
+    policyCandidate != null &&
+    persistentSourceWrites.length >= requiredCount &&
+    policySuccessfulWritesAfterCandidate.every(
+      (event) =>
+        isProductionPresentationEventKind(event?.eventKind) &&
+        event?.staleSource !== true &&
+        eventMatchesExpectedSource(event, policyCandidateSource).known === true &&
+        eventMatchesExpectedSource(event, policyCandidateSource).matches === true
+    );
+  const policyCandidatePixelResult = normalizePixelResult(
+    policyCandidate?.sourcePixelResult
+  );
+  const samePixelResultPersistence =
+    policyCandidatePixelResult !== 'unknown' &&
+    persistentSourceWrites.length >= requiredCount &&
+    persistentSourceWrites.every(
+      (event) =>
+        normalizePixelResult(event?.sourcePixelResult) === policyCandidatePixelResult
+    );
+  const laterPixelResultChange = persistentSourceWrites.some(
+    (event) =>
+      normalizePixelResult(event?.sourcePixelResult) !== policyCandidatePixelResult
+  );
+  const laterSourceReplacement = policySuccessfulWritesAfterCandidate.some(
+    (event) => {
+      const comparison = eventMatchesExpectedSource(event, policyCandidateSource);
+      return event?.staleSource === true ||
+        isProductionPresentationEventKind(event?.eventKind) === false ||
+        comparison.known !== true ||
+        comparison.matches !== true;
+    }
+  );
+  const laterClear = policyEventsAfterCandidate.some(
+    (event) => event?.eventKind === 'clear'
+  );
+  const laterFallback = policyEventsAfterCandidate.some(
+    (event) => event?.eventKind === 'black-fallback'
+  );
+  const laterStaleSource = policyEventsAfterCandidate.some(
+    (event) => event?.staleSource === true
+  );
+  const policyCandidateGeneration = finiteNumberOrNull(
+    policyCandidate?.presentedGeneration ?? policyCandidate?.productionGeneration
+  );
+  const laterDifferentGeneration = policySuccessfulWritesAfterCandidate.some(
+    (event) =>
+      finiteNumberOrNull(
+        event?.presentedGeneration ?? event?.productionGeneration
+      ) !== policyCandidateGeneration
+  );
+  const presentationFailureDetected = (
+    policyCandidate ? policyEventsAfterCandidate : eventHistory
+  ).some(
+    (event) =>
+      event?.eventKind === 'presentation-failure' ||
+      event?.presentationFailed === true
+  );
+  const policyNeutralPresentationFacts =
+    buildPolicyNeutralProductionPresentationContract({
+      canonicalOutputCompletionReady: null,
+      presentationEventKind: finalCanvasEvent?.eventKind ?? null,
+      presentationSource: finalCanvasEvent?.presentationSource ?? null,
+      sourcePixelResult: finalCanvasEvent?.sourcePixelResult ?? 'unknown',
+      sourceIdentityKnown: finalSourceIdentity.known,
+      sourceIdentityMatchesExpected: finalSourceIdentity.matches,
+      canvasWriteAttempted: finalCanvasEvent?.canvasWriteAttempted === true,
+      canvasWriteSubmitted: finalCanvasEvent?.canvasWriteSubmitted === true,
+      canvasWriteCompleted: finalCanvasEvent?.canvasWriteCompleted === true,
+      sameSourcePersistence,
+      samePixelResultPersistence,
+      persistenceObservedEventCount: persistentSourceWrites.length,
+      laterSourceReplacement,
+      laterPixelResultChange,
+      laterClear,
+      laterFallback,
+      laterStaleSource,
+      laterDifferentGeneration,
+      quiescenceKnown: quiescenceEvidence?.quiescent != null,
+      quiescent: quiescenceEvidence?.quiescent === true,
+      staleSource: finalCanvasEvent?.staleSource === true,
+      presentationFailed:
+        finalCanvasEvent?.presentationFailed === true ||
+        presentationFailureDetected
+    });
   const classification = classifyBrowserVisibleResult({
     finalCanvasEvent,
     finalSourceIdentity,
@@ -325,6 +620,7 @@ export function buildFinalCanvasPresentationBoundaryEvidence({
     matchingSourceCanvasWriteCount: matchingWrites.length,
     finalCanvasEventIdentity: finalCanvasEvent?.eventIdentity ?? null,
     finalCanvasEvent: finalCanvasEvent ? cloneValue(finalCanvasEvent) : null,
+    finalPresentationEventKind: finalCanvasEvent?.eventKind ?? null,
     finalPresentationSource: finalCanvasEvent?.presentationSource ?? null,
     finalSourceRequestIdentity: finalCanvasEvent?.sourceRequestIdentity ?? null,
     finalPresentingRequestIdentity:
@@ -380,6 +676,7 @@ export function buildFinalCanvasPresentationBoundaryEvidence({
     quiescenceEvidence: normalizedIdentity(quiescenceEvidence),
     requireCanvasWritePathCoverage: requireCanvasWritePathCoverage === true,
     requireQuiescence: requireQuiescence === true,
+    policyNeutralPresentationFacts,
     browserVisibleResult: classification.result,
     classification: classification.classification,
     unknownOrBlockedReason: classification.blockedReason,

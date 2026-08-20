@@ -1,5 +1,5 @@
 export const PRODUCTION_TILE_REFERENCE_CAPACITY_CONTRACT_VERSION =
-  'phase3-production-tile-reference-capacity-v1';
+  'phase3-production-tile-reference-capacity-v2';
 
 export const PRODUCTION_TILE_REFERENCE_FLOAT_STRIDE = 4;
 
@@ -66,6 +66,7 @@ export function buildProductionTileReferenceCapacityContract({
   writtenReferenceCount = 0,
   maxReferencesPerTile = 0,
   compactOffsetsGenerated = false,
+  executionPlanCompletionReady = false,
   recordAndReferenceCapacitySeparated = false,
   capacityOverflowDetected = false,
   capacityOverflowFailClosed = false,
@@ -82,9 +83,13 @@ export function buildProductionTileReferenceCapacityContract({
   const overflowDetected =
     capacityOverflowDetected === true ||
     normalizedPaddedCapacity > normalizedAllocatedCapacity;
+  const zeroReferenceWorkload = normalizedRequiredCount === 0;
   const countsReady =
-    normalizedRequiredCount > 0 &&
-    normalizedWrittenCount === normalizedRequiredCount;
+    normalizedWrittenCount === normalizedRequiredCount &&
+    (
+      zeroReferenceWorkload === false ||
+      executionPlanCompletionReady === true
+    );
   const ready =
     status === 'ok' &&
     normalizedRecordCount > 0 &&
@@ -110,6 +115,9 @@ export function buildProductionTileReferenceCapacityContract({
     writtenReferenceCount: normalizedWrittenCount,
     maxReferencesPerTile: finiteInteger(maxReferencesPerTile),
     compactOffsetsGenerated: compactOffsetsGenerated === true,
+    executionPlanCompletionReady: executionPlanCompletionReady === true,
+    workClassification:
+      zeroReferenceWorkload ? 'zero-reference' : 'nonzero-reference',
     recordAndReferenceCapacitySeparated:
       recordAndReferenceCapacitySeparated === true,
     capacityOverflowDetected: overflowDetected,

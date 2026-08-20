@@ -1,3 +1,5 @@
+> **Current-state notice:** This is the long-form Phase 3 design and Step history. The canonical statement of the current completion level, Step116-119 position, accepted claims, non-claims, and remaining work categories is [phase3_current_state.md](phase3_current_state.md). Historical Current / Next passages in this document do not independently authorize implementation.
+
 # Phase 3 WebGPU Backend Design
 
 Date: 2026-06-09
@@ -34,7 +36,11 @@ The production roadmap order is:
 2. Make real rendering output comparable against a reference.
 3. Move the output toward CUDA Reference / visual parity.
 4. Optimize only inside the boundary that preserves parity.
-5. Then advance early termination, LOD, and streaming.
+5. Establish a full-scene correctness gate: process the complete source
+   population by full residency or correctness-preserving chunk/streaming
+   semantics, and compare it with the full-scene CUDA Reference.
+6. Then advance early termination, LOD, and other performance paths only inside
+   an explicitly accepted parity boundary.
 
 ## 2. Backend Responsibilities
 
@@ -3217,11 +3223,241 @@ presentation, diagnostic isolation, Design C JSON artifacts, and PNG
 identity/freshness remain unchanged. Step118 validation requires contract/count
 lineage, diagnostic independence, no silent capacity drop, existing ownership
 smokes, scheduler semantics, static syntax checks, and a successful demo build.
-Browser acceptance remains a separate run and must confirm a nonblocked
-resident workset, zero tile-list overflow, nonblank production output, stable
-presentation, and unchanged diagnostic/capture/PNG behavior.
+The subsequent Step118 browser acceptance confirmed a nonblocked resident
+workset, zero tile-list overflow, nonblank production output, stable
+presentation, and unchanged diagnostic/capture/PNG behavior. Step118 is
+complete at Acceptance Level 3; this does not claim visual parity.
 
 The existing GPU runtime summary artifact carries the compact workset and frame
 data-path contracts from the last production render. `summarize_step_json.py`
 normalizes those contracts into the Step118 decision; it does not infer browser
 visibility and does not copy GPU data or diagnostic detail into Summary.
+
+## Step119 Fixed-Population Semantic Control and Production Outcome Model
+
+Step119 starts fixed-condition Level 4 work by making the compared population a
+first-class provenance boundary. The checkpoint and SPL4-v2 source prefix
+`[0, 524288)` is byte-exact, and the population-aligned CUDA control preserves
+camera `000151_v13`, timestamp `23.2`, source ordering, per-Gaussian fields,
+and the existing rasterizer path. Under those conditions the CUDA control is
+zero-visible. This is a valid control result, not the expected result of the
+full 3,231,588-record scene.
+
+The production WebGPU temporal eligibility implementation makes ineligible rows
+non-contributing. At Investigation4, the user's browser observation had changed
+from the Step118 nonblank output to black without a visible Console error, but
+that observation alone was not yet machine-readable proof that the GPU plan had
+completed with zero references or that production black, rather than failure or
+fallback, reached the final canvas. Impl4 through Impl6 and Validation1 later
+closed that evidence gap.
+
+### Orthogonal production outcome facts
+
+The Step118 implementation historically coupled different meanings to one
+`ready` or success predicate. Step119 treats these axes independently:
+
+1. **Execution completion** is pending, completed, or failed. It is derived from
+   plan status and identity, static plan shape, compact-offset readiness, stage
+   count equality, and overflow state, not reference count or pixel color.
+2. **Work classification** is zero-reference or nonzero-reference. A positive
+   resident input that validly produces zero references is different from an
+   unavailable or empty source population.
+3. **Output completion** records output-pass and texture-write completion. A
+   zero-reference execution may validly write a black output.
+4. **Presentation classification** identifies production, cached production,
+   fallback, clear, or failure from writer, path, and cause.
+5. **Pixel classification** is black, nonblank, or unknown and does not select
+   the presentation event kind.
+6. **Acceptance policy** belongs to capture and validation. The default policy
+   continues to require nonblank production. Only an explicit Step119 policy
+   expects zero-reference production black.
+
+The runtime publishes facts; capture and Summary consumers compare those facts
+with an explicit policy. A consumer must not reinterpret a runtime-blocked
+state as successful.
+
+### Canonical ready-zero completion
+
+Zero counts alone never prove successful completion. A ready-zero production
+outcome requires positive resident record count, tile count, and capacity;
+valid plan magic, ready status, plan identity, and static shape; ready compact
+offsets; required, written, scattered, sorted, and composited counts all equal
+to zero; padded capacity within allocation; and no overflow, silent drop, or
+execution failure.
+
+The terminal observer must complete after production and presentation
+submission. Output-texture and currentTexture writes must complete with matching
+request, generation, and frame identity. Fallback, clear, presentation failure,
+stale source, later overwrite, and non-quiescent state are excluded. These
+conditions distinguish ready-zero from initial zeroed buffers, pending or
+undispatched plans, overflow, scatter failure, unsubmitted work, presentation
+failure, and an empty scene.
+
+`last-valid` means a completed production output, not a nonblank output. A valid
+production-black output may become the last-valid source for its identity;
+fallback, clear, failed, and stale outputs must not replace it. The final-canvas
+boundary retains policy-neutral facts about write completion, source identity,
+path, pixel result, persistence, overwrite, and quiescence. Existing public
+fields are not silently deleted or repurposed; required extensions are
+versioned.
+
+### Historical staged Step119 zero-visible implementation (completed)
+
+The following staged responsibilities record why the zero-visible work was
+separated. Impl4, Impl5, Impl6, and Validation1 have all been implemented and
+accepted; they are not the current next work.
+
+**Impl4 — Canonical zero-work execution completion.** The execution-plan
+observer, reference-capacity contract, bounded execution, and compositor output
+completion propagate one ready-zero state. Multiple files are allowed as
+producers and consumers of this single contract. This is not a mechanical
+deletion of `> 0`: identity and shape, record/tile/capacity validity, offsets,
+count equality, and overflow fail-closed behavior remain required. Last-valid
+cache promotion and currentTexture presentation semantics remain Impl5. Shader
+math, production-critical readback, scheduler continuation, capture, and Summary
+are outside Impl4.
+
+**Impl5 — Production-black presentation semantics.** Successful production
+black and cached production black retain their production path and black pixel
+result. Fallback, clear, and failure remain separate event kinds. Step117
+final-writer/currentTexture ownership, request/generation/frame identity,
+presentation-before-terminal-observer ordering, last-valid cache isolation, and
+diagnostic nonmutation remain authoritative. No new recorder, heartbeat,
+continuous RAF, or bulk tracing is introduced.
+
+**Impl6 — Opt-in zero-visible capture.** With canonical runtime facts, an
+explicit capture policy requires a fresh completed zero-reference plan,
+successful production-black presentation, matching identity, no fallback,
+clear, failure, overwrite, or runtime error, quiescence, and a fresh black PNG.
+Without the opt-in, existing nonblank fail-closed behavior is preserved.
+
+**Validation1 — Browser artifact acceptance.** The user performed real browser
+observation and capture. Existing contract, file-check, and Summary tools were
+applied without manual completion. Browser evidence and machine facts agreed,
+so the zero-visible control was accepted.
+
+Production evaluator `computed...Count` fields currently describe input or
+dispatch count rather than actual valid-row count in the no-readback production
+path. This is a separate evidence-semantics responsibility. Ready-zero is
+provable from terminal plan counts, so Impl4 does not add production-critical
+GPU readback. Count-semantics or Summary changes are considered only when later
+evidence proves them necessary. The PNG encoder already supports black output.
+
+### Historical zero-visible completion boundary and non-goals
+
+The zero-visible control completed when the same population, camera, and time
+produced CUDA zero-visible and a WebGPU ready-zero production-black result that
+machine evidence distinguished from failure, fallback, clear, and stale output.
+This control alone did not complete Step119 or Level 4. Impl7 and Impl8 then
+established a CUDA-visible population control before any change to SH,
+covariance, projection, sorting, or compositing.
+
+Step119 does not add full-scene residency, streaming, LOD, early termination,
+interactive camera/time acceptance, performance work, retries, RAF or scheduler
+continuations, bulk event tracing, or Step/camera/frame/time-dependent production
+branches.
+
+This is a Step119 scope boundary, not permission to omit full-scene population
+handling from the finished viewer. Fixed-range parity proves semantics only for
+the identical resident population used by CUDA and WebGPU. It cannot establish
+full-scene visual parity because nonresident records can change coverage, depth
+ordering, and alpha accumulation. After fixed-range semantic parity is closed,
+a separate mandatory full-scene correctness gate must process all 3,231,588
+source records without silent omission, either by full residency when device
+limits permit or by correctness-preserving chunk/streaming behavior. That gate
+must compare against a full-scene CUDA Reference under matched conditions and
+must pass before final viewer visual-parity or production-acceptance claims.
+LOD is not automatically equivalent to complete-population processing; if it is
+used, its approximation and acceptance contract must be stated separately.
+
+### Accepted visible control and orientation boundary
+
+Impl7 selected the generic contiguous source range `[524288, 1048576)` from the
+same checkpoint/SPL4 population. It contains 524,288 records and is rendered by
+the existing CUDA rasterizer at camera `000151_v13`, time `23.2`, and 1280 x
+720. The canonical output is under
+`cuda_reference_step119_impl7_population_0524288_1048576/iter_012000` and is
+nonblank. Impl8 applies the identical range to the production WebGPU resident
+workset. The scene retains 3,231,588 source records while resident, state,
+tile-input, and workset counts agree at 524,288. This is explicit range
+selection, not full-scene residency, streaming, or LOD.
+
+Investigation6 Fix1 compared the same eight CUDA/WebGPU source indices. Temporal
+motion delta matched exactly, camera-space maximum error was `7.629e-6`, and raw
+screen-center maximum error was `6.104e-5 px`. Raw CUDA and production output
+already shared top-left/y-down coordinates; only the presentation and PNG paths
+independently applied a vertical flip. Fix2 therefore changed only the common
+presentation/capture orientation policy to canonical top-left/y-down with no
+flip. Camera, projection, screen center, tile input, ordering, and compositor
+semantics did not change. Browser observation and saved artifacts confirmed the
+new orientation, stable nonblank Gaussian output, fresh generation identity,
+and Blob/saved-file identity.
+
+Validation2 is accepted as a completed read-only comparison operation, not as
+visual parity. It compared the Impl7 CUDA render with the Investigation6 Fix2
+production WebGPU PNG using source range `[524288, 1048576)`, 524,288 records,
+camera `000151_v13`, frame `151`, time `23.2`, 1280 x 720 output, canonical
+top-left/y-down orientation, and an RGB three-channel metric contract. Input
+identity and capture freshness matched, and runtime/capture errors were absent.
+
+The fixed-visible result has MAE `8.168661747685185`, RMSE
+`32.02683437269976`, maximum absolute error `255`, and 175,123 different pixels,
+for a different-pixel ratio of `0.19002061631944445` (about 19.002%). Normal
+orientation RMSE `32.02683437269976` is lower than vertical-flip RMSE
+`45.58795176589415`, so Y inversion is not the remaining difference. CUDA has
+131,093 nonblack pixels with bounds `[214, 157, 1031, 613]`; WebGPU has 174,968
+with bounds `[167, 148, 1021, 666]`. The canonical classification is
+`comparison-ready-difference-unclassified`. The comparison JSON, absdiff PNG,
+and both pixel-evidence JSON artifacts are stored under `/home/demo/work/json`
+with prefix `phase3_step119_validation2_000151_v13`.
+
+Investigation7 completed the read-only first-mismatch classification for the
+same eight CUDA/WebGPU source indices. Population and source identity, XYZ and
+temporal scale, normalized left/right quaternion inputs, Gaussian and evaluated
+time, 4D rotation and `Sigma_tt` / `Sigma_12` temporal coupling, and raw screen
+center agree before the first mismatch. Reconstructing CUDA's conditional 3D
+covariance from the captured inputs matches all eight direct CUDA covariance
+records within the existing `1e-5` tolerance. Replaying the current WebGPU
+qL-only footprint formula exceeds that tolerance for all eight.
+
+The first semantic mismatch is therefore the production-footprint boundary
+that derives conditional 3D covariance from a 4D Gaussian. CUDA builds the 4D
+covariance from both quaternions and XYZT scale and evaluates
+`Sigma11 - Sigma12 Sigma12^T / Sigma_tt`. The WebGPU temporal-mean path already
+uses both quaternions and temporal scale, but its production footprint currently
+constructs an ordinary 3D covariance from the left quaternion and XYZ scale
+only. The CUDA covariance values are direct rasterizer evidence. The current
+WebGPU conditional world covariance is not stored as an actual GPU intermediate
+in the artifact and was reconstructed from captured production input and the
+current WGSL, so this provenance boundary must remain explicit.
+
+Investigation7 stops at that first mismatch. Camera-space covariance,
+projection Jacobian, screen covariance, conic, radius/footprint, opacity/SH
+color, tile coverage, depth sort, and compositor accumulation remain
+unclassified; they are not declared correct merely because an earlier mismatch
+was found.
+
+The previously suspected execution-evidence inconsistency is also classified.
+`captureExpectationContract.canonicalExecution.ready` stores
+`genericCanonicalZeroExecutionReady`, the zero-reference-specific acceptance
+predicate. The Fix2 capture uses the default `production-nonblank` policy and
+has `nonzero-reference` work, so `canonicalExecution.ready: false` is expected
+and does not contradict runtime `executionCompletionReady: true`. The complete
+capture expectation is `readyBeforePng: true`, `ready: true`, with a null blocked
+reason. This is field scope, not stale evidence or a runtime failure.
+
+The two remaining Step119 classification gates are complete. Step119 closes as
+a fixed-population semantic control and first-mismatch classification, not as
+fixed-range visual parity, Acceptance Level 4, full-scene correctness, or final
+production acceptance. Step120 is limited to connecting the CUDA-aligned
+conditional 4D-to-3D covariance to the production footprint while leaving
+camera, projection, orientation, conic, radius, tile, sort, compositor,
+opacity, and SH/color responsibilities unchanged. After Step120, comparison
+resumes at camera-space covariance and stops at the next first mismatch; Step120
+does not presume visual-parity success.
+
+The fixed visible control still covers only 524,288 resident records. After
+fixed-range semantic parity is closed, a mandatory gate must process all
+3,231,588 source records without silent omission and perform a matched
+full-scene CUDA comparison before final visual-parity or production-acceptance
+claims.

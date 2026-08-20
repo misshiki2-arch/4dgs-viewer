@@ -3234,6 +3234,13 @@ async function runNativeWebGpuProductionFrameFromViewerState({
     canvasWidth: canvas.width,
     canvasHeight: canvas.height,
     buildConfig,
+    productionResidentSelectionRequest: {
+      mode: deterministicState?.webgpuProductionResidentSelectionMode ?? null,
+      rangeStart:
+        deterministicState?.webgpuProductionResidentRangeStart ?? null,
+      rangeCount:
+        deterministicState?.webgpuProductionResidentRangeCount ?? null
+    },
     viewerCanvasState: {
       provided: true,
       canvas,
@@ -4763,6 +4770,12 @@ function buildSlimDeterministicStateSummary(summary) {
     gpuCandidateRangeCount: Number.isFinite(summary?.gpuCandidateRangeCount)
       ? Number(summary.gpuCandidateRangeCount)
       : null,
+    webgpuProductionResidentSelectionMode:
+      summary?.webgpuProductionResidentSelectionMode ?? null,
+    webgpuProductionResidentRangeStart:
+      summary?.webgpuProductionResidentRangeStart ?? null,
+    webgpuProductionResidentRangeCount:
+      summary?.webgpuProductionResidentRangeCount ?? null,
     gpuCandidatePromotePolicy: summary?.gpuCandidatePromotePolicy ?? null,
     gpuCandidateReadbackMode: summary?.gpuCandidateReadbackMode ?? null,
     gpuCandidateCoverageCompare: typeof summary?.gpuCandidateCoverageCompare === 'boolean'

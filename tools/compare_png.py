@@ -13,7 +13,8 @@ Typical use:
 
 Notes:
 - Images are converted to RGBA before comparison.
-- Difference metrics are computed over all RGBA channels.
+- Difference metrics use the selected comparison channel mode (RGB or RGBA).
+- The default comparison channel mode remains RGBA.
 - nonBlackPixelCount is computed from RGB only.
 """
 
@@ -28,6 +29,12 @@ from typing import Any, Dict, Tuple
 
 import numpy as np
 from PIL import Image
+
+
+COMPARISON_CHANNEL_COUNTS = {
+    "rgb": 3,
+    "rgba": 4,
+}
 
 
 def sha256_file(path: Path) -> str:
@@ -140,12 +147,43 @@ def build_absdiff_image(diff: np.ndarray, scale: float) -> Image.Image:
     return Image.fromarray(rgba, mode="RGBA")
 
 
-def compute_pixel_metrics(a: np.ndarray, b: np.ndarray) -> Dict[str, Any]:
-    diff = np.abs(a.astype(np.int16) - b.astype(np.int16)).astype(np.uint8)
+def comparison_channel_count(comparison_channel_mode: str) -> int:
+    try:
+        return COMPARISON_CHANNEL_COUNTS[comparison_channel_mode]
+    except KeyError as error:
+        supported = ", ".join(sorted(COMPARISON_CHANNEL_COUNTS))
+        raise ValueError(
+            f"unsupported comparison channel mode {comparison_channel_mode!r}; "
+            f"expected one of: {supported}"
+        ) from error
+
+
+def compute_pixel_metrics(
+    a: np.ndarray,
+    b: np.ndarray,
+    comparison_channel_mode: str = "rgba",
+) -> Dict[str, Any]:
+    channel_count = comparison_channel_count(comparison_channel_mode)
+    if a.shape != b.shape:
+        raise ValueError(
+            f"comparison arrays must have matching shapes: {a.shape} != {b.shape}"
+        )
+    if a.ndim != 3 or a.shape[2] < channel_count:
+        raise ValueError(
+            "comparison arrays must provide the requested channel count: "
+            f"shape={a.shape}, requested={channel_count}"
+        )
+    a_values = a[..., :channel_count]
+    b_values = b[..., :channel_count]
+    diff = np.abs(a_values.astype(np.int16) - b_values.astype(np.int16)).astype(
+        np.uint8
+    )
     diff_float = diff.astype(np.float64)
     different_any_channel = np.any(diff > 0, axis=2)
     different_all_channels = np.all(diff > 0, axis=2)
     return {
+        "comparisonChannelCount": channel_count,
+        "valueCount": int(a_values.size),
         "mae": float(np.mean(diff_float)),
         "rmse": float(math.sqrt(np.mean(diff_float ** 2))),
         "maxAbsError": int(np.max(diff)),
@@ -187,6 +225,7 @@ def compare_images(
     conditions_json: Path | None,
     include_vertical_flip_diagnostic: bool,
 ) -> Dict[str, Any]:
+    comparison_channel_count(comparison_channel_mode)
     a = load_rgba(a_path)
     b = load_rgba(b_path)
     conditions_from_json = load_json_object(conditions_json)
@@ -275,14 +314,17 @@ def compare_images(
             "width": int(a.shape[1]),
             "height": int(a.shape[0]),
             "channelCount": int(a.shape[2]),
+            "loadedChannelCount": int(a.shape[2]),
             "pixelCount": int(a.shape[0] * a.shape[1]),
-            "valueCount": int(a.size),
-            **compute_pixel_metrics(a, b),
+            "loadedValueCount": int(a.size),
+            **compute_pixel_metrics(a, b, comparison_channel_mode),
         }
     )
     if include_vertical_flip_diagnostic:
         flipped_b = np.flipud(b)
-        flipped_metrics = compute_pixel_metrics(a, flipped_b)
+        flipped_metrics = compute_pixel_metrics(
+            a, flipped_b, comparison_channel_mode
+        )
         normal_rmse = summary["rmse"]
         flipped_rmse = flipped_metrics["rmse"]
         lower_error_orientation = (
@@ -294,6 +336,9 @@ def compare_images(
         )
         summary["orientationDiagnostic"] = {
             "normal": {
+                "comparisonChannelMode": comparison_channel_mode,
+                "comparisonChannelCount": summary["comparisonChannelCount"],
+                "valueCount": summary["valueCount"],
                 "mae": summary["mae"],
                 "rmse": summary["rmse"],
                 "differentPixelRatioAnyChannel": summary[
@@ -301,6 +346,11 @@ def compare_images(
                 ],
             },
             "verticalFlip": {
+                "comparisonChannelMode": comparison_channel_mode,
+                "comparisonChannelCount": flipped_metrics[
+                    "comparisonChannelCount"
+                ],
+                "valueCount": flipped_metrics["valueCount"],
                 "mae": flipped_metrics["mae"],
                 "rmse": flipped_metrics["rmse"],
                 "differentPixelRatioAnyChannel": flipped_metrics[
@@ -402,7 +452,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--capture-source", default=None)
     parser.add_argument("--fixed-reference-camera-mode", default=None)
     parser.add_argument("--webgpu-camera-constants-source", default=None)
-    parser.add_argument("--comparison-channel-mode", default="rgba")
+    parser.add_argument(
+        "--comparison-channel-mode",
+        choices=sorted(COMPARISON_CHANNEL_COUNTS),
+        default="rgba",
+    )
     parser.add_argument("--reference-source-kind", default=None)
     parser.add_argument("--webgpu-source-kind", default=None)
     parser.add_argument(

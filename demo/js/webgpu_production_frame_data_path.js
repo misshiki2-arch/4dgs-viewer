@@ -82,6 +82,7 @@ export async function runNativeWebGpuProductionFrameDataPath({
   canvasHeight = 0,
   buildConfig = {},
   viewerCanvasState = null,
+  productionResidentSelectionRequest = null,
   metadata = null
 } = {}) {
   if (!raw || !camera || canvasWidth <= 0 || canvasHeight <= 0) {
@@ -111,7 +112,8 @@ export async function runNativeWebGpuProductionFrameDataPath({
     raw,
     device,
     canvasWidth,
-    canvasHeight
+    canvasHeight,
+    productionResidentSelectionRequest
   });
   if (workset.contract?.residentWorksetReady !== true) {
     return unavailableResult(

@@ -1,3 +1,11 @@
+## Current Project State
+
+- The canonical current-state record is ../../docs/phase3_current_state.md.
+- Phase 3 Step118 is complete at acceptance Level 3: the native WebGPU production data path reaches final canvas presentation.
+- Any older current goal or next step statement in this file is historical guidance, not authorization to resume that numbered Step.
+- Do not choose or implement a new Step from stale text. The user and design-management conversation must first fix its objective, success condition, non-goals, owner, preserved contracts, and stop conditions.
+- Unless explicitly asked to update design documentation, CODEX should report design impact and leave current-state and next-Step document changes to the design-management workflow.
+
 # AGENTS.md
 
 ## Scope of this file

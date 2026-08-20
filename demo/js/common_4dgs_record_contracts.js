@@ -16,7 +16,7 @@ export const WEBGPU_GPU_OWNED_TILE_LIST_LAYOUT_CONTRACT_VERSION =
   'phase3-production-compact-gpu-owned-tile-list-layout-v2';
 
 export const WEBGPU_TILE_LIST_COMPOSITOR_CONTRACT_VERSION =
-  'phase3-step109-fixed-reference-camera-activation-v1';
+  'phase3-step119-canonical-production-output-completion-v2';
 
 export const WEBGPU_FIXED_CONDITION_VISUAL_COMPARISON_CONTRACT_VERSION =
   'phase3-step110-fixed-condition-visual-comparison-readiness-v1';
@@ -740,6 +740,8 @@ export function buildWebGpuTileListCompositorContract({
   presentationErrorName = null,
   presentationErrorMessage = null,
   presentationFrameSamples = [],
+  policyNeutralPresentationContract = null,
+  lastValidOutputCacheDecision = null,
   compositorCurrentTexturePresentationMode =
     'tile-compositor-output-texture-to-currentTexture-render-pass',
   realTileCompositorOutputReady = false,
@@ -1167,6 +1169,36 @@ export function buildWebGpuTileListCompositorContract({
   deferredProductionItems = [],
   reason = null
 } = {}) {
+  const normalizedProcessedTileCount = Math.max(
+    0,
+    Math.floor(Number(processedTileCount) || 0)
+  );
+  const normalizedCompositedTileCount = Math.max(
+    0,
+    Math.floor(Number(compositedTileCount) || 0)
+  );
+  const normalizedNonEmptyTileCount = Math.max(
+    0,
+    Math.floor(Number(nonEmptyCompositedTileCount) || 0)
+  );
+  const normalizedCompositedReferenceCount = Math.max(
+    0,
+    Math.floor(Number(compositedReferenceCount) || 0)
+  );
+  const normalizedSourceReferenceCount = Math.max(
+    0,
+    Math.floor(Number(sourceTotalTileReferenceCount) || 0)
+  );
+  const zeroReferenceWorkload =
+    normalizedSourceReferenceCount === 0 &&
+    normalizedCompositedReferenceCount === 0;
+  const referenceCompletionReady =
+    normalizedCompositedReferenceCount === normalizedSourceReferenceCount &&
+    (
+      zeroReferenceWorkload
+        ? normalizedNonEmptyTileCount === 0
+        : normalizedNonEmptyTileCount > 0
+    );
   const ready =
     status === 'ok' &&
     tileCompositorReady === true &&
@@ -1176,11 +1208,13 @@ export function buildWebGpuTileListCompositorContract({
     compositorTraversedReferenceList === true &&
     outputTextureCreated === true &&
     outputTextureWritten === true &&
+    outputTextureReadbackMatchesSummary === true &&
     compositorReadbackCompleted === true &&
-    processedTileCount >= nonEmptyCompositedTileCount &&
-    compositedTileCount === nonEmptyCompositedTileCount &&
-    nonEmptyCompositedTileCount > 0 &&
-    compositedReferenceCount > 0;
+    normalizedProcessedTileCount > 0 &&
+    normalizedProcessedTileCount >= normalizedNonEmptyTileCount &&
+    normalizedCompositedTileCount === normalizedNonEmptyTileCount &&
+    referenceCompletionReady &&
+    Number(overflowCount) === 0;
   const realOutputReady =
     realTileCompositorOutputReady === true &&
     debugOutputBypassedForCompositor === true &&
@@ -2191,6 +2225,10 @@ export function buildWebGpuTileListCompositorContract({
     compositorMode,
     boundedExecutionContract,
     tileCompositorReady: ready,
+    canonicalOutputCompletionReady: ready,
+    productionWorkClassification:
+      zeroReferenceWorkload ? 'zero-reference' : 'nonzero-reference',
+    referenceCompletionReady,
     compositorPassSubmitted,
     compositorReadbackCompleted,
     compositorReadOffsetCountTable,
@@ -2263,6 +2301,8 @@ export function buildWebGpuTileListCompositorContract({
     presentationErrorName,
     presentationErrorMessage,
     presentationFrameSamples,
+    policyNeutralPresentationContract,
+    lastValidOutputCacheDecision,
     compositorCurrentTexturePresentationMode,
     realTileCompositorOutputReady: realOutputReady,
     debugOutputBypassedForCompositor,

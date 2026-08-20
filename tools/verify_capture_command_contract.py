@@ -23,6 +23,7 @@ ALLOWED_VIEWER_DEBUG_APIS = {
     "waitForViewerDebugDataReady",
     "scheduleRender",
     "getInitialProductionPresentationSnapshot",
+    "getLastRenderResult",
     "waitForFinalCanvasPresentationQuiescence",
     "captureWebGpuVisibleRecordDryRunDebug",
     "downloadJsonDebug",

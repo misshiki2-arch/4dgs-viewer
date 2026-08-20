@@ -1,9 +1,11 @@
 import {
+  buildProductionResidentSelectionContract,
   buildProductionResidentWorksetContract
 } from './common_4dgs_production_frame_data_contracts.js';
 
 const ESTIMATED_PRODUCTION_GPU_BYTES_PER_RECORD = 256;
 const worksetCache = new WeakMap();
+const sceneIdentityCache = new WeakMap();
 let nextSceneResourceIdentity = 1;
 let nextWorksetResourceIdentity = 1;
 
@@ -64,48 +66,69 @@ export function selectActiveProductionResidentWorkset({
   raw,
   device,
   canvasWidth,
-  canvasHeight
+  canvasHeight,
+  productionResidentSelectionRequest = null
 } = {}) {
   const sceneRecordCount = resolveSceneRecordCount(raw);
   const resourceCapacityRecords = resolveResourceCapacityRecords(device);
-  const residentRecordCount = Math.min(
+  const residentSelectionContract = buildProductionResidentSelectionContract({
+    request: productionResidentSelectionRequest,
     sceneRecordCount,
     resourceCapacityRecords
-  );
-  const cacheKey = `${residentRecordCount}:${resourceCapacityRecords}`;
+  });
+  const residentStart = residentSelectionContract.appliedStart ?? 0;
+  const residentRecordCount = residentSelectionContract.appliedRecordCount;
+  const sceneResourceIdentity = raw
+    ? sceneIdentityCache.get(raw) ??
+      `production-scene-resource-${nextSceneResourceIdentity++}`
+    : `production-scene-resource-${nextSceneResourceIdentity++}`;
+  if (raw && !sceneIdentityCache.has(raw)) {
+    sceneIdentityCache.set(raw, sceneResourceIdentity);
+  }
+  const cacheKey = [
+    sceneResourceIdentity,
+    sceneRecordCount,
+    residentStart,
+    residentRecordCount,
+    resourceCapacityRecords,
+    residentSelectionContract.selectionPolicy
+  ].join(':');
   const cached = raw && worksetCache.get(raw);
-  if (cached?.cacheKey === cacheKey) return cached.workset;
+  if (
+    residentSelectionContract.productionResidentSelectionReady === true &&
+    cached?.cacheKey === cacheKey
+  ) return cached.workset;
 
-  const sceneResourceIdentity =
-    cached?.workset?.contract?.sceneResourceIdentity ??
-    `production-scene-resource-${nextSceneResourceIdentity++}`;
   const resourceIdentity =
     `production-resident-workset-${nextWorksetResourceIdentity++}`;
   const candidateIndices = new Uint32Array(residentRecordCount);
   for (let index = 0; index < residentRecordCount; index += 1) {
-    candidateIndices[index] = index;
+    candidateIndices[index] = residentStart + index;
   }
   const rawXyzOpacity = buildPackedRawXyzOpacity(raw, candidateIndices);
   const contract = buildProductionResidentWorksetContract({
     resourceIdentity,
     sceneResourceIdentity,
     sceneRecordCount,
-    residentStart: 0,
+    residentStart,
     residentRecordCount,
     resourceCapacityRecords,
-    selectionPolicy:
-      'scene-owner-single-active-resource-bounded-resident-range',
+    residentSelectionContract,
+    selectionPolicy: residentSelectionContract.selectionPolicy,
     diagnosticMaxRecordsUsed: false,
     diagnosticCandidateSourceUsed: false,
     nonResidentRecordsExplicit: true,
     overflowPolicy: 'fail-closed-before-compositor-promotion',
-    reason: residentRecordCount > 0 ? null : 'production-scene-has-no-resident-records'
+    reason: residentSelectionContract.reason
   });
   const workset = {
     candidateIndices,
     rawXyzOpacity,
     contract
   };
-  if (raw) worksetCache.set(raw, { cacheKey, workset });
+  if (
+    raw &&
+    residentSelectionContract.productionResidentSelectionReady === true
+  ) worksetCache.set(raw, { cacheKey, workset });
   return workset;
 }

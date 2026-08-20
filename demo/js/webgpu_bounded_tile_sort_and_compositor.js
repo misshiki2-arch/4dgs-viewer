@@ -677,6 +677,7 @@ fn finalizeSummary() {
     submitProductionStage(device, encoder);
   }
   submitCompositor('writeProductionOutput', pixelDispatch);
+  const outputPassSubmitted = true;
   {
     const encoder = device.createCommandEncoder({
       label: 'phase3-bounded-production-finalize-and-readback-encoder'
@@ -740,7 +741,8 @@ fn finalizeSummary() {
   );
   executionPlanReadbackBuffer.unmap();
   const executionPlanObserver = readProductionTileExecutionPlanObserver(
-    executionPlanRaw
+    executionPlanRaw,
+    resources.executionPlanContract
   );
   const productionPresentation = await productionPresentationPromise;
 
@@ -750,11 +752,18 @@ fn finalizeSummary() {
     executionPlanObserver.requiredReferenceCount;
   const observedRequiredPaddedReferenceCapacity =
     executionPlanObserver.requiredPaddedReferenceCapacity;
+  const outputTextureWriteCompleted =
+    outputPassSubmitted &&
+    executionPlanObserver.executionCompletionContract
+      ?.executionCompletionReady === true;
   const allStagesCompleted =
     resources.executionPlanContract?.gpuExecutionPlanReady === true &&
-    executionPlanObserver.observerReady === true &&
+    resources.recordCount > 0 &&
+    executionPlanObserver.executionCompletionContract
+      ?.executionCompletionReady === true &&
     sortedReferenceCount === observedRequiredReferenceCount &&
     compositedReferenceCount === observedRequiredReferenceCount &&
+    outputTextureWriteCompleted &&
     (orderingSummaryRaw[20] ?? 0) === 0;
   const boundedExecutionContract = buildProductionGpuExecutionContract({
     stage: 'production-tile-reference-sort-and-compositor',
@@ -807,6 +816,8 @@ fn finalizeSummary() {
     boundedExecutionContract,
     executionPlanRaw,
     executionPlanObserver,
+    outputPassSubmitted,
+    outputTextureWriteCompleted,
     productionPresentation,
     outputTextureReused,
     transientBuffers: [

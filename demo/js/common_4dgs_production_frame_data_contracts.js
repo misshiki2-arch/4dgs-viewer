@@ -1,6 +1,9 @@
 export const PRODUCTION_WORKSET_CONTRACT_VERSION =
   'phase3-production-resident-workset-v1';
 
+export const PRODUCTION_RESIDENT_SELECTION_CONTRACT_VERSION =
+  'phase3-production-resident-selection-v1';
+
 export const PRODUCTION_FRAME_DATA_PATH_CONTRACT_VERSION =
   'phase3-native-webgpu-production-frame-data-path-v1';
 
@@ -16,6 +19,137 @@ function stringOrNull(value) {
   return typeof value === 'string' && value.length > 0 ? value : null;
 }
 
+function isProvided(value) {
+  return value !== null && value !== undefined;
+}
+
+function safeIntegerOrNull(value) {
+  if (!isProvided(value) || value === '') return null;
+  const number = Number(value);
+  return Number.isFinite(number) && Number.isSafeInteger(number)
+    ? number
+    : null;
+}
+
+export function buildProductionResidentSelectionContract({
+  request = null,
+  sceneRecordCount = 0,
+  resourceCapacityRecords = 0
+} = {}) {
+  const normalizedSceneCount = finiteInteger(sceneRecordCount);
+  const normalizedResourceCapacity = finiteInteger(resourceCapacityRecords);
+  const requestObject = request && typeof request === 'object' ? request : {};
+  const nonObjectRequestProvided =
+    isProvided(request) && typeof request !== 'object';
+  const modeProvided = isProvided(requestObject.mode);
+  const startProvided = isProvided(requestObject.rangeStart);
+  const countProvided = isProvided(requestObject.rangeCount);
+  const requestProvided =
+    nonObjectRequestProvided || modeProvided || startProvided || countProvided;
+  const requestMode = modeProvided
+    ? String(requestObject.mode)
+    : nonObjectRequestProvided
+      ? String(request)
+      : null;
+  const requestedStart = safeIntegerOrNull(requestObject.rangeStart);
+  const requestedRecordCount = safeIntegerOrNull(requestObject.rangeCount);
+  const defaultSelection = requestProvided === false;
+  const explicitRangeSelection = requestMode === 'range';
+  const rangeValuesPresent = startProvided && countProvided;
+  const rangeValuesAreSafeIntegers =
+    requestedStart !== null && requestedRecordCount !== null;
+  const requestedEndExclusive = rangeValuesAreSafeIntegers
+    ? requestedStart + requestedRecordCount
+    : null;
+  const requestedEndIsSafe =
+    requestedEndExclusive !== null &&
+    Number.isSafeInteger(requestedEndExclusive) &&
+    requestedEndExclusive <= 0x100000000;
+  const requestShapeValid = defaultSelection || (
+    explicitRangeSelection &&
+    rangeValuesPresent &&
+    rangeValuesAreSafeIntegers &&
+    requestedStart >= 0 &&
+    requestedRecordCount > 0 &&
+    requestedEndIsSafe
+  );
+  const requestedRangeInBounds = defaultSelection || (
+    requestShapeValid && requestedEndExclusive <= normalizedSceneCount
+  );
+  const requestedRangeWithinCapacity = defaultSelection || (
+    requestShapeValid &&
+    requestedRecordCount <= normalizedResourceCapacity
+  );
+  const appliedStart = defaultSelection
+    ? 0
+    : requestShapeValid && requestedRangeInBounds && requestedRangeWithinCapacity
+      ? requestedStart
+      : null;
+  const appliedRecordCount = defaultSelection
+    ? Math.min(normalizedSceneCount, normalizedResourceCapacity)
+    : requestShapeValid && requestedRangeInBounds && requestedRangeWithinCapacity
+      ? requestedRecordCount
+      : 0;
+  const appliedEndExclusive = appliedStart === null
+    ? null
+    : appliedStart + appliedRecordCount;
+  const selectionReady =
+    requestShapeValid &&
+    requestedRangeInBounds &&
+    requestedRangeWithinCapacity &&
+    appliedRecordCount > 0;
+
+  let reason = null;
+  if (!selectionReady) {
+    if (requestProvided && requestMode !== 'range') {
+      reason = 'production-resident-selection-mode-range-required';
+    } else if (explicitRangeSelection && !rangeValuesPresent) {
+      reason = 'production-resident-range-start-count-required';
+    } else if (explicitRangeSelection && !rangeValuesAreSafeIntegers) {
+      reason = 'production-resident-range-finite-safe-integers-required';
+    } else if (explicitRangeSelection && requestedStart < 0) {
+      reason = 'production-resident-range-start-negative';
+    } else if (explicitRangeSelection && requestedRecordCount <= 0) {
+      reason = 'production-resident-range-count-not-positive';
+    } else if (explicitRangeSelection && !requestedEndIsSafe) {
+      reason = 'production-resident-range-end-not-representable';
+    } else if (!requestedRangeInBounds) {
+      reason = 'production-resident-range-out-of-scene-bounds';
+    } else if (!requestedRangeWithinCapacity) {
+      reason = 'production-resident-range-exceeds-resource-capacity';
+    } else {
+      reason = 'production-scene-has-no-resident-records';
+    }
+  }
+
+  return {
+    contractVersion: PRODUCTION_RESIDENT_SELECTION_CONTRACT_VERSION,
+    status: selectionReady ? 'ok' : 'blocked',
+    productionResidentSelectionReady: selectionReady,
+    requestProvided,
+    requestMode,
+    requestedStart,
+    requestedRecordCount,
+    requestedEndExclusive: requestedEndIsSafe
+      ? requestedEndExclusive
+      : null,
+    requestShapeValid,
+    requestedRangeInBounds,
+    requestedRangeWithinCapacity,
+    appliedStart,
+    appliedRecordCount,
+    appliedEndExclusive,
+    sceneRecordCount: normalizedSceneCount,
+    resourceCapacityRecords: normalizedResourceCapacity,
+    selectionPolicy: defaultSelection
+      ? 'scene-owner-single-active-resource-bounded-resident-range'
+      : 'scene-owner-explicit-contiguous-original-source-range',
+    sourceIndexSpace: 'spl4-original-source-index',
+    residentRowSpace: 'active-resident-workset-local-row',
+    reason
+  };
+}
+
 export function buildProductionResidentWorksetContract({
   status = 'ok',
   resourceIdentity = null,
@@ -24,6 +158,7 @@ export function buildProductionResidentWorksetContract({
   residentStart = 0,
   residentRecordCount = 0,
   resourceCapacityRecords = 0,
+  residentSelectionContract = null,
   selectionPolicy = 'scene-resource-capacity-bounded-resident-range',
   diagnosticMaxRecordsUsed = false,
   diagnosticCandidateSourceUsed = false,
@@ -35,8 +170,31 @@ export function buildProductionResidentWorksetContract({
   const normalizedResidentStart = finiteInteger(residentStart);
   const normalizedResidentCount = finiteInteger(residentRecordCount);
   const normalizedResourceCapacity = finiteInteger(resourceCapacityRecords);
+  const normalizedResidentSelection = residentSelectionContract ??
+    buildProductionResidentSelectionContract({
+      request:
+        normalizedResidentStart === 0 &&
+        normalizedResidentCount === Math.min(
+          normalizedSceneCount,
+          normalizedResourceCapacity
+        )
+          ? null
+          : {
+              mode: 'range',
+              rangeStart: normalizedResidentStart,
+              rangeCount: normalizedResidentCount
+            },
+      sceneRecordCount: normalizedSceneCount,
+      resourceCapacityRecords: normalizedResourceCapacity
+    });
   const residentRangeInBounds =
     normalizedResidentStart + normalizedResidentCount <= normalizedSceneCount;
+  const residentSelectionMatches =
+    normalizedResidentSelection?.contractVersion ===
+      PRODUCTION_RESIDENT_SELECTION_CONTRACT_VERSION &&
+    normalizedResidentSelection?.productionResidentSelectionReady === true &&
+    normalizedResidentSelection?.appliedStart === normalizedResidentStart &&
+    normalizedResidentSelection?.appliedRecordCount === normalizedResidentCount;
   const ready =
     status === 'ok' &&
     stringOrNull(resourceIdentity) !== null &&
@@ -44,6 +202,7 @@ export function buildProductionResidentWorksetContract({
     normalizedResidentCount > 0 &&
     normalizedResidentCount <= normalizedResourceCapacity &&
     residentRangeInBounds &&
+    residentSelectionMatches &&
     diagnosticMaxRecordsUsed === false &&
     diagnosticCandidateSourceUsed === false &&
     nonResidentRecordsExplicit === true &&
@@ -57,6 +216,7 @@ export function buildProductionResidentWorksetContract({
     sceneRecordCount: normalizedSceneCount,
     residentStart: normalizedResidentStart,
     residentRecordCount: normalizedResidentCount,
+    residentEndExclusive: normalizedResidentStart + normalizedResidentCount,
     nonResidentRecordCount: Math.max(
       0,
       normalizedSceneCount - normalizedResidentCount
@@ -65,6 +225,8 @@ export function buildProductionResidentWorksetContract({
     resourceCapacityRecords: normalizedResourceCapacity,
     tileReferenceCapacityCoupledToRecordSelection: false,
     residentRangeInBounds,
+    residentSelectionContract: normalizedResidentSelection,
+    residentSelectionMatches,
     selectionPolicy,
     diagnosticMaxRecordsUsed: diagnosticMaxRecordsUsed === true,
     diagnosticCandidateSourceUsed: diagnosticCandidateSourceUsed === true,
