@@ -91,14 +91,35 @@ const STEP113_DIAGNOSTIC_ROW_COUNT = 8;
 const STEP113_DIAGNOSTIC_VEC4_STRIDE = 8;
 const STEP113_DIAGNOSTIC_ROW_SENTINEL = 0xffffffff;
 
-function buildStep113DiagnosticRowIndices(count) {
+function buildStep113DiagnosticRowIndices(count, explicitRows = null) {
   const rows = new Uint32Array(STEP113_DIAGNOSTIC_ROW_COUNT);
   rows.fill(STEP113_DIAGNOSTIC_ROW_SENTINEL);
   if (count <= 0) return rows;
   const selected = [];
-  for (const fraction of [0, 0.17, 0.37, 0.63, 0.83, 1]) {
-    const row = Math.min(count - 1, Math.max(0, Math.round((count - 1) * fraction)));
-    if (!selected.includes(row)) selected.push(row);
+  if (explicitRows != null) {
+    for (const value of Array.isArray(explicitRows) || ArrayBuffer.isView(explicitRows)
+      ? explicitRows
+      : []) {
+      const row = Number(value);
+      if (
+        !Number.isInteger(row) ||
+        row < 0 ||
+        row >= count ||
+        selected.includes(row)
+      ) {
+        continue;
+      }
+      selected.push(row);
+      if (selected.length >= STEP113_DIAGNOSTIC_ROW_COUNT) break;
+    }
+  } else {
+    for (const fraction of [0, 0.17, 0.37, 0.63, 0.83, 1]) {
+      const row = Math.min(
+        count - 1,
+        Math.max(0, Math.round((count - 1) * fraction))
+      );
+      if (!selected.includes(row)) selected.push(row);
+    }
   }
   for (let i = 0; i < Math.min(rows.length, selected.length); i += 1) {
     rows[i] = selected[i] >>> 0;
@@ -219,7 +240,8 @@ export async function buildWebGpu4DStatePositionsForCandidates({
   projectionParams = null,
   readbackPolicy = 'diagnostic',
   keepGpuResources = false,
-  sourceWorksetResourceIdentity = null
+  sourceWorksetResourceIdentity = null,
+  step113DiagnosticRowIndices = null
 }) {
   const productionGpuOnly = readbackPolicy === 'none';
   const count = candidateIndices?.length ?? 0;
@@ -253,7 +275,14 @@ export async function buildWebGpu4DStatePositionsForCandidates({
     projectionParams instanceof Float32Array && projectionParams.length >= 24
       ? projectionParams
       : new Float32Array(24);
-  const step113DiagnosticRows = buildStep113DiagnosticRowIndices(count);
+  const step113DiagnosticRows = buildStep113DiagnosticRowIndices(
+    count,
+    step113DiagnosticRowIndices
+  );
+  const step113DiagnosticRowsWgsl = Array.from(
+    step113DiagnosticRows,
+    (row) => `${row >>> 0}u`
+  ).join(', ');
   const shader = device.createShaderModule({
     label: 'phase3-step81-partial-4d-state-and-attribute-evaluator-wgsl',
     code: `
@@ -277,6 +306,9 @@ struct Params {
 const STEP113_DIAGNOSTIC_ROW_COUNT: u32 = 8u;
 const STEP113_DIAGNOSTIC_VEC4_STRIDE: u32 = 8u;
 const STEP113_DIAGNOSTIC_ROW_SENTINEL: u32 = 0xffffffffu;
+const STEP113_DIAGNOSTIC_ROWS: array<u32, 8> = array<u32, 8>(
+  ${step113DiagnosticRowsWgsl}
+);
 const CUDA_TEMPORAL_VISIBILITY_THRESHOLD: f32 = 0.05;
 
 fn sigmoid(x: f32) -> f32 {
@@ -361,13 +393,18 @@ fn sigma4Component(scaleSq: vec4f, colA: vec4f, colB: vec4f) -> f32 {
   return dot(scaleSq * colA, colB);
 }
 
-fn cudaConditionalTemporalMeanOffset(
-  dt: f32,
+struct CudaConditional4dCovariance {
+  spatial0: vec3f,
+  spatial1: vec3f,
+  temporalCouplingAndVariance: vec4f,
+};
+
+fn cudaConditional4dCovariance(
   scaleXYZ: vec3f,
   scaleT: f32,
   qLRaw: vec4f,
   qRRaw: vec4f
-) -> vec4f {
+) -> CudaConditional4dCovariance {
   let r4 = rotation4dRowsCudaGlm(qLRaw, qRRaw);
   let row0 = r4[0];
   let row1 = r4[1];
@@ -384,30 +421,46 @@ fn cudaConditionalTemporalMeanOffset(
     scaleT * scaleT
   );
   let covT = max(sigma4Component(scaleSq, col3, col3), 1e-8);
-  let cov12 = vec3f(
+  let spatialTemporal = vec3f(
     sigma4Component(scaleSq, col0, col3),
     sigma4Component(scaleSq, col1, col3),
     sigma4Component(scaleSq, col2, col3)
   );
-  return vec4f(cov12 * (dt / covT), covT);
+  let invCovT = 1.0 / covT;
+  let sigma00 = sigma4Component(scaleSq, col0, col0);
+  let sigma01 = sigma4Component(scaleSq, col0, col1);
+  let sigma02 = sigma4Component(scaleSq, col0, col2);
+  let sigma11 = sigma4Component(scaleSq, col1, col1);
+  let sigma12 = sigma4Component(scaleSq, col1, col2);
+  let sigma22 = sigma4Component(scaleSq, col2, col2);
+  return CudaConditional4dCovariance(
+    vec3f(
+      sigma00 - spatialTemporal.x * spatialTemporal.x * invCovT,
+      sigma01 - spatialTemporal.x * spatialTemporal.y * invCovT,
+      sigma02 - spatialTemporal.x * spatialTemporal.z * invCovT
+    ),
+    vec3f(
+      sigma11 - spatialTemporal.y * spatialTemporal.y * invCovT,
+      sigma12 - spatialTemporal.y * spatialTemporal.z * invCovT,
+      sigma22 - spatialTemporal.z * spatialTemporal.z * invCovT
+    ),
+    vec4f(spatialTemporal, covT)
+  );
 }
 
-fn roundFractionRow(maxRow: u32, numerator: u32, denominator: u32) -> u32 {
-  return (maxRow * numerator + denominator / 2u) / denominator;
+fn cudaConditionalTemporalMeanOffset(
+  dt: f32,
+  covariance: CudaConditional4dCovariance
+) -> vec4f {
+  let temporal = covariance.temporalCouplingAndVariance;
+  return vec4f(temporal.xyz * (dt / temporal.w), temporal.w);
 }
 
 fn step113DiagnosticRowForSlot(count: u32, slot: u32) -> u32 {
   if (count == 0u || slot >= STEP113_DIAGNOSTIC_ROW_COUNT) {
     return STEP113_DIAGNOSTIC_ROW_SENTINEL;
   }
-  let maxRow = count - 1u;
-  if (slot == 0u) { return 0u; }
-  if (slot == 1u) { return roundFractionRow(maxRow, 17u, 100u); }
-  if (slot == 2u) { return roundFractionRow(maxRow, 37u, 100u); }
-  if (slot == 3u) { return roundFractionRow(maxRow, 63u, 100u); }
-  if (slot == 4u) { return roundFractionRow(maxRow, 83u, 100u); }
-  if (slot == 5u) { return maxRow; }
-  return STEP113_DIAGNOSTIC_ROW_SENTINEL;
+  return STEP113_DIAGNOSTIC_ROWS[slot];
 }
 
 @compute @workgroup_size(64)
@@ -432,12 +485,15 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let rotationBase = row * 2u;
   let qRaw = rotationInput[rotationBase + 0u];
   let qRRaw = rotationInput[rotationBase + 1u];
-  let temporalMean = cudaConditionalTemporalMeanOffset(
-    dt,
+  let conditional4dCovariance = cudaConditional4dCovariance(
     vec3f(scaleX, scaleY, scaleZ),
     scaleT,
     qRaw,
     qRRaw
+  );
+  let temporalMean = cudaConditionalTemporalMeanOffset(
+    dt,
+    conditional4dCovariance
   );
   let temporalWeight = exp(-0.5 * dt * dt / max(temporalMean.w, 1e-8));
   let temporalEligible = temporalWeight > CUDA_TEMPORAL_VISIBILITY_THRESHOLD;
@@ -482,35 +538,12 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   var footprintSourceCode = 111.0;
   var fallbackFlag = 1.0;
 
-  let q = qRaw / max(length(qRaw), 1e-6);
-  let qr = q.x;
-  let qx = q.y;
-  let qy = q.z;
-  let qz = q.w;
-  let r0 = vec3f(
-    1.0 - 2.0 * (qy * qy + qz * qz),
-    2.0 * (qx * qy - qr * qz),
-    2.0 * (qx * qz + qr * qy)
-  );
-  let r1 = vec3f(
-    2.0 * (qx * qy + qr * qz),
-    1.0 - 2.0 * (qx * qx + qz * qz),
-    2.0 * (qy * qz - qr * qx)
-  );
-  let r2 = vec3f(
-    2.0 * (qx * qz - qr * qy),
-    2.0 * (qy * qz + qr * qx),
-    1.0 - 2.0 * (qx * qx + qy * qy)
-  );
-  let m0 = scaleX * r0;
-  let m1 = scaleY * r1;
-  let m2 = scaleZ * r2;
-  let cov00 = m0.x * m0.x + m1.x * m1.x + m2.x * m2.x;
-  let cov01 = m0.x * m0.y + m1.x * m1.y + m2.x * m2.y;
-  let cov02 = m0.x * m0.z + m1.x * m1.z + m2.x * m2.z;
-  let cov11 = m0.y * m0.y + m1.y * m1.y + m2.y * m2.y;
-  let cov12 = m0.y * m0.z + m1.y * m1.z + m2.y * m2.z;
-  let cov22 = m0.z * m0.z + m1.z * m1.z + m2.z * m2.z;
+  let cov00 = conditional4dCovariance.spatial0.x;
+  let cov01 = conditional4dCovariance.spatial0.y;
+  let cov02 = conditional4dCovariance.spatial0.z;
+  let cov11 = conditional4dCovariance.spatial1.x;
+  let cov12 = conditional4dCovariance.spatial1.y;
+  let cov22 = conditional4dCovariance.spatial1.z;
 
   let view0 = projectionParams[3u].xyz;
   let view1 = projectionParams[4u].xyz;
@@ -803,6 +836,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
           computedFootprintPayloadCount: count,
           webgpuComputedFootprintPayload: true,
           computedFootprintFields: [
+            'conditionalCovariance3D',
             'conic',
             'covariance2D',
             'radiusPx',
@@ -810,14 +844,12 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
             'sortKey'
           ],
           partialFootprintFields: [
-            '4d-conditional-covariance-temporal-marginal-deferred',
             'full-cuda-front-to-back-radius-clamp-parity-deferred'
           ],
           baselineFootprintFields: [],
           fallbackFootprintFields: [],
           deferredFootprintFields: [
-            'gpu-tileRange-from-aabb',
-            'full-4d-conditional-covariance'
+            'gpu-tileRange-from-aabb'
           ],
           footprintPayloadClassification:
             'native-webgpu-production-camera-jacobian-conic-resource',
@@ -1011,6 +1043,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
           footprintSummary.computedFootprintPayloadCount,
         webgpuComputedFootprintPayload: true,
         computedFootprintFields: [
+          'conditionalCovariance3D',
           'conic',
           'covariance2D',
           'radiusPx',
@@ -1018,7 +1051,6 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
           'sortKey'
         ],
         partialFootprintFields: [
-          '4d-conditional-covariance-temporal-marginal-deferred',
           'full-cuda-front-to-back-radius-clamp-parity-deferred'
         ],
         baselineFootprintFields: [],
@@ -1029,8 +1061,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         deferredFootprintFields: [
           'gpu-aabb-from-projected-center',
           'gpu-tileRange-from-aabb',
-          'depth-sort-dispatch',
-          'full-4d-conditional-covariance'
+          'depth-sort-dispatch'
         ],
         averageComputedConicX: footprintSummary.averageComputedConicX,
         averageComputedFootprintAreaPx:

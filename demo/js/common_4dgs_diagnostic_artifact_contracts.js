@@ -73,6 +73,15 @@ const BOUNDED_EVIDENCE_FIELDS = new Set([
   'firstValidationFailures'
 ]);
 
+const STEP113_STAGE_ERROR_FIELDS = Object.freeze([
+  'covarianceBeforeCameraTransformMaxAbs',
+  'cameraSpaceCovarianceMaxAbs',
+  'jacobianMaxAbs',
+  'screenSpaceCovarianceMaxAbs',
+  'conicMaxAbs',
+  'radiusAbs'
+]);
+
 function toNonNegativeInteger(value) {
   const number = Number(value);
   return Number.isFinite(number) && number >= 0 ? Math.floor(number) : null;
@@ -144,6 +153,111 @@ function compactStageSummary(source) {
   ]);
 }
 
+function compactStep113ScalarFields(source) {
+  const result = {};
+  for (const name of STEP113_STAGE_ERROR_FIELDS) {
+    result[name] = source?.[name] ?? null;
+  }
+  return result;
+}
+
+function compactStep113NumericArray(source, limit) {
+  if (!Array.isArray(source) && !ArrayBuffer.isView(source)) return null;
+  return Array.from(source).slice(0, limit);
+}
+
+function compactStep113Jacobian(source) {
+  if (!Array.isArray(source)) return null;
+  if (source.every((row) => Array.isArray(row) || ArrayBuffer.isView(row))) {
+    return source
+      .slice(0, 4)
+      .map((row) => compactStep113NumericArray(row, 4));
+  }
+  return compactStep113NumericArray(source, 16);
+}
+
+function compactStep113Representative(source) {
+  return {
+    row: source?.row ?? null,
+    srcIndex: source?.srcIndex ?? null,
+    covarianceBeforeCameraTransform: compactStep113NumericArray(
+      source?.covarianceBeforeCameraTransform,
+      6
+    ),
+    actualCovarianceBeforeCameraTransform: compactStep113NumericArray(
+      source?.actualCovarianceBeforeCameraTransform,
+      6
+    ),
+    cameraSpaceCovariance: compactStep113NumericArray(
+      source?.cameraSpaceCovariance,
+      6
+    ),
+    actualCameraSpaceCovariance: compactStep113NumericArray(
+      source?.actualCameraSpaceCovariance,
+      6
+    ),
+    jacobian: compactStep113Jacobian(source?.jacobian),
+    actualJacobian: compactStep113Jacobian(source?.actualJacobian),
+    expectedScreenSpaceCovariance: compactStep113NumericArray(
+      source?.expectedScreenSpaceCovariance,
+      3
+    ),
+    actualScreenSpaceCovariance: compactStep113NumericArray(
+      source?.actualScreenSpaceCovariance,
+      3
+    ),
+    expectedConic: compactStep113NumericArray(source?.expectedConic, 3),
+    actualConic: compactStep113NumericArray(source?.actualConic, 3),
+    expectedRadius: source?.expectedRadius ?? null,
+    actualRadius: source?.actualRadius ?? null,
+    productionPayloadSourceCode: source?.productionPayloadSourceCode ?? null,
+    errors: compactStep113ScalarFields(source?.errors)
+  };
+}
+
+function buildStep113SemanticEvidence(compositorContract) {
+  const source = compositorContract?.step113RepresentativeGaussianComparison;
+  if (!source || typeof source !== 'object') return null;
+  const sourceRepresentatives = Array.isArray(source.representativeGaussians)
+    ? source.representativeGaussians
+    : [];
+  const representatives = sourceRepresentatives
+    .slice(0, WEBGPU_DIAGNOSTIC_REPRESENTATIVE_LIMIT)
+    .map(compactStep113Representative);
+  return {
+    representativeGaussianCount:
+      source.representativeGaussianCount ?? sourceRepresentatives.length,
+    sourceRepresentativeCount: sourceRepresentatives.length,
+    serializedRepresentativeCount: representatives.length,
+    representativeLimit: WEBGPU_DIAGNOSTIC_REPRESENTATIVE_LIMIT,
+    representativesTruncated:
+      sourceRepresentatives.length > representatives.length,
+    firstMismatchStage: source.firstMismatchStage ?? null,
+    maxStageErrors: compactStep113ScalarFields(source.maxStageErrors),
+    tolerances: compactStep113ScalarFields(source.tolerances),
+    conditional4DCovarianceClassification:
+      source.conditional4DCovarianceClassification ?? null,
+    rotationCovarianceClassification:
+      source.rotationCovarianceClassification ?? null,
+    jacobianProjectionClassification:
+      source.jacobianProjectionClassification ?? null,
+    conicRadiusClassification: source.conicRadiusClassification ?? null,
+    readbackCompletedCount: source.readbackCompletedCount ?? null,
+    missingReadbackCount: source.missingReadbackCount ?? null,
+    invalidReadbackCount: source.invalidReadbackCount ?? null,
+    actualEvidenceSource: source.actualEvidenceSource ?? null,
+    expectedEvidenceSource: source.expectedEvidenceSource ?? null,
+    representativeSource: source.representativeSource ?? null,
+    actualEvidenceSameProductionDispatch:
+      source.actualEvidenceSameProductionDispatch ?? null,
+    productionCalculationDependsOnDiagnosticReadback:
+      source.productionCalculationDependsOnDiagnosticReadback ?? null,
+    diagnosticReadbackSeparatedFromProductionRuntime:
+      source.diagnosticReadbackSeparatedFromProductionRuntime ?? null,
+    representativeGaussians: representatives
+  };
+}
+
 function compactScalarObject(source) {
   const result = {};
   if (!source || typeof source !== 'object') return result;
@@ -189,6 +303,7 @@ function buildDiagnosticStageAggregates(result) {
 }
 
 function buildStageSummaries(result) {
+  const tileCompositorContract = result?.webgpuTileListCompositorContract;
   return {
     stateSource: compactStageSummary(result?.webgpu4DStateSourceContract),
     gaussianAttributes: compactStageSummary(
@@ -199,7 +314,11 @@ function buildStageSummaries(result) {
     ),
     tileInput: compactStageSummary(result?.webgpuTileAwareRenderInputContract),
     tileList: compactStageSummary(result?.webgpuGpuOwnedTileListLayoutContract),
-    tileCompositor: compactStageSummary(result?.webgpuTileListCompositorContract),
+    tileCompositor: {
+      ...compactStageSummary(tileCompositorContract),
+      step113SemanticEvidence:
+        buildStep113SemanticEvidence(tileCompositorContract)
+    },
     backendBoundary: compactStageSummary(result?.webgpuPhase3BackendBoundaryContract),
     visibleRecordGate: compactStageSummary(result?.webgpuVisibleRecordGateSummary)
   };

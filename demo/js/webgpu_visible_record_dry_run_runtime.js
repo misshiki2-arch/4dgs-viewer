@@ -2395,20 +2395,6 @@ function finiteNumber(value, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
-function normalizeQuat4Local(q) {
-  const len = Math.hypot(q[0], q[1], q[2], q[3]) || 1;
-  return [q[0] / len, q[1] / len, q[2] / len, q[3] / len];
-}
-
-function buildCudaRotationRowsLocal(qRaw) {
-  const [r, x, y, z] = normalizeQuat4Local(qRaw);
-  return [
-    [1 - 2 * (y * y + z * z), 2 * (x * y - r * z), 2 * (x * z + r * y)],
-    [2 * (x * y + r * z), 1 - 2 * (x * x + z * z), 2 * (y * z - r * x)],
-    [2 * (x * z - r * y), 2 * (y * z + r * x), 1 - 2 * (x * x + y * y)]
-  ];
-}
-
 function cov3ApplyLocal(v, cov) {
   return [
     cov[0] * v[0] + cov[1] * v[1] + cov[2] * v[2],
@@ -2451,6 +2437,59 @@ function readProjectionParamRows(projectionParams) {
   };
 }
 
+function resolveCudaConditionalCovarianceInputsLocal({
+  raw,
+  srcIndex,
+  buildConfig
+}) {
+  const scaleXYZDim = Math.max(0, raw.scaleXYZDim ?? 0);
+  const scaleBase = srcIndex * scaleXYZDim;
+  const sourceScaleX = finiteNumber(
+    raw.scale_xyz?.[scaleBase + 0],
+    0.01
+  );
+  const sourceScaleY = finiteNumber(
+    raw.scale_xyz?.[scaleBase + 1],
+    sourceScaleX
+  );
+  const sourceScaleZ = finiteNumber(
+    raw.scale_xyz?.[scaleBase + 2],
+    sourceScaleX
+  );
+  const scalingModifier = finiteNumber(buildConfig?.scalingModifier, 1);
+  const sigmaScale = finiteNumber(buildConfig?.sigmaScale, 1);
+  const scale = [sourceScaleX, sourceScaleY, sourceScaleZ].map((value) =>
+    Math.max(Math.max(value, 1e-6) * scalingModifier, 1e-6)
+  );
+
+  const scaleTDim = Math.max(0, raw.scaleTDim ?? 0);
+  const sourceScaleT = scaleTDim > 0
+    ? finiteNumber(raw.scale_t?.[srcIndex * scaleTDim], 1)
+    : 1;
+  const scaleT = Math.max(
+    sourceScaleT * scalingModifier * sigmaScale,
+    1e-6
+  );
+
+  const rotationDim = Math.max(0, raw.rotationDim ?? 0);
+  const rotationBase = srcIndex * rotationDim;
+  const rotation = [
+    finiteNumber(raw.rotation?.[rotationBase + 0], 1),
+    finiteNumber(raw.rotation?.[rotationBase + 1], 0),
+    finiteNumber(raw.rotation?.[rotationBase + 2], 0),
+    finiteNumber(raw.rotation?.[rotationBase + 3], 0)
+  ];
+  const rotationRDim = Math.max(0, raw.rotationRDim ?? 0);
+  const rotationRBase = srcIndex * rotationRDim;
+  const rotationR = [
+    finiteNumber(raw.rotation_r?.[rotationRBase + 0], 1),
+    finiteNumber(raw.rotation_r?.[rotationRBase + 1], 0),
+    finiteNumber(raw.rotation_r?.[rotationRBase + 2], 0),
+    finiteNumber(raw.rotation_r?.[rotationRBase + 3], 0)
+  ];
+  return { scale, scaleT, rotation, rotationR };
+}
+
 function computeStep113CudaAlignedConicReference({
   raw,
   srcIndex,
@@ -2458,29 +2497,31 @@ function computeStep113CudaAlignedConicReference({
   projectionParams,
   buildConfig
 }) {
-  const scaleBase = srcIndex * Math.max(1, raw.scaleXYZDim ?? 0);
-  const rotationBase = srcIndex * Math.max(1, raw.rotationDim ?? 0);
-  const scalingModifier = finiteNumber(buildConfig?.scalingModifier, 1);
-  const scale = [
-    Math.max(finiteNumber(raw.scale_xyz?.[scaleBase + 0], 0.01) * scalingModifier, 1e-6),
-    Math.max(finiteNumber(raw.scale_xyz?.[scaleBase + 1], 0.01) * scalingModifier, 1e-6),
-    Math.max(finiteNumber(raw.scale_xyz?.[scaleBase + 2], 0.01) * scalingModifier, 1e-6)
-  ];
-  const rotation = [
-    finiteNumber(raw.rotation?.[rotationBase + 0], 1),
-    finiteNumber(raw.rotation?.[rotationBase + 1], 0),
-    finiteNumber(raw.rotation?.[rotationBase + 2], 0),
-    finiteNumber(raw.rotation?.[rotationBase + 3], 0)
-  ];
-  const rows = buildCudaRotationRowsLocal(rotation);
-  const m = rows.map((row, idx) => row.map((value) => value * scale[idx]));
+  const { scale, scaleT, rotation, rotationR } =
+    resolveCudaConditionalCovarianceInputsLocal({
+      raw,
+      srcIndex,
+      buildConfig
+    });
+  const conditionalState = computeCudaConditionalGaussianState4D({
+    position: [0, 0, 0],
+    opacity: 1,
+    scaleXYZ: scale,
+    scaleT,
+    rotation,
+    rotationR,
+    timestamp: 0,
+    tCenter: 0,
+    prefilterVar: -1
+  });
+  const conditionalCovariance = conditionalState.cov3;
   const covWorld = [
-    m[0][0] * m[0][0] + m[1][0] * m[1][0] + m[2][0] * m[2][0],
-    m[0][0] * m[0][1] + m[1][0] * m[1][1] + m[2][0] * m[2][1],
-    m[0][0] * m[0][2] + m[1][0] * m[1][2] + m[2][0] * m[2][2],
-    m[0][1] * m[0][1] + m[1][1] * m[1][1] + m[2][1] * m[2][1],
-    m[0][1] * m[0][2] + m[1][1] * m[1][2] + m[2][1] * m[2][2],
-    m[0][2] * m[0][2] + m[1][2] * m[1][2] + m[2][2] * m[2][2]
+    conditionalCovariance[0][0],
+    conditionalCovariance[0][1],
+    conditionalCovariance[0][2],
+    conditionalCovariance[1][1],
+    conditionalCovariance[1][2],
+    conditionalCovariance[2][2]
   ];
   const projection = readProjectionParamRows(projectionParams);
   const view = projection.viewRows.map((row) => row.slice(0, 3));
@@ -2670,12 +2711,12 @@ function buildStep113CovarianceJacobianConicEvidence({
   let maxCameraY = -Infinity;
   let minDepth = Infinity;
   let maxDepth = -Infinity;
-  let maxScreenCovarianceAbsError = 0;
-  let maxWorldCovarianceAbsError = 0;
-  let maxCameraCovarianceAbsError = 0;
-  let maxJacobianAbsError = 0;
-  let maxConicAbsError = 0;
-  let maxRadiusAbsError = 0;
+  let maxScreenCovarianceAbsError = null;
+  let maxWorldCovarianceAbsError = null;
+  let maxCameraCovarianceAbsError = null;
+  let maxJacobianAbsError = null;
+  let maxConicAbsError = null;
+  let maxRadiusAbsError = null;
   for (let slot = 0; slot < diagnosticRows.length; slot += 1) {
     const row = diagnosticRows[slot];
     const srcIndex = candidateIndices[row] | 0;
@@ -2705,6 +2746,7 @@ function buildStep113CovarianceJacobianConicEvidence({
     maxCameraY = Math.max(maxCameraY, finiteNumber(expected.cameraSpacePosition?.[1]));
     minDepth = Math.min(minDepth, finiteNumber(expected.cameraSpacePosition?.[2]));
     maxDepth = Math.max(maxDepth, finiteNumber(expected.cameraSpacePosition?.[2]));
+    let readbackValid = false;
     if (!actualIntermediate) {
       missingReadbackCount += 1;
     } else if (
@@ -2723,39 +2765,55 @@ function buildStep113CovarianceJacobianConicEvidence({
       invalidReadbackCount += 1;
     } else {
       readbackCompletedCount += 1;
+      readbackValid = true;
     }
-    const worldCovErr = maxAbsDeltaArray(
-      expected.covarianceWorldBeforeCameraTransform,
-      actualIntermediate?.covarianceWorldBeforeCameraTransform
-    );
-    const cameraCovErr = maxAbsDeltaArray(
-      expected.cameraSpaceCovariance,
-      actualIntermediate?.cameraSpaceCovariance
-    );
-    const jacobianErr = maxAbsDeltaArray(
-      flattenJacobian(expected.jacobian),
-      flattenJacobian(actualIntermediate?.jacobian)
-    );
-    const covErr = maxAbsDeltaArray(
-      expected.screenSpaceCovariance,
-      actualIntermediate?.screenSpaceCovariance
-    );
-    const conicErr = maxAbsDeltaArray(expected.conic, actualIntermediate?.conic);
-    const radiusErr = Math.abs(
-      finiteNumber(expected.radius) - finiteNumber(actualIntermediate?.radius)
-    );
-    maxWorldCovarianceAbsError = Math.max(
-      maxWorldCovarianceAbsError,
-      worldCovErr ?? Infinity
-    );
-    maxCameraCovarianceAbsError = Math.max(
-      maxCameraCovarianceAbsError,
-      cameraCovErr ?? Infinity
-    );
-    maxJacobianAbsError = Math.max(maxJacobianAbsError, jacobianErr ?? Infinity);
-    maxScreenCovarianceAbsError = Math.max(maxScreenCovarianceAbsError, covErr ?? Infinity);
-    maxConicAbsError = Math.max(maxConicAbsError, conicErr ?? Infinity);
-    maxRadiusAbsError = Math.max(maxRadiusAbsError, radiusErr);
+    const worldCovErr = readbackValid
+      ? maxAbsDeltaArray(
+          expected.covarianceWorldBeforeCameraTransform,
+          actualIntermediate.covarianceWorldBeforeCameraTransform
+        )
+      : null;
+    const cameraCovErr = readbackValid
+      ? maxAbsDeltaArray(
+          expected.cameraSpaceCovariance,
+          actualIntermediate.cameraSpaceCovariance
+        )
+      : null;
+    const jacobianErr = readbackValid
+      ? maxAbsDeltaArray(
+          flattenJacobian(expected.jacobian),
+          flattenJacobian(actualIntermediate.jacobian)
+        )
+      : null;
+    const covErr = readbackValid
+      ? maxAbsDeltaArray(
+          expected.screenSpaceCovariance,
+          actualIntermediate.screenSpaceCovariance
+        )
+      : null;
+    const conicErr = readbackValid
+      ? maxAbsDeltaArray(expected.conic, actualIntermediate.conic)
+      : null;
+    const radiusErr = readbackValid
+      ? Math.abs(finiteNumber(expected.radius) - actualIntermediate.radius)
+      : null;
+    if (readbackValid) {
+      maxWorldCovarianceAbsError = Math.max(
+        maxWorldCovarianceAbsError ?? 0,
+        worldCovErr
+      );
+      maxCameraCovarianceAbsError = Math.max(
+        maxCameraCovarianceAbsError ?? 0,
+        cameraCovErr
+      );
+      maxJacobianAbsError = Math.max(maxJacobianAbsError ?? 0, jacobianErr);
+      maxScreenCovarianceAbsError = Math.max(
+        maxScreenCovarianceAbsError ?? 0,
+        covErr
+      );
+      maxConicAbsError = Math.max(maxConicAbsError ?? 0, conicErr);
+      maxRadiusAbsError = Math.max(maxRadiusAbsError ?? 0, radiusErr);
+    }
     representatives.push({
       row,
       srcIndex,
@@ -2846,6 +2904,18 @@ function buildStep113CovarianceJacobianConicEvidence({
   if (!coveragePass.screenAnyAxis) {
     representativeCoverageFailureReasons.push('insufficient-screen-position-span');
   }
+  const requiredEvidenceComplete =
+    representatives.length > 0 &&
+    readbackCompletedCount === representatives.length &&
+    missingReadbackCount === 0 &&
+    invalidReadbackCount === 0;
+  const conditionalCovarianceClassification =
+    !requiredEvidenceComplete
+      ? 'missing'
+      : maxWorldCovarianceAbsError <=
+          tolerance.covarianceBeforeCameraTransformMaxAbs
+        ? 'cuda-conditional-4d-to-3d-covariance-matched'
+        : 'cuda-conditional-4d-to-3d-covariance-mismatch';
   const firstMismatchStage =
     representatives.length <= 0
       ? 'representative-gaussian-selection'
@@ -2860,7 +2930,7 @@ function buildStep113CovarianceJacobianConicEvidence({
               : !coveragePass.depth || !coveragePass.screenAnyAxis
                 ? 'representative-depth-screen-coverage'
               : maxWorldCovarianceAbsError > tolerance.covarianceBeforeCameraTransformMaxAbs
-                ? 'rotation-aware-3d-covariance'
+                ? 'conditional-4d-to-3d-covariance'
                 : maxCameraCovarianceAbsError > tolerance.cameraSpaceCovarianceMaxAbs
                   ? 'camera-space-covariance'
                   : maxJacobianAbsError > tolerance.jacobianMaxAbs
@@ -2876,18 +2946,20 @@ function buildStep113CovarianceJacobianConicEvidence({
     selectedGoal:
       'cuda-webgpu-covariance-jacobian-conic-parity-closure-v1',
     selectedCandidates: [
-      'A-rotation-aware-covariance',
+      'A-conditional-4d-to-3d-covariance',
       'C-camera-jacobian-screen-space-conic',
       'D-production-consumption'
     ],
     rootCause:
-      'Step111 payload used scale_xyz-only conic; Step113 routes CUDA computeCov3D/computeCov2D equivalent covariance and Jacobian into production footprint payload',
+      'Step120 Impl1 replaced the qL-only production world covariance with CUDA conditional 4D-to-3D covariance; this diagnostic expected reference now consumes independent qL/qR/XYZT runtime inputs before the existing camera/Jacobian/conic comparisons',
     cudaWebgpuCovarianceConicStageMap: [
       {
-        stage: 'scale-rotation-to-3d-covariance',
-        cudaSource: 'forward.cu computeCov3D scale*rotation, transpose(M)*M',
-        webgpuPath: 'webgpu_4d_state_evaluator.wgsl sourceCode=113',
-        classification: 'cuda-equivalent-3d-rotation-aware'
+        stage: 'conditional-4d-to-3d-covariance',
+        cudaSource:
+          'forward.cu computeCov3D_conditional Sigma11-Sigma12*Sigma12T/Sigma_tt',
+        webgpuPath:
+          'webgpu_4d_state_evaluator.wgsl conditional covariance sourceCode=113',
+        classification: conditionalCovarianceClassification
       },
       {
         stage: 'camera-space-covariance-transform',
@@ -2906,12 +2978,6 @@ function buildStep113CovarianceJacobianConicEvidence({
         cudaSource: 'determinant inverse conic and 3*sigma eigen radius',
         webgpuPath: 'footprintPayload conic/covariance/radius sourceCode=113',
         classification: 'cuda-aligned-partial'
-      },
-      {
-        stage: '4d-conditional-covariance',
-        cudaSource: 'conditional 4D covariance path',
-        webgpuPath: 'deferred; Step113 closes 3D rotation/camera-Jacobian gap first',
-        classification: 'deferred'
       }
     ],
     representativeGaussianCount: representatives.length,
@@ -2958,20 +3024,24 @@ function buildStep113CovarianceJacobianConicEvidence({
     },
     tolerances: tolerance,
     firstMismatchStage,
-    rotationCovarianceClassification:
-      readbackCompletedCount > 0 ? 'cuda-equivalent-3d-rotation-aware' : 'missing',
-    conditional4DCovarianceClassification: 'deferred',
+    rotationCovarianceClassification: conditionalCovarianceClassification,
+    conditional4DCovarianceClassification:
+      conditionalCovarianceClassification,
     jacobianProjectionClassification:
-      readbackCompletedCount > 0 ? 'cuda-aligned-camera-jacobian' : 'missing',
+      requiredEvidenceComplete ? 'cuda-aligned-camera-jacobian' : 'missing',
     conicRadiusClassification:
-      firstMismatchStage === 'none' ? 'cuda-aligned-partial' : 'mismatch',
+      !requiredEvidenceComplete
+        ? 'missing'
+        : firstMismatchStage === 'none'
+          ? 'cuda-aligned-partial'
+          : 'mismatch',
     jacobianConicPayloadCount: count,
     actualEvidenceSource:
       'wgsl-step113-intermediate-diagnostic-readback-buffer',
     expectedEvidenceSource:
-      'cuda-forward-cu-computeCov3D-computeCov2D-reference-formula',
+      'cuda-forward-cu-computeCov3D-conditional-computeCov2D-reference-formula',
     representativeSource:
-      'wgsl-intermediate-readback-vs-cuda-reference-formula',
+      'wgsl-intermediate-readback-vs-independent-cuda-conditional-reference-formula',
     readbackCompletedCount,
     missingReadbackCount,
     invalidReadbackCount,
@@ -4317,8 +4387,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
 
   // Phase 3 Step80: srcIndex, valid, and minimal screen projection fields are
   // produced in WGSL from a WebGPU-computed statePositions source. If that
-  // source is missing for a row, raw xyz remains only as an explicit repair
-  // diagnostic.
+  // source is missing for a row, raw xyz remains only as observation evidence
+  // and cannot promote the compared fixed record to valid.
   r0.x = f32(srcIndex);
 
   let header = projectionParams[0u];
@@ -4385,7 +4455,11 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     projectedPy >= 0.0 &&
     projectedPx < renderW * sx &&
     projectedPy < renderH * sy;
-  let outputValid = rawIndexInBounds && projectionOk && projectedInBounds;
+  let outputValid =
+    statePositionAvailable &&
+    rawIndexInBounds &&
+    projectionOk &&
+    projectedInBounds;
   r0.y = select(0.0, 1.0, outputValid);
   r0.z = select(0.0, projectedPx, outputValid);
   r0.w = select(0.0, projectedPy, outputValid);
@@ -5871,6 +5945,25 @@ function buildDepthSortComparison({
   };
 }
 
+function resolveStep113DiagnosticRowsBeforeDispatch({
+  candidateIndices,
+  detailedLineageSelection
+}) {
+  const mode = detailedLineageSelection?.mode;
+  if (
+    mode !== 'explicit-src-indices' &&
+    mode !== 'explicit-and-first-mismatch'
+  ) {
+    return null;
+  }
+  const resolved = resolveWebGpuDiagnosticDetailRows({
+    candidateIndices,
+    selection: detailedLineageSelection,
+    firstMismatches: []
+  });
+  return resolved.rows.slice(0, 8);
+}
+
 export async function runWebGpuVisibleRecordDryRun({
   candidateInfo,
   raw,
@@ -5928,13 +6021,21 @@ export async function runWebGpuVisibleRecordDryRun({
   const sx = canvasWidth / renderW;
   const sy = canvasHeight / renderH;
   const projectionContract = buildWebGpuProjectionContract({ camera, screenSpaceCamera, renderW, renderH, sx, sy });
+  const normalizedDetailedLineageSelection =
+    normalizeWebGpuDiagnosticDetailSelection(detailedLineageSelection);
+  const step113DiagnosticRowIndices =
+    resolveStep113DiagnosticRowsBeforeDispatch({
+      candidateIndices: cpuReference.candidateIndices,
+      detailedLineageSelection: normalizedDetailedLineageSelection
+    });
   const webgpu4DStateSource = await buildWebGpu4DStatePositionsForCandidates({
     device,
     raw,
     candidateIndices: cpuReference.candidateIndices,
     rawXyzOpacity,
     buildConfig,
-    projectionParams: projectionContract.data
+    projectionParams: projectionContract.data,
+    step113DiagnosticRowIndices
   });
   const { statePositions } = webgpu4DStateSource;
   const statePositionAvailabilitySummary =
@@ -6617,8 +6718,6 @@ export async function runWebGpuVisibleRecordDryRun({
     epsilon,
     maxMismatches
   });
-  const normalizedDetailedLineageSelection =
-    normalizeWebGpuDiagnosticDetailSelection(detailedLineageSelection);
   const detailedLineageRows = resolveWebGpuDiagnosticDetailRows({
     candidateIndices: cpuReference.candidateIndices,
     selection: normalizedDetailedLineageSelection,

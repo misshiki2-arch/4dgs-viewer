@@ -1,12 +1,92 @@
 import assert from 'node:assert/strict';
 import {
   WEBGPU_DIAGNOSTIC_DETAIL_HARD_LIMIT,
+  WEBGPU_DIAGNOSTIC_REPRESENTATIVE_LIMIT,
   WEBGPU_VISIBLE_RECORD_DIAGNOSTIC_SCHEMA_VERSION,
   WEBGPU_VISIBLE_RECORD_LINEAGE_SCHEMA_VERSION,
   buildWebGpuVisibleRecordDiagnosticArtifactBundle,
   normalizeWebGpuDiagnosticDetailSelection,
   resolveWebGpuDiagnosticDetailRows
 } from '../demo/js/common_4dgs_diagnostic_artifact_contracts.js';
+
+function buildStep113Representative(row) {
+  const base = row + 1;
+  return {
+    row,
+    srcIndex: 524288 + row,
+    covarianceBeforeCameraTransform: [base, 2, 3, 4, 5, 6],
+    actualCovarianceBeforeCameraTransform: [base + 0.001, 2, 3, 4, 5, 6],
+    cameraSpaceCovariance: [base, 7, 8, 9, 10, 11],
+    actualCameraSpaceCovariance: [base + 0.002, 7, 8, 9, 10, 11],
+    jacobian: [[base, 2, 3], [4, 5, 6]],
+    actualJacobian: [[base + 0.003, 2, 3], [4, 5, 6]],
+    expectedScreenSpaceCovariance: [base, 12, 13],
+    actualScreenSpaceCovariance: [base + 0.004, 12, 13],
+    expectedConic: [base, 14, 15],
+    actualConic: [base + 0.005, 14, 15],
+    expectedRadius: base + 16,
+    actualRadius: base + 17,
+    productionPayloadSourceCode: 113,
+    errors: {
+      covarianceBeforeCameraTransformMaxAbs: 0.001,
+      cameraSpaceCovarianceMaxAbs: 0.002,
+      jacobianMaxAbs: 0.003,
+      screenSpaceCovarianceMaxAbs: 0.004,
+      conicMaxAbs: 0.005,
+      radiusAbs: 1
+    },
+    unrelatedRepresentativePayload: Array.from({ length: 256 }, () => row)
+  };
+}
+
+function buildStep113SemanticEvidence() {
+  const representativeGaussianCount =
+    WEBGPU_DIAGNOSTIC_REPRESENTATIVE_LIMIT + 4;
+  return {
+    representativeGaussianCount,
+    representativeGaussians: Array.from(
+      { length: representativeGaussianCount },
+      (_, row) => buildStep113Representative(row)
+    ),
+    firstMismatchStage: 'camera-space-covariance',
+    maxStageErrors: {
+      covarianceBeforeCameraTransformMaxAbs: 0.001,
+      cameraSpaceCovarianceMaxAbs: 0.002,
+      jacobianMaxAbs: 0.003,
+      screenSpaceCovarianceMaxAbs: 0.004,
+      conicMaxAbs: 0.005,
+      radiusAbs: 1
+    },
+    tolerances: {
+      covarianceBeforeCameraTransformMaxAbs: 1e-5,
+      cameraSpaceCovarianceMaxAbs: 1e-5,
+      jacobianMaxAbs: 1e-4,
+      screenSpaceCovarianceMaxAbs: 1e-2,
+      conicMaxAbs: 1e-4,
+      radiusAbs: 0
+    },
+    conditional4DCovarianceClassification:
+      'cuda-conditional-4d-to-3d-covariance-matched',
+    rotationCovarianceClassification:
+      'cuda-conditional-4d-to-3d-covariance-matched',
+    jacobianProjectionClassification: 'cuda-aligned-camera-jacobian',
+    conicRadiusClassification: 'mismatch',
+    readbackCompletedCount: representativeGaussianCount,
+    missingReadbackCount: 0,
+    invalidReadbackCount: 0,
+    actualEvidenceSource:
+      'wgsl-step113-intermediate-diagnostic-readback-buffer',
+    expectedEvidenceSource:
+      'cuda-forward-cu-computeCov3D-conditional-computeCov2D-reference-formula',
+    representativeSource:
+      'wgsl-intermediate-readback-vs-independent-cuda-conditional-reference-formula',
+    actualEvidenceSameProductionDispatch: true,
+    productionCalculationDependsOnDiagnosticReadback: false,
+    diagnosticReadbackSeparatedFromProductionRuntime: true,
+    fullCompositorHistory: Array.from({ length: 1024 }, () => 'not-canonical'),
+    gpuResource: { label: 'must-not-be-serialized' }
+  };
+}
 
 function buildLineageRecord(srcIndex) {
   return {
@@ -73,7 +153,13 @@ function buildRuntimeResult(recordCount) {
       status: 'ok',
       tileCompositorReady: true,
       totalTileReferenceCount: recordCount * 2,
-      tileIndices: Array.from({ length: recordCount }, (_, index) => index)
+      tileIndices: Array.from({ length: recordCount }, (_, index) => index),
+      step113RepresentativeGaussianComparison:
+        buildStep113SemanticEvidence(),
+      unrelatedCompositorRecords: Array.from(
+        { length: recordCount },
+        (_, index) => index
+      )
     },
     tileCountsWebGpuComparison: {
       status: 'ok',
@@ -255,6 +341,114 @@ for (const recordCount of [8, 4096, 65536]) {
     canonical.diagnosticStageAggregates.tileCountsWebGpuComparison.anyMismatch,
     false
   );
+  const step113Evidence =
+    canonical.stageSummaries.tileCompositor.step113SemanticEvidence;
+  assert.equal(
+    step113Evidence.representativeGaussianCount,
+    WEBGPU_DIAGNOSTIC_REPRESENTATIVE_LIMIT + 4
+  );
+  assert.equal(
+    step113Evidence.sourceRepresentativeCount,
+    WEBGPU_DIAGNOSTIC_REPRESENTATIVE_LIMIT + 4
+  );
+  assert.equal(
+    step113Evidence.serializedRepresentativeCount,
+    WEBGPU_DIAGNOSTIC_REPRESENTATIVE_LIMIT
+  );
+  assert.equal(
+    step113Evidence.representativeGaussians.length,
+    WEBGPU_DIAGNOSTIC_REPRESENTATIVE_LIMIT
+  );
+  assert.equal(step113Evidence.representativesTruncated, true);
+  assert.equal(step113Evidence.firstMismatchStage, 'camera-space-covariance');
+  assert.equal(
+    step113Evidence.conditional4DCovarianceClassification,
+    'cuda-conditional-4d-to-3d-covariance-matched'
+  );
+  assert.equal(
+    step113Evidence.rotationCovarianceClassification,
+    'cuda-conditional-4d-to-3d-covariance-matched'
+  );
+  assert.equal(
+    step113Evidence.jacobianProjectionClassification,
+    'cuda-aligned-camera-jacobian'
+  );
+  assert.equal(step113Evidence.conicRadiusClassification, 'mismatch');
+  assert.equal(
+    step113Evidence.maxStageErrors.cameraSpaceCovarianceMaxAbs,
+    0.002
+  );
+  assert.equal(
+    step113Evidence.tolerances.covarianceBeforeCameraTransformMaxAbs,
+    1e-5
+  );
+  assert.equal(
+    step113Evidence.readbackCompletedCount,
+    WEBGPU_DIAGNOSTIC_REPRESENTATIVE_LIMIT + 4
+  );
+  assert.equal(step113Evidence.missingReadbackCount, 0);
+  assert.equal(step113Evidence.invalidReadbackCount, 0);
+  assert.equal(
+    step113Evidence.actualEvidenceSource,
+    'wgsl-step113-intermediate-diagnostic-readback-buffer'
+  );
+  assert.equal(
+    step113Evidence.expectedEvidenceSource,
+    'cuda-forward-cu-computeCov3D-conditional-computeCov2D-reference-formula'
+  );
+  assert.equal(
+    step113Evidence.representativeSource,
+    'wgsl-intermediate-readback-vs-independent-cuda-conditional-reference-formula'
+  );
+  assert.equal(step113Evidence.actualEvidenceSameProductionDispatch, true);
+  assert.equal(
+    step113Evidence.productionCalculationDependsOnDiagnosticReadback,
+    false
+  );
+  assert.equal(
+    step113Evidence.diagnosticReadbackSeparatedFromProductionRuntime,
+    true
+  );
+  const firstRepresentative = step113Evidence.representativeGaussians[0];
+  assert.equal(firstRepresentative.row, 0);
+  assert.equal(firstRepresentative.srcIndex, 524288);
+  assert.deepEqual(
+    firstRepresentative.covarianceBeforeCameraTransform,
+    [1, 2, 3, 4, 5, 6]
+  );
+  assert.deepEqual(
+    firstRepresentative.actualCovarianceBeforeCameraTransform,
+    [1.001, 2, 3, 4, 5, 6]
+  );
+  assert.deepEqual(
+    firstRepresentative.cameraSpaceCovariance,
+    [1, 7, 8, 9, 10, 11]
+  );
+  assert.deepEqual(
+    firstRepresentative.actualCameraSpaceCovariance,
+    [1.002, 7, 8, 9, 10, 11]
+  );
+  assert.deepEqual(firstRepresentative.jacobian, [[1, 2, 3], [4, 5, 6]]);
+  assert.deepEqual(
+    firstRepresentative.actualJacobian,
+    [[1.003, 2, 3], [4, 5, 6]]
+  );
+  assert.deepEqual(
+    firstRepresentative.expectedScreenSpaceCovariance,
+    [1, 12, 13]
+  );
+  assert.deepEqual(
+    firstRepresentative.actualScreenSpaceCovariance,
+    [1.004, 12, 13]
+  );
+  assert.deepEqual(firstRepresentative.expectedConic, [1, 14, 15]);
+  assert.deepEqual(firstRepresentative.actualConic, [1.005, 14, 15]);
+  assert.equal(firstRepresentative.expectedRadius, 17);
+  assert.equal(firstRepresentative.actualRadius, 18);
+  assert.equal(
+    firstRepresentative.errors.covarianceBeforeCameraTransformMaxAbs,
+    0.001
+  );
   assert.equal(detail.schemaVersion, WEBGPU_VISIBLE_RECORD_LINEAGE_SCHEMA_VERSION);
   assert.equal(detail.records.length, 8);
   assert.deepEqual(
@@ -266,8 +460,24 @@ for (const recordCount of [8, 4096, 65536]) {
   assert(!canonicalJson.includes('webgpuPreCullDirectGaussianEvidence'));
   assert(!canonicalJson.includes('fullMirror'));
   assert(!canonicalJson.includes('tileIndices'));
+  assert(!canonicalJson.includes('unrelatedCompositorRecords'));
+  assert(!canonicalJson.includes('unrelatedRepresentativePayload'));
+  assert(!canonicalJson.includes('fullCompositorHistory'));
+  assert(!canonicalJson.includes('must-not-be-serialized'));
   serializedSizes.push(canonicalJson.length);
 }
+
+const missingStep113RuntimeResult = buildRuntimeResult(8);
+delete missingStep113RuntimeResult.webgpuTileListCompositorContract
+  .step113RepresentativeGaussianComparison;
+const missingStep113Bundle = buildWebGpuVisibleRecordDiagnosticArtifactBundle({
+  runtimeResult: missingStep113RuntimeResult
+});
+assert.equal(
+  missingStep113Bundle.canonicalDiagnosticResult.stageSummaries.tileCompositor
+    .step113SemanticEvidence,
+  null
+);
 
 assert(
   Math.max(...serializedSizes) - Math.min(...serializedSizes) < 256,

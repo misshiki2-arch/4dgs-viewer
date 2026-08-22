@@ -1,6 +1,6 @@
 # Phase 3 Current State
 
-更新基準: 2026-08-20 / Phase 3 Step119 Investigation7分類完了時点
+更新基準: 2026-08-22 / Phase 3 Step120 Documentation1同期時点
 対象ブランチ: `phase3-webgpu-compute-prototype`
 基準コミット: `156a138 Phase3 Step118: add native WebGPU production frame data path`
 
@@ -141,15 +141,16 @@ Step118 browser 確認で得られた赤紫色の全面表示は、stable nonbla
 
 ## 10. 現在残る作業分類
 
-Step119のfixed-visible比較、first-mismatch分類、既知evidence fieldの意味分類は完了した。残る作業は、原則として次の順序を守る。
+Step119のfixed-visible比較とfirst-mismatch分類に続き、Step120のconditional 4D-to-3D covariance production実装、diagnostic expected consumer同期、canonical evidence直列化、representative選択、fail-closed分類、fixed-record validity修正まで完了した。次の実装Stepは未承認である。今後の候補を検討するときは、原則として次の依存順序を守る。
 
-1. Step120で、CUDA-aligned conditional 4D-to-3D covarianceをproduction footprintへ接続する一責務だけを修正する。
-2. Step120修正後、camera-space covarianceから後段比較を再開し、次の最初のmismatchで停止する。
-3. fixed camera / fixed timeでCUDA reference semantic / visual parityを段階的に進める。
-4. 3,231,588 recordsのfull-scene correctness gateを設け、device limit内のfull residency、または全source populationを欠落なく扱うcorrectness-preservingなchunk / streamingでCUDA full-scene Referenceと比較する。
-5. interactive camera / timeで同じsemanticsが維持されることを確認する。
-6. scene規模、resource lifecycle、performance、scalabilityを確認する。
-7. acceptedなparity boundaryの内側でperformance改善を行い、その後early terminationやLODなどの近似・高速化を個別のacceptance contractの下で進める。
+1. 明示的なreview命令の下でread-only Investigationを行い、全524,288 resident recordsを対象とするpopulation-aligned semantic comparisonを既存data pathへどう接続できるか確認する。
+2. fixed camera / fixed timeでCUDA reference semantic / visual parityを段階的に進める。
+3. 3,231,588 recordsのfull-scene correctness gateを設け、device limit内のfull residency、または全source populationを欠落なく扱うcorrectness-preservingなchunk / streamingでCUDA full-scene Referenceと比較する。
+4. interactive camera / timeで同じsemanticsが維持されることを確認する。
+5. scene規模、resource lifecycle、performance、scalabilityを確認する。
+6. acceptedなparity boundaryの内側でperformance改善を行い、その後early terminationやLODなどの近似・高速化を個別のacceptance contractの下で進める。
+
+候補1のInvestigationでは、既存production/evaluator接続、cardinality、monolithic dispatchとbounded chunkの選択、aggregate-only evidence、row/srcIndex mapping、first-mismatch停止条件を確認する。これは調査候補であり、Step121または実装開始の許可ではない。
 
 原因未確定の段階で、SH、sort、camera、projection、scheduler、retry、RAF などを原因として決め打ちしてはならない。
 
@@ -276,9 +277,11 @@ last-valid outputの`valid`はnonblankではなく正常に完了したproductio
 
 `canonicalExecution.ready: false`はzero-reference専用predicateをnonzero-reference captureへ表示した結果であり、runtime completionとの不整合ではない。capture expectation全体とruntime terminal completionはともにreadyであるため、tool、schema、artifactの修正をStep119の残存gateにはしない。
 
-### Step120
+### Step120（Investigation7時点のhistorical plan）
 
-次のproduction実装は、既存のCUDA-aligned 4D rotation / covariance vocabularyを利用してconditional 3D covarianceをproduction footprintへ接続する一責務に限定する。camera transform、projection Jacobian、Y orientation、conic、radius、tile coverage、sort、compositor、opacity、SH/colorを同時に変更しない。修正後はcamera-space covarianceから比較を再開し、次の最初のmismatchで停止する。Step120だけでvisual parity成功を予定事項として断定しない。
+以下はStep119 Investigation7完了時点の計画記録である。Step120は後続のImpl1、Impl2、Impl2 Fix1-Fix4によって完了しており、現在の実装許可として読まない。完了内容と境界はSection 19を正本とする。
+
+当時のproduction実装計画は、既存のCUDA-aligned 4D rotation / covariance vocabularyを利用してconditional 3D covarianceをproduction footprintへ接続する一責務に限定していた。camera transform、projection Jacobian、Y orientation、conic、radius、tile coverage、sort、compositor、opacity、SH/colorを同時に変更せず、修正後はcamera-space covarianceから比較を再開して次の最初のmismatchで停止する方針だった。Step120だけでvisual parity成功を予定事項として断定しない境界も維持された。
 
 ## 18. Step119 の到達点と非対象
 
@@ -292,7 +295,7 @@ Step119はfixed-population semantic controlとfirst-mismatch classificationの�
 - screen centerより上流の一致と、最初のconditional covariance mismatchが分類されている。
 - `canonicalExecution.ready`がzero-reference専用fieldであり、nonzero-reference runtime completionと矛盾しないことが分類されている。
 
-Step119後も未達:
+Step119完了時点で未達だった項目（historical。先頭2項目の現在地はSection 19を参照）:
 
 - conditional 4D-to-3D covarianceのproduction実装
 - conditional covarianceより後段のsemantic comparison
@@ -300,6 +303,65 @@ Step119後も未達:
 - 3,231,588 recordsのfull-scene correctnessとmatched full-scene CUDA comparison
 - final production acceptance
 
-Step119ではcamera、projection、temporal、tile、sort、compositorの変更を行わない。scene全体residency、streaming / LOD、interactive camera / time、performance、retry / RAF / heartbeat、大量trace、Step / camera / frame / time依存のproduction分岐も非対象である。最初のmismatchに対する実装修正はStep120で一責務として扱う。
+Step119ではcamera、projection、temporal、tile、sort、compositorの変更を行わなかった。scene全体residency、streaming / LOD、interactive camera / time、performance、retry / RAF / heartbeat、大量trace、Step / camera / frame / time依存のproduction分岐も非対象だった。最初のmismatchに対する修正は後続Step120で一責務として完了した。
 
 この非対象指定はStep119 Investigation7へfull-scene実装を混ぜないためのものであり、最終受入れから除外する意味ではない。52万件のfixed-range semantic parityを閉じた後、3,231,588 recordsのfull-scene correctnessを独立した必須gateとして設計・検証する。
+
+## 19. Step120 Conditional 4D-to-3D Covariance Production Footprint
+
+### 完了した実装責務
+
+Step120はStep119 Investigation7で確定した最初のsemantic mismatchだけを対象にし、Impl1からImpl2 Fix4までを完了した。
+
+- **Impl1 — production semantics**: production WebGPU footprint covarianceをqL-only / XYZの通常3D covarianceから、左右のnormalized quaternionとXYZT scaleで4D covarianceを構築して`Sigma11 - Sigma12 Sigma12^T / Sigma_tt`を評価するCUDA-aligned conditional covarianceへ変更した。temporal meanとfootprintは同じ4D covariance vocabularyを参照し、production evidenceは`sourceCode: 113`を使用する。camera transform、projection Jacobian、conic、radiusのdownstream式は変更していない。
+- **Impl2 — diagnostic expected consumer**: expected側もraw asset/build configurationから同じqL/qR/XYZT conditional semanticsを独立に導出するよう同期した。actual GPU intermediateをexpected計算へ入力しておらず、diagnosticはproduction controlにならない。
+- **Impl2 Fix1 — canonical serialization**: boundedなStep113 semantic evidenceをDesign C canonical diagnosticの`$.stageSummaries.tileCompositor.step113SemanticEvidence`へ直列化した。representative上限は16であり、production runtime、readback、artifact schemaを変更していない。
+- **Impl2 Fix2 — representative identity**: canonical source indices `658947`, `771007`, `788034`, `826401`, `835183`, `852955`, `863505`, `906711`をevaluator rows `0..7`へauthoritativeに対応付けた。固定fraction由来のtemporal-ineligible選択を除去し、JS/WGSL row identityを一致させた。
+- **Impl2 Fix3 — fail-closed classification**: missing/invalid readbackを有効値へ昇格させず、そのrowのerrorsをnullにする。required evidenceが揃うまで4分類を`missing`に保ち、error aggregateは有効値だけから計算する。canonical browser captureでは8件すべてvalidであり、missing/invalid branchはfocused smokeで確認済みである。
+- **Impl2 Fix4 — fixed-record validity**: fixed-record actual producerはstate unavailable / temporal-invalid rowをraw source値から再びvalidへ昇格させない。raw reserved/direct evidenceは維持する一方、compared validにはstate availabilityを必須とした。production evaluator、resident workset、tile/sort/compositor、presentation、captureは変更していない。
+
+### Fix4 browser acceptance
+
+Fix4 browser captureはsource range `[524288, 1048576)`、524,288 resident records、camera `000151_v13`、frame 151、time 23.2、1280 x 720、top-left/y-downの固定条件で、Fix3と同じviewer表示・runtime baselineを維持した。required artifactはすべて存在してschema/loadが正常、capture command contractは`ready`、canonical diagnostic statusは`ok`、exception / fatal error、WebGPU validation error、invalid command、queue failure、device lossはなかった。PNGはfreshかつnonblankで、requested state、presented frame、captured imageのidentityおよびBlob/saved-file identityが一致する。SHA-256はFix3と同一の`f843845d62e2377352cd998b3a09a5a15da4afdc60c23498c51795f2e594fec0`である。
+
+canonical Step113 semantic evidenceはrepresentative 8件、completed 8件、missing 0件、invalid 0件で、rows `0..7`と上記8 srcIndexが一致する。全件が`sourceCode: 113`、`firstMismatchStage: none`であり、conditional/rotation classificationは`cuda-conditional-4d-to-3d-covariance-matched`、Jacobianは`cuda-aligned-camera-jacobian`、conic/radiusは`cuda-aligned-partial`である。`actualEvidenceSameProductionDispatch`はtrue、`productionCalculationDependsOnDiagnosticReadback`はfalseである。
+
+8件について確認されたstage別最大絶対誤差は次のとおりである。
+
+| Stage | Maximum absolute error |
+|---|---:|
+| conditional world covariance | `7.315222377846098e-8` |
+| camera covariance | `5.944491415776909e-8` |
+| projection Jacobian | `2.4726137084485345e-6` |
+| screen covariance | `3.6210082640764085e-5` |
+| conic | `8.152026688135194e-7` |
+| radius | `0` |
+
+したがって、このcanonical 8件に限りconditional world covarianceからcamera covariance、Jacobian、screen covariance、conic、radiusまでをacceptedとする。opacity/SH、tile coverage、sort、compositor accumulationへこの判定を拡張しない。
+
+### Generic fixed-record comparisonのscope
+
+Fix4のgeneric fixed-record artifactはcandidate / computed / comparedが各65,536件、actual valid 8件、expected valid 8件、`anyMismatch: false`、`fieldMismatchCount: 0`、`mismatchClassification: none`、`firstMismatches: []`である。最大絶対誤差は0ではなく`9.1552734375e-5`で、tolerance `1e-3`内にある。Fix4前の256,736 field mismatchは、64,184 invalid rowsを4 field（valid / px / py / depth）で誤って比較した結果であり、Fix4で解消した。
+
+この65,536件populationはresident range `[524288, 1048576)`の先頭65,536件ではない。canonical 8 srcIndexを先頭へ追加した後、CPU fallbackのstride-1 indicesをdeduplicateして埋めるため、rows `0..7`はcanonical 8件、row 8はsrcIndex 0、row 9はsrcIndex 1、最終row 65,535はsrcIndex 65,527である。したがって「65,536件中valid 8件」を「resident 524,288件中visible 8件」または「残りのproduction resident recordsは正しくculled」と読み替えてはならない。この比較が証明するのはdiagnostic expected/actual validityとfixed field比較の整合だけである。
+
+### Summary boundary
+
+Design Cの`diagnosticExecutionDecision`は`ready`、`comparisonDecision`は`match`、`captureArtifactDecision`と`detailDecision`とoverall `decision`は`ready`、`blockedReasons`は空である。一方、legacy `step113CovarianceJacobianConicParity`はhistoricalなStep113 phase/rootを要求するため`blocked`のままである。これはStep120 runtimeまたはcanonical Design C artifactのfailureではなく、Summary consumerがStep120の責務境界へ完全には同期していないという別責務である。このDocumentation1ではSummary toolを変更しない。
+
+### 完了境界と非主張事項
+
+Step120が完了したのは、conditional covarianceのproduction実装、独立expected consumer、bounded canonical evidence、canonical 8件のrepresentative identity/fail-closed classification、およびgeneric fixed-record validityである。Fix4 browser acceptanceによりViewer、production presentation、JSON/PNG captureへの回帰がないことも確認した。
+
+次は未達であり、Step120完了から推論しない。
+
+- 全524,288 resident recordsの全stage comparison
+- 全524,288 recordsのconditional intermediate comparison
+- fixed-range visual parityとAcceptance Level 4
+- opacity/SH、tile coverage、sort、compositor accumulationのsemantic parity
+- 全3,231,588 source recordsのfull-scene correctnessとmatched full-scene CUDA comparison
+- interactive camera/time acceptance
+- performance、scalability、LOD、streaming
+- final production acceptance
+
+将来のread-only Investigation候補は、既存data pathを使って全524,288 resident recordsを同一population・同一順序・同一条件で扱うsemantic comparisonを設計できるか確認することである。monolithic dispatchかbounded chunkか、aggregate-only evidence、row/srcIndex mapping、first-mismatch停止条件を先に調査する。この候補は次Stepの実装許可ではなく、明示的なreview後に別命令で確定する。

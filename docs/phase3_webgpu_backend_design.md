@@ -3461,3 +3461,126 @@ fixed-range semantic parity is closed, a mandatory gate must process all
 3,231,588 source records without silent omission and perform a matched
 full-scene CUDA comparison before final visual-parity or production-acceptance
 claims.
+
+The preceding Investigation7 text is a historical first-mismatch record. Its
+statements that the production footprint still uses the qL-only covariance and
+that Step120 is the next implementation describe the pre-Step120 baseline, not
+the current implementation or an authorization for further work. The accepted
+Step120 state is defined below.
+
+## Step120 Conditional 4D-to-3D Covariance Production Footprint Closure
+
+Step120 closes the first semantic mismatch identified by Step119
+Investigation7. It changes the production footprint's covariance source from an
+ordinary qL-only / XYZ 3D covariance to CUDA-aligned conditional covariance.
+Both normalized left and right quaternions and the XYZT scale construct the 4D
+covariance, and the production footprint evaluates
+`Sigma11 - Sigma12 Sigma12^T / Sigma_tt`. The temporal mean and footprint now
+share the same 4D rotation/covariance vocabulary and publish `sourceCode: 113`.
+
+This is a covariance-source change, not a downstream rendering redesign. The
+camera transform, projection Jacobian, canonical top-left/y-down orientation,
+conic and radius formulas, opacity/SH, tile coverage, sorting, compositor,
+scheduler, Step117 writer/currentTexture/last-valid ownership, and capture
+lifecycle are unchanged.
+
+### Diagnostic ownership and canonical evidence
+
+The diagnostic expected consumer independently derives the same qL/qR/XYZT
+conditional covariance from raw asset/build configuration. It does not consume
+the actual GPU intermediate and is not a production control input. Bounded
+Step113 semantic evidence is serialized at
+`$.stageSummaries.tileCompositor.step113SemanticEvidence` in the Design C
+canonical diagnostic, with at most 16 representatives. This changes neither
+the production runtime, readback contract, nor artifact schema.
+
+The canonical representative source indices are `658947`, `771007`, `788034`,
+`826401`, `835183`, `852955`, `863505`, and `906711`. They map authoritatively
+to evaluator rows `0..7`; JS and WGSL use the same row/source identity. Missing
+or invalid readback remains fail-closed: row errors are null, all four
+classifications stay `missing` until all required evidence is valid, and
+maximum-error aggregates include valid values only. The fixed-record actual
+producer also requires production state
+availability, so temporal-invalid or unavailable rows are not re-promoted from
+raw source values. Raw reserved/direct evidence remains available without
+changing resident, tile, sort, compositor, presentation, or capture behavior.
+
+### Accepted Step120 evidence
+
+The Fix4 browser artifact has eight representatives, eight completed records,
+zero missing records, and zero invalid records. Each has `sourceCode: 113` and
+`firstMismatchStage: none`. The conditional/rotation classification is
+`cuda-conditional-4d-to-3d-covariance-matched`, the Jacobian classification is
+`cuda-aligned-camera-jacobian`, and conic/radius is
+`cuda-aligned-partial`. `actualEvidenceSameProductionDispatch` is true and
+`productionCalculationDependsOnDiagnosticReadback` is false.
+
+For those eight records only, the accepted maximum absolute errors are:
+
+| Stage | Maximum absolute error |
+|---|---:|
+| conditional world covariance | `7.315222377846098e-8` |
+| camera covariance | `5.944491415776909e-8` |
+| projection Jacobian | `2.4726137084485345e-6` |
+| screen covariance | `3.6210082640764085e-5` |
+| conic | `8.152026688135194e-7` |
+| radius | `0` |
+
+The generic fixed-record comparison reports candidate, computed, and compared
+counts of 65,536, actual-valid and expected-valid counts of eight,
+`anyMismatch: false`, `fieldMismatchCount: 0`,
+`mismatchClassification: none`, and an empty `firstMismatches` list. Its
+maximum absolute error is `9.1552734375e-5`, not zero, under tolerance `1e-3`.
+The pre-Fix4 count of 256,736 field mismatches was 64,184 unavailable/invalid
+rows multiplied by the four compared validity/px/py/depth fields; Fix4 removed
+that false promotion rather than weakening the comparison.
+
+The 65,536 diagnostic rows are not the resident interval
+`[524288, 1048576)`. The candidate builder prepends the canonical eight and
+then fills the population from the deduplicated stride-1 CPU fallback. Thus
+rows `0..7` are the canonical representatives, row 8 is source index 0, row 9
+is source index 1, and row 65,535 is source index 65,527. Eight valid rows in
+this population do not mean that only eight of 524,288 resident records are
+visible, and they do not prove correct culling of the remaining resident
+population.
+
+Fix4 preserved the browser/runtime baseline for source range
+`[524288, 1048576)`, 524,288 resident records, camera `000151_v13`, frame 151,
+time 23.2, and 1280 x 720 top-left/y-down output. The saved PNG is fresh and
+nonblank; requested state, presented frame, and captured-image identities and
+the Blob/saved-file identities match. SHA-256 is
+`f843845d62e2377352cd998b3a09a5a15da4afdc60c23498c51795f2e594fec0`,
+unchanged from Fix3. Required artifacts and the capture-command contract are
+valid, the canonical diagnostic status is `ok`, and the accepted run has no
+exception, fatal runtime error, WebGPU validation error, invalid command,
+queue failure, or device loss.
+
+Design C's diagnostic execution decision is `ready`, comparison decision is
+`match`, capture artifact and detail decisions are `ready`, the overall
+decision is `ready`, and blocked reasons are empty. The legacy
+`step113CovarianceJacobianConicParity` view remains blocked because its
+historical consumer requires the old Step113 phase/root. That is a Summary
+consumer synchronization responsibility, not a Step120 production or canonical
+diagnostic failure; Step120 does not change the Summary consumer.
+
+### Completion boundary and future investigation
+
+Step120 completes the conditional-covariance production semantics, independent
+expected consumer, bounded canonical evidence, representative identity and
+fail-closed classification, and generic fixed-record validity. It also confirms
+no regression in the accepted viewer, presentation, JSON, or PNG lifecycle.
+
+It does not establish every stage for all 524,288 resident records, all 524,288
+conditional intermediates, fixed-range visual parity, Acceptance Level 4,
+opacity/SH, tile coverage, sorting, compositor accumulation, correctness for
+all 3,231,588 source records, a matched full-scene CUDA render, interactive
+acceptance, performance/scalability, LOD/streaming, or final production
+acceptance.
+
+A possible future read-only investigation is to determine how an
+all-524,288-record semantic comparison with the same population, ordering, and
+fixed conditions can reuse the existing production/evaluator connection. It
+must establish cardinality, monolithic versus bounded-chunk execution,
+aggregate-only evidence, authoritative row/source mapping, and first-mismatch
+stop behavior before implementation is selected. This design record does not
+authorize Step121 or any implementation.
