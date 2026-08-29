@@ -3,6 +3,10 @@ import {
   buildWebGpuGaussianAttributeEvaluationContract,
   buildWebGpuGaussianFootprintEvaluationContract
 } from './common_4dgs_record_contracts.js';
+import {
+  POPULATION_SEMANTIC_EVIDENCE_VEC4_STRIDE,
+  buildPopulationSemanticEvidenceLayoutContract
+} from './common_4dgs_population_semantic_comparison_contracts.js';
 
 let nextProductionStateResourceIdentity = 1;
 
@@ -241,9 +245,12 @@ export async function buildWebGpu4DStatePositionsForCandidates({
   readbackPolicy = 'diagnostic',
   keepGpuResources = false,
   sourceWorksetResourceIdentity = null,
-  step113DiagnosticRowIndices = null
+  step113DiagnosticRowIndices = null,
+  populationSemanticDiagnostic = false
 }) {
   const productionGpuOnly = readbackPolicy === 'none';
+  const populationSemanticDiagnosticEnabled =
+    populationSemanticDiagnostic === true && !productionGpuOnly;
   const count = candidateIndices?.length ?? 0;
   if (!device || !raw || !candidateIndices || !rawXyzOpacity || count <= 0) {
     return {
@@ -310,6 +317,8 @@ const STEP113_DIAGNOSTIC_ROWS: array<u32, 8> = array<u32, 8>(
   ${step113DiagnosticRowsWgsl}
 );
 const CUDA_TEMPORAL_VISIBILITY_THRESHOLD: f32 = 0.05;
+const POPULATION_SEMANTIC_DIAGNOSTIC_ENABLED: bool = ${populationSemanticDiagnosticEnabled};
+const POPULATION_SEMANTIC_DIAGNOSTIC_VEC4_STRIDE: u32 = ${POPULATION_SEMANTIC_EVIDENCE_VEC4_STRIDE}u;
 
 fn sigmoid(x: f32) -> f32 {
   return 1.0 / (1.0 + exp(-x));
@@ -498,6 +507,19 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let temporalWeight = exp(-0.5 * dt * dt / max(temporalMean.w, 1e-8));
   let temporalEligible = temporalWeight > CUDA_TEMPORAL_VISIBILITY_THRESHOLD;
   if (!temporalEligible) {
+    if (POPULATION_SEMANTIC_DIAGNOSTIC_ENABLED) {
+      let semanticBase = params.count * 3u +
+        STEP113_DIAGNOSTIC_ROW_COUNT * STEP113_DIAGNOSTIC_VEC4_STRIDE +
+        row * POPULATION_SEMANTIC_DIAGNOSTIC_VEC4_STRIDE;
+      footprintPayload[semanticBase + 0u] = vec4f(f32(row), 0.0, 0.0, 0.0);
+      footprintPayload[semanticBase + 1u] = vec4f(0.0);
+      footprintPayload[semanticBase + 2u] = vec4f(0.0);
+      footprintPayload[semanticBase + 3u] = vec4f(0.0);
+      footprintPayload[semanticBase + 4u] = vec4f(0.0);
+      footprintPayload[semanticBase + 5u] = vec4f(0.0);
+      footprintPayload[semanticBase + 6u] = vec4f(0.0);
+      footprintPayload[semanticBase + 7u] = vec4f(0.0);
+    }
     statePositions[row] = vec4f(0.0);
     let invalidAttributeBase = row * 2u;
     renderAttributes[invalidAttributeBase + 0u] = vec4f(0.0);
@@ -647,6 +669,19 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       footprintPayload[outBase + 7u] = vec4f(mv.x, mv.y, mv.z, fallbackFlag);
     }
   }
+  if (POPULATION_SEMANTIC_DIAGNOSTIC_ENABLED) {
+    let semanticBase = params.count * 3u +
+      STEP113_DIAGNOSTIC_ROW_COUNT * STEP113_DIAGNOSTIC_VEC4_STRIDE +
+      row * POPULATION_SEMANTIC_DIAGNOSTIC_VEC4_STRIDE;
+    footprintPayload[semanticBase + 0u] = vec4f(f32(row), 1.0, pos.x, pos.y);
+    footprintPayload[semanticBase + 1u] = vec4f(pos.z, cov00, cov01, cov02);
+    footprintPayload[semanticBase + 2u] = vec4f(cov11, cov12, cov22, covCam00);
+    footprintPayload[semanticBase + 3u] = vec4f(covCam01, covCam02, covCam11, covCam12);
+    footprintPayload[semanticBase + 4u] = vec4f(covCam22, jacobian0.x, jacobian0.y, jacobian0.z);
+    footprintPayload[semanticBase + 5u] = vec4f(jacobian1.x, jacobian1.y, jacobian1.z, screenCovA);
+    footprintPayload[semanticBase + 6u] = vec4f(screenCovB, screenCovC, conicX, conicY);
+    footprintPayload[semanticBase + 7u] = vec4f(conicZ, finalRadiusPx, footprintSourceCode, fallbackFlag);
+  }
 }`
   });
   const pipeline = device.createComputePipeline({
@@ -678,8 +713,14 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   const footprintProductionVec4Count = count * 3;
   const step113DiagnosticVec4Count =
     STEP113_DIAGNOSTIC_ROW_COUNT * STEP113_DIAGNOSTIC_VEC4_STRIDE;
+  const populationSemanticDiagnosticVec4Count =
+    populationSemanticDiagnosticEnabled
+      ? count * POPULATION_SEMANTIC_EVIDENCE_VEC4_STRIDE
+      : 0;
   const footprintVec4Count =
-    footprintProductionVec4Count + step113DiagnosticVec4Count;
+    footprintProductionVec4Count +
+    step113DiagnosticVec4Count +
+    populationSemanticDiagnosticVec4Count;
   const footprintOutputByteLength = Math.max(
     4,
     footprintVec4Count * 4 * Float32Array.BYTES_PER_ELEMENT
@@ -733,6 +774,21 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     ]
   });
 
+  const diagnosticOwnedBuffers = [
+    rawBuffer,
+    timeScaleBuffer,
+    attributeInputBuffer,
+    rotationInputBuffer,
+    projectionParamsBuffer,
+    outputBuffer,
+    attributeOutputBuffer,
+    footprintOutputBuffer,
+    paramsBuffer,
+    readbackBuffer,
+    attributeReadbackBuffer,
+    footprintReadbackBuffer
+  ].filter(Boolean);
+  try {
   const encoder = device.createCommandEncoder();
   const pass = encoder.beginComputePass();
   pass.setPipeline(pipeline);
@@ -947,6 +1003,25 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     step113DiagnosticFloatOffset,
     step113DiagnosticFloatOffset + step113DiagnosticFloatCount
   );
+  const populationSemanticDiagnosticFloatOffset =
+    step113DiagnosticFloatOffset + step113DiagnosticFloatCount;
+  const populationSemanticDiagnosticFloatCount =
+    populationSemanticDiagnosticVec4Count * 4;
+  const populationSemanticIntermediateReadback =
+    populationSemanticDiagnosticEnabled
+      ? footprintPayload.slice(
+          populationSemanticDiagnosticFloatOffset,
+          populationSemanticDiagnosticFloatOffset +
+            populationSemanticDiagnosticFloatCount
+        )
+      : new Float32Array(0);
+  const populationSemanticDiagnosticLayout =
+    buildPopulationSemanticEvidenceLayoutContract({
+      recordCount: populationSemanticDiagnosticEnabled ? count : 0,
+      productionVec4Count: footprintProductionVec4Count,
+      step113DiagnosticVec4Count,
+      totalVec4Count: footprintVec4Count
+    });
   const stateSummary = summarizeComputedStatePositions(statePositions);
   const attributeSummary = summarizeComputedRenderAttributes(renderAttributes);
   const footprintSummary = summarizeComputedFootprintPayload(footprintPayload, count);
@@ -956,6 +1031,11 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     footprintPayload,
     step113IntermediateReadback,
     step113IntermediateReadbackRows: Array.from(step113DiagnosticRows),
+    populationSemanticIntermediateReadback,
+    populationSemanticDiagnosticLayout,
+    populationSemanticDiagnosticEnabled,
+    diagnosticGpuResourceOwnership:
+      'evaluator-call-scoped-destroyed-before-promise-resolution',
     step113DiagnosticBindingEvidence: {
       productionComputeStorageBufferBindingCount: 8,
       deviceDefaultMaxStorageBuffersPerShaderStage: 8,
@@ -1081,4 +1161,11 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
             : 'webgpu-gaussian-footprint-evaluator-produced-no-valid-payload'
       })
   };
+  } finally {
+    if (!productionGpuOnly) {
+      for (const buffer of diagnosticOwnedBuffers) {
+        if (typeof buffer?.destroy === 'function') buffer.destroy();
+      }
+    }
+  }
 }

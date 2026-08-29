@@ -1,6 +1,9 @@
 export const WEBGPU_BOUNDS_CONTRACT_SCHEMA_VERSION =
   'phase3-step14-bounds-tile-range-contract-v1';
 
+export const WEBGPU_PRODUCTION_INCLUSIVE_BOUNDS_WGSL_HELPER_VERSION =
+  'phase3-production-inclusive-raster-bounds-wgsl-v2';
+
 export const WEBGPU_BOUNDS_CONTRACT_NAMES = Object.freeze({
   SCREEN_SPACE_AABB_FROM_CENTER_RADIUS:
     'screen-space-aabb-from-center-radius',
@@ -44,6 +47,71 @@ export const WEBGPU_BOUNDS_DOWNSTREAM_FIELDS = Object.freeze([
   'tile-list generation',
   'tile composite input'
 ]);
+
+export function buildWebGpuProductionInclusiveBoundsWgslHelper() {
+  return `
+fn productionInclusivePixelBounds(
+  centerRadius: vec4f,
+  canvasWidth: u32,
+  canvasHeight: u32
+) -> vec4f {
+  let canvasMax = vec2f(f32(canvasWidth - 1u), f32(canvasHeight - 1u));
+  let minimum = clamp(
+    floor(centerRadius.xy - vec2f(centerRadius.z)),
+    vec2f(0.0),
+    canvasMax
+  );
+  let maximum = clamp(
+    ceil(centerRadius.xy + vec2f(centerRadius.z)),
+    vec2f(0.0),
+    canvasMax
+  );
+  return vec4f(minimum, maximum);
+}
+
+struct ProductionInclusiveTileBounds {
+  minInclusive: vec2u,
+  maxInclusive: vec2u,
+  maxExclusive: vec2u,
+  nonEmpty: u32,
+};
+
+fn productionCudaAlignedInclusiveTileBounds(
+  centerRadius: vec4f,
+  tileSize: u32,
+  tileCols: u32,
+  tileRows: u32
+) -> ProductionInclusiveTileBounds {
+  let tileGrid = vec2i(i32(tileCols), i32(tileRows));
+  let minimum = vec2i(
+    i32((centerRadius.x - centerRadius.z) / f32(tileSize)),
+    i32((centerRadius.y - centerRadius.z) / f32(tileSize))
+  );
+  let maximumExclusive = vec2i(
+    i32(
+      (((centerRadius.x + centerRadius.z) + f32(tileSize)) - 1.0) /
+        f32(tileSize)
+    ),
+    i32(
+      (((centerRadius.y + centerRadius.z) + f32(tileSize)) - 1.0) /
+        f32(tileSize)
+    )
+  );
+  let minInclusive = vec2u(clamp(minimum, vec2i(0), tileGrid));
+  let maxExclusive = vec2u(clamp(maximumExclusive, vec2i(0), tileGrid));
+  let nonEmpty = all(maxExclusive > minInclusive);
+  var maxInclusive = minInclusive;
+  if (nonEmpty) {
+    maxInclusive = maxExclusive - vec2u(1u);
+  }
+  return ProductionInclusiveTileBounds(
+    minInclusive,
+    maxInclusive,
+    maxExclusive,
+    select(0u, 1u, nonEmpty)
+  );
+}`;
+}
 
 export function createWebGpuAabbContract({
   computeMode = WEBGPU_BOUNDS_COMPUTE_MODES.CPU_MATERIALIZED_AABB_REFERENCE,

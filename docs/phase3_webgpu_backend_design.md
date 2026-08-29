@@ -3577,10 +3577,181 @@ all 3,231,588 source records, a matched full-scene CUDA render, interactive
 acceptance, performance/scalability, LOD/streaming, or final production
 acceptance.
 
-A possible future read-only investigation is to determine how an
-all-524,288-record semantic comparison with the same population, ordering, and
-fixed conditions can reuse the existing production/evaluator connection. It
-must establish cardinality, monolithic versus bounded-chunk execution,
-aggregate-only evidence, authoritative row/source mapping, and first-mismatch
-stop behavior before implementation is selected. This design record does not
-authorize Step121 or any implementation.
+At the Step120 closure this all-524,288-record comparison was only a possible
+future read-only investigation. Step121 subsequently selected and accepted the
+bounded design described below. This historical Step120 paragraph is not an
+authorization for any further implementation.
+
+## Step121 Population-Aligned Record-Local Semantic Parity Closure
+
+Step121 closes the record-local semantic comparison for the fixed production
+resident range `[524288, 1048576)`. It does not close fixed-range image parity,
+Acceptance Level 4, or the mandatory full-scene gate.
+
+### Producer, orchestration, publication, and controller ownership
+
+The single-chunk producer handles at most 65,536 records. It requires the exact
+packed evidence length, safe-integer row identity, and complete stage validity
+before committing aggregates. Missing or invalid evidence fails closed. The
+CPU expected result and GPU actual result remain independent.
+
+The orchestrator splits the 524,288-record resident range into eight contiguous
+chunks of 65,536 records and executes them with sequential `await` on one
+caller-owned diagnostic device. A semantic mismatch does not stop later chunks;
+a blocked result, exception, identity drift, provenance drift, or ownership
+drift does. The overall result retains no population-sized raw evidence, typed
+arrays, GPU resources, or per-chunk raw results. Global first mismatches are
+bounded to 16 and each stage has at most four stage-local representatives.
+
+A completed production frame publishes a bounded, deeply frozen
+`productionEvaluationInputContract` containing the exact production asset and
+SPL4 identity, record count and SHA-256, applied build configuration, 44
+projection values, and camera, time, request, production, presentation, and
+orientation identity. Its publication mode is additive observer metadata, not
+production control. A nested blocked publication never changes parent
+production readiness.
+
+The controller is an explicit one-shot debug API. It strictly preflights the
+completed production snapshot, rejects concurrent execution, never accepts the
+production device as diagnostic input, acquires a fresh diagnostic adapter and
+device, and destroys that diagnostic device on every path. RAF, scheduler,
+capture, and normal presentation do not invoke it automatically. The controller
+result is bounded below 100,000 JSON characters and separates `match`,
+`mismatch`, and `blocked`.
+
+The canonical contract vocabulary is:
+
+- single chunk: `single-contiguous-resident-chunk-semantic-comparison`, schema
+  `phase3-population-aligned-semantic-comparison-v5`;
+- resident orchestration:
+  `full-production-resident-range-eight-chunk-semantic-comparison`, schema
+  `phase3-population-aligned-semantic-comparison-orchestration-v4`;
+- controller: `phase3-population-semantic-comparison-controller-v1`.
+
+### Thirteen-stage comparison contract
+
+The comparison order is fixed:
+
+1. `temporalEligibility`
+2. `conditionalStatePosition`
+3. `conditionalWorldCovariance`
+4. `cameraSpaceCovariance`
+5. `projectionJacobian`
+6. `screenCovariance`
+7. `conic`
+8. `radius`
+9. `productionRasterEligibility`
+10. `projectedCenter`
+11. `cameraDepth`
+12. `webgpuInclusivePixelBounds`
+13. `normalizedInclusiveTileBounds`
+
+The first eight actual stages come from a fresh diagnostic GPU evaluation. For
+the final five stages, the same diagnostic device builds a native production
+tile-input storage buffer and the raster observer WGSL reads it. This is a
+separate diagnostic dispatch, not a readback from the original production
+frame: `actualEvidenceSameProductionDispatch` is false. The CPU expected side
+independently reconstructs values from SPL4, the applied build configuration,
+the projection/view contract, and CUDA formulas. Production calculation never
+depends on this readback:
+`productionCalculationDependsOnDiagnosticReadback` is false.
+
+Records made inapplicable by temporal or raster eligibility are accounted as
+`not-applicable`, not missing or invalid. An N/A-only stage is complete when
+the full record accounting is complete. Aggregate semantics are invariant to
+chunk partition placement. Stage-local representatives are bounded
+serialization of existing comparison evidence; they are not a production
+trace, new readback, or production control input.
+
+### Portable pixel-boundary classification
+
+WGSL-permitted f32 operation boundaries leave four raw pixel-bound differences,
+at source indices `803621`, `817028`, `820164`, and `833130`. Step121 keeps raw
+mismatch, precision-aligned, and semantic-residual counts separate. It validates
+the expected and actual center, radius, viewport, and bounds dependencies and
+accepts `precision-aligned` only when the actual result falls in an independent
+expected-center tolerance envelope. Actual evidence is never used to generate
+the expected envelope, and the pixel-bounds tolerance remains zero. Global
+first mismatches contain only semantic residuals.
+
+### CUDA-aligned production tile bounds
+
+The canonical Fix5 baseline artifact is
+`/home/demo/work/json/phase3_step121_impl2_fix5_000151_v13_population_semantic_comparison.json`,
+with SHA-256
+`d36b95ce01d4a1c18c05cd53f26814ca338a3b27d211d9be181ffba5e26759a4`.
+Before Fix6, tile bounds had 5,079 residual records and 5,434 residual
+components: minX 0, minY 0, maxX 2,706, and maxY 2,728. Every difference was
+on the maximum side and made actual coverage one tile larger. The old
+production path divided an inclusive pixel maximum by tile size, while CUDA
+`getRect` derives a minimum and exclusive maximum from center/radius using
+float-to-integer truncation toward zero.
+
+The common production WGSL helper now computes minimum and exclusive maximum
+directly from center/radius, clamps the exclusive range to the tile grid, and
+converts to an inclusive maximum only for nonempty rectangles. Empty rectangles
+exit before the inclusive loops, avoiding unsigned underflow. Production count,
+scatter, and the diagnostic raster observer use the same helper. This does not
+change pixel bounds, center, radius, eligibility, the CPU expected formulas,
+tolerances, precision classification, binding layouts, payload layouts, or
+production resource ownership.
+
+### Accepted Fix6 browser evidence
+
+The canonical artifact is
+`/home/demo/work/json/phase3_step121_impl2_fix6_000151_v13_population_semantic_comparison.json`
+with SHA-256
+`db827a6741e4111f57a9469f2dd20535fdbdcee696fe459dd926017899d88a33`.
+The fixed conditions are source range `[524288, 1048576)`, camera
+`000151_v13`, frame 151, time 23.2, 1280 x 720, and canonical top-left/y-down
+orientation.
+
+The controller and orchestration decisions are `match`, blocked reasons are
+empty, diagnostic device acquisition is `ready`, cleanup is `destroyed`, and
+evidence is complete. All eight chunks and all 524,288 unique source indices
+were processed. The first and last indices are 524288 and 1048575. Missing,
+extra, duplicate, out-of-range, order-mismatch, gap, and overlap counts are all
+zero.
+
+All 13 stages have zero missing records, zero invalid records, and zero semantic
+residuals. `firstMismatches` is empty. Pixel bounds preserve four raw record and
+component differences, all four are precision-aligned, semantic residual is
+zero, and the classification is `precision-aligned`. Tile bounds have zero raw,
+precision-aligned, and semantic-residual counts, zero maximum absolute error,
+classification `match`, and no stage-local representative.
+
+User browser observation reported a normal, stable, nonblank viewer with no
+obvious coverage hole, black omission, or flicker after Fix6. Fix6 did not save
+a new PNG. Therefore this acceptance neither establishes byte identity with the
+Fix5 PNG nor quantitative visual parity with the CUDA Reference PNG.
+
+### Completion and mandatory remaining gates
+
+Step121 is complete only for record-local semantic parity of the defined 13
+stages across every source record in the fixed resident range under the fixed
+camera, frame, time, resolution, and orientation above. It is not a bitwise
+equality claim: the four raw pixel-bound differences remain explicitly recorded
+under the portable precision contract.
+
+Step121 does not establish:
+
+- a fresh Fix6 WebGPU PNG versus CUDA Reference PNG quantitative comparison;
+- opacity, SH, or color-evaluation parity;
+- tile-reference population/count, depth-key/global-sort, or ordered per-tile
+  reference-list parity;
+- compositor alpha accumulation or final RGB pixel parity;
+- Acceptance Level 4;
+- correctness for all 3,231,588 source records or a matched full-scene CUDA
+  comparison;
+- the effect of nonresident records on coverage, ordering, or accumulation;
+- multiple-camera, multiple-time, or interactive camera/time acceptance;
+- performance/scalability, LOD/streaming, or final production acceptance.
+
+A separately reviewed next task may compare a fresh post-Fix6 production PNG
+against the same fixed-range CUDA Reference. If a visual difference remains, it
+must classify the first unverified downstream stage before changing production.
+Candidate stages are opacity/SH color, tile-reference population, depth key and
+sort, compositor accumulation, and final RGB. Even after fixed-range downstream
+parity, a mandatory gate must process all 3,231,588 source records without
+silent omission and perform a matched full-scene CUDA comparison. This document
+does not assign or authorize a new Step, Impl, Fix, or production change.

@@ -1,5 +1,6 @@
 import {
-  buildNativeWebGpuProductionFrameDataPathContract
+  buildNativeWebGpuProductionFrameDataPathContract,
+  buildProductionEvaluationInputContract
 } from './common_4dgs_production_frame_data_contracts.js';
 import {
   buildWebGpuPhase3BackendBoundaryContract
@@ -245,6 +246,101 @@ export async function runNativeWebGpuProductionFrameDataPath({
     compositor.executionPlanObserver?.capacityOverflowDetected === true;
   const compositorSubmitted =
     compositor.contract?.compositorPassSubmitted === true;
+  const deterministicState = metadata?.deterministicState ?? {};
+  const schedulerFrameState = viewerCanvasState?.schedulerFrameState ?? {};
+  const captureFreshnessEvidence =
+    compositor.contract?.captureFreshnessEvidence ?? {};
+  const productionEvaluationInputContract =
+    buildProductionEvaluationInputContract({
+      assetIdentity: {
+        sceneResourceIdentity: workset.contract.sceneResourceIdentity,
+        assetSha256:
+          raw.assetSha256 ?? raw.sha256 ?? raw.hash ?? null,
+        assetSizeBytes: raw.assetSizeBytes ?? raw.sizeBytes ?? null,
+        assetSourceKind: raw.assetSourceKind ?? null,
+        assetFormat: raw.version === 2 ? 'SPL4-v2' : raw.assetFormat ?? null,
+        formatVersion: raw.version ?? null,
+        recordCount: raw.count ?? raw.N ?? null,
+        dimensions: {
+          xyz: raw.xyzDim ?? null,
+          rotation: raw.rotationDim ?? null,
+          rotationR: raw.rotationRDim ?? null,
+          scaleXyz: raw.scaleXYZDim ?? null,
+          fDc: raw.fdcDim ?? null,
+          fRest: raw.frestDim ?? null,
+          opacity: raw.opacityDim ?? null,
+          time: raw.tDim ?? null,
+          scaleTime: raw.scaleTDim ?? null
+        }
+      },
+      worksetContract: workset.contract,
+      buildConfig,
+      effectiveRenderScale: renderScale,
+      renderWidth: renderW,
+      renderHeight: renderH,
+      canvasWidth,
+      canvasHeight,
+      projectionData: projectionContract.data,
+      projectionSummary: projectionContract.summary,
+      cameraIdentity: {
+        cameraLabel:
+          deterministicState.datasetCameraLabel ??
+          deterministicState.imageName ??
+          deterministicState.cudaReferenceLabel ??
+          deterministicState.appliedCameraPresetName ??
+          null,
+        referenceCameraLabel:
+          deterministicState.cudaReferenceLabel ??
+          deterministicState.datasetCameraLabel ??
+          deterministicState.imageName ??
+          null,
+        datasetFrameNumber:
+          deterministicState.datasetFrameNumber ??
+          deterministicState.frameNumber ??
+          null,
+        datasetViewId:
+          deterministicState.datasetViewId ??
+          deterministicState.viewId ??
+          null,
+        cameraSource: deterministicState.cameraSource ?? null,
+        datasetViewMatrixMode:
+          deterministicState.datasetViewMatrixMode ?? null,
+        fixedReferenceCameraActivationMode:
+          deterministicState.fixedReferenceCameraActivationMode ?? null,
+        cameraControlContract:
+          deterministicState.cameraControlContract ?? null,
+        cameraOrientationPolicy:
+          deterministicState.cameraOrientationPolicy ?? null
+      },
+      timeIdentity: {
+        requestedDatasetTime:
+          deterministicState.datasetTime ?? deterministicState.time ?? null,
+        requestedViewerTime:
+          viewerCanvasState?.viewerTimeState?.timeSeconds ?? null,
+        actualAppliedTimestamp: buildConfig?.timestamp ?? null
+      },
+      requestIdentity: {
+        schedulerRequestIdentity:
+          schedulerFrameState.requestIdentity ?? null,
+        schedulerRequestSource: schedulerFrameState.requestSource ?? null,
+        sourceRequestIdentity:
+          captureFreshnessEvidence.productionSourceRequestIdentity ?? null,
+        schedulerFrameIndex:
+          schedulerFrameState.schedulerFrameIndex ?? null
+      },
+      productionIdentity: {
+        productionGeneration:
+          captureFreshnessEvidence.productionOutputGeneration ?? null,
+        presentedGeneration:
+          captureFreshnessEvidence.presentedOutputGeneration ?? null,
+        productionFrameIdentity:
+          captureFreshnessEvidence.productionFrameIdentity ?? null,
+        presentedFrameIdentity:
+          captureFreshnessEvidence.presentedFrameIdentity ?? null
+      },
+      orientationIdentity:
+        compositor.contract?.presentationCaptureOrientationEvidence ?? null
+    });
   const productionFrameDataPathContract =
     buildNativeWebGpuProductionFrameDataPathContract({
       worksetContract: workset.contract,
@@ -268,6 +364,7 @@ export async function runNativeWebGpuProductionFrameDataPath({
       gpuExecutionPlanContract:
         tileList.gpuResources.executionPlanContract,
       terminalExecutionPlanObserver: compositor.executionPlanObserver ?? null,
+      productionEvaluationInputContract,
       cpuReferenceUsedAsProductionInput: false,
       diagnosticReadbackUsedAsProductionInput: false,
       javascriptVisibleSamplesUsedAsProductionInput: false,

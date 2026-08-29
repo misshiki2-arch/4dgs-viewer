@@ -1,8 +1,8 @@
 # Phase 3 Current State
 
-更新基準: 2026-08-22 / Phase 3 Step120 Documentation1同期時点
+更新基準: 2026-08-29 / Phase 3 Step121 Completion Documentation Sync時点
 対象ブランチ: `phase3-webgpu-compute-prototype`
-基準コミット: `156a138 Phase3 Step118: add native WebGPU production frame data path`
+基準コミット: `e41249c Step120: connect conditional covariance and close diagnostics`
 
 ## 1. この文書の役割
 
@@ -112,7 +112,9 @@ Step118 の browser 確認と machine-readable Summary では、同一 request /
 | 5 | interactive production acceptance ready: camera / time 操作を含む通常 runtime が成立する |
 | 6 | performance / scalability ready: scene 規模と対話性能の目標を満たす |
 
-Step118 完了時点は Level 3 である。
+Step118 完了時点の Level 3 は引き続き成立する。Step121は固定条件における
+record-local semantic parityを閉じたが、fresh PNGの定量比較とdownstream / full-scene
+gateが残るため、Acceptance Level 4の完了とは扱わない。
 
 ## 8. Step118 が証明したこと
 
@@ -141,18 +143,20 @@ Step118 browser 確認で得られた赤紫色の全面表示は、stable nonbla
 
 ## 10. 現在残る作業分類
 
-Step119のfixed-visible比較とfirst-mismatch分類に続き、Step120のconditional 4D-to-3D covariance production実装、diagnostic expected consumer同期、canonical evidence直列化、representative選択、fail-closed分類、fixed-record validity修正まで完了した。次の実装Stepは未承認である。今後の候補を検討するときは、原則として次の依存順序を守る。
+Step121は固定resident range `[524288, 1048576)`の全524,288 recordsについて、
+定義済み13 stageのrecord-local semantic comparisonを完了した。現在残る作業は、
+この結果を最終画像やfull-scene acceptanceへ無条件に拡張せず、次の依存順で扱う。
 
-1. 明示的なreview命令の下でread-only Investigationを行い、全524,288 resident recordsを対象とするpopulation-aligned semantic comparisonを既存data pathへどう接続できるか確認する。
-2. fixed camera / fixed timeでCUDA reference semantic / visual parityを段階的に進める。
-3. 3,231,588 recordsのfull-scene correctness gateを設け、device limit内のfull residency、または全source populationを欠落なく扱うcorrectness-preservingなchunk / streamingでCUDA full-scene Referenceと比較する。
+1. Fix6後のfresh production PNGを、同じfixed range / camera / timeのCUDA Reference PNGと定量比較する。
+2. visual differenceが残る場合、Step121で未比較の最初のdownstream stageをread-onlyで分類する。候補はopacity / SH color、tile-reference population、depth key / sort、per-tile ordered reference list、compositor accumulation、final RGBである。
+3. fixed-range downstream parityの後、3,231,588 recordsのfull-scene correctness gateを設ける。device limit内のfull residency、または全source populationをsilent omissionなく扱うcorrectness-preserving chunk / streamingで、同条件のCUDA full-scene Referenceと比較する。
 4. interactive camera / timeで同じsemanticsが維持されることを確認する。
 5. scene規模、resource lifecycle、performance、scalabilityを確認する。
 6. acceptedなparity boundaryの内側でperformance改善を行い、その後early terminationやLODなどの近似・高速化を個別のacceptance contractの下で進める。
 
-候補1のInvestigationでは、既存production/evaluator接続、cardinality、monolithic dispatchとbounded chunkの選択、aggregate-only evidence、row/srcIndex mapping、first-mismatch停止条件を確認する。これは調査候補であり、Step121または実装開始の許可ではない。
-
-原因未確定の段階で、SH、sort、camera、projection、scheduler、retry、RAF などを原因として決め打ちしてはならない。
+上記は候補と依存関係の記録であり、新しいStep / Impl / Fixまたはproduction変更を
+この文書だけで認可しない。最初のdownstream mismatchを確定する前に、SH、sort、
+compositor、camera、projection等の実装へ進まない。
 
 ## 11. 証拠と判定
 
@@ -232,11 +236,11 @@ Canonical artifacts:
 
 Investigation7は同じ8 srcIndexについて、既に一致していたraw screen centerより上流から順にsemantic stageを確認した。population / source identity、scale XYZ、scaleT、normalized left/right quaternion、Gaussian time、evaluated time、4D rotationと`Sigma_tt` / `Sigma_12` temporal coupling、raw screen centerは許容範囲内で一致する。
 
-最初の不一致は、4D Gaussianからconditional 3D covarianceをproduction footprintへ渡す境界である。CUDA production rasterizerは左右quaternionとXYZT scaleから4D covarianceを生成し、`Sigma11 - Sigma12 Sigma12^T / Sigma_tt`を使用する。現行WebGPUはtemporal meanでは左右quaternionとscaleTを使用する一方、production footprint covarianceでは左quaternionとscaleXYZだけから通常の3D covarianceを生成している。
+Investigation7で最初に確認された不一致は、4D Gaussianからconditional 3D covarianceをproduction footprintへ渡す境界だった。CUDA production rasterizerは左右quaternionとXYZT scaleから4D covarianceを生成し、`Sigma11 - Sigma12 Sigma12^T / Sigma_tt`を使用する。当時のWebGPUはtemporal meanでは左右quaternionとscaleTを使用する一方、production footprint covarianceでは左quaternionとscaleXYZだけから通常の3D covarianceを生成していた。この不一致は後続のStep120で解消済みである。
 
-captured inputからCUDA式を再構成したconditional 3D covarianceは8/8でCUDA direct値へ`1e-5` tolerance内で一致し、現行WebGPU qL-only式は8/8で同toleranceを超えた。CUDA covarianceはproduction rasterizer debug rowのdirect evidenceである一方、WebGPU conditional world covariance自体は現行artifactへactual GPU intermediateとして直接保存されておらず、captured production inputと現行WGSL式から再構成した。このevidence provenanceをdirect GPU evidenceとして扱わない。
+captured inputからCUDA式を再構成したconditional 3D covarianceは8/8でCUDA direct値へ`1e-5` tolerance内で一致し、当時のWebGPU qL-only式は8/8で同toleranceを超えた。CUDA covarianceはproduction rasterizer debug rowのdirect evidenceである一方、当時のWebGPU conditional world covariance自体はartifactへactual GPU intermediateとして直接保存されておらず、captured production inputと当時のWGSL式から再構成した。このevidence provenanceをdirect GPU evidenceとして扱わない。
 
-first-mismatch停止条件により、camera-space covariance、projection Jacobian、screen covariance、conic、radius / footprint、opacity / SH color、tile coverage、depth sort、compositor accumulationは未判定である。これらを一致済みまたは問題なしとは主張しない。
+Investigation7のfirst-mismatch停止時点では、camera-space covariance、projection Jacobian、screen covariance、conic、radius / footprint、opacity / SH color、tile coverage、depth sort、compositor accumulationは未判定だった。後続のStep120とStep121が確定した範囲は各完了節を正本とし、それ以外を一致済みまたは問題なしとは主張しない。
 
 ### `canonicalExecution.ready` field scope分類完了
 
@@ -364,4 +368,117 @@ Step120が完了したのは、conditional covarianceのproduction実装、独�
 - performance、scalability、LOD、streaming
 - final production acceptance
 
-将来のread-only Investigation候補は、既存data pathを使って全524,288 resident recordsを同一population・同一順序・同一条件で扱うsemantic comparisonを設計できるか確認することである。monolithic dispatchかbounded chunkか、aggregate-only evidence、row/srcIndex mapping、first-mismatch停止条件を先に調査する。この候補は次Stepの実装許可ではなく、明示的なreview後に別命令で確定する。
+このStep120時点の将来候補は、後続Step121でbounded eight-chunk comparisonとして
+実装・acceptance済みである。現在のStep121完了境界と未達gateはSection 20を正本とする。
+
+## 20. Step121 Population-Aligned Record-Local Semantic Parity
+
+### 実装構成とbounded ownership
+
+Step121は、Step120時点では未確認だったproduction resident interval全体を、同一population・
+同一順序・同一固定条件で比較するbounded diagnostic経路として実装した。
+
+- single-chunk producerは最大65,536 recordsを処理し、packed evidence length、safe-integer row identity、stage validity確定後のaggregate commit、missing / invalidのfail-closed処理、CPU expectedとGPU actualの独立性を検証する。
+- orchestratorはresident range `[524288, 1048576)`を8 x 65,536 contiguous chunksへ固定し、同じcaller-owned diagnostic deviceでsequential-awaitする。mismatchでは全8 chunkを完走し、blocked / exception / identity driftでは停止する。
+- overall resultはpopulation比例のraw evidence、typed array、GPU resourceを保持せず、全体first mismatchを最大16件、stage-local representativeを各stage最大4件に制限する。
+- 完了済みproduction frameは、実際に使用したasset / SPL4 SHA-256 / record count、build configuration、44 projection values、camera / time / request / production / presentation identityをboundedでdeep-frozenな`productionEvaluationInputContract`としてpublishする。このobserver metadataはparent production readinessを変更しない。
+- controllerは明示的one-shot debug APIだけから実行し、production snapshotをstrict preflightする。production deviceを入力として受け取らず、fresh diagnostic adapter / deviceを取得し、同時二重実行を拒否し、全経路でdeviceをcleanupする。RAF、scheduler、captureから自動実行しない。
+
+single-chunk contractは`single-contiguous-resident-chunk-semantic-comparison`
+（schema `phase3-population-aligned-semantic-comparison-v5`）、orchestration contractは
+`full-production-resident-range-eight-chunk-semantic-comparison`
+（schema `phase3-population-aligned-semantic-comparison-orchestration-v4`）、controller contractは
+`phase3-population-semantic-comparison-controller-v1`である。
+
+### 13-stage comparison contract
+
+比較順序は次の13 stageで固定する。
+
+1. `temporalEligibility`
+2. `conditionalStatePosition`
+3. `conditionalWorldCovariance`
+4. `cameraSpaceCovariance`
+5. `projectionJacobian`
+6. `screenCovariance`
+7. `conic`
+8. `radius`
+9. `productionRasterEligibility`
+10. `projectedCenter`
+11. `cameraDepth`
+12. `webgpuInclusivePixelBounds`
+13. `normalizedInclusiveTileBounds`
+
+actualの最初の8 stageはfresh diagnostic dispatchのGPU evidenceを使用する。raster companionは、
+同じfresh diagnostic device上で生成したnative production tile-input storage bufferをobserver WGSLが
+読み、後半5 stageを追加する。これは元のproduction frameと同一dispatchのreadbackではなく、
+`actualEvidenceSameProductionDispatch: false`である。CPU expectedはSPL4、applied build configuration、
+projection / view contract、CUDA式から独立再構築する。production計算はdiagnostic readbackに依存せず、
+`productionCalculationDependsOnDiagnosticReadback: false`を維持する。
+
+temporalまたはraster eligibilityにより後続stageが適用不能なrecordは、missing / invalidではなく
+`not-applicable`としてaccountする。N/A-only stageは全record accountingが成立すればcompleteであり、
+chunk partition位置でaggregate結果を変えない。stage-local representativeは既存comparison evidenceの
+bounded serializationであり、新しいproduction traceや追加readbackではない。
+
+### Fix5 portable pixel boundaryとFix6 tile bounds
+
+Fix5はWGSLで許容されるf32境界差についてraw mismatch、precision-aligned、semantic residualを分離した。
+pixel boundsのsrcIndex `803621`, `817028`, `820164`, `833130`はraw 4 records / 4 componentsを保持する。
+expected / actual双方のcenter、radius、viewport、bounds dependencyを検証し、actualをexpected生成へ
+使わない独立expected envelope内の場合だけ`precision-aligned`とする。pixel toleranceは0のままであり、
+global first mismatchにはsemantic residualだけを含める。
+
+Fix5のcanonical baseline artifactは
+`/home/demo/work/json/phase3_step121_impl2_fix5_000151_v13_population_semantic_comparison.json`
+（SHA-256 `d36b95ce01d4a1c18c05cd53f26814ca338a3b27d211d9be181ffba5e26759a4`）である。
+この時点のtile boundsは5,079 records / 5,434 componentsのsemantic residualを持ち、
+内訳はminX 0、minY 0、maxX 2,706、maxY 2,728で、すべてmax側がexpectedより1 tile大きかった。
+旧productionがinclusive pixel maximumをtileSizeで割っていたのに対し、
+CUDA `getRect`はcenter / radiusからfloat-to-intのゼロ方向切り捨てでexclusive maximumを生成することが
+原因だった。Fix6はproduction count / scatterとraster observerを同じCUDA-aligned common WGSL helperへ
+接続した。min / maxExclusiveをexclusive gridへclampし、nonempty rectだけをinclusive maxへ変換し、
+empty rectはloop前に終了する。pixel contract、CPU expected、tolerance、precision classificationは変更していない。
+
+### Accepted Fix6 browser evidence
+
+canonical artifactは
+`/home/demo/work/json/phase3_step121_impl2_fix6_000151_v13_population_semantic_comparison.json`、
+SHA-256は`db827a6741e4111f57a9469f2dd20535fdbdcee696fe459dd926017899d88a33`である。
+固定条件はsource range `[524288, 1048576)`、camera `000151_v13`、frame 151、time 23.2、
+1280 x 720、top-left / y-downである。
+
+- controller / orchestration decisionは`match`、blocked reasonsは空、evidenceはcompleteである。
+- diagnostic acquisitionは`ready`、cleanupは`destroyed`である。
+- 8/8 chunks、524,288 processed / unique records、first srcIndex 524288、last srcIndex 1048575である。
+- missing、extra、duplicate、out-of-range、order mismatch、gap、overlapはすべて0である。
+- 全13 stageのmissing / invalid / semantic residualは0で、overall `firstMismatches`は空である。
+- pixel boundsはraw 4 / 4、precision-aligned 4 / 4、semantic residual 0 / 0、classification `precision-aligned`であり、上記4 representativesを維持する。
+- tile boundsはraw / precision-aligned / semantic residualがすべて0 / 0、maximum absolute error 0、classification `match`で、stage-local representativeは空である。
+
+ユーザーの実browser目視ではViewerは正常かつnonblankで、明らかなcoverage hole、黒い欠落、
+ちらつきは確認されなかった。Fix6では新しいPNGをcaptureしていないため、Fix5 PNGとのbyte identityや
+CUDA Reference PNGとのvisual parityをこのevidenceから主張しない。
+
+### Step121 completion boundary
+
+Step121は、上記固定条件とresident rangeについて、全524,288 source recordsを欠落なく処理し、
+portable pixel-boundary classificationを含む定義済み13 stageのrecord-local semantic parityを
+実browser / 実WebGPU device上で成立させた限定scopeで完了する。これは全値のbitwise一致ではなく、
+pixel boundsの4 raw differencesを明示的に保持したsemantic matchである。
+
+次は未達であり、Step121完了から推論しない。
+
+- Fix6後のfresh WebGPU PNGと同じfixed-range CUDA Reference PNGの定量的visual parity
+- opacity / SH / color evaluation parity
+- tile-reference population / count、depth key / global sort、per-tile ordered reference listのparity
+- compositor alpha accumulationとfinal RGB pixel parity
+- Acceptance Level 4
+- 全3,231,588 source recordsのfull-scene correctnessとmatched full-scene CUDA comparison
+- nonresident recordsがcoverage、ordering、accumulationへ与える影響
+- 複数camera / time、interactive camera / time acceptance
+- performance / scalability、LOD / streaming、final production acceptance
+
+次候補は、Fix6後のfresh production PNGを同条件のCUDA Referenceと再比較し、差が残れば
+最初の未比較downstream stageをread-onlyで分類することである。その後も全3,231,588 recordsを
+silent omissionなく処理するmatched full-scene gateを必須とする。この候補は新しいStep番号、Impl、
+Fixまたはproduction変更の認可ではなく、別途reviewされた命令で確定する。

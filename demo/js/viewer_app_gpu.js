@@ -86,6 +86,9 @@ import {
   runNativeWebGpuProductionFrameDataPath
 } from './webgpu_production_frame_data_path.js';
 import {
+  createPopulationSemanticComparisonController
+} from './webgpu_population_semantic_comparison_controller.js';
+import {
   buildWebGpuVisibleRecordDiagnosticArtifactBundle,
   normalizeWebGpuDiagnosticDetailSelection
 } from './common_4dgs_diagnostic_artifact_contracts.js';
@@ -205,6 +208,8 @@ let latestViewerProductionRuntimeCameraState = null;
 let latestViewerConnectedSchedulerRuntimeState = null;
 let latestViewerConnectedSchedulerTimeControlEvidence = null;
 let latestViewerConnectedSchedulerCameraControlEvidence = null;
+const populationSemanticComparisonController =
+  createPopulationSemanticComparisonController();
 const initialProductionPresentationRecorder =
   createInitialProductionPresentationRecorder({
     initialScheduleSource: 'default-scene-loaded'
@@ -7559,6 +7564,16 @@ async function waitForFinalCanvasPresentationSteadyState(options = {}) {
 }
 
 function installViewerDebugApi() {
+  const runPopulationAlignedSemanticComparison = () => {
+    const productionEvaluationInputContract =
+      latestRenderResult?.webgpuProductionFrameDataPathContract
+        ?.productionEvaluationInputContract ?? null;
+    return populationSemanticComparisonController
+      .runPopulationAlignedSemanticComparison({
+        raw,
+        productionEvaluationInputContract
+      });
+  };
   window.gpuViewerDebug = {
     captureFrame,
     compareSingleSplat: (input = {}) => computeGaussianDebugState(input),
@@ -7622,6 +7637,10 @@ function installViewerDebugApi() {
     captureCurrentCanvasPng: saveCurrentCanvasPng,
     getLatestDebugText: () => refreshLatestDebugText(),
     getLastRenderResult: () => latestRenderResult,
+    runPopulationAlignedSemanticComparison,
+    getLastPopulationAlignedSemanticComparisonResult: () =>
+      populationSemanticComparisonController
+        .getLastPopulationAlignedSemanticComparisonResult(),
     getInitialProductionPresentationSnapshot: () =>
       initialProductionPresentationRecorder.getSnapshot(),
     getFinalCanvasPresentationBoundarySnapshot,

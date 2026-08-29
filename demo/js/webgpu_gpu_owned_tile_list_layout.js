@@ -16,6 +16,9 @@ import {
 import {
   createProductionTileExecutionPlanResources
 } from './webgpu_production_tile_execution_plan.js';
+import {
+  buildWebGpuProductionInclusiveBoundsWgslHelper
+} from './common_4dgs_bounds_contracts.js';
 
 const TILE_INPUT_FLOAT_STRIDE = 12;
 const REFERENCE_FLOAT_STRIDE = 4;
@@ -165,16 +168,17 @@ fn tileIndex(x: u32, y: u32) -> u32 {
   return y * params.tileCols + x;
 }
 
-fn tileBounds(row: u32) -> vec4u {
+${buildWebGpuProductionInclusiveBoundsWgslHelper()}
+
+fn tileBounds(row: u32) -> ProductionInclusiveTileBounds {
   let base = row * 3u;
   let a = tileInputs[base + 0u];
-  let canvasMax = vec2f(f32(params.canvasWidth - 1u), f32(params.canvasHeight - 1u));
-  let minimum = clamp(floor(a.xy - vec2f(a.z)), vec2f(0.0), canvasMax);
-  let maximum = clamp(ceil(a.xy + vec2f(a.z)), vec2f(0.0), canvasMax);
-  let tileMax = vec2f(f32(params.tileCols - 1u), f32(params.tileRows - 1u));
-  let minTile = vec2u(clamp(floor(minimum / f32(params.tileSize)), vec2f(0.0), tileMax));
-  let maxTile = vec2u(clamp(floor(maximum / f32(params.tileSize)), vec2f(0.0), tileMax));
-  return vec4u(minTile, maxTile);
+  return productionCudaAlignedInclusiveTileBounds(
+    a,
+    params.tileSize,
+    params.tileCols,
+    params.tileRows
+  );
 }
 
 @compute @workgroup_size(64)
@@ -185,8 +189,9 @@ fn countReferences(@builtin(global_invocation_id) id: vec3u) {
   let colorAlpha = tileInputs[row * 3u + 2u];
   if (a.z <= 0.0 || colorAlpha.w <= 0.0) { return; }
   let bounds = tileBounds(row);
-  for (var ty = bounds.y; ty <= bounds.w; ty = ty + 1u) {
-    for (var tx = bounds.x; tx <= bounds.z; tx = tx + 1u) {
+  if (bounds.nonEmpty == 0u) { return; }
+  for (var ty = bounds.minInclusive.y; ty <= bounds.maxInclusive.y; ty = ty + 1u) {
+    for (var tx = bounds.minInclusive.x; tx <= bounds.maxInclusive.x; tx = tx + 1u) {
       atomicAdd(&tileCounts[tileIndex(tx, ty)], 1u);
     }
   }
@@ -204,8 +209,9 @@ fn scatterReferences(@builtin(global_invocation_id) id: vec3u) {
   let colorAlpha = tileInputs[base + 2u];
   if (a.z <= 0.0 || colorAlpha.w <= 0.0) { return; }
   let bounds = tileBounds(row);
-  for (var ty = bounds.y; ty <= bounds.w; ty = ty + 1u) {
-    for (var tx = bounds.x; tx <= bounds.z; tx = tx + 1u) {
+  if (bounds.nonEmpty == 0u) { return; }
+  for (var ty = bounds.minInclusive.y; ty <= bounds.maxInclusive.y; ty = ty + 1u) {
+    for (var tx = bounds.minInclusive.x; tx <= bounds.maxInclusive.x; tx = tx + 1u) {
       let tile = tileIndex(tx, ty);
       let slot = atomicAdd(&tileCounts[tile], 1u);
       let referenceIndex = u32(tileTable[tile].x) + slot;
