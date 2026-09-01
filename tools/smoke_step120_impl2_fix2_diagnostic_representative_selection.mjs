@@ -174,7 +174,11 @@ const fakePass = {
   end: () => {}
 };
 const fakeDevice = {
-  limits: { maxStorageBuffersPerShaderStage: 8 },
+  limits: {
+    maxStorageBufferBindingSize: 1_073_741_824,
+    maxBufferSize: 1_073_741_824,
+    maxStorageBuffersPerShaderStage: 8
+  },
   createBuffer: createFakeBuffer,
   createShaderModule: ({ code }) => {
     lastShaderSource = code;
@@ -199,24 +203,37 @@ const fakeDevice = {
 };
 
 async function runEvaluator({ count, explicitRows: rowOverride }) {
+  const rawXyzOpacity = new Float32Array(count * 4);
+  for (let row = 0; row < count; row += 1) rawXyzOpacity[row * 4 + 2] = 1;
   const result = await buildWebGpu4DStatePositionsForCandidates({
     device: fakeDevice,
     raw: {
-      t: new Float32Array([0]),
+      N: count,
+      activeShDegree: 2,
+      activeShDegreeT: 2,
+      t: new Float32Array(count),
       tDim: 1,
-      scale_t: new Float32Array([1]),
+      scale_t: new Float32Array(count).fill(1),
       scaleTDim: 1,
-      f_dc: new Float32Array([0, 0, 0]),
+      f_dc: new Float32Array(count * 3),
       fdcDim: 3,
-      scale_xyz: new Float32Array([1, 1, 1]),
+      f_rest: new Float32Array(count * 45),
+      frestDim: 45,
+      scale_xyz: new Float32Array(count * 3).fill(1),
       scaleXYZDim: 3,
-      rotation: new Float32Array([1, 0, 0, 0]),
+      rotation: Float32Array.from(
+        { length: count * 4 },
+        (_, index) => index % 4 === 0 ? 1 : 0
+      ),
       rotationDim: 4,
-      rotation_r: new Float32Array([1, 0, 0, 0]),
+      rotation_r: Float32Array.from(
+        { length: count * 4 },
+        (_, index) => index % 4 === 0 ? 1 : 0
+      ),
       rotationRDim: 4
     },
     candidateIndices: Uint32Array.from({ length: count }, (_, row) => row),
-    rawXyzOpacity: new Float32Array(count * 4),
+    rawXyzOpacity,
     buildConfig: { timestamp: 0, scalingModifier: 1, sigmaScale: 1 },
     projectionParams: new Float32Array(24),
     step113DiagnosticRowIndices: rowOverride

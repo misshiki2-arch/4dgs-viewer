@@ -221,6 +221,11 @@ const fakePass = {
   end: () => {}
 };
 const fakeDevice = {
+  limits: {
+    maxStorageBufferBindingSize: 1_073_741_824,
+    maxBufferSize: 1_073_741_824,
+    maxStorageBuffersPerShaderStage: 8
+  },
   createBuffer: createFakeBuffer,
   createShaderModule: ({ code }) => {
     evaluatorShaderSource = code;
@@ -244,12 +249,17 @@ try {
   const result = await buildWebGpu4DStatePositionsForCandidates({
     device: fakeDevice,
     raw: {
+      N: 1,
+      activeShDegree: 2,
+      activeShDegreeT: 2,
       t: new Float32Array([0]),
       tDim: 1,
       scale_t: new Float32Array([1]),
       scaleTDim: 1,
       f_dc: new Float32Array([0, 0, 0]),
       fdcDim: 3,
+      f_rest: new Float32Array(45),
+      frestDim: 45,
       scale_xyz: new Float32Array([1, 1, 1]),
       scaleXYZDim: 3,
       rotation: new Float32Array([1, 0, 0, 0]),

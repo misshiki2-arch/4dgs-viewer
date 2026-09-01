@@ -45,6 +45,30 @@ export function flattenRows4(rows, fallbackIdentity = false) {
   return out;
 }
 
+export function cameraWorldPositionFromProjectionParams(projectionParams) {
+  if (!(projectionParams instanceof Float32Array) || projectionParams.length < 24) {
+    return null;
+  }
+  const rows = [3, 4, 5].map((rowIndex) =>
+    Array.from(
+      projectionParams.subarray(rowIndex * 4, rowIndex * 4 + 4),
+      Number
+    )
+  );
+  if (rows.some((row) => row.length !== 4 || !row.every(Number.isFinite))) {
+    return null;
+  }
+  const translation = rows.map((row) => row[3]);
+  const cameraWorldPosition = [0, 1, 2].map((axis) => -(
+    rows[0][axis] * translation[0] +
+    rows[1][axis] * translation[1] +
+    rows[2][axis] * translation[2]
+  ));
+  return cameraWorldPosition.every(Number.isFinite)
+    ? cameraWorldPosition
+    : null;
+}
+
 export function buildWebGpuProjectionContract({
   camera,
   screenSpaceCamera,

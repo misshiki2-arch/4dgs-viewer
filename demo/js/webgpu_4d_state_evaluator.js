@@ -7,8 +7,14 @@ import {
   POPULATION_SEMANTIC_EVIDENCE_VEC4_STRIDE,
   buildPopulationSemanticEvidenceLayoutContract
 } from './common_4dgs_population_semantic_comparison_contracts.js';
+import {
+  PRODUCTION_CANDIDATE_ATTRIBUTE_VEC4_STRIDE,
+  buildProductionCandidateAttributeInput,
+  buildProductionDegree2SpatialShWgsl
+} from './common_4dgs_candidate_attribute_input_contracts.js';
 
 let nextProductionStateResourceIdentity = 1;
+let nextCandidateAttributeInputResourceIdentity = 1;
 
 function toFiniteNumber(value, fallback = 0) {
   const n = Number(value);
@@ -50,28 +56,6 @@ function buildCandidateTimeScale(raw, candidateIndices) {
   return out;
 }
 
-function buildCandidateAttributeInput(raw, candidateIndices) {
-  const out = new Float32Array(candidateIndices.length * 8);
-  for (let row = 0; row < candidateIndices.length; row += 1) {
-    const srcIndex = candidateIndices[row] | 0;
-    const fdcBase = srcIndex * (raw.fdcDim ?? 0);
-    const scaleBase = srcIndex * (raw.scaleXYZDim ?? 0);
-    const sx = toFiniteNumber(raw.scale_xyz?.[scaleBase + 0], 0.01);
-    const sy = toFiniteNumber(raw.scale_xyz?.[scaleBase + 1], sx);
-    const sz = toFiniteNumber(raw.scale_xyz?.[scaleBase + 2], sx);
-    const o = row * 8;
-    out[o + 0] = toFiniteNumber(raw.f_dc?.[fdcBase + 0], 0);
-    out[o + 1] = toFiniteNumber(raw.f_dc?.[fdcBase + 1], 0);
-    out[o + 2] = toFiniteNumber(raw.f_dc?.[fdcBase + 2], 0);
-    out[o + 3] = Math.max(1e-6, (sx + sy + sz) / 3);
-    out[o + 4] = Math.max(1e-6, sx);
-    out[o + 5] = Math.max(1e-6, sy);
-    out[o + 6] = Math.max(1e-6, sz);
-    out[o + 7] = raw.scaleXYZDim >= 3 ? 111 : 0;
-  }
-  return out;
-}
-
 function buildCandidateRotationInput(raw, candidateIndices) {
   const out = new Float32Array(candidateIndices.length * 8);
   for (let row = 0; row < candidateIndices.length; row += 1) {
@@ -94,6 +78,43 @@ function buildCandidateRotationInput(raw, candidateIndices) {
 const STEP113_DIAGNOSTIC_ROW_COUNT = 8;
 const STEP113_DIAGNOSTIC_VEC4_STRIDE = 8;
 const STEP113_DIAGNOSTIC_ROW_SENTINEL = 0xffffffff;
+
+function buildUnavailableEvaluatorResult({
+  status = 'unavailable',
+  reason,
+  candidateAttributeInputLayout = null
+}) {
+  return {
+    statePositions: new Float32Array(0),
+    renderAttributes: new Float32Array(0),
+    footprintPayload: new Float32Array(0),
+    productionReadbackPerformed: false,
+    gpuResources: null,
+    candidateAttributeInputLayout,
+    contract: buildWebGpu4DStateSourceContract({
+      status,
+      stateSourceMode: 'webgpu-partial-4d-state-evaluator',
+      reason
+    }),
+    gaussianAttributeEvaluationContract:
+      buildWebGpuGaussianAttributeEvaluationContract({
+        status,
+        evaluationMode: 'webgpu-degree2-spatial-sh-gaussian-render-attribute-eval',
+        candidateAttributeInputLayout,
+        spatialShDegree: 2,
+        spatialShEvaluationMode:
+          'cuda-aligned-degree-2-original-position-direction',
+        higherSpatialDegreeDeferred: true,
+        temporalShEvaluationDeferred: true,
+        reason
+      }),
+    gaussianFootprintEvaluationContract:
+      buildWebGpuGaussianFootprintEvaluationContract({
+        status,
+        reason
+      })
+  };
+}
 
 function buildStep113DiagnosticRowIndices(count, explicitRows = null) {
   const rows = new Uint32Array(STEP113_DIAGNOSTIC_ROW_COUNT);
@@ -253,35 +274,40 @@ export async function buildWebGpu4DStatePositionsForCandidates({
     populationSemanticDiagnostic === true && !productionGpuOnly;
   const count = candidateIndices?.length ?? 0;
   if (!device || !raw || !candidateIndices || !rawXyzOpacity || count <= 0) {
-    return {
-      statePositions: new Float32Array(0),
-      renderAttributes: new Float32Array(0),
-      footprintPayload: new Float32Array(0),
-      contract: buildWebGpu4DStateSourceContract({
-        status: 'unavailable',
-        stateSourceMode: 'webgpu-partial-4d-state-evaluator',
-        reason: 'webgpu-4d-state-evaluator-input-unavailable'
-      }),
-      gaussianAttributeEvaluationContract:
-        buildWebGpuGaussianAttributeEvaluationContract({
-          status: 'unavailable',
-          reason: 'webgpu-gaussian-attribute-evaluator-input-unavailable'
-      }),
-      gaussianFootprintEvaluationContract:
-        buildWebGpuGaussianFootprintEvaluationContract({
-          status: 'unavailable',
-          reason: 'webgpu-gaussian-footprint-evaluator-input-unavailable'
-        })
-    };
+    return buildUnavailableEvaluatorResult({
+      reason: 'webgpu-4d-state-evaluator-input-unavailable'
+    });
+  }
+
+  const candidateAttributeInputResourceIdentity =
+    `candidate-attribute-input-resource-${nextCandidateAttributeInputResourceIdentity++}`;
+  const candidateAttributeInputResult = buildProductionCandidateAttributeInput({
+    raw,
+    candidateIndices,
+    rawXyzOpacity,
+    projectionParams,
+    deviceLimits: device.limits,
+    sourceWorksetResourceIdentity,
+    resourceIdentity: candidateAttributeInputResourceIdentity,
+    resourceOwnership: productionGpuOnly
+      ? 'production-evaluator-input-destroyed-after-submitted-work-completion'
+      : 'diagnostic-evaluator-call-scoped-destroyed-before-promise-resolution'
+  });
+  if (!candidateAttributeInputResult.ready) {
+    return buildUnavailableEvaluatorResult({
+      status: 'blocked',
+      reason:
+        candidateAttributeInputResult.contract.blockedReasons[0] ??
+        'candidate-attribute-input-preflight-blocked',
+      candidateAttributeInputLayout: candidateAttributeInputResult.contract
+    });
   }
 
   const timeScale = buildCandidateTimeScale(raw, candidateIndices);
-  const attributeInput = buildCandidateAttributeInput(raw, candidateIndices);
+  const attributeInput = candidateAttributeInputResult.data;
+  const candidateAttributeInputLayout = candidateAttributeInputResult.contract;
   const rotationInput = buildCandidateRotationInput(raw, candidateIndices);
-  const projectionParamInput =
-    projectionParams instanceof Float32Array && projectionParams.length >= 24
-      ? projectionParams
-      : new Float32Array(24);
+  const projectionParamInput = projectionParams;
   const step113DiagnosticRows = buildStep113DiagnosticRowIndices(
     count,
     step113DiagnosticRowIndices
@@ -319,6 +345,7 @@ const STEP113_DIAGNOSTIC_ROWS: array<u32, 8> = array<u32, 8>(
 const CUDA_TEMPORAL_VISIBILITY_THRESHOLD: f32 = 0.05;
 const POPULATION_SEMANTIC_DIAGNOSTIC_ENABLED: bool = ${populationSemanticDiagnosticEnabled};
 const POPULATION_SEMANTIC_DIAGNOSTIC_VEC4_STRIDE: u32 = ${POPULATION_SEMANTIC_EVIDENCE_VEC4_STRIDE}u;
+${buildProductionDegree2SpatialShWgsl()}
 
 fn sigmoid(x: f32) -> f32 {
   return 1.0 / (1.0 + exp(-x));
@@ -484,7 +511,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let hasScaleT = ts.w > 0.5;
   let scaleT = max(select(1.0, ts.y, hasScaleT) * params.scalingModifier * params.sigmaScale, 1e-6);
   let dt = select(0.0, params.timestamp - ts.x, hasTime);
-  let attrBaseInput = row * 2u;
+  let attrBaseInput = row * ${PRODUCTION_CANDIDATE_ATTRIBUTE_VEC4_STRIDE}u;
   let attrs = attributeInput[attrBaseInput + 0u];
   let scaleInfo = attributeInput[attrBaseInput + 1u];
   let meanScale = max(attrs.w, 1e-6);
@@ -532,8 +559,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   }
   let pos = raw0.xyz + temporalMean.xyz;
   statePositions[row] = vec4f(pos, 1.0);
-  let alpha = clamp(sigmoid(raw0.w) * temporalWeight, 0.05, 0.99);
-  let rgb = clamp(attrs.rgb + vec3f(0.5), vec3f(0.0), vec3f(1.0));
+  let alpha = sigmoid(raw0.w) * temporalWeight;
+  let rgb = evaluateProductionDegree2SpatialSh(row, raw0.xyz);
   let normalizedTemporal = clamp(dt / scaleT, -1.0, 1.0);
   let radiusPx = clamp(attrs.w * 900.0 + 2.0 + abs(normalizedTemporal) * 2.0, 3.0, 14.0);
   let attrBase = row * 2u;
@@ -833,6 +860,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       renderAttributes: new Float32Array(0),
       footprintPayload: new Float32Array(0),
       productionReadbackPerformed: false,
+      candidateAttributeInputLayout,
       gpuResources: keepGpuResources
         ? {
             resourceIdentity,
@@ -843,7 +871,8 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
             recordCount: count,
             statePositionByteLength: outputByteLength,
             renderAttributeByteLength: attributeOutputByteLength,
-            footprintPayloadByteLength: footprintOutputByteLength
+            footprintPayloadByteLength: footprintOutputByteLength,
+            candidateAttributeInputLayout
           }
         : null,
       contract: buildWebGpu4DStateSourceContract({
@@ -864,6 +893,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       }),
       gaussianAttributeEvaluationContract:
         buildWebGpuGaussianAttributeEvaluationContract({
+          evaluationMode: 'webgpu-degree2-spatial-sh-gaussian-render-attribute-eval',
           candidateCount: count,
           computedRenderAttributeCount: count,
           webgpuComputedRenderAttributes: true,
@@ -875,15 +905,24 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
           ],
           partialAttributeFields: [
             'radiusPx-from-scale-mean',
-            'colorAlpha.rgb-from-f_dc-l0',
+            'colorAlpha.rgb-from-cuda-degree2-spatial-sh-original-position',
             'colorAlpha.a-from-opacity-and-temporal-weight'
           ],
           referenceAssistedAttributeFields: [],
-          deferredAttributeFields: ['full-SH-color'],
+          deferredAttributeFields: [
+            'higher-spatial-degree-color',
+            'temporal-SH-color'
+          ],
           renderAttributeClassification: 'native-webgpu-production-resource',
           renderPayloadClassification:
             'native-webgpu-production-gaussian-render-attributes',
           fullGaussianAttributeEvaluationInWgsl: false,
+          candidateAttributeInputLayout,
+          spatialShDegree: 2,
+          spatialShEvaluationMode:
+            'cuda-aligned-degree-2-original-position-direction',
+          higherSpatialDegreeDeferred: true,
+          temporalShEvaluationDeferred: true,
           reason: null
         }),
       gaussianFootprintEvaluationContract:
@@ -1034,6 +1073,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     populationSemanticIntermediateReadback,
     populationSemanticDiagnosticLayout,
     populationSemanticDiagnosticEnabled,
+    candidateAttributeInputLayout,
     diagnosticGpuResourceOwnership:
       'evaluator-call-scoped-destroyed-before-promise-resolution',
     step113DiagnosticBindingEvidence: {
@@ -1080,6 +1120,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     }),
     gaussianAttributeEvaluationContract:
       buildWebGpuGaussianAttributeEvaluationContract({
+        evaluationMode: 'webgpu-degree2-spatial-sh-gaussian-render-attribute-eval',
         candidateCount: count,
         computedRenderAttributeCount:
           attributeSummary.computedRenderAttributeCount,
@@ -1092,14 +1133,15 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         ],
         partialAttributeFields: [
           'radiusPx-from-scale-mean',
-          'colorAlpha.rgb-from-f_dc-l0',
+          'colorAlpha.rgb-from-cuda-degree2-spatial-sh-original-position',
           'colorAlpha.a-from-opacity-and-temporal-weight'
         ],
         referenceAssistedAttributeFields: ['none-for-normal-backend-visible-samples'],
         deferredAttributeFields: [
           'full-conic',
           'full-covariance',
-          'full-SH-color',
+          'higher-spatial-degree-color',
+          'temporal-SH-color',
           'tile-range',
           'depth-sort'
         ],
@@ -1111,6 +1153,12 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         renderPayloadClassification:
           'partial-webgpu-gaussian-render-attributes',
         fullGaussianAttributeEvaluationInWgsl: false,
+        candidateAttributeInputLayout,
+        spatialShDegree: 2,
+        spatialShEvaluationMode:
+          'cuda-aligned-degree-2-original-position-direction',
+        higherSpatialDegreeDeferred: true,
+        temporalShEvaluationDeferred: true,
         reason:
           attributeSummary.computedRenderAttributeCount > 0
             ? null

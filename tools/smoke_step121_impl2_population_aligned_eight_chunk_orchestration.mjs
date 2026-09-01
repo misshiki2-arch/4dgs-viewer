@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {
   POPULATION_RASTER_SEMANTIC_ACTUAL_PROVENANCE,
+  POPULATION_RASTER_SEMANTIC_ACTUAL_DEVICE_SCOPE,
   POPULATION_RASTER_SEMANTIC_COMPANION_BYTES_PER_RECORD,
   POPULATION_RASTER_SEMANTIC_COMPANION_FLOAT_STRIDE,
   POPULATION_RASTER_SEMANTIC_COMPANION_LAYOUT_SCHEMA_VERSION,
@@ -10,6 +11,7 @@ import {
   POPULATION_SEMANTIC_COMPARISON_CONTRACT_NAME,
   POPULATION_SEMANTIC_COMPARISON_SCHEMA_VERSION,
   POPULATION_SEMANTIC_COMPLETE_STAGE_CLASSIFICATIONS,
+  POPULATION_SEMANTIC_CONTROLLER_MAX_RESULT_JSON_BYTES,
   POPULATION_SEMANTIC_EXPECTED_PROVENANCE,
   POPULATION_SEMANTIC_LOGICAL_COMBINED_BYTES_PER_RECORD,
   POPULATION_SEMANTIC_LOGICAL_COMBINED_FLOAT_STRIDE,
@@ -20,6 +22,8 @@ import {
   POPULATION_SEMANTIC_STAGE_LOCAL_MAX_REPRESENTATIVE_RECORDS,
   POPULATION_SEMANTIC_STAGE_LOCAL_REPRESENTATIVE_LIMIT,
   POPULATION_SEMANTIC_STAGE_CONTRACTS,
+  POPULATION_TILE_INPUT_ALPHA_STAGE_LOCAL_REPRESENTATIVE_LIMIT,
+  POPULATION_TILE_INPUT_RGB_STAGE_LOCAL_REPRESENTATIVE_LIMIT,
   PRODUCTION_RESIDENT_RANGE_COUNT,
   PRODUCTION_RESIDENT_RANGE_END,
   PRODUCTION_RESIDENT_RANGE_START,
@@ -28,7 +32,8 @@ import {
   buildPopulationSemanticDiagnosticWorksetResourceIdentity,
   buildPopulationSemanticStageLocalMismatchRepresentative,
   buildPopulationSemanticStageLocalMismatchSummaries,
-  classifyPopulationSemanticStageEvidence
+  classifyPopulationSemanticStageEvidence,
+  populationSemanticStageLocalRepresentativeLimit
 } from '../demo/js/common_4dgs_population_semantic_comparison_contracts.js';
 import {
   POPULATION_SEMANTIC_FIXED_CHUNK_COUNT,
@@ -152,7 +157,8 @@ function makeChunkResult(args, {
   matchMaxError = 0,
   notApplicableStages = [],
   stageMismatchCounts = null,
-  stagePrecisionAlignedCounts = null
+  stagePrecisionAlignedCounts = null,
+  stageRepresentativeRows = null
 } = {}) {
   const identity = buildPopulationSemanticComparisonInputContract({
     rangeStart: args.rangeStart,
@@ -250,12 +256,13 @@ function makeChunkResult(args, {
         {
           length: Math.min(
             count,
-            POPULATION_SEMANTIC_STAGE_LOCAL_REPRESENTATIVE_LIMIT
+            populationSemanticStageLocalRepresentativeLimit(stage.key)
           )
         },
         (_, index) => stageLocalFixtureRepresentative(
           args,
-          firstLegacyRow + index,
+          stageRepresentativeRows?.[stage.key]?.[index] ??
+            firstLegacyRow + index,
           stage.key,
           componentIndex,
           index < precisionCount ? 'precision-aligned' : 'mismatch'
@@ -272,6 +279,15 @@ function makeChunkResult(args, {
     (stage) => stage.semanticResidualCount > 0
   );
   const decision = anyMismatch ? 'mismatch' : 'match';
+  const firstSemanticMismatchStage = stageSummaries.find(
+    (stage) => stage.semanticResidualCount > 0
+  )?.stage ?? null;
+  const firstDownstreamMismatchStage = stageSummaries.find(
+    (stage) => [
+      'productionTileInputAlpha',
+      'productionTileInputRgb'
+    ].includes(stage.stage) && stage.semanticResidualCount > 0
+  )?.stage ?? null;
   return {
     schemaVersion: POPULATION_SEMANTIC_COMPARISON_SCHEMA_VERSION,
     contractName: POPULATION_SEMANTIC_COMPARISON_CONTRACT_NAME,
@@ -297,6 +313,8 @@ function makeChunkResult(args, {
     },
     stageSummaries,
     stageLocalMismatchSummaries,
+    firstSemanticMismatchStage,
+    firstDownstreamMismatchStage,
     firstMismatches: representatives,
     firstMismatchCount: representatives.length,
     firstMismatchLimit: POPULATION_SEMANTIC_MAX_FIRST_MISMATCHES,
@@ -310,6 +328,8 @@ function makeChunkResult(args, {
       ...POPULATION_RASTER_SEMANTIC_EXPECTED_PROVENANCE
     },
     rasterActualProvenance: POPULATION_RASTER_SEMANTIC_ACTUAL_PROVENANCE,
+    actualGpuDeviceScope: POPULATION_RASTER_SEMANTIC_ACTUAL_DEVICE_SCOPE,
+    expectedGenerationDependsOnActual: false,
     rasterCompanionCoverage: {
       status: 'ready',
       reason: null,
@@ -392,7 +412,7 @@ async function runWith(runner, overrides = {}) {
 const plan = buildPopulationAlignedSemanticComparisonChunkPlan();
 assert.equal(
   POPULATION_SEMANTIC_ORCHESTRATION_SCHEMA_VERSION,
-  'phase3-population-aligned-semantic-comparison-orchestration-v4'
+  'phase3-population-aligned-semantic-comparison-orchestration-v5'
 );
 assert.ok(
   POPULATION_SEMANTIC_COMPLETE_STAGE_CLASSIFICATIONS.includes(
@@ -400,6 +420,10 @@ assert.ok(
   )
 );
 assert.equal(POPULATION_SEMANTIC_FIXED_CHUNK_COUNT, 8);
+assert.equal(POPULATION_SEMANTIC_STAGE_LOCAL_REPRESENTATIVE_LIMIT, 4);
+assert.equal(POPULATION_TILE_INPUT_ALPHA_STAGE_LOCAL_REPRESENTATIVE_LIMIT, 8);
+assert.equal(POPULATION_TILE_INPUT_RGB_STAGE_LOCAL_REPRESENTATIVE_LIMIT, 1);
+assert.equal(POPULATION_SEMANTIC_STAGE_LOCAL_MAX_REPRESENTATIVE_RECORDS, 61);
 assert.equal(plan.length, 8);
 for (let chunkIndex = 0; chunkIndex < plan.length; chunkIndex += 1) {
   const chunk = plan[chunkIndex];
@@ -432,7 +456,10 @@ assert.equal(allMatch.coverage.processedRecordCount, 524288);
 assert.equal(allMatch.coverage.uniqueSrcIndexCount, 524288);
 assert.equal(allMatch.coverage.coverageComplete, true);
 assert.equal(allMatch.firstMismatches.length, 0);
-assert.equal(allMatch.stageLocalMismatchSummaries.length, 13);
+assert.equal(
+  allMatch.stageLocalMismatchSummaries.length,
+  POPULATION_SEMANTIC_STAGE_CONTRACTS.length
+);
 assert.ok(
   allMatch.stageLocalMismatchSummaries.every(
     (summary) =>
@@ -889,6 +916,234 @@ assert.equal(
   rasterMismatch.firstMismatches[0].actualStageProvenance,
   POPULATION_RASTER_SEMANTIC_ACTUAL_PROVENANCE
 );
+
+const alphaOnlyRunner = createRunner({
+  behavior: (args) => args.chunkIndex === 2
+    ? {
+        stageMismatchCounts: { productionTileInputAlpha: 1 },
+        representatives: [mismatchEntry(args, 7, {
+          stage: 'productionTileInputAlpha',
+          component: 'alpha'
+        })]
+      }
+    : {}
+});
+const alphaOnly = await runWith(alphaOnlyRunner.runner);
+assert.equal(alphaOnly.decision, 'mismatch');
+assert.equal(alphaOnlyRunner.stats.calls.length, 8);
+assert.equal(alphaOnly.firstDownstreamMismatchStage, 'productionTileInputAlpha');
+assert.equal(
+  alphaOnly.stageSummaries.find(
+    (stage) => stage.stage === 'productionTileInputAlpha'
+  ).mismatchCount,
+  1
+);
+assert.equal(
+  alphaOnly.stageSummaries.find(
+    (stage) => stage.stage === 'productionTileInputRgb'
+  ).classification,
+  'match'
+);
+
+const rgbOnlyRunner = createRunner({
+  behavior: (args) => args.chunkIndex === 3
+    ? {
+        stageMismatchCounts: { productionTileInputRgb: 1 },
+        representatives: [mismatchEntry(args, 9, {
+          stage: 'productionTileInputRgb',
+          component: 'r'
+        })]
+      }
+    : {}
+});
+const rgbOnly = await runWith(rgbOnlyRunner.runner);
+assert.equal(rgbOnly.decision, 'mismatch');
+assert.equal(rgbOnlyRunner.stats.calls.length, 8);
+assert.equal(rgbOnly.firstDownstreamMismatchStage, 'productionTileInputRgb');
+
+const alphaAndRgbRunner = createRunner({
+  behavior: (args) => args.chunkIndex === 5
+    ? {
+        stageMismatchCounts: {
+          productionTileInputAlpha: 1,
+          productionTileInputRgb: 1
+        },
+        representatives: [
+          mismatchEntry(args, 4, {
+            stage: 'productionTileInputAlpha',
+            component: 'alpha'
+          }),
+          mismatchEntry(args, 4, {
+            stage: 'productionTileInputRgb',
+            component: 'r'
+          })
+        ]
+      }
+    : {}
+});
+const alphaAndRgb = await runWith(alphaAndRgbRunner.runner);
+assert.equal(alphaAndRgb.decision, 'mismatch');
+assert.equal(alphaAndRgbRunner.stats.calls.length, 8);
+assert.equal(
+  alphaAndRgb.firstDownstreamMismatchStage,
+  'productionTileInputAlpha'
+);
+assert.deepEqual(
+  alphaAndRgb.firstMismatches.map((entry) => entry.stage),
+  ['productionTileInputAlpha', 'productionTileInputRgb']
+);
+
+const acceptedAlphaSrcIndices = [
+  823750,
+  826596,
+  828798,
+  829562,
+  832266,
+  870555
+];
+const acceptedAlphaRowsByChunk = Object.freeze({
+  4: Object.freeze([37318, 40164, 42366, 43130, 45834]),
+  5: Object.freeze([18587])
+});
+const acceptedAlphaRunner = createRunner({
+  behavior: (args) => {
+    const rows = acceptedAlphaRowsByChunk[args.chunkIndex] ?? [];
+    return rows.length > 0
+      ? {
+          stageMismatchCounts: { productionTileInputAlpha: rows.length },
+          stageRepresentativeRows: { productionTileInputAlpha: rows },
+          representatives: [mismatchEntry(args, rows[0], {
+            stage: 'productionTileInputAlpha',
+            component: 'alpha'
+          })]
+        }
+      : {};
+  }
+});
+const acceptedAlpha = await runWith(acceptedAlphaRunner.runner);
+const acceptedAlphaStageLocal =
+  acceptedAlpha.stageLocalMismatchSummaries.find(
+    (stage) => stage.stage === 'productionTileInputAlpha'
+  );
+assert.equal(acceptedAlpha.decision, 'mismatch');
+assert.equal(acceptedAlphaRunner.stats.calls.length, 8);
+assert.equal(acceptedAlphaStageLocal.sourceMismatchRecordCount, 6);
+assert.equal(acceptedAlphaStageLocal.sourceComponentMismatchCount, 6);
+assert.equal(acceptedAlphaStageLocal.sourceSemanticResidualRecordCount, 6);
+assert.equal(acceptedAlphaStageLocal.serializedRepresentativeRecordCount, 6);
+assert.equal(
+  acceptedAlphaStageLocal.representativeRecordLimit,
+  POPULATION_TILE_INPUT_ALPHA_STAGE_LOCAL_REPRESENTATIVE_LIMIT
+);
+assert.equal(acceptedAlphaStageLocal.truncated, false);
+assert.deepEqual(
+  acceptedAlphaStageLocal.representatives.map(({ srcIndex }) => srcIndex),
+  acceptedAlphaSrcIndices
+);
+assert.ok(
+  acceptedAlphaStageLocal.representatives.every(
+    (representative) =>
+      representative.expectedStageValues.length === 1 &&
+      representative.actualStageValues.length === 1 &&
+      representative.mismatchComponents.length === 1 &&
+      Number.isFinite(representative.mismatchComponents[0].expected) &&
+      Number.isFinite(representative.mismatchComponents[0].actual) &&
+      Number.isFinite(representative.mismatchComponents[0].absoluteError) &&
+      representative.expectedStageProvenance ===
+        POPULATION_RASTER_SEMANTIC_EXPECTED_PROVENANCE.productionTileInputAlpha &&
+      representative.actualStageProvenance ===
+        POPULATION_RASTER_SEMANTIC_ACTUAL_PROVENANCE
+  )
+);
+
+function partitionedAlphaRepresentativeProjection(partitionSizes) {
+  const representatives = [];
+  let partitionStart = PRODUCTION_RESIDENT_RANGE_START;
+  for (let chunkIndex = 0; chunkIndex < partitionSizes.length; chunkIndex += 1) {
+    const partitionSize = partitionSizes[chunkIndex];
+    const partitionEnd = partitionStart + partitionSize;
+    const rows = acceptedAlphaSrcIndices
+      .filter((srcIndex) => srcIndex >= partitionStart && srcIndex < partitionEnd)
+      .map((srcIndex) => srcIndex - partitionStart);
+    const args = { chunkIndex, rangeStart: partitionStart };
+    for (const row of rows.slice(
+      0,
+      POPULATION_TILE_INPUT_ALPHA_STAGE_LOCAL_REPRESENTATIVE_LIMIT
+    )) {
+      if (
+        representatives.length >=
+          POPULATION_TILE_INPUT_ALPHA_STAGE_LOCAL_REPRESENTATIVE_LIMIT
+      ) break;
+      representatives.push(stageLocalFixtureRepresentative(
+        args,
+        row,
+        'productionTileInputAlpha'
+      ));
+    }
+    partitionStart = partitionEnd;
+  }
+  assert.equal(partitionStart, PRODUCTION_RESIDENT_RANGE_END);
+  return representatives.map((representative) => ({
+    srcIndex: representative.srcIndex,
+    expected: representative.mismatchComponents[0].expected,
+    actual: representative.mismatchComponents[0].actual,
+    absoluteError: representative.mismatchComponents[0].absoluteError,
+    expectedStageProvenance: representative.expectedStageProvenance,
+    actualStageProvenance: representative.actualStageProvenance
+  }));
+}
+assert.deepEqual(
+  partitionedAlphaRepresentativeProjection(new Array(8).fill(65536)),
+  partitionedAlphaRepresentativeProjection(new Array(4).fill(131072))
+);
+
+function alphaPartitionBehavior(distribution) {
+  return (args) => {
+    const count = distribution[args.chunkIndex] ?? 0;
+    return count > 0
+      ? {
+          stageMismatchCounts: { productionTileInputAlpha: count },
+          representatives: [mismatchEntry(args, 1, {
+            stage: 'productionTileInputAlpha',
+            component: 'alpha'
+          })]
+        }
+      : {};
+  };
+}
+const distributedAlphaRunner = createRunner({
+  behavior: alphaPartitionBehavior({ 1: 1, 6: 1 })
+});
+const distributedAlpha = await runWith(distributedAlphaRunner.runner);
+const concentratedAlphaRunner = createRunner({
+  behavior: alphaPartitionBehavior({ 1: 2 })
+});
+const concentratedAlpha = await runWith(concentratedAlphaRunner.runner);
+for (const field of [
+  'mismatchCount',
+  'componentMismatchCount',
+  'semanticResidualCount',
+  'semanticResidualComponentCount',
+  'classification'
+]) {
+  const distributedStage = distributedAlpha.stageSummaries.find(
+    (stage) => stage.stage === 'productionTileInputAlpha'
+  );
+  const concentratedStage = concentratedAlpha.stageSummaries.find(
+    (stage) => stage.stage === 'productionTileInputAlpha'
+  );
+  assert.equal(distributedStage[field], concentratedStage[field], field);
+}
+assert.equal(distributedAlpha.completedChunkCount, 8, JSON.stringify({
+  decision: distributedAlpha.decision,
+  blockedReasons: distributedAlpha.blockedReasons
+}));
+assert.equal(concentratedAlpha.completedChunkCount, 8, JSON.stringify({
+  decision: concentratedAlpha.decision,
+  blockedReasons: concentratedAlpha.blockedReasons
+}));
+assert.equal(distributedAlpha.firstDownstreamMismatchStage, 'productionTileInputAlpha');
+assert.equal(concentratedAlpha.firstDownstreamMismatchStage, 'productionTileInputAlpha');
 
 function precisionChunkBehavior(distribution) {
   return (args) => {
@@ -1686,7 +1941,11 @@ const worstCaseGlobalRepresentatives = [
       { stage: stage.key, component: stage.components[0] }
     )
   ),
-  ...POPULATION_SEMANTIC_STAGE_CONTRACTS.slice(0, 3).map((stage) =>
+  ...POPULATION_SEMANTIC_STAGE_CONTRACTS.slice(
+    0,
+    POPULATION_SEMANTIC_MAX_FIRST_MISMATCHES -
+      POPULATION_SEMANTIC_STAGE_CONTRACTS.length
+  ).map((stage) =>
     mismatchEntry(
       {
         chunkIndex: 0
@@ -1701,7 +1960,10 @@ const worstCaseRunner = createRunner({
     ? {
         representatives: worstCaseGlobalRepresentatives,
         stageMismatchCounts: Object.fromEntries(
-          POPULATION_SEMANTIC_STAGE_CONTRACTS.map((stage) => [stage.key, 4])
+          POPULATION_SEMANTIC_STAGE_CONTRACTS.map((stage) => [
+            stage.key,
+            populationSemanticStageLocalRepresentativeLimit(stage.key) + 1
+          ])
         )
       }
     : {}
@@ -1720,9 +1982,11 @@ assert.equal(
 assert.ok(
   worstCase.stageLocalMismatchSummaries.every(
     (summary) =>
-      summary.serializedRepresentativeRecordCount === 4 &&
-      summary.representativeRecordLimit === 4 &&
-      summary.truncated === false
+      summary.serializedRepresentativeRecordCount ===
+        populationSemanticStageLocalRepresentativeLimit(summary.stage) &&
+      summary.representativeRecordLimit ===
+        populationSemanticStageLocalRepresentativeLimit(summary.stage) &&
+      summary.truncated === true
   )
 );
 assert.doesNotThrow(() => JSON.stringify(worstCase));
@@ -1750,7 +2014,7 @@ const worstCaseControllerEnvelope = {
 };
 const worstCaseControllerBytes = JSON.stringify(worstCaseControllerEnvelope).length;
 assert.ok(
-  worstCaseControllerBytes < 100000,
+  worstCaseControllerBytes < POPULATION_SEMANTIC_CONTROLLER_MAX_RESULT_JSON_BYTES,
   JSON.stringify({ worstCaseControllerBytes })
 );
 const oneChunkRunner = createRunner({
@@ -1798,7 +2062,7 @@ assert.equal(
 assert.equal(allMatch.diagnosticDeviceOwnership, 'caller-owned-reused-not-destroyed');
 
 console.log('Step121 Impl2 population-aligned eight-chunk orchestration smoke: OK', {
-  caseGroups: 28,
+  caseGroups: 30,
   snapshotFixCaseGroups: 6,
   coverageDriftCases: coverageDrifts.length,
   contractDriftCases: contractDrifts.length,

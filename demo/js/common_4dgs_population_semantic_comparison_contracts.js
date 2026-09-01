@@ -1,5 +1,9 @@
+import {
+  PRODUCTION_TILE_INPUT_ALPHA_F32_CENTRAL_ORACLE_VERSION
+} from './common_4dgs_tile_input_alpha_f32_semantic.js';
+
 export const POPULATION_SEMANTIC_COMPARISON_SCHEMA_VERSION =
-  'phase3-population-aligned-semantic-comparison-v5';
+  'phase3-population-aligned-semantic-comparison-v6';
 export const POPULATION_SEMANTIC_COMPARISON_CONTRACT_NAME =
   'single-contiguous-resident-chunk-semantic-comparison';
 export const POPULATION_SEMANTIC_EXPECTED_PROVENANCE =
@@ -18,8 +22,14 @@ export const POPULATION_RASTER_SEMANTIC_EXPECTED_PROVENANCE = Object.freeze({
   webgpuInclusivePixelBounds:
     'independent CPU reconstruction of the WebGPU inclusive bounds contract',
   normalizedInclusiveTileBounds:
-    'independent CUDA getRect exclusive-max reconstruction normalized to inclusive max'
+    'independent CUDA getRect exclusive-max reconstruction normalized to inclusive max',
+  productionTileInputAlpha:
+    `independent production-aligned f32 central alpha reconstruction from SPL4 input (${PRODUCTION_TILE_INPUT_ALPHA_F32_CENTRAL_ORACLE_VERSION})`,
+  productionTileInputRgb:
+    'independent CUDA degree-2 spatial SH reconstruction from SPL4 input and original-position camera direction'
 });
+export const POPULATION_RASTER_SEMANTIC_ACTUAL_DEVICE_SCOPE =
+  'fresh-separate-diagnostic-device-reexecuting-production-evaluator-and-tile-input-path';
 export const POPULATION_PIXEL_BOUNDARY_PRECISION_CLASSIFICATION_PROVENANCE =
   Object.freeze({
     stage: 'webgpuInclusivePixelBounds',
@@ -41,6 +51,9 @@ export const PRODUCTION_RESIDENT_RANGE_COUNT =
 export const POPULATION_SEMANTIC_MAX_CHUNK_RECORDS = 65536;
 export const POPULATION_SEMANTIC_MAX_FIRST_MISMATCHES = 16;
 export const POPULATION_SEMANTIC_STAGE_LOCAL_REPRESENTATIVE_LIMIT = 4;
+export const POPULATION_TILE_INPUT_ALPHA_STAGE_LOCAL_REPRESENTATIVE_LIMIT = 8;
+export const POPULATION_TILE_INPUT_RGB_STAGE_LOCAL_REPRESENTATIVE_LIMIT = 1;
+export const POPULATION_SEMANTIC_CONTROLLER_MAX_RESULT_JSON_BYTES = 110000;
 
 export const POPULATION_SEMANTIC_EVIDENCE_VEC4_STRIDE = 8;
 export const POPULATION_SEMANTIC_EVIDENCE_FLOAT_STRIDE =
@@ -48,7 +61,7 @@ export const POPULATION_SEMANTIC_EVIDENCE_FLOAT_STRIDE =
 export const POPULATION_SEMANTIC_EVIDENCE_BYTES_PER_RECORD =
   POPULATION_SEMANTIC_EVIDENCE_FLOAT_STRIDE * Float32Array.BYTES_PER_ELEMENT;
 
-export const POPULATION_RASTER_SEMANTIC_COMPANION_VEC4_STRIDE = 3;
+export const POPULATION_RASTER_SEMANTIC_COMPANION_VEC4_STRIDE = 4;
 export const POPULATION_RASTER_SEMANTIC_COMPANION_FLOAT_STRIDE =
   POPULATION_RASTER_SEMANTIC_COMPANION_VEC4_STRIDE * 4;
 export const POPULATION_RASTER_SEMANTIC_COMPANION_BYTES_PER_RECORD =
@@ -65,7 +78,7 @@ export const POPULATION_SEMANTIC_LOGICAL_COMBINED_BYTES_PER_RECORD =
   POPULATION_RASTER_SEMANTIC_COMPANION_BYTES_PER_RECORD;
 
 export const POPULATION_RASTER_SEMANTIC_COMPANION_LAYOUT_SCHEMA_VERSION =
-  'phase3-population-raster-semantic-companion-layout-v1';
+  'phase3-population-raster-semantic-companion-layout-v2';
 
 export const POPULATION_SEMANTIC_STAGE_CONTRACTS = Object.freeze([
   Object.freeze({
@@ -132,12 +145,26 @@ export const POPULATION_SEMANTIC_STAGE_CONTRACTS = Object.freeze([
     key: 'normalizedInclusiveTileBounds',
     components: Object.freeze(['minX', 'minY', 'maxX', 'maxY']),
     tolerance: 0
+  }),
+  Object.freeze({
+    key: 'productionTileInputAlpha',
+    components: Object.freeze(['alpha']),
+    tolerance: 1e-5
+  }),
+  Object.freeze({
+    key: 'productionTileInputRgb',
+    components: Object.freeze(['r', 'g', 'b']),
+    tolerance: 1e-5
   })
 ]);
 
 export const POPULATION_SEMANTIC_STAGE_LOCAL_MAX_REPRESENTATIVE_RECORDS =
-  POPULATION_SEMANTIC_STAGE_CONTRACTS.length *
-  POPULATION_SEMANTIC_STAGE_LOCAL_REPRESENTATIVE_LIMIT;
+  POPULATION_SEMANTIC_STAGE_CONTRACTS.reduce(
+    (sum, stage) => sum + populationSemanticStageLocalRepresentativeLimit(
+      stage.key
+    ),
+    0
+  );
 
 export const POPULATION_SEMANTIC_STAGE_LOCAL_CONTEXT_STAGE_KEYS = Object.freeze([
   'temporalEligibility',
@@ -148,6 +175,27 @@ export const POPULATION_SEMANTIC_STAGE_LOCAL_CONTEXT_STAGE_KEYS = Object.freeze(
   'webgpuInclusivePixelBounds',
   'normalizedInclusiveTileBounds'
 ]);
+const POPULATION_TILE_INPUT_STAGE_LOCAL_CONTEXT_STAGE_KEYS = Object.freeze([
+  'temporalEligibility',
+  'productionRasterEligibility'
+]);
+
+function stageLocalContextKeys(stageKey) {
+  return stageKey === 'productionTileInputAlpha' ||
+    stageKey === 'productionTileInputRgb'
+    ? POPULATION_TILE_INPUT_STAGE_LOCAL_CONTEXT_STAGE_KEYS
+    : POPULATION_SEMANTIC_STAGE_LOCAL_CONTEXT_STAGE_KEYS;
+}
+
+export function populationSemanticStageLocalRepresentativeLimit(stageKey) {
+  if (stageKey === 'productionTileInputAlpha') {
+    return POPULATION_TILE_INPUT_ALPHA_STAGE_LOCAL_REPRESENTATIVE_LIMIT;
+  }
+  if (stageKey === 'productionTileInputRgb') {
+    return POPULATION_TILE_INPUT_RGB_STAGE_LOCAL_REPRESENTATIVE_LIMIT;
+  }
+  return POPULATION_SEMANTIC_STAGE_LOCAL_REPRESENTATIVE_LIMIT;
+}
 
 const POPULATION_SEMANTIC_STAGE_LOCAL_ACTUAL_EVIDENCE_SOURCE =
   'diagnostic-gpu-readback';
@@ -232,7 +280,7 @@ export function buildPopulationSemanticStageLocalMismatchRepresentative({
     }))
     .sort((left, right) => left.componentIndex - right.componentIndex);
   const dependencyContext = Object.fromEntries(
-    POPULATION_SEMANTIC_STAGE_LOCAL_CONTEXT_STAGE_KEYS.map((contextStageKey) => {
+    stageLocalContextKeys(stageContract.key).map((contextStageKey) => {
       const contextContract = stageContractForKey(contextStageKey);
       const expectedContext = fixedStageEvidence(
         expectedRecord?.stages?.[contextStageKey],
@@ -289,7 +337,11 @@ export function buildPopulationSemanticStageLocalMismatchSummaries({
     const source = summariesByStage.get(stageContract.key) ?? {};
     const representatives = Array.from(
       representativesByStage?.[stageContract.key] ?? []
-    ).slice(0, POPULATION_SEMANTIC_STAGE_LOCAL_REPRESENTATIVE_LIMIT);
+    ).slice(0, populationSemanticStageLocalRepresentativeLimit(
+      stageContract.key
+    ));
+    const representativeRecordLimit =
+      populationSemanticStageLocalRepresentativeLimit(stageContract.key);
     const sourceMismatchRecordCount = Number(source.mismatchCount ?? 0);
     const sourceComponentMismatchCount = Number(
       source.componentMismatchCount ?? 0
@@ -318,11 +370,9 @@ export function buildPopulationSemanticStageLocalMismatchSummaries({
       sourceSemanticResidualRecordCount,
       sourceSemanticResidualComponentCount,
       serializedRepresentativeRecordCount: representatives.length,
-      representativeRecordLimit:
-        POPULATION_SEMANTIC_STAGE_LOCAL_REPRESENTATIVE_LIMIT,
+      representativeRecordLimit,
       truncated:
-        sourceMismatchRecordCount >
-          POPULATION_SEMANTIC_STAGE_LOCAL_REPRESENTATIVE_LIMIT,
+        sourceMismatchRecordCount > representativeRecordLimit,
       sourceClassification,
       evidenceComplete:
         POPULATION_SEMANTIC_COMPLETE_STAGE_CLASSIFICATIONS.includes(
@@ -442,7 +492,7 @@ export function validatePopulationSemanticStageLocalMismatchSummaries({
     ) reasons.push(`${prefix}-source-classification-drift`);
     if (
       summary?.representativeRecordLimit !==
-        POPULATION_SEMANTIC_STAGE_LOCAL_REPRESENTATIVE_LIMIT
+        populationSemanticStageLocalRepresentativeLimit(contract.key)
     ) reasons.push(`${prefix}-limit-drift`);
     const representatives = summary?.representatives;
     if (!Array.isArray(representatives)) {
@@ -452,7 +502,7 @@ export function validatePopulationSemanticStageLocalMismatchSummaries({
     totalRepresentativeRecords += representatives.length;
     const expectedRepresentativeCount = Math.min(
       source?.mismatchCount ?? 0,
-      POPULATION_SEMANTIC_STAGE_LOCAL_REPRESENTATIVE_LIMIT
+      populationSemanticStageLocalRepresentativeLimit(contract.key)
     );
     if (
       representatives.length !== expectedRepresentativeCount ||
@@ -461,7 +511,7 @@ export function validatePopulationSemanticStageLocalMismatchSummaries({
     if (
       summary?.truncated !==
         ((source?.mismatchCount ?? 0) >
-          POPULATION_SEMANTIC_STAGE_LOCAL_REPRESENTATIVE_LIMIT)
+          populationSemanticStageLocalRepresentativeLimit(contract.key))
     ) reasons.push(`${prefix}-truncated-drift`);
     const seenRows = new Set();
     let previousOrder = null;
@@ -620,16 +670,15 @@ export function validatePopulationSemanticStageLocalMismatchSummaries({
         reasons.push(`${prefix}-dependency-context-invalid`);
       } else {
         const contextKeys = Object.keys(context);
+        const expectedContextKeys = stageLocalContextKeys(contract.key);
         if (
-          contextKeys.length !==
-            POPULATION_SEMANTIC_STAGE_LOCAL_CONTEXT_STAGE_KEYS.length ||
+          contextKeys.length !== expectedContextKeys.length ||
           contextKeys.some(
             (key, index) =>
-              key !== POPULATION_SEMANTIC_STAGE_LOCAL_CONTEXT_STAGE_KEYS[index]
+              key !== expectedContextKeys[index]
           )
         ) reasons.push(`${prefix}-dependency-context-order-drift`);
-        for (const contextStageKey of
-          POPULATION_SEMANTIC_STAGE_LOCAL_CONTEXT_STAGE_KEYS) {
+        for (const contextStageKey of expectedContextKeys) {
           const contextContract = stageContractForKey(contextStageKey);
           const entry = context[contextStageKey];
           if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
@@ -676,12 +725,12 @@ export function validatePopulationSemanticStageLocalMismatchSummaries({
     }
     if (
       (source?.mismatchCount ?? 0) <=
-        POPULATION_SEMANTIC_STAGE_LOCAL_REPRESENTATIVE_LIMIT &&
+        populationSemanticStageLocalRepresentativeLimit(contract.key) &&
       serializedMismatchComponentCount !== (source?.componentMismatchCount ?? 0)
     ) reasons.push(`${prefix}-serialized-component-count-drift`);
     if (
       (source?.mismatchCount ?? 0) <=
-        POPULATION_SEMANTIC_STAGE_LOCAL_REPRESENTATIVE_LIMIT &&
+        populationSemanticStageLocalRepresentativeLimit(contract.key) &&
       (
         serializedPrecisionAlignedRecordCount !==
           (source?.precisionAlignedCount ?? 0) ||
@@ -1112,7 +1161,8 @@ export function buildPopulationRasterSemanticCompanionLayoutContract({
     vec4Layout: [
       'eligibility-px-py-depth',
       'pixel-minX-minY-maxX-maxY',
-      'tile-minX-minY-maxX-maxY'
+      'tile-minX-minY-maxX-maxY',
+      'production-tile-input-r-g-b-alpha'
     ],
     rowAlignment: 'local-row-matches-explicit-candidate-index-order',
     sourceWorksetResourceIdentity,
@@ -1129,6 +1179,8 @@ export function buildPopulationRasterSemanticCompanionLayoutContract({
     nativeTileInputBufferUsageChanged: false,
     observerOutputUsage: 'storage-copy-src',
     observerStagingUsage: 'copy-dst-map-read',
+    actualGpuDeviceScope: POPULATION_RASTER_SEMANTIC_ACTUAL_DEVICE_SCOPE,
+    expectedGenerationDependsOnActual: false,
     diagnosticOnly: true
   };
 }

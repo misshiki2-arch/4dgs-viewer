@@ -1,5 +1,6 @@
 import {
   POPULATION_RASTER_SEMANTIC_ACTUAL_PROVENANCE,
+  POPULATION_RASTER_SEMANTIC_ACTUAL_DEVICE_SCOPE,
   POPULATION_RASTER_SEMANTIC_COMPANION_BYTES_PER_RECORD,
   POPULATION_RASTER_SEMANTIC_COMPANION_FLOAT_STRIDE,
   POPULATION_RASTER_SEMANTIC_COMPANION_LAYOUT_SCHEMA_VERSION,
@@ -16,7 +17,6 @@ import {
   POPULATION_SEMANTIC_MAX_CHUNK_RECORDS,
   POPULATION_SEMANTIC_MAX_FIRST_MISMATCHES,
   POPULATION_PIXEL_BOUNDARY_PRECISION_CLASSIFICATION_PROVENANCE,
-  POPULATION_SEMANTIC_STAGE_LOCAL_REPRESENTATIVE_LIMIT,
   POPULATION_SEMANTIC_STAGE_CONTRACTS,
   PRODUCTION_RESIDENT_RANGE_COUNT,
   PRODUCTION_RESIDENT_RANGE_END,
@@ -26,6 +26,7 @@ import {
   buildPopulationSemanticDiagnosticWorksetResourceIdentity,
   buildPopulationSemanticStageLocalMismatchSummaries,
   classifyPopulationSemanticStageEvidence,
+  populationSemanticStageLocalRepresentativeLimit,
   validatePopulationSemanticStageLocalMismatchSummaries
 } from './common_4dgs_population_semantic_comparison_contracts.js';
 import {
@@ -33,7 +34,7 @@ import {
 } from './webgpu_population_aligned_semantic_comparison.js';
 
 export const POPULATION_SEMANTIC_ORCHESTRATION_SCHEMA_VERSION =
-  'phase3-population-aligned-semantic-comparison-orchestration-v4';
+  'phase3-population-aligned-semantic-comparison-orchestration-v5';
 export const POPULATION_SEMANTIC_ORCHESTRATION_CONTRACT_NAME =
   'full-production-resident-range-eight-chunk-semantic-comparison';
 export const POPULATION_SEMANTIC_FIXED_CHUNK_COUNT =
@@ -142,6 +143,12 @@ function validateRasterProvenance(result) {
   if (result.rasterActualProvenance !== POPULATION_RASTER_SEMANTIC_ACTUAL_PROVENANCE) {
     reasons.push('chunk-raster-actual-provenance-drift');
   }
+  if (result.actualGpuDeviceScope !== POPULATION_RASTER_SEMANTIC_ACTUAL_DEVICE_SCOPE) {
+    reasons.push('chunk-actual-gpu-device-scope-drift');
+  }
+  if (result.expectedGenerationDependsOnActual !== false) {
+    reasons.push('chunk-expected-actual-dependency-drift');
+  }
   return reasons;
 }
 
@@ -197,6 +204,8 @@ function buildCompanionInvariantSummary(layout) {
     tileRows: layout.tileRows,
     observerOutputUsage: layout.observerOutputUsage,
     observerStagingUsage: layout.observerStagingUsage,
+    actualGpuDeviceScope: layout.actualGpuDeviceScope,
+    expectedGenerationDependsOnActual: layout.expectedGenerationDependsOnActual,
     diagnosticOnly: layout.diagnosticOnly
   };
 }
@@ -321,6 +330,12 @@ function validateRasterCompanionLayouts(result, plan, expectedIdentity) {
   }
   if (layout.observerStagingUsage !== 'copy-dst-map-read') {
     reasons.push('raster-companion-observer-staging-usage-drift');
+  }
+  if (layout.actualGpuDeviceScope !== POPULATION_RASTER_SEMANTIC_ACTUAL_DEVICE_SCOPE) {
+    reasons.push('raster-companion-actual-gpu-device-scope-drift');
+  }
+  if (layout.expectedGenerationDependsOnActual !== false) {
+    reasons.push('raster-companion-expected-actual-dependency-drift');
   }
   if (layout.diagnosticOnly !== true) {
     reasons.push('raster-companion-diagnostic-only-drift');
@@ -531,6 +546,17 @@ function createStageAggregate(stageContract) {
     tolerance: stageContract.tolerance,
     classification: 'blocked-no-valid-evidence'
   };
+}
+
+function firstSemanticMismatchStage(stageSummaries, downstreamOnly = false) {
+  const downstreamStages = new Set([
+    'productionTileInputAlpha',
+    'productionTileInputRgb'
+  ]);
+  return stageSummaries.find((stage) =>
+    (!downstreamOnly || downstreamStages.has(stage.stage)) &&
+    stage.semanticResidualCount > 0
+  )?.stage ?? null;
 }
 
 export function buildPopulationAlignedSemanticComparisonChunkPlan() {
@@ -975,6 +1001,19 @@ function validateChunkResult(result, plan, expectedIdentity) {
     result.decision
   );
   reasons.push(...stageValidation.reasons);
+  const expectedFirstSemanticMismatchStage = firstSemanticMismatchStage(
+    stageValidation.stages
+  );
+  const expectedFirstDownstreamMismatchStage = firstSemanticMismatchStage(
+    stageValidation.stages,
+    true
+  );
+  if (result.firstSemanticMismatchStage !== expectedFirstSemanticMismatchStage) {
+    reasons.push('first-semantic-mismatch-stage-drift');
+  }
+  if (
+    result.firstDownstreamMismatchStage !== expectedFirstDownstreamMismatchStage
+  ) reasons.push('first-downstream-mismatch-stage-drift');
   reasons.push(
     ...validatePopulationSemanticStageLocalMismatchSummaries({
       stageLocalMismatchSummaries: result.stageLocalMismatchSummaries,
@@ -1120,6 +1159,12 @@ function buildChunkSummary(plan, result, validationReasons) {
     coverageComplete: accepted && result.coverage?.coverageComplete === true,
     mismatchCount,
     semanticResidualCount,
+    firstSemanticMismatchStage: accepted
+      ? result.firstSemanticMismatchStage ?? null
+      : null,
+    firstDownstreamMismatchStage: accepted
+      ? result.firstDownstreamMismatchStage ?? null
+      : null,
     blockedReason: validationReasons[0] ?? null
   };
 }
@@ -1318,7 +1363,9 @@ export async function runPopulationAlignedSemanticComparisonResidentRange({
         for (const representative of stageSummary.representatives) {
           if (
             aggregateRepresentatives.length >=
-              POPULATION_SEMANTIC_STAGE_LOCAL_REPRESENTATIVE_LIMIT
+              populationSemanticStageLocalRepresentativeLimit(
+                stageSummary.stage
+              )
           ) break;
           aggregateRepresentatives.push(representative);
         }
@@ -1445,6 +1492,9 @@ export async function runPopulationAlignedSemanticComparisonResidentRange({
     },
     stageSummaries: stageAggregates,
     stageLocalMismatchSummaries,
+    firstSemanticMismatchStage: firstSemanticMismatchStage(stageAggregates),
+    firstDownstreamMismatchStage:
+      firstSemanticMismatchStage(stageAggregates, true),
     firstMismatches,
     firstMismatchCount: firstMismatches.length,
     firstMismatchLimit: POPULATION_SEMANTIC_MAX_FIRST_MISMATCHES,
@@ -1491,6 +1541,8 @@ export async function runPopulationAlignedSemanticComparisonResidentRange({
       tileRows: companionState.invariantSummary?.tileRows ?? null,
       rasterExpectedProvenance: POPULATION_RASTER_SEMANTIC_EXPECTED_PROVENANCE,
       rasterActualProvenance: POPULATION_RASTER_SEMANTIC_ACTUAL_PROVENANCE,
+      actualGpuDeviceScope: POPULATION_RASTER_SEMANTIC_ACTUAL_DEVICE_SCOPE,
+      expectedGenerationDependsOnActual: false,
       rasterObserverGpuResourceOwnership: RASTER_OBSERVER_RESOURCE_OWNERSHIP,
       nativeTileInputBufferUsageChanged: false,
       diagnosticOnly: true
@@ -1498,6 +1550,8 @@ export async function runPopulationAlignedSemanticComparisonResidentRange({
     evidenceComplete,
     expectedProvenance: POPULATION_SEMANTIC_EXPECTED_PROVENANCE,
     actualProvenance: POPULATION_SEMANTIC_ACTUAL_PROVENANCE,
+    actualGpuDeviceScope: POPULATION_RASTER_SEMANTIC_ACTUAL_DEVICE_SCOPE,
+    expectedGenerationDependsOnActual: false,
     precisionClassificationProvenance:
       POPULATION_PIXEL_BOUNDARY_PRECISION_CLASSIFICATION_PROVENANCE,
     actualEvidenceSameProductionDispatch: false,

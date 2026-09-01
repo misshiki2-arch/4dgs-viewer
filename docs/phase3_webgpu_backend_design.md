@@ -2868,6 +2868,36 @@ visual comparison can be trusted. If CUDA rasterizer screen-coordinate
 conventions are not emitted directly, the manifest records them as `unknown`
 rather than inferring them from image appearance.
 
+### Canonical local Python environment for CUDA evidence
+
+The canonical local conda environment for CUDA Reference generation or
+regeneration, CUDA-related validation and focused tests, fixed-condition PNG
+comparison, and pixel-evidence generation is `4dgs310`. The authoritative
+executable is:
+
+`/home/demo/miniconda3/envs/4dgs310/bin/python`
+
+Reproducible CODEX and user-facing procedures use that absolute executable and
+do not implicitly depend on shell activation or on how `python`, `python3`, or
+`/usr/bin/python3` resolves. The absence of NumPy from another interpreter does
+not determine whether this CUDA-reference workflow is available. A tool with
+an explicit, independently documented environment contract may use that
+contract, but it must not silently replace `4dgs310` for the responsibilities
+listed above.
+
+Each CUDA render-state manifest is the authoritative per-run record of the
+actual conda environment, Python, PyTorch, CUDA, rasterizer, and related
+versions. Locally observed package versions are evidence for the current
+baseline, not permanent version locks. Version drift alone does not authorize
+environment replacement. Installing packages, creating a venv, or changing or
+replacing the canonical environment is a separately authorized responsibility.
+
+This Python environment contract belongs to CUDA Reference and offline image
+validation. It is separate from the browser/JavaScript/WebGPU production
+runtime and from the Node.js/npm build and demo-server environment. Successful
+imports or use of `4dgs310` do not by themselves establish browser acceptance
+or CUDA/WebGPU image parity.
+
 The WebGPU viewer emits a matching render-state manifest through the debug
 capture path. It records the requested, presented, and captured state identity,
 fixed-reference camera activation, CUDA-derived camera constants routing,
@@ -3747,11 +3777,619 @@ Step121 does not establish:
 - multiple-camera, multiple-time, or interactive camera/time acceptance;
 - performance/scalability, LOD/streaming, or final production acceptance.
 
-A separately reviewed next task may compare a fresh post-Fix6 production PNG
-against the same fixed-range CUDA Reference. If a visual difference remains, it
-must classify the first unverified downstream stage before changing production.
-Candidate stages are opacity/SH color, tile-reference population, depth key and
-sort, compositor accumulation, and final RGB. Even after fixed-range downstream
-parity, a mandatory gate must process all 3,231,588 source records without
-silent omission and perform a matched full-scene CUDA comparison. This document
-does not assign or authorize a new Step, Impl, Fix, or production change.
+At Step121 closure, the next reviewed task was to compare a fresh post-Fix6
+production PNG against the same fixed-range CUDA Reference and classify the
+first unverified downstream mismatch. Step122 performed that comparison and
+identified the alpha expected-oracle boundary described below. Even after
+fixed-range downstream parity, a mandatory gate must process all 3,231,588
+source records without silent omission and perform a matched full-scene CUDA
+comparison.
+
+## Fixed CUDA Reference and Portable WebGPU Alpha-Oracle Boundary
+
+The fixed-condition comparison has two separate reproducibility contracts.
+The CUDA Reference is a fixed baseline bound to the canonical `4dgs310`
+environment, render-state manifest, asset and SPL4 identity, camera, time,
+resident range, output dimensions, and generated artifact. The authoritative
+local Python executable for CUDA generation and offline PNG comparison remains
+`/home/demo/miniconda3/envs/4dgs310/bin/python`. The acceptance contract does
+not require one envelope to contain every possible CUDA GPU, CUDA version,
+driver, compiler, PyTorch kernel, or `__expf` implementation. That broader
+requirement has no guaranteed intrinsic bound in the evidence currently used
+by this project and would conflate CUDA-reference reproducibility with browser
+runtime portability.
+Treating that artifact as the comparison baseline does not make every CUDA
+difference semantically correct in general; it fixes the reproducible boundary
+for this comparison.
+
+WebGPU portability is evaluated against the fixed CUDA baseline. A JavaScript
+expected oracle reconstructs the CUDA source expression and f32 data boundary,
+while the W3C WGSL
+[floating-point accuracy](https://www.w3.org/TR/WGSL/#floating-point-accuracy)
+and [reassociation/fusion](https://www.w3.org/TR/WGSL/#floating-point-reassociation)
+rules define the allowed WebGPU interval. The
+central alpha oracle starts from SPL4 f32 fields and parsed f32 scales; it rounds
+the source-ordered quaternion, normalization, 4D rotation, scale-square,
+temporal covariance, exponent, sigmoid, and final multiplication stages to f32.
+It is not tuned to current browser actual values. WGSL operation accuracy,
+reassociation, fusion, subnormal handling, and rounding are propagated outward
+from that central value. The resulting interval is a conservative specification
+envelope, not a current-device error measurement or a claim that every point in
+the envelope is attainable.
+
+For the fixed resident range `[524288, 1048576)`, all 524,288 records were
+evaluated and 21,818 were temporally eligible. The conservative maximum alpha
+absolute envelope is `0.000005513429641723633`, below tolerance `1e-5` by
+`0.000004486570358276368`. No eligible record exceeds tolerance, no temporal
+eligibility interval crosses threshold `0.05`, and no eligible record depends
+on nonfinite, subnormal, or guard behavior. The maximum ULP envelope is 665 ULP.
+The aggregation is invariant under partitions of 65,536, 131,072, and 70,000
+records. The six previously observed browser actual values all lie inside their
+independently generated intervals and differ from the f32 central values by
+zero or one ULP. These facts support
+`candidate-1-ready-under-fixed-cuda-reference`; they do not generalize the
+domain to all 3,231,588 records.
+
+The corresponding implementation boundary was deliberately narrow and is now
+implemented in Step122 Impl1 Fix2:
+
+- replace only the `productionTileInputAlpha` JavaScript double expected value
+  with a common production-aligned f32 central builder;
+- preserve the production WGSL expression, actual GPU readback, temporal
+  threshold, tolerance, and all upstream thirteen comparison stages;
+- preserve RGB expected semantics, orchestration/controller ownership, and
+  the bounded evidence policy;
+- keep expected generation independent from actual GPU evidence, and never use
+  actual values to select rounding or widen a bound;
+- do not add a precision-aligned category when every eligible specification
+  envelope already fits the existing tolerance;
+- do not serialize the superseded double expected as a legacy mirror without a
+  real consumer.
+
+Preserving RGB expected semantics was a Fix2 scope boundary, not validation of
+that RGB oracle. The later Investigation7 result below supersedes any reading
+that the preserved degree-2 RGB expected expression was already canonical.
+
+The f32 builder is diagnostic expected-oracle logic. Production frame
+completion, workset selection, tile input generation, sorting, compositing,
+presentation, and capture must not call it or depend on its result. Diagnostic
+execution remains on a fresh diagnostic device, and production computation
+must remain independent of diagnostic readback. If the semantic oracle changes,
+the implementation task must inspect schema and provenance consumers and decide
+whether a version update is required; this design boundary does not predeclare
+either version preservation or a mandatory bump.
+
+The accepted Impl1 Fix2 browser artifact covers all eight chunks and all
+524,288 source records in the fixed range. The upstream thirteen-stage semantic
+residual remains zero. All 21,818 eligible alpha records match with zero record
+and component mismatches, while `productionTileInputRgb` is the first semantic
+and downstream mismatch at 21,012 records and 47,469 components. This result
+does not establish fixed-condition PNG parity, opacity/SH/color parity,
+tile-reference population, depth-key/sort, ordered per-tile reference-list or
+compositor parity, Acceptance Level 4, full-scene correctness, interactive
+acceptance, or final production acceptance. Fixed-range downstream parity must
+still be followed by a correctness gate that processes all 3,231,588 source
+records without silent omission and compares a matched full-scene CUDA
+Reference. Step122 therefore remains incomplete.
+
+## Canonical Spatial Degree-2 SH and RGB Responsibility Boundary
+
+For the fixed CUDA baseline, the active spatial SH degree is 2. Coefficients
+use coefficient-major RGB triplets: `sh[0]` is `f_dc`, and `sh[1]` through
+`sh[8]` are the first 24 floats of `f_rest`. The canonical calculation applies
+`SH_C0`, the three degree-1 terms, and the five degree-2 terms. The degree-2
+constant signs are `[+, -, +, -, +]`; in particular the `sh[5]` yz and `sh[7]`
+xz terms are negative. Direction is computed from the original Gaussian
+position minus the canonical camera center, not from the conditional or
+temporally shifted position. The calculation adds 0.5 after SH evaluation and
+applies a lower clamp only. It has no upper clamp.
+
+Expected and actual RGB remain independent responsibilities. Diagnostic
+expected generation reconstructs the canonical CUDA expression from SPL4 and
+camera contracts and must not consume actual GPU values. Production owns the
+actual spatial-SH calculation and must not depend on diagnostic readback. A
+comparison-oracle correction must not be bundled with the production semantic
+change. Step122 Impl1 Fix3 completed the expected-oracle C2 sign correction and
+its independent browser gate without changing production source. Step122 Impl3
+then completed the separate production spatial-SH change and its fixed-range
+browser semantic gate. This preserves Investigation7 classification 3 and its
+acceptance order: expected and production had separate problems, and neither
+was used to explain away or validate the other.
+
+Diagnostic validity is a third, independent responsibility. Canonical
+lower-only spatial SH may legitimately produce RGB components above 1, so the
+comparison consumer must validate RGB as three finite, nonnegative components
+with no upper bound. Alpha must be validated independently as finite and in
+`(0, 1]`. A negative RGB component invalidates only RGB evidence as a violation
+of the production lower-clamp contract; it must not invalidate otherwise valid
+alpha evidence. Schema, provenance, and the fifteen-stage vocabulary do not
+change for this correction. Step122 Investigation8 classified the former shared
+`colorAlphaValid` check as an existing consumer defect. Step122 Impl1 Fix4 has
+now implemented the separation in the comparison consumer: finite RGB above 1
+is valid comparison evidence; negative or nonfinite RGB fails closed only for
+the RGB stage; invalid alpha fails closed only for alpha. The other stage
+remains independently comparable in each case.
+
+Fix4 changed only the comparison consumer and its single-chunk smoke. The smoke
+covers an RGB-above-1 match, an RGB-above-1 true mismatch, RGB-only invalidation
+for negative and nonfinite values, and alpha-only invalidation for alpha above
+1. All 52 single-chunk cases passed, as did the eight-chunk orchestration,
+controller, alpha-f32-central, syntax, build, and diff regressions. Schema,
+provenance, stage vocabulary/order/tolerance, first-mismatch semantics, bounded
+representatives, and the public return shape are unchanged. Production,
+observer, orchestration, controller, capture, and Summary responsibilities are
+unchanged. Fix4 is therefore implementation- and automatic-validation-complete,
+not a production RGB semantic change or an independently browser-accepted gate.
+
+Before Impl3, production upper-clamped RGB and could not exercise the
+RGB-above-1 branch in a Fix4-only browser run. The focused gate was sufficient
+for that consumer-only correction, but was not a general browser-test exemption.
+The later Impl3 browser gate covered the updated production RGB path and
+preserved independent alpha evidence.
+
+Before Fix3, the expected oracle had positive signs for the two terms identified
+above. Fix3 changed only those constants to canonical `[+, -, +, -, +]`; focused
+one-hot fixtures cover `sh[0]` through `sh[8]`, including negative `sh[5]` yz and
+`sh[7]` xz results. The output schema and provenance vocabulary are unchanged,
+and expected generation remains independent from actual GPU evidence. At Fix3
+acceptance, the production evaluator still used
+`clamp(f_dc + 0.5, 0, 1)`: it did not apply `SH_C0`, degree-1 or degree-2
+directional terms, did not receive `f_rest`, did not evaluate the
+original-position camera direction, and added an upper clamp absent from CUDA.
+The native tile-input observer preserved that historical actual RGB without
+postprocessing, so the mismatch was a production semantic boundary, not an
+observer discrepancy. Impl3 has now replaced that path with the canonical
+degree-2 calculation described here.
+
+The accepted expected-only browser artifact is
+`phase3_step122_impl1_fix3_000151_v13_population_semantic_comparison.json`
+(66,699 bytes, compact JSON 44,305 bytes, SHA-256
+`af8056194704fe15cf48de08a042c0221f971f2d960c352b6fea280c8176f639`).
+It covers all 8 x 65,536 chunks and all 524,288 unique records in
+`[524288, 1048576)` with complete coverage and zero missing or invalid stage
+evidence. The upstream thirteen-stage semantic residual and alpha mismatch are
+both zero. RGB mismatch is 21,030 records / 47,529 components with maximum
+absolute error `0.9841542530436316`, first at srcIndex 659525 / R;
+`productionTileInputRgb` remains the first semantic and downstream mismatch.
+The previous Fix2 values of 21,012 / 47,469 and maximum
+`0.9877071223567659` remain the historical pre-correction baseline. The count
+change is caused by the corrected expected oracle, not by production regression.
+User browser observation remained normal. Fix3 saved no PNG and therefore does
+not establish PNG identity, fixed-condition visual parity, production RGB
+parity, Step122 completion, or Acceptance Level 4.
+
+The implemented resource contract for spatial degree 2 is candidate-aligned and
+chunked. The versioned common candidate-attribute layout
+`phase3-step122-production-candidate-attribute-input-layout-v1` is canonical;
+CPU packing, WGSL indexing, and contract reporting derive from that common
+vocabulary rather than reconstructing offsets independently. The Gaussian
+attribute evaluation contract is
+`phase3-step122-webgpu-gaussian-attribute-evaluation-contract-v2`. The layout
+extends existing binding 4 without adding a storage binding. The first two
+`vec4` values preserve the current fields as `vec0 = (f_dc.rgb, meanScale)` and
+`vec1 = (scaleXYZ, sourceCode)`, followed by six `vec4` values that pack
+`f_rest[0..23]` contiguously:
+
+| SH coefficient | float offsets | source coefficients | packed components |
+| --- | ---: | --- | --- |
+| `sh[1]` | 8-10 | `f_rest[0..2]` | `vec2.xyz` |
+| `sh[2]` | 11-13 | `f_rest[3..5]` | `vec2.w`, `vec3.xy` |
+| `sh[3]` | 14-16 | `f_rest[6..8]` | `vec3.zw`, `vec4.x` |
+| `sh[4]` | 17-19 | `f_rest[9..11]` | `vec4.yzw` |
+| `sh[5]` | 20-22 | `f_rest[12..14]` | `vec5.xyz` |
+| `sh[6]` | 23-25 | `f_rest[15..17]` | `vec5.w`, `vec6.xy` |
+| `sh[7]` | 26-28 | `f_rest[18..20]` | `vec6.zw`, `vec7.x` |
+| `sh[8]` | 29-31 | `f_rest[21..23]` | `vec7.yzw` |
+
+The complete layout is eight `vec4`, 32 floats, or 128 bytes per record. The
+`f_rest` portion is 96 bytes per record; it must not be reported as the complete
+layout size. That portion alone is 6 MiB, 48 MiB, and 310,232,448 bytes (about
+295.86 MiB) for 65,536, 524,288, and 3,231,588 records respectively. The
+complete candidate buffer is 8 MiB for 65,536 records, 64 MiB
+for the fixed 524,288-record gate, and 413,643,264 bytes (about 394.48 MiB) for
+all 3,231,588 records. `renderAttributes`, native tile input, and raster
+companion retain their existing strides because this is an evaluator input
+layout change only.
+
+Spatial-SH dispatch accepts exactly `activeShDegree === 2`, `fdcDim >= 3`, and
+`frestDim >= 24`. Typed-array lengths, every selected srcIndex, and all consumed
+coefficients must be valid and finite before allocation or dispatch;
+`activeShDegreeT` must be a nonnegative integer. Missing
+coefficients, fallback zeros, partial degree-2 evaluation, and silent degree
+downgrade are forbidden. Original xyz remains available from binding 0. Camera
+world position is reconstructed from the existing projection/view contract,
+and direction uses original xyz rather than the conditional state position.
+Camera reconstruction follows the existing row-major view contract,
+`cameraWorldPosition = -R^T t`.
+The fixed baseline's nonnegative temporal degree does not add a temporal SH
+term because the canonical temporal branch is nested under spatial degree above
+2.
+
+The layout builder preflights the actual byte length against both
+`maxStorageBufferBindingSize` and `maxBufferSize` before allocation. The
+production fixed-range workset already requires capacity under the stronger
+existing 256-byte-per-record readiness estimate, but diagnostic execution does
+not pass through that owner and therefore cannot inherit its preflight. The
+production count remains eight storage bindings and requires
+`maxStorageBuffersPerShaderStage >= 8`. The Impl3 browser bundle did not
+directly serialize this production layout or its device-limit preflight, so
+browser device-limit values remain inconclusive rather than accepted evidence.
+A roughly 394.48 MiB full-scene single binding must not be assumed; the
+fixed-range gate and later matched full-scene gate remain separate.
+
+Production candidate input is released after its submitted evaluator work
+completes, while state, render-attribute, and footprint outputs remain owned
+through tile input and compositor handoff. Diagnostic inputs, outputs, and
+readback remain call-scoped and are released by the fresh diagnostic-device
+lifecycle. Production computation must not depend on diagnostic readback.
+Carrying all 45 `f_rest` coefficients or adding any Step-, camera-, frame-,
+time-, or srcIndex-specific branch is not part of this contract.
+
+Production compositor behavior remains downstream and separate: per-splat RGB
+clamping to `[0,1]`, sample-alpha clamping to `0.98`, `rgba8unorm`
+quantization, ordered accumulation, and final RGB are not part of the record-local
+`productionTileInputRgb` responsibility. Step122 Impl3 did not bundle those
+changes with spatial-SH evaluation.
+
+The fixed production gate continues to evaluate its explicit 524,288-record
+resident range, while diagnostic acceptance remains sequential 8 x 65,536
+chunks on the fresh diagnostic device. Neither is evidence of full-scene
+residency.
+
+The accepted Impl3 browser semantic bundle is
+`phase3_step122_impl3_000151_v13_browser_acceptance.json` (55,471 bytes,
+SHA-256 `3dd4706918191c46727dbf54d68c201524a6e28e8f690bed9cc24ce990282e4b`).
+Controller and orchestration decisions are `match`; all 8 chunks and all
+524,288 unique records complete with no coverage, missing, or invalid evidence.
+The upstream thirteen-stage semantic residual is zero. Alpha and RGB each
+compare all 21,818 eligible records with zero record/component mismatch. Alpha
+maximum absolute error is `2.682209014892578e-7`; RGB maximum absolute error is
+`3.3570440627350706e-7`; both use tolerance `1e-5`. First semantic and
+downstream mismatch stages are null. Fresh diagnostic-device acquisition and
+destruction completed, and user browser observation reported no visible issue.
+
+Semantic browser acceptance and direct contract publication are distinct
+evidence responsibilities. The capture-side aggregate's `accepted:false` is a
+false negative caused by expecting the Gaussian attribute contract and
+candidate layout on `getLastRenderResult()` while the WebGPU-exclusive wrapper
+published `webgpu-exclusive-frame-lifecycle-pending`. That status means WebGPU
+owns the Viewer canvas lifecycle and suppresses the WebGL2 frame; it is not a
+production failure. `nativeProductionFrameDataPathReady` is true, but the
+bundle's Gaussian contract version, evaluation mode, and candidate layout are
+null. Direct serialized production-layout evidence is therefore inconclusive.
+The exact layout is established by current source, focused smoke, automatic
+validation, and the ready production data path, not by this artifact. A
+capture-only publication path must not be added solely to turn this aggregate
+flag true.
+
+Record-local acceptance is followed by a fresh fixed-condition PNG gate; one
+must not be substituted for the other. Step122 Validation2 completed that gate
+for the post-Impl3 fixed range `[524288, 1048576)`, camera `000151_v13`, frame
+151, time 23.2, 1280 x 720, black background, canonical top-left / y-down
+orientation, and RGB comparison channel. Capture command verification, file
+checks, PNG freshness, requested/presented state identity, production capture
+expectation, and runtime health are ready. The PNG is nonblank and its SHA-256
+is `9fbacdaa328489494e44e87f8cb3e29d1ed435438174cd53684fa4c340f6793f`.
+All required, written, scattered, sorted, and composited reference counts are
+229,328. The generic visible-record dry-run remains auxiliary capture-health
+evidence and is not the production 524,288-record semantic controller.
+
+The fixed CUDA PNG SHA-256 is
+`fc0cc07de5f708300e6971fcb35803fe9d9dd3bbf4643f86a677e31f540bcee9`.
+Validation2 is same-size but not same-hash. CUDA / WebGPU nonblack pixels are
+131,093 / 153,916. MAE is `6.42220630787037`, RMSE is
+`27.03804631164564`, maximum absolute error is 254, and 153,894 pixels
+(`0.16698567708333334`) differ in at least one RGB channel. Normal-orientation
+MAE `6.42220630787037` is below vertical-flip MAE `14.722511574074074`, so a
+vertical flip is not the classified cause. Relative to Validation1, MAE improves
+by `0.9250915075231481` (about 12.6%) and RMSE by
+`2.6792859521679055` (about 9.0%), while different pixels increase by 906 and
+the WebGPU nonblack population increases by 1,179. Degree-2 spatial SH therefore
+improves visual error magnitude without establishing exact or near parity.
+The canonical classification remains `comparison-ready-difference-unclassified`.
+
+At Validation2, the reviewed downstream classification order was to compare
+production and CUDA tile-reference population/count before depth key/sort,
+ordered references, compositor accumulation, and final RGB. Investigation10
+later found a CUDA camera-to-rasterizer split above that boundary. The current
+ordering and coherence contract are defined in the following Investigation10
+section. PNG appearance or an abs-diff image alone still must not select a cause
+or authorize a Fix.
+
+The fixed manifest records temporal SH degree 0, while checkpoint restoration
+produced runtime active temporal degree 2. Temporal SH execution is nested
+under spatial degree greater than 2 in the canonical CUDA path, so temporal
+coefficients do not contribute to this spatial-degree-2 result. The manifest
+also does not directly record the final `convert_SHs_python=false` and
+`compute_cov3D_python=false` values established by the call path. Its CUDA
+revision is `b8712f36c68140dd105f4f022b02fed4466bcabb` and its render-time
+repository was dirty. The current clean CUDA checkout is a different revision
+and must not be treated as the complete render-time source identity. These
+provenance gaps do not overturn the fixed degree-2 classification, but they must
+be closed before accepting spatial degree above 2, temporal SH, arbitrary CUDA
+regeneration, or full-scene generalization.
+
+The fixed 524,288-record gate and the all-3,231,588-record gate remain distinct.
+The following list records the Validation2-time acceptance order. It was first
+superseded by Investigation10 and is now superseded by the corrected-baseline
+freeze contract below:
+
+1. **completed**: implement only the Step122 Impl1 Fix3 expected-oracle C2 sign
+   correction;
+2. **completed**: run and accept an expected-only fifteen-stage browser
+   comparison with production source unchanged;
+3. **completed**: classify the independent diagnostic RGB/alpha validity defect
+   in Step122 Investigation8;
+4. **completed**: Step122 Impl1 Fix4
+   separates RGB and alpha validity and passes its 52-case focused smoke and
+   related regressions. Its noninterference is covered by the later Impl3 gate;
+5. **completed**: implement Step122 Impl3 production spatial SH under the
+   versioned candidate-attribute contract and complete automatic validation;
+6. **completed**: run and accept an Impl3 fifteen-stage browser comparison with
+   zero RGB/alpha semantic residual and complete fixed-range coverage;
+7. **completed**: Step122 Validation2 runs the post-Impl3 fresh fixed-condition
+   PNG comparison and records improved MAE / RMSE with a remaining unclassified
+   difference;
+8. **historical candidate, not current**: compare production and CUDA
+   tile-reference population/count, then proceed to depth key/sort, per-tile
+   ordered references, compositor accumulation, and final RGB / PNG encoding
+   only in evidence order;
+9. independently complete a matched full-scene gate covering all 3,231,588
+   source records without silent omission.
+
+The expected-only gate is complete with zero alpha record/component mismatches,
+zero upstream thirteen-stage semantic residual, and the accepted RGB values
+recorded above. Production source remained unchanged, so expected and production
+effects were not combined in one artifact. Step122 Impl1 Fix4 is implementation-
+and automatic-validation-complete without standalone browser acceptance.
+Step122 Impl3 and its fixed-range browser semantic gate are complete. A fresh
+post-Impl3 PNG has now been compared, but remains classified
+`comparison-ready-difference-unclassified`; therefore Step122,
+fixed-condition visual parity, and Acceptance Level 4 remain incomplete.
+
+These fixed-range gates do not waive the later requirement to process every
+source record without silent omission and compare a matched full-scene CUDA
+Reference.
+
+## CUDA Reference Effective Camera Intrinsics and Raster Coherence Contract
+
+Step122 Investigation10 reclassifies the accepted Step121/Step122 record-local
+gates without reverting their implementation. Those gates establish complete
+fixed-range coverage and semantic agreement between WebGPU actual evidence and
+the current expected oracle. They do not yet establish CUDA-direct Jacobian,
+screen covariance, conic, radius, tile bounds, or tile-reference parity.
+
+### Confirmed split in the current CUDA Reference
+
+For an intrinsics camera, the dataset loader stores valid `fl_x`, `fl_y`, `cx`,
+and `cy` while using `FoVx = FoVy = -1.0` as a raw sentinel. Camera construction
+correctly builds the full projection from the focal intrinsics. The renderer,
+however, unconditionally computes `tan(FoV / 2)` from the sentinel and passes
+that result to the rasterizer. The rasterizer then reconstructs footprint focal
+length from the supplied tanFov and uses both values for camera-space clamping
+and the projection Jacobian.
+
+The fixed CUDA execution therefore used:
+
+- `tanFovX = tanFovY = -0.5463024974`;
+- `focalX = -1171.512085`;
+- `focalY = -658.975586`.
+
+The manifest builder separately normalized the same camera to positive values:
+`fx = fy = 1777.7777777777778`, `tanFovX = 0.36`, and
+`tanFovY = 0.2025`, with positive FoV. Screen-center projection and footprint
+rasterization therefore did not consume one coherent effective camera
+contract. The classification is `mixed-divergence`: CUDA execution consumed the
+raw sentinel, manifest publication reported normalized effective intrinsics,
+and WebGPU expected/production consistently consumed the published positive
+projection contract. This is neither a portable f32 difference nor evidence of
+a WebGPU-production-only defect.
+
+Across canonical source indices `658947, 771007, 788034, 826401, 835183,
+852955, 863505, 906711`, conditional covariance, unclamped camera position,
+depth, camera covariance, and projected center match. Camera clamping is the
+first source-level mismatch, at all eight records. For srcIndex 658947,
+clamped x is CUDA `-60.285377502441406` versus current expected
+`14.475767772032562`. In the published fifteen-stage vocabulary, the first
+mismatch is projection-Jacobian `j00`, CUDA `-13.801024436950684` versus
+current expected `20.943151606426603`. The difference propagates through screen
+covariance, conic, radius, tile rect, and `tilesTouched`. The direct
+`tilesTouched` values `[4,6,16,30,4,6,2,6]` differ from current expected
+`[4,16,25,49,4,12,4,12]` at six records.
+
+### Effective-intrinsics ownership
+
+The CUDA Reference camera-to-rasterizer handoff must own one effective camera
+intrinsics contract. Raw camera input and effective rasterizer settings are
+different responsibilities:
+
+- raw intrinsics cameras retain `fl_x/fl_y/cx/cy` and may retain the historical
+  negative FoV sentinel only as input provenance;
+- raw legacy FoV-only cameras retain their valid FoV input path;
+- intrinsics cameras derive effective tanFov and focal values from
+  `fl_x/fl_y`, width, and height;
+- legacy FoV-only cameras derive the same effective vocabulary from valid FoV;
+- full projection and footprint rasterizer settings consume one coherent set
+  of effective intrinsics for a render;
+- a raw sentinel must never be treated as an effective rasterizer setting.
+
+If implementation requires a new or expanded contract, one common builder at
+the camera-to-rasterizer boundary must produce the canonical effective
+vocabulary. Projection setup, rasterizer settings, provenance publication, and
+focused tests must consume that builder or its exact result rather than
+reconstructing tanFov/focal independently. This documentation records the
+contract; it does not authorize an implementation or prescribe helper/file
+placement before the implementation task rechecks the CUDA source.
+
+The manifest must distinguish raw camera input from the exact effective values
+passed to the rasterizer. It must not normalize a sentinel into a plausible
+positive publication while execution uses another value. Required provenance
+includes camera mode, raw FoV and focal/principal-point inputs as applicable,
+effective focal/tanFov/FoV, width/height, and the fact that full projection and
+footprint rasterization share the effective identity. Existing WebGPU camera,
+projection, orientation, numerical formulas, and production ownership are not
+changed by this CUDA Reference responsibility.
+
+### Revalidation gates
+
+The current accepted thirteen/fifteen-stage results remain valid only as
+WebGPU-actual/current-expected internal-oracle matches. Step121 infrastructure,
+orchestration, controller, full 524,288-record coverage, bounded evidence, and
+diagnostic-device separation remain complete. Step122 diagnostic fixes, alpha
+oracle, degree-2 spatial SH, WebGPU alpha/RGB match, full coverage, and device
+separation also remain complete. CUDA-direct screen/raster parity is pending.
+
+Validation2 remains an executed historical comparison between the then-created
+CUDA and WebGPU PNGs. Its MAE `6.42220630787037`, RMSE
+`27.03804631164564`, maximum absolute error 254, 153,894 different pixels,
+ratio `0.16698567708333334`, and WebGPU production reference count 229,328
+must be retained. Because its CUDA image used the split camera/raster contract,
+it is not the final baseline for coherent CUDA/WebGPU parity.
+
+The Investigation10-time dependency order, now superseded by the corrected-baseline track below, was:
+
+1. complete the Investigation10 documentation sync;
+2. as a historical candidate that was not executed, implement the CUDA
+   Reference intrinsics handoff correction while preserving legacy FoV-only
+   cameras;
+3. run focused intrinsics-camera and legacy-FoV-camera tests;
+4. review the implementation report;
+5. use `/home/demo/miniconda3/envs/4dgs310/bin/python` to regenerate the CUDA
+   Reference into a new output directory without deleting or overwriting the
+   existing canonical artifacts;
+6. recompare the canonical eight camera clamp, Jacobian, screen covariance,
+   conic, radius, tile rect, and `tilesTouched` evidence;
+7. only after that gate is ready, repeat fixed-524,288 semantic,
+   tile-reference, and PNG comparison;
+8. after a coherent Reference exists, reconsider CUDA `num_rendered` and
+   tile-reference-population publication as a separate responsibility;
+9. after fixed-range downstream parity, perform the mandatory matched
+   full-scene gate over all 3,231,588 records without silent omission.
+
+Publishing `num_rendered` first would not repair the camera contract, and its
+total alone cannot establish per-record `tilesTouched` or the exact
+`(tile, Gaussian)` reference population. Depth/sort/compositor investigation is
+also held until the upstream camera/raster gate is coherent.
+
+The direct evidence has separate publication caveats. Its embedded SHA-256
+`5ec5a0af...` is a pre-enrichment hash, while the final file bytes hash to
+`cbde9927bb625c228b0a119b1784a24b55c6592f43faf04c78e96828e6c6e2f5`.
+The current field named `ndc` contains leading components of `T = W * J`, and
+`clip` contains `[focalX, focalY, tanFovX, tanFovY]`. Renaming those fields or
+publishing a final-bytes self hash is a separate schema/publication
+responsibility and must not be silently bundled into the camera handoff fix.
+
+Step122 overall, fixed-condition PNG parity, Acceptance Level 4, interactive
+acceptance, performance/scalability, and full-scene correctness remain
+incomplete. This design section is not implementation authorization.
+
+## Asset / Renderer Semantics Identity and Corrected-Baseline Freeze Contract
+
+### Baseline identity is part of the rendering contract
+
+A production Viewer baseline is not identified by checkpoint bytes alone. It
+is bound to a shared asset/renderer semantics identity covering at least the
+training renderer, effective camera/raster contract, checkpoint, SPL4 export,
+CUDA Reference, Viewer expected oracle, WebGPU production implementation,
+population provenance, camera/time conditions, and generated comparison
+artifacts. These consumers must use one coherent camera/raster semantics
+identity. A legacy component and a corrected component must not be mixed and
+then described as one parity baseline.
+
+Checkpoint semantics and renderer semantics must not be assumed independent.
+Training uses rendered RGB/alpha in the loss and backward gradient, while
+visibility and radii feed densification statistics and clone/split/prune.
+Changing the camera-to-rasterizer handoff can therefore change the optimized
+population as well as the final image. Rendering a legacy checkpoint with a
+corrected renderer is a useful controlled diagnostic, but it does not convert
+that checkpoint into a corrected-baseline checkpoint.
+
+The legacy baseline remains immutable historical evidence. Its CUDA/training
+fork HEAD is `7663366f823b0beea9cedf76013840f20f7cd563`, based on official
+upstream `63725f21d4adc29669e565ae10e6b3ad6e0d1250`; its Viewer HEAD is
+`c137ae42abbd703994f26ac2c2326d2349021654`. Its training output is
+`/home/demo/work/outputs/sph_scene_4dgs`, with checkpoint SHA-256
+`bd44500c3474ef67cd4fe44f26a2c83b6953e30315d07220769002b61b74dcb4`.
+Existing checkpoint, SPL4, CUDA Reference, JSON, PNG, and acceptance
+measurements must not be deleted, renamed, overwritten, or reused as corrected
+output locations.
+
+### Corrected camera/raster semantics
+
+The corrected intrinsics path must preserve raw input provenance while
+publishing and consuming one effective rasterizer identity. For the current
+1280 x 720 dataset with `fl_x = fl_y = 1777.7777777777778`, `cx = 640`, and
+`cy = 360`, the effective contract is `tanFovX = 0.36`, `tanFovY = 0.2025`,
+and `focalX = focalY = 1777.7777777777778`. The raw negative FoV sentinel is
+input provenance, not an effective rasterizer setting. Intrinsics-camera and
+legacy FoV-only-camera modes require separate focused coverage, but both must
+produce the common effective vocabulary at the camera-to-rasterizer boundary.
+
+Training, corrected CUDA Reference generation, SPL4 provenance, Viewer
+expected-oracle replay, and WebGPU production comparison must bind to the same
+reviewed semantics version. A manifest must distinguish raw camera input from
+the exact effective settings used by execution. If this contract is expanded,
+one common builder must own the vocabulary; individual renderer, manifest, or
+validation paths must not reconstruct it independently.
+
+### Viewer freeze and infrastructure reuse
+
+The Viewer is frozen partway through Step122 while the corrected training
+baseline is established. The freeze prohibits adapting production to the
+historical negative-sentinel footprint, adding unrelated Viewer fixes, or
+continuing tile-reference, sort, compositor, current-reference-count, PNG
+metric, full-scene, performance, scalability, or LOD work against the legacy
+asset.
+
+The freeze does not revoke completed infrastructure. Step118 native WebGPU
+production ownership and resident-range handling, Step120 conditional
+covariance, Step121 bounded producer/orchestrator and diagnostic-device
+isolation, Step122 alpha oracle and degree-2 spatial SH, and Step117 capture,
+generation, writer, currentTexture, and last-valid presentation responsibilities
+remain reusable. Their status is infrastructure completed and legacy-baseline
+evidence retained, with corrected-baseline acceptance pending.
+
+Infrastructure reuse and acceptance reuse are separate decisions. Legacy
+record count 3,231,588, fixed range `[524288, 1048576)`, representative source
+indices, 229,328 production references, semantic residuals, thresholds, and PNG
+metrics are not automatically valid for a new checkpoint. The corrected asset
+must publish its own population provenance and record count. Representative
+records and a scalable fixed range must then be designed from that population
+before semantic and raster comparison resumes.
+
+### Corrected-baseline gates
+
+The dependency order is:
+
+1. synchronize the Investigation11 freeze and retraining decision;
+2. let the user create Viewer and CUDA/training Git checkpoints;
+3. correct the shared renderer camera intrinsics handoff as one responsibility;
+4. accept focused intrinsics-camera and legacy-FoV-camera validation;
+5. publish raw camera input and actual effective rasterizer intrinsics;
+6. render the legacy checkpoint with the corrected renderer only as a
+   diagnostic control;
+7. keep that diagnostic out of formal corrected-checkpoint acceptance;
+8. retrain from scratch into a new non-overwriting output identity;
+9. compare ground truth, legacy-checkpoint/legacy-renderer,
+   legacy-checkpoint/corrected-renderer, and
+   new-checkpoint/corrected-renderer outputs under fixed conditions;
+10. export a new SPL4 from the new checkpoint;
+11. generate a corrected CUDA Reference in a new directory;
+12. bind the new population provenance, count, camera, and time;
+13. unfreeze the Viewer;
+14. select and compare canonical representatives;
+15. establish a new fixed-range semantic gate;
+16. validate tile-reference, sort, compositor, and PNG parity;
+17. run the corrected full-scene gate using the new population count as the
+    canonical bound, with no silent omission;
+18. only then proceed to interactive camera/time, performance, scalability,
+    and LOD work.
+
+Viewer unfreeze requires the corrected handoff review, focused validation,
+completed from-scratch training, fixed identities for the new checkpoint,
+SPL4, and CUDA Reference, and a reviewed new-population/fixed-range design.
+The candidate output
+`/home/demo/work/outputs/sph_scene_4dgs_corrected_intrinsics_v1` is plan-only;
+it has not been created or authorized. Acceptance Level 4 and corrected
+full-scene correctness remain incomplete until the corrected-baseline gates
+above are satisfied.

@@ -322,7 +322,7 @@ export const WEBGPU_4D_STATE_SOURCE_CONTRACT_VERSION =
   'phase3-step80-webgpu-4d-state-source-contract-v1';
 
 export const WEBGPU_GAUSSIAN_ATTRIBUTE_EVALUATION_CONTRACT_VERSION =
-  'phase3-step81-webgpu-gaussian-attribute-evaluation-contract-v1';
+  'phase3-step122-webgpu-gaussian-attribute-evaluation-contract-v2';
 
 export const WEBGPU_GAUSSIAN_FOOTPRINT_EVALUATION_CONTRACT_VERSION =
   'phase3-step82-webgpu-gaussian-footprint-evaluation-contract-v1';
@@ -409,6 +409,11 @@ export function buildWebGpuGaussianAttributeEvaluationContract({
   renderAttributeClassification = 'partial-webgpu-computed',
   renderPayloadClassification = 'partial-webgpu-gaussian-attributes',
   fullGaussianAttributeEvaluationInWgsl = false,
+  candidateAttributeInputLayout = null,
+  spatialShDegree = null,
+  spatialShEvaluationMode = null,
+  higherSpatialDegreeDeferred = true,
+  temporalShEvaluationDeferred = true,
   reason = null
 } = {}) {
   const gaussianAttributeEvaluationReady =
@@ -437,6 +442,11 @@ export function buildWebGpuGaussianAttributeEvaluationContract({
     renderAttributeClassification,
     renderPayloadClassification,
     fullGaussianAttributeEvaluationInWgsl,
+    candidateAttributeInputLayout,
+    spatialShDegree,
+    spatialShEvaluationMode,
+    higherSpatialDegreeDeferred,
+    temporalShEvaluationDeferred,
     reason
   };
 }

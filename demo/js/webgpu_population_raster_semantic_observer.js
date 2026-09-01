@@ -1,4 +1,5 @@
 import {
+  POPULATION_RASTER_SEMANTIC_COMPANION_FLOAT_STRIDE,
   buildPopulationRasterSemanticCompanionLayoutContract
 } from './common_4dgs_population_semantic_comparison_contracts.js';
 import {
@@ -77,7 +78,8 @@ export async function observePopulationRasterSemanticCompanion({
     };
   }
 
-  const evidenceFloatCount = recordCount * 12;
+  const evidenceFloatCount =
+    recordCount * POPULATION_RASTER_SEMANTIC_COMPANION_FLOAT_STRIDE;
   const evidenceByteSize = evidenceFloatCount * Float32Array.BYTES_PER_ELEMENT;
   const ownedBuffers = [];
   let stagingBuffer = null;
@@ -111,7 +113,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let row = id.x;
   if (row >= params.count) { return; }
   let tileBase = row * 3u;
-  let evidenceBase = row * 3u;
+  let evidenceBase = row * 4u;
   let centerRadiusDepth = tileInputs[tileBase + 0u];
   let colorAlpha = tileInputs[tileBase + 2u];
   let rasterEligible = centerRadiusDepth.z > 0.0 && colorAlpha.w > 0.0;
@@ -119,6 +121,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     companionEvidence[evidenceBase + 0u] = vec4f(0.0);
     companionEvidence[evidenceBase + 1u] = vec4f(0.0);
     companionEvidence[evidenceBase + 2u] = vec4f(0.0);
+    companionEvidence[evidenceBase + 3u] = vec4f(0.0);
     return;
   }
   let pixelBounds = productionInclusivePixelBounds(
@@ -136,6 +139,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     companionEvidence[evidenceBase + 0u] = vec4f(0.0);
     companionEvidence[evidenceBase + 1u] = vec4f(0.0);
     companionEvidence[evidenceBase + 2u] = vec4f(0.0);
+    companionEvidence[evidenceBase + 3u] = vec4f(0.0);
     return;
   }
   companionEvidence[evidenceBase + 0u] = vec4f(
@@ -149,6 +153,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     vec2f(tileBounds.minInclusive),
     vec2f(tileBounds.maxInclusive)
   );
+  companionEvidence[evidenceBase + 3u] = colorAlpha;
 }`
     });
     const pipeline = device.createComputePipeline({

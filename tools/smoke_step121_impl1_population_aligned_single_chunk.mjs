@@ -8,6 +8,8 @@ import {
   POPULATION_RASTER_SEMANTIC_COMPANION_FLOAT_STRIDE,
   POPULATION_RASTER_SEMANTIC_COMPANION_LAYOUT_SCHEMA_VERSION,
   POPULATION_RASTER_SEMANTIC_COMPANION_VEC4_STRIDE,
+  POPULATION_RASTER_SEMANTIC_ACTUAL_PROVENANCE,
+  POPULATION_RASTER_SEMANTIC_EXPECTED_PROVENANCE,
   POPULATION_SEMANTIC_LOGICAL_COMBINED_BYTES_PER_RECORD,
   POPULATION_SEMANTIC_LOGICAL_COMBINED_FLOAT_STRIDE,
   POPULATION_SEMANTIC_LOGICAL_COMBINED_VEC4_STRIDE,
@@ -19,6 +21,8 @@ import {
   POPULATION_SEMANTIC_STAGE_LOCAL_MAX_REPRESENTATIVE_RECORDS,
   POPULATION_SEMANTIC_STAGE_LOCAL_REPRESENTATIVE_LIMIT,
   POPULATION_SEMANTIC_STAGE_CONTRACTS,
+  POPULATION_TILE_INPUT_ALPHA_STAGE_LOCAL_REPRESENTATIVE_LIMIT,
+  POPULATION_TILE_INPUT_RGB_STAGE_LOCAL_REPRESENTATIVE_LIMIT,
   PRODUCTION_RESIDENT_RANGE_START,
   buildPopulationRasterSemanticCompanionLayoutContract,
   buildPopulationSemanticComparisonInputContract,
@@ -27,7 +31,13 @@ import {
   validatePopulationSemanticStageLocalMismatchSummaries
 } from '../demo/js/common_4dgs_population_semantic_comparison_contracts.js';
 import {
+  PRODUCTION_TILE_INPUT_ALPHA_F32_CENTRAL_ORACLE_VERSION,
+  buildProductionTileInputAlphaF32Central
+} from '../demo/js/common_4dgs_tile_input_alpha_f32_semantic.js';
+import {
   buildCudaNormalizedInclusiveTileRect,
+  buildCudaDegree2TileInputExpectedRgb,
+  buildCudaTileInputExpectedAlpha,
   buildExpectedWebGpuInclusivePixelBounds,
   buildExplicitPopulationChunkIndices,
   buildPopulationAlignedSemanticExpectedRecord,
@@ -49,6 +59,8 @@ const validIdentity = {
   projectionIdentity: 'projection-fixture',
   timeIdentity: 'time-23.2'
 };
+const representativeActivatedOpacity = 0.1694848388;
+const representativeTemporalOpacity = 0.01641350612;
 
 function inputContract(rangeCount, rangeStart = PRODUCTION_RESIDENT_RANGE_START) {
   return buildPopulationSemanticComparisonInputContract({
@@ -76,7 +88,9 @@ function expectedRecord(localRow, {
     projectedCenter: [base + 60, base + 61],
     cameraDepth: [base + 62],
     webgpuInclusivePixelBounds: [1, 2, 10, 11],
-    normalizedInclusiveTileBounds: [0, 0, 1, 1]
+    normalizedInclusiveTileBounds: [0, 0, 1, 1],
+    productionTileInputAlpha: [0.5],
+    productionTileInputRgb: [0.25, 0.5, 0.75]
   };
   return {
     valid: true,
@@ -94,7 +108,9 @@ function expectedRecord(localRow, {
                 'projectedCenter',
                 'cameraDepth',
                 'webgpuInclusivePixelBounds',
-                'normalizedInclusiveTileBounds'
+                'normalizedInclusiveTileBounds',
+                'productionTileInputAlpha',
+                'productionTileInputRgb'
               ].includes(key)
                 ? rasterEligible
                 : eligible
@@ -145,7 +161,9 @@ function packRasterCompanion(records) {
           ...stage.projectedCenter.values,
           stage.cameraDepth.values[0],
           ...stage.webgpuInclusivePixelBounds.values,
-          ...stage.normalizedInclusiveTileBounds.values
+          ...stage.normalizedInclusiveTileBounds.values,
+          ...stage.productionTileInputRgb.values,
+          stage.productionTileInputAlpha.values[0]
         ]
       : new Array(POPULATION_RASTER_SEMANTIC_COMPANION_FLOAT_STRIDE).fill(0), base);
   }
@@ -296,7 +314,7 @@ assert.deepEqual(
 
 assert.equal(
   POPULATION_SEMANTIC_COMPARISON_SCHEMA_VERSION,
-  'phase3-population-aligned-semantic-comparison-v5'
+  'phase3-population-aligned-semantic-comparison-v6'
 );
 assert.ok(
   POPULATION_SEMANTIC_COMPLETE_STAGE_CLASSIFICATIONS.includes(
@@ -304,18 +322,20 @@ assert.ok(
   )
 );
 assert.equal(POPULATION_SEMANTIC_STAGE_LOCAL_REPRESENTATIVE_LIMIT, 4);
-assert.equal(POPULATION_SEMANTIC_STAGE_LOCAL_MAX_REPRESENTATIVE_RECORDS, 52);
+assert.equal(POPULATION_TILE_INPUT_ALPHA_STAGE_LOCAL_REPRESENTATIVE_LIMIT, 8);
+assert.equal(POPULATION_TILE_INPUT_RGB_STAGE_LOCAL_REPRESENTATIVE_LIMIT, 1);
+assert.equal(POPULATION_SEMANTIC_STAGE_LOCAL_MAX_REPRESENTATIVE_RECORDS, 61);
 assert.equal(POPULATION_SEMANTIC_EVIDENCE_VEC4_STRIDE, 8);
 assert.equal(POPULATION_SEMANTIC_EVIDENCE_FLOAT_STRIDE, 32);
 assert.equal(POPULATION_SEMANTIC_EVIDENCE_BYTES_PER_RECORD, 128);
-assert.equal(POPULATION_RASTER_SEMANTIC_COMPANION_VEC4_STRIDE, 3);
-assert.equal(POPULATION_RASTER_SEMANTIC_COMPANION_FLOAT_STRIDE, 12);
-assert.equal(POPULATION_RASTER_SEMANTIC_COMPANION_BYTES_PER_RECORD, 48);
-assert.equal(POPULATION_SEMANTIC_LOGICAL_COMBINED_VEC4_STRIDE, 11);
-assert.equal(POPULATION_SEMANTIC_LOGICAL_COMBINED_FLOAT_STRIDE, 44);
-assert.equal(POPULATION_SEMANTIC_LOGICAL_COMBINED_BYTES_PER_RECORD, 176);
+assert.equal(POPULATION_RASTER_SEMANTIC_COMPANION_VEC4_STRIDE, 4);
+assert.equal(POPULATION_RASTER_SEMANTIC_COMPANION_FLOAT_STRIDE, 16);
+assert.equal(POPULATION_RASTER_SEMANTIC_COMPANION_BYTES_PER_RECORD, 64);
+assert.equal(POPULATION_SEMANTIC_LOGICAL_COMBINED_VEC4_STRIDE, 12);
+assert.equal(POPULATION_SEMANTIC_LOGICAL_COMBINED_FLOAT_STRIDE, 48);
+assert.equal(POPULATION_SEMANTIC_LOGICAL_COMBINED_BYTES_PER_RECORD, 192);
 assert.deepEqual(
-  POPULATION_SEMANTIC_STAGE_CONTRACTS.slice(-5).map(
+  POPULATION_SEMANTIC_STAGE_CONTRACTS.slice(-7).map(
     ({ key, components, tolerance }) => ({
       key,
       components: [...components],
@@ -347,6 +367,16 @@ assert.deepEqual(
       key: 'normalizedInclusiveTileBounds',
       components: ['minX', 'minY', 'maxX', 'maxY'],
       tolerance: 0
+    },
+    {
+      key: 'productionTileInputAlpha',
+      components: ['alpha'],
+      tolerance: 1e-5
+    },
+    {
+      key: 'productionTileInputRgb',
+      components: ['r', 'g', 'b'],
+      tolerance: 1e-5
     }
   ]
 );
@@ -359,8 +389,8 @@ assert.equal(
   POPULATION_RASTER_SEMANTIC_COMPANION_LAYOUT_SCHEMA_VERSION
 );
 assert.equal(companionLayoutFixture.status, 'ready');
-assert.equal(companionLayoutFixture.rowStrideFloats, 12);
-assert.equal(companionLayoutFixture.logicalCombinedRowStrideFloats, 44);
+assert.equal(companionLayoutFixture.rowStrideFloats, 16);
+assert.equal(companionLayoutFixture.logicalCombinedRowStrideFloats, 48);
 
 const match = compareFixture({ count: 4 });
 assert.equal(match.decision, 'match');
@@ -371,6 +401,342 @@ assert.ok(match.stageSummaries.every((stage) => stage.classification === 'match'
 assert.deepEqual(
   match.precisionClassificationProvenance,
   POPULATION_PIXEL_BOUNDARY_PRECISION_CLASSIFICATION_PROVENANCE
+);
+assert.equal(match.firstSemanticMismatchStage, null);
+assert.equal(match.firstDownstreamMismatchStage, null);
+
+const alphaMismatchRecord = expectedRecord(0);
+alphaMismatchRecord.stages.productionTileInputAlpha.values = [
+  representativeTemporalOpacity
+];
+const alphaMismatchEvidence = packRasterCompanion([alphaMismatchRecord]);
+alphaMismatchEvidence[15] = 0.05;
+const alphaMismatch = comparePacked(
+  packActual([alphaMismatchRecord]),
+  [alphaMismatchRecord],
+  alphaMismatchEvidence
+);
+assert.equal(alphaMismatch.decision, 'mismatch');
+assert.equal(
+  alphaMismatch.firstDownstreamMismatchStage,
+  'productionTileInputAlpha'
+);
+assert.equal(
+  alphaMismatch.stageSummaries.find(
+    (stage) => stage.stage === 'productionTileInputAlpha'
+  ).mismatchCount,
+  1
+);
+assert.equal(
+  alphaMismatch.stageSummaries.find(
+    (stage) => stage.stage === 'productionTileInputRgb'
+  ).classification,
+  'match'
+);
+
+const upperAlphaMismatchRecord = expectedRecord(0);
+upperAlphaMismatchRecord.stages.productionTileInputAlpha.values = [
+  buildCudaTileInputExpectedAlpha({ rawOpacityLogit: 10, temporalWeight: 1 })
+];
+const upperAlphaMismatchEvidence = packRasterCompanion([
+  upperAlphaMismatchRecord
+]);
+upperAlphaMismatchEvidence[15] = 0.99;
+const upperAlphaMismatch = comparePacked(
+  packActual([upperAlphaMismatchRecord]),
+  [upperAlphaMismatchRecord],
+  upperAlphaMismatchEvidence
+);
+assert.equal(upperAlphaMismatch.decision, 'mismatch');
+assert.equal(
+  upperAlphaMismatch.firstDownstreamMismatchStage,
+  'productionTileInputAlpha'
+);
+
+const rgbMismatchRecord = expectedRecord(0);
+const rgbMismatchEvidence = packRasterCompanion([rgbMismatchRecord]);
+rgbMismatchEvidence[12] += 0.25;
+const rgbMismatch = comparePacked(
+  packActual([rgbMismatchRecord]),
+  [rgbMismatchRecord],
+  rgbMismatchEvidence
+);
+assert.equal(rgbMismatch.decision, 'mismatch');
+assert.equal(
+  rgbMismatch.firstDownstreamMismatchStage,
+  'productionTileInputRgb'
+);
+
+const upperRgbMatchRecord = expectedRecord(0);
+upperRgbMatchRecord.stages.productionTileInputRgb.values = [1.25, 0.5, 0.75];
+const upperRgbMatch = comparePacked(
+  packActual([upperRgbMatchRecord]),
+  [upperRgbMatchRecord]
+);
+const upperRgbMatchRgb = upperRgbMatch.stageSummaries.find(
+  (stage) => stage.stage === 'productionTileInputRgb'
+);
+const upperRgbMatchAlpha = upperRgbMatch.stageSummaries.find(
+  (stage) => stage.stage === 'productionTileInputAlpha'
+);
+assert.equal(upperRgbMatch.decision, 'match');
+assert.equal(upperRgbMatchRgb.validCount, 1);
+assert.equal(upperRgbMatchRgb.comparedCount, 1);
+assert.equal(upperRgbMatchRgb.invalidCount, 0);
+assert.equal(upperRgbMatchRgb.classification, 'match');
+assert.equal(upperRgbMatchAlpha.validCount, 1);
+assert.equal(upperRgbMatchAlpha.comparedCount, 1);
+assert.equal(upperRgbMatchAlpha.invalidCount, 0);
+assert.equal(upperRgbMatchAlpha.classification, 'match');
+
+const upperRgbMismatchRecord = expectedRecord(0);
+upperRgbMismatchRecord.stages.productionTileInputRgb.values = [1.25, 0.5, 0.75];
+const upperRgbMismatchEvidence = packRasterCompanion([upperRgbMismatchRecord]);
+upperRgbMismatchEvidence[12] = 1;
+const upperRgbMismatch = comparePacked(
+  packActual([upperRgbMismatchRecord]),
+  [upperRgbMismatchRecord],
+  upperRgbMismatchEvidence
+);
+assert.equal(upperRgbMismatch.decision, 'mismatch');
+assert.equal(
+  upperRgbMismatch.firstDownstreamMismatchStage,
+  'productionTileInputRgb'
+);
+const upperRgbMismatchRgb = upperRgbMismatch.stageSummaries.find(
+  (stage) => stage.stage === 'productionTileInputRgb'
+);
+const upperRgbMismatchAlpha = upperRgbMismatch.stageSummaries.find(
+  (stage) => stage.stage === 'productionTileInputAlpha'
+);
+assert.equal(upperRgbMismatchRgb.mismatchCount, 1);
+assert.equal(upperRgbMismatchRgb.invalidCount, 0);
+assert.equal(upperRgbMismatchRgb.classification, 'mismatch');
+assert.equal(upperRgbMismatchAlpha.invalidCount, 0);
+assert.equal(upperRgbMismatchAlpha.classification, 'match');
+
+const negativeRgbEvidence = packRasterCompanion([expectedRecord(0)]);
+negativeRgbEvidence[12] = -0.25;
+const negativeRgb = comparePacked(
+  packActual([expectedRecord(0)]),
+  [expectedRecord(0)],
+  negativeRgbEvidence
+);
+const negativeRgbStage = negativeRgb.stageSummaries.find(
+  (stage) => stage.stage === 'productionTileInputRgb'
+);
+const negativeRgbAlphaStage = negativeRgb.stageSummaries.find(
+  (stage) => stage.stage === 'productionTileInputAlpha'
+);
+assert.equal(negativeRgb.decision, 'blocked');
+assert.equal(negativeRgbStage.validCount, 0);
+assert.equal(negativeRgbStage.comparedCount, 0);
+assert.equal(negativeRgbStage.invalidCount, 1);
+assert.equal(negativeRgbStage.mismatchCount, 0);
+assert.equal(negativeRgbStage.maxAbsoluteError, null);
+assert.equal(negativeRgbStage.classification, 'blocked-incomplete-evidence');
+assert.equal(negativeRgbAlphaStage.validCount, 1);
+assert.equal(negativeRgbAlphaStage.comparedCount, 1);
+assert.equal(negativeRgbAlphaStage.invalidCount, 0);
+assert.equal(negativeRgbAlphaStage.classification, 'match');
+
+const invalidAlphaEvidence = packRasterCompanion([expectedRecord(0)]);
+invalidAlphaEvidence[15] = 1.25;
+const invalidAlpha = comparePacked(
+  packActual([expectedRecord(0)]),
+  [expectedRecord(0)],
+  invalidAlphaEvidence
+);
+const invalidAlphaStage = invalidAlpha.stageSummaries.find(
+  (stage) => stage.stage === 'productionTileInputAlpha'
+);
+const invalidAlphaRgbStage = invalidAlpha.stageSummaries.find(
+  (stage) => stage.stage === 'productionTileInputRgb'
+);
+assert.equal(invalidAlpha.decision, 'blocked');
+assert.equal(invalidAlphaStage.validCount, 0);
+assert.equal(invalidAlphaStage.comparedCount, 0);
+assert.equal(invalidAlphaStage.invalidCount, 1);
+assert.equal(invalidAlphaStage.mismatchCount, 0);
+assert.equal(invalidAlphaStage.maxAbsoluteError, null);
+assert.equal(invalidAlphaStage.classification, 'blocked-incomplete-evidence');
+assert.equal(invalidAlphaRgbStage.validCount, 1);
+assert.equal(invalidAlphaRgbStage.comparedCount, 1);
+assert.equal(invalidAlphaRgbStage.invalidCount, 0);
+assert.equal(invalidAlphaRgbStage.classification, 'match');
+
+const alphaAndRgbMismatchEvidence = packRasterCompanion([alphaMismatchRecord]);
+alphaAndRgbMismatchEvidence[12] += 0.25;
+alphaAndRgbMismatchEvidence[15] = 0.05;
+const alphaAndRgbMismatch = comparePacked(
+  packActual([alphaMismatchRecord]),
+  [alphaMismatchRecord],
+  alphaAndRgbMismatchEvidence
+);
+assert.equal(
+  alphaAndRgbMismatch.firstDownstreamMismatchStage,
+  'productionTileInputAlpha'
+);
+assert.equal(
+  alphaAndRgbMismatch.stageLocalMismatchSummaries.find(
+    (stage) => stage.stage === 'productionTileInputAlpha'
+  ).serializedRepresentativeRecordCount,
+  1
+);
+
+const fiveAlphaMismatchRecords = Array.from(
+  { length: 5 },
+  (_, row) => expectedRecord(row)
+);
+const fiveAlphaMismatchEvidence = packRasterCompanion(
+  fiveAlphaMismatchRecords
+);
+for (let row = 0; row < fiveAlphaMismatchRecords.length; row += 1) {
+  const base = row * POPULATION_RASTER_SEMANTIC_COMPANION_FLOAT_STRIDE;
+  fiveAlphaMismatchEvidence[base + 15] += 0.01;
+}
+const fiveAlphaMismatch = comparePacked(
+  packActual(fiveAlphaMismatchRecords),
+  fiveAlphaMismatchRecords,
+  fiveAlphaMismatchEvidence
+);
+const fiveAlphaStageLocal = fiveAlphaMismatch.stageLocalMismatchSummaries.find(
+  (stage) => stage.stage === 'productionTileInputAlpha'
+);
+assert.equal(fiveAlphaMismatch.decision, 'mismatch');
+assert.equal(fiveAlphaStageLocal.sourceMismatchRecordCount, 5);
+assert.equal(fiveAlphaStageLocal.sourceComponentMismatchCount, 5);
+assert.equal(fiveAlphaStageLocal.serializedRepresentativeRecordCount, 5);
+assert.equal(
+  fiveAlphaStageLocal.representativeRecordLimit,
+  POPULATION_TILE_INPUT_ALPHA_STAGE_LOCAL_REPRESENTATIVE_LIMIT
+);
+assert.equal(fiveAlphaStageLocal.truncated, false);
+assert.deepEqual(
+  fiveAlphaStageLocal.representatives.map(({ localRow, srcIndex }) => [
+    localRow,
+    srcIndex
+  ]),
+  Array.from({ length: 5 }, (_, row) => [
+    row,
+    PRODUCTION_RESIDENT_RANGE_START + row
+  ])
+);
+assert.ok(
+  fiveAlphaStageLocal.representatives.every(
+    (representative) =>
+      representative.expectedStageValues.length === 1 &&
+      representative.actualStageValues.length === 1 &&
+      representative.mismatchComponents.length === 1 &&
+      Number.isFinite(representative.mismatchComponents[0].expected) &&
+      Number.isFinite(representative.mismatchComponents[0].actual) &&
+      Number.isFinite(representative.mismatchComponents[0].absoluteError) &&
+      representative.expectedStageProvenance ===
+        POPULATION_RASTER_SEMANTIC_EXPECTED_PROVENANCE.productionTileInputAlpha &&
+      representative.actualStageProvenance ===
+        POPULATION_RASTER_SEMANTIC_ACTUAL_PROVENANCE
+  )
+);
+
+const overLimitAlphaRecords = Array.from(
+  { length: 20 },
+  (_, row) => expectedRecord(row)
+);
+const overLimitAlphaEvidence = packRasterCompanion(overLimitAlphaRecords);
+for (let row = 0; row < overLimitAlphaRecords.length; row += 1) {
+  const base = row * POPULATION_RASTER_SEMANTIC_COMPANION_FLOAT_STRIDE;
+  overLimitAlphaEvidence[base + 15] += 0.01;
+}
+const overLimitAlpha = comparePacked(
+  packActual(overLimitAlphaRecords),
+  overLimitAlphaRecords,
+  overLimitAlphaEvidence
+);
+const overLimitAlphaStageLocal =
+  overLimitAlpha.stageLocalMismatchSummaries.find(
+    (stage) => stage.stage === 'productionTileInputAlpha'
+  );
+assert.equal(overLimitAlphaStageLocal.sourceMismatchRecordCount, 20);
+assert.equal(
+  overLimitAlphaStageLocal.serializedRepresentativeRecordCount,
+  POPULATION_TILE_INPUT_ALPHA_STAGE_LOCAL_REPRESENTATIVE_LIMIT
+);
+assert.equal(overLimitAlphaStageLocal.truncated, true);
+assert.equal(
+  overLimitAlpha.firstMismatches.length,
+  POPULATION_SEMANTIC_MAX_FIRST_MISMATCHES
+);
+
+const rgbBoundRecords = Array.from(
+  { length: 3 },
+  (_, row) => expectedRecord(row)
+);
+const rgbBoundEvidence = packRasterCompanion(rgbBoundRecords);
+for (let row = 0; row < rgbBoundRecords.length; row += 1) {
+  const base = row * POPULATION_RASTER_SEMANTIC_COMPANION_FLOAT_STRIDE;
+  rgbBoundEvidence[base + 12] += 0.01;
+}
+const rgbBound = comparePacked(
+  packActual(rgbBoundRecords),
+  rgbBoundRecords,
+  rgbBoundEvidence
+);
+const rgbBoundStageLocal = rgbBound.stageLocalMismatchSummaries.find(
+  (stage) => stage.stage === 'productionTileInputRgb'
+);
+assert.equal(rgbBoundStageLocal.sourceMismatchRecordCount, 3);
+assert.equal(
+  rgbBoundStageLocal.serializedRepresentativeRecordCount,
+  POPULATION_TILE_INPUT_RGB_STAGE_LOCAL_REPRESENTATIVE_LIMIT
+);
+assert.equal(rgbBoundStageLocal.representativeRecordLimit, 1);
+assert.equal(rgbBoundStageLocal.truncated, true);
+
+const alphaProvenanceDrift = JSON.parse(JSON.stringify(fiveAlphaMismatch));
+alphaProvenanceDrift.stageLocalMismatchSummaries.find(
+  (stage) => stage.stage === 'productionTileInputAlpha'
+).representatives[0].expectedStageProvenance = 'drift';
+assert.ok(
+  validatePopulationSemanticStageLocalMismatchSummaries({
+    stageLocalMismatchSummaries:
+      alphaProvenanceDrift.stageLocalMismatchSummaries,
+    stageSummaries: alphaProvenanceDrift.stageSummaries,
+    scope: 'single-chunk',
+    rangeStart: PRODUCTION_RESIDENT_RANGE_START,
+    rangeCount: fiveAlphaMismatchRecords.length,
+    chunkIndex: 0
+  }).includes('stage-local-productionTileInputAlpha-provenance-drift')
+);
+
+const nonfiniteColorEvidence = packRasterCompanion([expectedRecord(0)]);
+nonfiniteColorEvidence[12] = Number.NaN;
+const nonfiniteColor = comparePacked(
+  packActual([expectedRecord(0)]),
+  [expectedRecord(0)],
+  nonfiniteColorEvidence
+);
+assert.equal(nonfiniteColor.decision, 'blocked');
+const nonfiniteColorRgb = nonfiniteColor.stageSummaries.find(
+  (stage) => stage.stage === 'productionTileInputRgb'
+);
+const nonfiniteColorAlpha = nonfiniteColor.stageSummaries.find(
+  (stage) => stage.stage === 'productionTileInputAlpha'
+);
+assert.equal(nonfiniteColorRgb.validCount, 0);
+assert.equal(nonfiniteColorRgb.comparedCount, 0);
+assert.equal(nonfiniteColorRgb.invalidCount, 1);
+assert.equal(nonfiniteColorRgb.mismatchCount, 0);
+assert.equal(nonfiniteColorRgb.maxAbsoluteError, null);
+assert.equal(nonfiniteColorRgb.classification, 'blocked-incomplete-evidence');
+assert.equal(nonfiniteColorAlpha.validCount, 1);
+assert.equal(nonfiniteColorAlpha.comparedCount, 1);
+assert.equal(nonfiniteColorAlpha.invalidCount, 0);
+assert.equal(nonfiniteColorAlpha.classification, 'match');
+assert.equal(
+  nonfiniteColor.stageSummaries.find(
+    (stage) => stage.stage === 'productionRasterEligibility'
+  ).classification,
+  'match'
 );
 const oldSchemaContract = inputContract(1);
 oldSchemaContract.schemaVersion = 'phase3-population-aligned-semantic-comparison-v4';
@@ -1237,6 +1603,11 @@ function fixedProjectionParams() {
 function oneRecordRaw(x, y, z) {
   return {
     xyz: new Float32Array([x, y, z]), xyzDim: 3,
+    f_dc: new Float32Array([0, 0, 0]), fdcDim: 3,
+    f_rest: new Float32Array(45), frestDim: 45,
+    activeShDegree: 2,
+    activeShDegreeT: 2,
+    rot4d: true,
     opacity: new Float32Array([1]), opacityDim: 1,
     scale_xyz: new Float32Array([1, 1, 1]), scaleXYZDim: 3,
     scale_t: new Float32Array([1]), scaleTDim: 1,
@@ -1245,6 +1616,376 @@ function oneRecordRaw(x, y, z) {
     t: new Float32Array([0]), tDim: 1
   };
 }
+
+assert.equal(buildCudaTileInputExpectedAlpha({
+  rawOpacityLogit: 0,
+  temporalWeight: 1
+}), 0.5);
+const representativeLogit = Math.log(
+  representativeActivatedOpacity / (1 - representativeActivatedOpacity)
+);
+assert.ok(Math.abs(buildCudaTileInputExpectedAlpha({
+  rawOpacityLogit: representativeLogit,
+  temporalWeight: representativeTemporalOpacity / representativeActivatedOpacity
+}) - representativeTemporalOpacity) < 1e-12);
+assert.notEqual(buildCudaTileInputExpectedAlpha({
+  rawOpacityLogit: representativeActivatedOpacity,
+  temporalWeight: representativeTemporalOpacity / representativeActivatedOpacity
+}), representativeTemporalOpacity);
+assert.equal(buildCudaTileInputExpectedAlpha({
+  rawOpacityLogit: Number.NaN,
+  temporalWeight: 1
+}), null);
+
+const f32AlphaFixtureDefaults = Object.freeze({
+  timestamp: 23.2,
+  scalingModifier: 1,
+  sigmaScale: 1
+});
+const f32AlphaFixtures = Object.freeze([
+  Object.freeze({
+    srcIndex: 817431,
+    rotation: [-0.7209692597389221, 0.42837876081466675, -0.6182104349136353, 0.052885591983795166],
+    rotationR: [0.7151115536689758, -0.30974531173706055, 0.05181895196437836, 0.277172327041626],
+    sourceScaleXYZ: [0.25277775526046753, 0.16258607804775238, 0.8742130994796753],
+    sourceScaleT: 0.04849153757095337,
+    rawOpacityLogit: 2.650578260421753,
+    tCenter: 22.996662139892578,
+    temporalWeight: 0.36620765924453735,
+    alpha: 0.34205499291419983
+  }),
+  Object.freeze({
+    srcIndex: 823750,
+    rotation: [-0.17102831602096558, -0.9763918519020081, 0.33638453483581543, -0.17507825791835785],
+    rotationR: [0.927533745765686, 0.09904562681913376, -0.05579939857125282, -0.16718503832817078],
+    sourceScaleXYZ: [0.05201122537255287, 0.17680834233760834, 0.03804946690797806],
+    sourceScaleT: 0.0558256059885025,
+    rawOpacityLogit: 4.612815856933594,
+    tCenter: 23.24584197998047,
+    temporalWeight: 0.5941779613494873,
+    alpha: 0.5883393883705139,
+    browserActual: 0.5883393883705139
+  }),
+  Object.freeze({
+    srcIndex: 826596,
+    rotation: [-0.16494120657444, 0.33464086055755615, 0.9835435152053833, 0.37130799889564514],
+    rotationR: [0.752812922000885, 0.24305163323879242, -0.10210423916578293, -0.1343451291322708],
+    sourceScaleXYZ: [0.1994161307811737, 0.04217933490872383, 0.051031388342380524],
+    sourceScaleT: 0.05987834185361862,
+    rawOpacityLogit: 5.712879180908203,
+    tCenter: 23.249025344848633,
+    temporalWeight: 0.5336029529571533,
+    alpha: 0.5318461656570435,
+    browserActual: 0.5318462252616882
+  }),
+  Object.freeze({
+    srcIndex: 828798,
+    rotation: [-0.5192295908927917, -0.43392089009284973, 0.25467661023139954, -0.7996122241020203],
+    rotationR: [0.8168833255767822, 0.17581424117088318, 0.20370417833328247, -0.05118275061249733],
+    sourceScaleXYZ: [0.03612266853451729, 0.04016087204217911, 0.1419132500886917],
+    sourceScaleT: 0.05289372801780701,
+    rawOpacityLogit: 5.801218509674072,
+    tCenter: 23.240522384643555,
+    temporalWeight: 0.6463044881820679,
+    alpha: 0.6443560719490051,
+    browserActual: 0.6443560123443604
+  }),
+  Object.freeze({
+    srcIndex: 829562,
+    rotation: [-0.24845446646213531, -0.28283023834228516, -0.08046253770589828, 0.936150074005127],
+    rotationR: [0.32077842950820923, -0.4345601499080658, -0.12950782477855682, -0.5726639032363892],
+    sourceScaleXYZ: [0.10413569957017899, 0.03419298306107521, 0.13865502178668976],
+    sourceScaleT: 0.049943096935749054,
+    rawOpacityLogit: 3.8623690605163574,
+    tCenter: 23.24858856201172,
+    temporalWeight: 0.5619015097618103,
+    alpha: 0.5503345131874084,
+    browserActual: 0.5503345727920532
+  }),
+  Object.freeze({
+    srcIndex: 832266,
+    rotation: [0.31482407450675964, 0.48717713356018066, 0.02764228545129299, 0.8673467040061951],
+    rotationR: [0.7795888185501099, 0.07221396267414093, 0.2869412302970886, 0.0771029144525528],
+    sourceScaleXYZ: [0.04127980023622513, 0.17192712426185608, 0.09357568621635437],
+    sourceScaleT: 0.05532533675432205,
+    rawOpacityLogit: 8.604650497436523,
+    tCenter: 23.151559829711914,
+    temporalWeight: 0.5735270977020264,
+    alpha: 0.5734220743179321,
+    browserActual: 0.5734220743179321
+  }),
+  Object.freeze({
+    srcIndex: 834848,
+    rotation: [0.3933086097240448, 0.6010604500770569, -0.6753302216529846, -0.2742021381855011],
+    rotationR: [0.5370784401893616, 0.23489278554916382, -0.19469054043293, -0.44024309515953064],
+    sourceScaleXYZ: [0.1661660075187683, 0.7008224725723267, 0.1818162053823471],
+    sourceScaleT: 0.0438644103705883,
+    rawOpacityLogit: 4.071102619171143,
+    tCenter: 23.54320526123047,
+    temporalWeight: 0.05061718076467514,
+    alpha: 0.049768202006816864
+  }),
+  Object.freeze({
+    srcIndex: 839237,
+    rotation: [0.8870527744293213, 0.45144516229629517, -0.01585867442190647, 0.10149180889129639],
+    rotationR: [0.9044269323348999, 0.05455229803919792, 0.029964786022901535, -0.16283413767814636],
+    sourceScaleXYZ: [0.18955974280834198, 0.04730967804789543, 0.071531742811203],
+    sourceScaleT: 0.05871327221393585,
+    rawOpacityLogit: 9.379287719726562,
+    tCenter: 23.391206741333008,
+    temporalWeight: 0.049987293779850006,
+    alpha: 0.04998307302594185
+  }),
+  Object.freeze({
+    srcIndex: 842779,
+    rotation: [-0.18988437950611115, 0.8211007714271545, 0.5673241019248962, -0.017591366544365883],
+    rotationR: [1.111507773399353, -0.06539185345172882, -0.035201605409383774, 0.04466940835118294],
+    sourceScaleXYZ: [0.19313904643058777, 0.15944840013980865, 0.05121394991874695],
+    sourceScaleT: 0.0711042582988739,
+    rawOpacityLogit: 14.658591270446777,
+    tCenter: 23.43128776550293,
+    temporalWeight: 0.05000424385070801,
+    alpha: 0.05000422149896622
+  }),
+  Object.freeze({
+    srcIndex: 870555,
+    rotation: [0.3173673450946808, 0.3990182876586914, -0.9661105871200562, 0.12350577861070633],
+    rotationR: [0.9247819185256958, -0.07042082399129868, -0.13608649373054504, 0.001143406261689961],
+    sourceScaleXYZ: [0.16049206256866455, 0.03821925073862076, 0.05611656978726387],
+    sourceScaleT: 0.05411629006266594,
+    rawOpacityLogit: 11.330103874206543,
+    tCenter: 23.253604888916016,
+    temporalWeight: 0.4775067865848541,
+    alpha: 0.4775010347366333,
+    browserActual: 0.4775010347366333
+  })
+]);
+const buildF32AlphaFixture = (fixture) =>
+  buildProductionTileInputAlphaF32Central({
+    ...f32AlphaFixtureDefaults,
+    rawOpacityLogit: fixture.rawOpacityLogit,
+    sourceScaleXYZ: fixture.sourceScaleXYZ,
+    sourceScaleT: fixture.sourceScaleT,
+    rotation: fixture.rotation,
+    rotationR: fixture.rotationR,
+    tCenter: fixture.tCenter
+  });
+for (const fixture of f32AlphaFixtures) {
+  const actual = buildF32AlphaFixture(fixture);
+  assert.deepEqual(actual, {
+    temporalWeight: fixture.temporalWeight,
+    alpha: fixture.alpha
+  }, `srcIndex ${fixture.srcIndex}`);
+  assert.equal(Object.isFrozen(actual), true, `srcIndex ${fixture.srcIndex}`);
+  if (fixture.browserActual != null) {
+    assert.ok(
+      Math.abs(actual.alpha - fixture.browserActual) <= 1e-5,
+      `srcIndex ${fixture.srcIndex}`
+    );
+  }
+}
+assert.equal(
+  buildF32AlphaFixture(f32AlphaFixtures.find(({ srcIndex }) => srcIndex === 842779))
+    .temporalWeight > 0.05,
+  true
+);
+assert.equal(
+  buildF32AlphaFixture(f32AlphaFixtures.find(({ srcIndex }) => srcIndex === 839237))
+    .temporalWeight > 0.05,
+  false
+);
+
+const centralInput = {
+  rawOpacityLogit: 0,
+  sourceScaleXYZ: [1, 1, 1],
+  sourceScaleT: 0.5,
+  rotation: [1, 0, 0, 0],
+  rotationR: [1, 0, 0, 0],
+  timestamp: 0.5,
+  tCenter: 0,
+  scalingModifier: 1,
+  sigmaScale: 1
+};
+assert.deepEqual(buildProductionTileInputAlphaF32Central(centralInput), {
+  temporalWeight: 0.6065306663513184,
+  alpha: 0.3032653331756592
+});
+assert.notDeepEqual(
+  buildProductionTileInputAlphaF32Central(centralInput),
+  buildProductionTileInputAlphaF32Central({
+    ...centralInput,
+    sourceScaleT: Math.fround(Math.exp(centralInput.sourceScaleT))
+  })
+);
+assert.deepEqual(
+  buildProductionTileInputAlphaF32Central({
+    ...centralInput,
+    actualAlpha: -1,
+    actualTemporalWeight: -1
+  }),
+  buildProductionTileInputAlphaF32Central(centralInput)
+);
+for (const invalidInput of [
+  {},
+  { ...centralInput, rawOpacityLogit: Number.NaN },
+  { ...centralInput, sourceScaleXYZ: [1, 1] },
+  { ...centralInput, sourceScaleT: Number.POSITIVE_INFINITY },
+  { ...centralInput, rotation: [1, 0, 0] },
+  { ...centralInput, rotationR: [1, 0, 0, Number.NaN] },
+  { ...centralInput, timestamp: Number.NaN },
+  { ...centralInput, tCenter: Number.NEGATIVE_INFINITY },
+  { ...centralInput, scalingModifier: Number.NaN },
+  { ...centralInput, sigmaScale: Number.NaN }
+]) {
+  assert.equal(buildProductionTileInputAlphaF32Central(invalidInput), null);
+}
+const fixtureAlphaByPartition = (partitionSize) => {
+  const values = [];
+  for (let start = 0; start < f32AlphaFixtures.length; start += partitionSize) {
+    values.push(...f32AlphaFixtures
+      .slice(start, start + partitionSize)
+      .map((fixture) => buildF32AlphaFixture(fixture).alpha));
+  }
+  return values;
+};
+assert.deepEqual(fixtureAlphaByPartition(1), fixtureAlphaByPartition(4));
+assert.deepEqual(fixtureAlphaByPartition(4), fixtureAlphaByPartition(7));
+
+assert.match(
+  POPULATION_RASTER_SEMANTIC_EXPECTED_PROVENANCE.productionTileInputAlpha,
+  new RegExp(PRODUCTION_TILE_INPUT_ALPHA_F32_CENTRAL_ORACLE_VERSION)
+);
+
+const degree2RgbRaw = oneRecordRaw(0, 0, 1);
+assert.deepEqual(
+  buildCudaDegree2TileInputExpectedRgb({
+    raw: degree2RgbRaw,
+    srcIndex: 0,
+    cameraWorldPosition: [0, 0, 0]
+  }),
+  [0.5, 0.5, 0.5]
+);
+const dcRgbRaw = oneRecordRaw(0, 0, 1);
+dcRgbRaw.f_dc[0] = 1;
+const dcRgb = buildCudaDegree2TileInputExpectedRgb({
+  raw: dcRgbRaw,
+  srcIndex: 0,
+  cameraWorldPosition: [0, 0, 0]
+});
+assert.ok(Math.abs(dcRgb[0] - (0.5 + 0.28209479177387814)) < 1e-12);
+degree2RgbRaw.f_rest[3] = 1;
+const forwardRgb = buildCudaDegree2TileInputExpectedRgb({
+  raw: degree2RgbRaw,
+  srcIndex: 0,
+  cameraWorldPosition: [0, 0, 0]
+});
+const reverseRgb = buildCudaDegree2TileInputExpectedRgb({
+  raw: degree2RgbRaw,
+  srcIndex: 0,
+  cameraWorldPosition: [0, 0, 2]
+});
+assert.ok(forwardRgb[0] > 0.5);
+assert.ok(reverseRgb[0] < 0.5);
+assert.ok(Math.abs(forwardRgb[0] - (0.5 + 0.4886025119029199)) < 1e-12);
+const degree2CoefficientRaw = oneRecordRaw(0, 0, 1);
+degree2CoefficientRaw.f_rest[15] = 1;
+assert.ok(buildCudaDegree2TileInputExpectedRgb({
+  raw: degree2CoefficientRaw,
+  srcIndex: 0,
+  cameraWorldPosition: [0, 0, 0]
+})[0] > 0.5);
+const degree2OneHotPosition = [2, 3, 4];
+const degree2OneHotLength = Math.hypot(...degree2OneHotPosition);
+const [degree2OneHotX, degree2OneHotY, degree2OneHotZ] =
+  degree2OneHotPosition.map((value) => value / degree2OneHotLength);
+const degree2OneHotScales = [
+  0.28209479177387814,
+  -0.4886025119029199 * degree2OneHotY,
+  0.4886025119029199 * degree2OneHotZ,
+  -0.4886025119029199 * degree2OneHotX,
+  1.0925484305920792 * degree2OneHotX * degree2OneHotY,
+  -1.0925484305920792 * degree2OneHotY * degree2OneHotZ,
+  0.31539156525252005 * (
+    2 * degree2OneHotZ * degree2OneHotZ -
+    degree2OneHotX * degree2OneHotX -
+    degree2OneHotY * degree2OneHotY
+  ),
+  -1.0925484305920792 * degree2OneHotX * degree2OneHotZ,
+  0.5462742152960396 * (
+    degree2OneHotX * degree2OneHotX -
+    degree2OneHotY * degree2OneHotY
+  )
+];
+const degree2OneHotResults = [];
+for (let shIndex = 0; shIndex <= 8; shIndex += 1) {
+  const component = shIndex % 3;
+  const raw = oneRecordRaw(...degree2OneHotPosition);
+  if (shIndex === 0) {
+    raw.f_dc[component] = 0.5;
+  } else {
+    raw.f_rest[(shIndex - 1) * 3 + component] = 0.5;
+  }
+  const actual = buildCudaDegree2TileInputExpectedRgb({
+    raw,
+    srcIndex: 0,
+    cameraWorldPosition: [0, 0, 0]
+  });
+  const expected = [0.5, 0.5, 0.5];
+  expected[component] = Math.max(
+    0.5 + 0.5 * degree2OneHotScales[shIndex],
+    0
+  );
+  assert.ok(
+    actual.every((value, index) => Math.abs(value - expected[index]) < 1e-12),
+    `sh[${shIndex}] coefficient-major RGB triplet`
+  );
+  degree2OneHotResults.push(actual);
+}
+assert.ok(degree2OneHotResults[5][2] < 0.5, 'sh[5] yz scale is negative');
+assert.ok(degree2OneHotResults[7][1] < 0.5, 'sh[7] xz scale is negative');
+const degree2GateRaw = oneRecordRaw(...degree2OneHotPosition);
+degree2GateRaw.activeShDegree = 1;
+degree2GateRaw.f_rest[12] = 0.5;
+assert.deepEqual(buildCudaDegree2TileInputExpectedRgb({
+  raw: degree2GateRaw,
+  srcIndex: 0,
+  cameraWorldPosition: [0, 0, 0]
+}), [0.5, 0.5, 0.5]);
+const originalPositionRgbRaw = oneRecordRaw(...degree2OneHotPosition);
+originalPositionRgbRaw.f_rest[12] = 0.5;
+const originalPositionRgb = buildCudaDegree2TileInputExpectedRgb({
+  raw: originalPositionRgbRaw,
+  srcIndex: 0,
+  cameraWorldPosition: [1, 1, 1]
+});
+originalPositionRgbRaw.conditionalStatePosition = new Float32Array([-20, 30, -40]);
+assert.deepEqual(buildCudaDegree2TileInputExpectedRgb({
+  raw: originalPositionRgbRaw,
+  srcIndex: 0,
+  cameraWorldPosition: [1, 1, 1]
+}), originalPositionRgb);
+degree2RgbRaw.activeShDegreeT = 0;
+assert.deepEqual(
+  buildCudaDegree2TileInputExpectedRgb({
+    raw: degree2RgbRaw,
+    srcIndex: 0,
+    cameraWorldPosition: [0, 0, 0]
+  }),
+  forwardRgb
+);
+const upperClampRaw = oneRecordRaw(0, 0, 1);
+upperClampRaw.f_dc[0] = 4;
+assert.ok(buildCudaDegree2TileInputExpectedRgb({
+  raw: upperClampRaw,
+  srcIndex: 0,
+  cameraWorldPosition: [0, 0, 0]
+})[0] > 1);
+upperClampRaw.f_dc[0] = -4;
+assert.equal(buildCudaDegree2TileInputExpectedRgb({
+  raw: upperClampRaw,
+  srcIndex: 0,
+  cameraWorldPosition: [0, 0, 0]
+})[0], 0);
 
 const cudaNearRejected = buildPopulationAlignedSemanticExpectedRecord({
   raw: oneRecordRaw(0, 0, 0.1),
@@ -1267,6 +2008,36 @@ const cudaViewportEdgeEligible = buildPopulationAlignedSemanticExpectedRecord({
 });
 assert.equal(cudaViewportEdgeEligible.rasterEligible, true);
 assert.ok(cudaViewportEdgeEligible.stages.projectedCenter.values[0] >= 1280);
+
+const routedAlphaRaw = oneRecordRaw(0, 0, 1);
+routedAlphaRaw.opacity[0] = centralInput.rawOpacityLogit;
+routedAlphaRaw.scale_xyz.set(centralInput.sourceScaleXYZ);
+routedAlphaRaw.scale_t[0] = centralInput.sourceScaleT;
+routedAlphaRaw.rotation.set(centralInput.rotation);
+routedAlphaRaw.rotation_r.set(centralInput.rotationR);
+routedAlphaRaw.t[0] = centralInput.tCenter;
+const routedAlphaExpected = buildPopulationAlignedSemanticExpectedRecord({
+  raw: routedAlphaRaw,
+  srcIndex: 0,
+  buildConfig: {
+    timestamp: centralInput.timestamp,
+    scalingModifier: centralInput.scalingModifier,
+    sigmaScale: centralInput.sigmaScale
+  },
+  projectionParams: fixedProjectionParams()
+});
+assert.deepEqual(
+  routedAlphaExpected.stages.productionTileInputAlpha.values,
+  [buildProductionTileInputAlphaF32Central(centralInput).alpha]
+);
+assert.deepEqual(
+  routedAlphaExpected.stages.productionTileInputRgb.values,
+  buildCudaDegree2TileInputExpectedRgb({
+    raw: routedAlphaRaw,
+    srcIndex: 0,
+    cameraWorldPosition: [0, 0, 0]
+  })
+);
 
 const ineligible = compareFixture({
   count: 2,
@@ -1301,7 +2072,9 @@ for (const stageName of [
   'projectedCenter',
   'cameraDepth',
   'webgpuInclusivePixelBounds',
-  'normalizedInclusiveTileBounds'
+  'normalizedInclusiveTileBounds',
+  'productionTileInputAlpha',
+  'productionTileInputRgb'
 ]) {
   const stage = ineligible.stageSummaries.find((entry) => entry.stage === stageName);
   assert.equal(stage.notApplicableCount, 2);
@@ -1621,7 +2394,17 @@ const expectedFunctionSource = producerSource.match(
   /export function buildPopulationAlignedSemanticExpectedRecord\([\s\S]*?\n}\n\nexport function buildExplicitPopulationChunkIndices/
 )?.[0] ?? '';
 assert.ok(expectedFunctionSource.includes('computeCudaConditionalGaussianState4D'));
+assert.ok(expectedFunctionSource.includes('buildProductionTileInputAlphaF32Central'));
+assert.doesNotMatch(
+  expectedFunctionSource,
+  /const expectedAlpha\s*=\s*buildCudaTileInputExpectedAlpha/
+);
 assert.doesNotMatch(expectedFunctionSource, /actualPackedEvidence|actualIntermediate|readback/);
+const alphaOracleSource = fs.readFileSync(
+  new URL('../demo/js/common_4dgs_tile_input_alpha_f32_semantic.js', import.meta.url),
+  'utf8'
+);
+assert.doesNotMatch(alphaOracleSource, /actualAlpha|actualTemporalWeight|readback/);
 assert.doesNotMatch(producerSource, /canonical.*prepend|fraction sampling|deduplicated CPU fallback/i);
 assert.match(producerSource, /populationSemanticDiagnostic: true/);
 assert.match(producerSource, /readbackPolicy: 'diagnostic'/);
@@ -1718,7 +2501,11 @@ function createFakeDevice({ failMap = false } = {}) {
   const bindGroups = [];
   let shaderSource = null;
   const device = {
-    limits: { maxStorageBuffersPerShaderStage: 8 },
+    limits: {
+      maxStorageBufferBindingSize: 1_073_741_824,
+      maxBufferSize: 1_073_741_824,
+      maxStorageBuffersPerShaderStage: 8
+    },
     createBuffer: (descriptor) => {
       const bytes = new ArrayBuffer(descriptor.size);
       const buffer = {
@@ -1761,9 +2548,13 @@ function createFakeDevice({ failMap = false } = {}) {
 }
 
 const evaluatorRaw = {
+  N: 1,
+  activeShDegree: 2,
+  activeShDegreeT: 2,
   t: new Float32Array([0]), tDim: 1,
   scale_t: new Float32Array([1]), scaleTDim: 1,
   f_dc: new Float32Array([0, 0, 0]), fdcDim: 3,
+  f_rest: new Float32Array(45), frestDim: 45,
   scale_xyz: new Float32Array([1, 1, 1]), scaleXYZDim: 3,
   rotation: new Float32Array([1, 0, 0, 0]), rotationDim: 4,
   rotation_r: new Float32Array([1, 0, 0, 0]), rotationRDim: 4
@@ -1844,9 +2635,9 @@ try {
     canvasHeight: 720,
     tileSize: 16
   });
-  assert.equal(observerResult.evidence.length, 12);
+  assert.equal(observerResult.evidence.length, 16);
   assert.equal(observerResult.contract.status, 'ready');
-  assert.equal(observerResult.contract.rowStrideBytes, 48);
+  assert.equal(observerResult.contract.rowStrideBytes, 64);
   assert.equal(sourceTileInputBuffer.destroyed, false);
   assert.ok(observerFake.buffers.every((buffer) => buffer.destroyed));
   const observerOutput = observerFake.buffers.find(
@@ -1872,6 +2663,10 @@ try {
   assert.match(
     observerFake.getShaderSource(),
     /productionInclusivePixelBounds/
+  );
+  assert.match(
+    observerFake.getShaderSource(),
+    /companionEvidence\[evidenceBase \+ 3u\] = colorAlpha;/
   );
 
   const observerFailureFake = createFakeDevice({ failMap: true });
@@ -1915,7 +2710,7 @@ try {
 }
 
 console.log('Step121 Impl1 population-aligned single chunk smoke: OK', {
-  cases: 45,
+  cases: 52,
   evidenceBytesPerRecord: POPULATION_SEMANTIC_EVIDENCE_BYTES_PER_RECORD,
   maximumChunkRecords: 65536,
   maximumFirstMismatches: POPULATION_SEMANTIC_MAX_FIRST_MISMATCHES,

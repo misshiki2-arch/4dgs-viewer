@@ -8,8 +8,10 @@ import {
 } from '../demo/js/common_4dgs_production_frame_data_contracts.js';
 import {
   POPULATION_RASTER_SEMANTIC_ACTUAL_PROVENANCE,
+  POPULATION_RASTER_SEMANTIC_ACTUAL_DEVICE_SCOPE,
   POPULATION_RASTER_SEMANTIC_EXPECTED_PROVENANCE,
   POPULATION_SEMANTIC_ACTUAL_PROVENANCE,
+  POPULATION_SEMANTIC_CONTROLLER_MAX_RESULT_JSON_BYTES,
   POPULATION_SEMANTIC_EXPECTED_PROVENANCE,
   POPULATION_SEMANTIC_MAX_CHUNK_RECORDS,
   POPULATION_SEMANTIC_STAGE_CONTRACTS,
@@ -316,6 +318,8 @@ function buildOrchestrationResult(decision = 'match') {
     evidenceComplete: !blocked,
     expectedProvenance: POPULATION_SEMANTIC_EXPECTED_PROVENANCE,
     actualProvenance: POPULATION_SEMANTIC_ACTUAL_PROVENANCE,
+    actualGpuDeviceScope: POPULATION_RASTER_SEMANTIC_ACTUAL_DEVICE_SCOPE,
+    expectedGenerationDependsOnActual: false,
     actualEvidenceSameProductionDispatch: false,
     productionCalculationDependsOnDiagnosticReadback: false,
     diagnosticDeviceOwnership: 'caller-owned-reused-not-destroyed',
@@ -475,7 +479,10 @@ assert.equal(
 );
 assert.equal(Object.isFrozen(match), true);
 assert.doesNotThrow(() => JSON.stringify(match));
-assert.ok(JSON.stringify(match).length < 100000);
+assert.ok(
+  JSON.stringify(match).length <
+    POPULATION_SEMANTIC_CONTROLLER_MAX_RESULT_JSON_BYTES
+);
 inspectBoundedResult(match);
 
 // Upper/lower hexadecimal SHA text denotes the same already-computed asset hash.
@@ -625,6 +632,25 @@ assert.equal(retainedRuntimeResult.decision, 'blocked');
 assert.match(retainedRuntimeResult.reason, /orchestration-result-not-bounded/u);
 assert.equal(retainedRuntimeResult.orchestrationResult, null);
 assert.equal(retainedRuntimeResultHarness.stats.destroyCalls, 1);
+
+for (const [label, mutateOrchestrationResult] of [
+  ['actual-device-scope', (result) => {
+    result.actualGpuDeviceScope = 'production-display-device';
+  }],
+  ['expected-actual-dependency', (result) => {
+    result.expectedGenerationDependsOnActual = true;
+  }]
+]) {
+  const provenanceDriftHarness = createHarness({ mutateOrchestrationResult });
+  const provenanceDrift = await provenanceDriftHarness.controller
+    .runPopulationAlignedSemanticComparison({
+      raw,
+      productionEvaluationInputContract: readyContract
+    });
+  assert.equal(provenanceDrift.decision, 'blocked', label);
+  assert.match(provenanceDrift.reason, /orchestration-/u, label);
+  assert.equal(provenanceDriftHarness.stats.destroyCalls, 1, label);
+}
 
 // Concurrent requests never acquire a second adapter/device and the transient
 // already-running response does not replace the primary final result.

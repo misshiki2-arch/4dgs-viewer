@@ -2,6 +2,8 @@ import {
   PRODUCTION_EVALUATION_INPUT_CONTRACT_VERSION
 } from './common_4dgs_production_frame_data_contracts.js';
 import {
+  POPULATION_RASTER_SEMANTIC_ACTUAL_DEVICE_SCOPE,
+  POPULATION_SEMANTIC_CONTROLLER_MAX_RESULT_JSON_BYTES,
   POPULATION_SEMANTIC_MAX_FIRST_MISMATCHES,
   POPULATION_SEMANTIC_STAGE_CONTRACTS,
   PRODUCTION_RESIDENT_RANGE_COUNT,
@@ -20,7 +22,6 @@ export const POPULATION_SEMANTIC_COMPARISON_CONTROLLER_CONTRACT_VERSION =
 
 const MAX_BLOCKED_REASONS = 16;
 const MAX_REASON_LENGTH = 192;
-const MAX_RESULT_JSON_BYTES = 100000;
 const MAX_JSON_DEPTH = 20;
 const MAX_JSON_ARRAY_LENGTH = 64;
 const MAX_JSON_OBJECT_KEYS = 128;
@@ -481,12 +482,17 @@ function validateOrchestrationResult(result) {
     ['deviceIncluded', false],
     ['resultSizePopulationIndependent', true],
     ['actualEvidenceSameProductionDispatch', false],
-    ['productionCalculationDependsOnDiagnosticReadback', false]
+    ['productionCalculationDependsOnDiagnosticReadback', false],
+    ['expectedGenerationDependsOnActual', false]
   ]) {
     if (result[field] !== expected) {
       addBlockedReason(reasons, `orchestration-${field}-drift`);
     }
   }
+  if (
+    result.actualGpuDeviceScope !==
+      POPULATION_RASTER_SEMANTIC_ACTUAL_DEVICE_SCOPE
+  ) addBlockedReason(reasons, 'orchestration-actual-gpu-device-scope-drift');
   if (result.diagnosticDeviceOwnership !== 'caller-owned-reused-not-destroyed') {
     addBlockedReason(reasons, 'orchestration-diagnostic-device-ownership-drift');
   }
@@ -564,7 +570,9 @@ function buildControllerResult({
     bounded: true
   };
   const serialized = JSON.stringify(result);
-  if (serialized.length <= MAX_RESULT_JSON_BYTES) return deepFreeze(result);
+  if (
+    serialized.length <= POPULATION_SEMANTIC_CONTROLLER_MAX_RESULT_JSON_BYTES
+  ) return deepFreeze(result);
   return deepFreeze({
     ...result,
     decision: 'blocked',

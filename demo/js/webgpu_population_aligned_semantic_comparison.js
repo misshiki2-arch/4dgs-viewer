@@ -5,8 +5,8 @@ import {
   POPULATION_SEMANTIC_EVIDENCE_FLOAT_STRIDE,
   POPULATION_SEMANTIC_EXPECTED_PROVENANCE,
   POPULATION_SEMANTIC_MAX_FIRST_MISMATCHES,
-  POPULATION_SEMANTIC_STAGE_LOCAL_REPRESENTATIVE_LIMIT,
   POPULATION_RASTER_SEMANTIC_ACTUAL_PROVENANCE,
+  POPULATION_RASTER_SEMANTIC_ACTUAL_DEVICE_SCOPE,
   POPULATION_RASTER_SEMANTIC_COMPANION_FLOAT_STRIDE,
   POPULATION_RASTER_SEMANTIC_COMPANION_LAYOUT_SCHEMA_VERSION,
   POPULATION_RASTER_SEMANTIC_EXPECTED_PROVENANCE,
@@ -20,8 +20,12 @@ import {
   buildPopulationSemanticStageLocalMismatchRepresentative,
   buildPopulationSemanticStageLocalMismatchSummaries,
   classifyPopulationSemanticStageEvidence,
+  populationSemanticStageLocalRepresentativeLimit,
   validatePopulationSemanticStageLocalMismatchSummaries
 } from './common_4dgs_population_semantic_comparison_contracts.js';
+import {
+  buildProductionTileInputAlphaF32Central
+} from './common_4dgs_tile_input_alpha_f32_semantic.js';
 import {
   computeCudaConditionalGaussianState4D
 } from './cuda_4d_state.js';
@@ -37,18 +41,25 @@ import {
 
 const TEMPORAL_ELIGIBILITY_THRESHOLD = 0.05;
 const PRODUCTION_TILE_SIZE = 16;
-const RASTER_STAGE_KEYS = new Set([
-  'productionRasterEligibility',
-  'projectedCenter',
-  'cameraDepth',
-  'webgpuInclusivePixelBounds',
-  'normalizedInclusiveTileBounds'
+const SH_C0 = 0.28209479177387814;
+const SH_C1 = 0.4886025119029199;
+const SH_C2 = Object.freeze([
+  1.0925484305920792,
+  -1.0925484305920792,
+  0.31539156525252005,
+  -1.0925484305920792,
+  0.5462742152960396
 ]);
+const RASTER_STAGE_KEYS = new Set(
+  Object.keys(POPULATION_RASTER_SEMANTIC_EXPECTED_PROVENANCE)
+);
 const RASTER_VALUE_STAGE_KEYS = new Set([
   'projectedCenter',
   'cameraDepth',
   'webgpuInclusivePixelBounds',
-  'normalizedInclusiveTileBounds'
+  'normalizedInclusiveTileBounds',
+  'productionTileInputAlpha',
+  'productionTileInputRgb'
 ]);
 
 function finite(value) {
@@ -86,6 +97,7 @@ function readProjectionRows(projectionParams) {
     Number
   );
   const rows = [row(3), row(4), row(5)];
+  const cameraWorldPosition = cameraWorldPositionFromViewRows(rows);
   const values = {
     mode: Number(projectionParams[0]),
     renderWidth: Math.max(Math.abs(Number(projectionParams[1])), 1),
@@ -99,7 +111,7 @@ function readProjectionRows(projectionParams) {
     cy: Number(projectionParams[11]),
     viewRows: rows
   };
-  return [
+  return cameraWorldPosition && [
     values.mode,
     values.renderWidth,
     values.renderHeight,
@@ -110,10 +122,12 @@ function readProjectionRows(projectionParams) {
     values.fy,
     values.cx,
     values.cy,
-    ...rows.flat()
+    ...rows.flat(),
+    ...(cameraWorldPosition ?? [])
   ].every(Number.isFinite)
     ? {
         ...values,
+        cameraWorldPosition,
         canvasWidth: Math.max(1, Math.round(values.renderWidth * values.sx)),
         canvasHeight: Math.max(1, Math.round(values.renderHeight * values.sy))
       }
@@ -123,6 +137,106 @@ function readProjectionRows(projectionParams) {
 function dotViewRow(row, position) {
   return row[0] * position[0] + row[1] * position[1] +
     row[2] * position[2] + row[3];
+}
+
+function cameraWorldPositionFromViewRows(rows) {
+  if (
+    !Array.isArray(rows) || rows.length !== 3 ||
+    rows.some((row) => !Array.isArray(row) || row.length !== 4 ||
+      !row.every(Number.isFinite))
+  ) return null;
+  const translation = rows.map((row) => row[3]);
+  const cameraPosition = [0, 1, 2].map((axis) => -(
+    rows[0][axis] * translation[0] +
+    rows[1][axis] * translation[1] +
+    rows[2][axis] * translation[2]
+  ));
+  return cameraPosition.every(Number.isFinite) ? cameraPosition : null;
+}
+
+export function buildCudaTileInputExpectedAlpha({
+  rawOpacityLogit,
+  temporalWeight
+} = {}) {
+  const logit = finite(rawOpacityLogit);
+  const weight = finite(temporalWeight);
+  if (logit == null || weight == null || weight < 0) return null;
+  const positiveExp = Math.exp(-Math.abs(logit));
+  const activatedOpacity = logit >= 0
+    ? 1 / (1 + positiveExp)
+    : positiveExp / (1 + positiveExp);
+  const alpha = activatedOpacity * weight;
+  return Number.isFinite(alpha) ? alpha : null;
+}
+
+function addScaledRgb(target, coefficient, scale) {
+  for (let component = 0; component < 3; component += 1) {
+    target[component] += coefficient[component] * scale;
+  }
+}
+
+export function buildCudaDegree2TileInputExpectedRgb({
+  raw,
+  srcIndex,
+  cameraWorldPosition
+} = {}) {
+  const degree = Number(raw?.activeShDegree);
+  const temporalDegree = Number(raw?.activeShDegreeT);
+  const fdcDim = Number(raw?.fdcDim);
+  const frestDim = Number(raw?.frestDim);
+  const xyzDim = Number(raw?.xyzDim);
+  if (
+    !Number.isSafeInteger(srcIndex) || srcIndex < 0 ||
+    !Number.isInteger(degree) || degree < 0 || degree > 2 ||
+    !Number.isInteger(temporalDegree) || temporalDegree < 0 ||
+    !Number.isInteger(fdcDim) || fdcDim < 3 ||
+    !Number.isInteger(frestDim) ||
+    frestDim < Math.max(0, ((degree + 1) ** 2 - 1) * 3) ||
+    !Number.isInteger(xyzDim) || xyzDim < 3 ||
+    !Array.isArray(cameraWorldPosition) || cameraWorldPosition.length !== 3 ||
+    !cameraWorldPosition.every(Number.isFinite)
+  ) return null;
+  const position = readRawVector(raw?.xyz, srcIndex * xyzDim, 3);
+  const dc = readRawVector(raw?.f_dc, srcIndex * fdcDim, 3);
+  if (!position || !dc) return null;
+  const direction = position.map((value, axis) =>
+    value - cameraWorldPosition[axis]
+  );
+  const directionLength = Math.hypot(...direction);
+  if (!Number.isFinite(directionLength) || directionLength <= 1e-12) return null;
+  const [x, y, z] = direction.map((value) => value / directionLength);
+  const result = [0, 0, 0];
+  const coefficient = (index) => index === 0
+    ? dc
+    : readRawVector(raw?.f_rest, srcIndex * frestDim + (index - 1) * 3, 3);
+  addScaledRgb(result, dc, SH_C0);
+  if (degree > 0) {
+    const degree1Scales = [-SH_C1 * y, SH_C1 * z, -SH_C1 * x];
+    for (let index = 0; index < 3; index += 1) {
+      const value = coefficient(index + 1);
+      if (!value) return null;
+      addScaledRgb(result, value, degree1Scales[index]);
+    }
+  }
+  if (degree > 1) {
+    const xx = x * x;
+    const yy = y * y;
+    const zz = z * z;
+    const degree2Scales = [
+      SH_C2[0] * x * y,
+      SH_C2[1] * y * z,
+      SH_C2[2] * (2 * zz - xx - yy),
+      SH_C2[3] * x * z,
+      SH_C2[4] * (xx - yy)
+    ];
+    for (let index = 0; index < 5; index += 1) {
+      const value = coefficient(index + 4);
+      if (!value) return null;
+      addScaledRgb(result, value, degree2Scales[index]);
+    }
+  }
+  const rgb = result.map((value) => Math.max(value + 0.5, 0));
+  return rgb.every(Number.isFinite) ? rgb : null;
 }
 
 function clampInteger(value, minimum, maximum) {
@@ -380,9 +494,16 @@ export function buildPopulationAlignedSemanticExpectedRecord({
     sourceScaleT * scalingModifier * sigmaScale,
     1e-6
   );
+  const activatedOpacity = buildCudaTileInputExpectedAlpha({
+    rawOpacityLogit: opacity,
+    temporalWeight: 1
+  });
+  if (activatedOpacity == null) {
+    return invalidExpectedRecord('population-aligned-opacity-activation-invalid');
+  }
   const state = computeCudaConditionalGaussianState4D({
     position,
-    opacity,
+    opacity: activatedOpacity,
     scaleXYZ,
     scaleT,
     rotation,
@@ -393,6 +514,23 @@ export function buildPopulationAlignedSemanticExpectedRecord({
   });
   const temporalEligible =
     state.debug.marginal_t > TEMPORAL_ELIGIBILITY_THRESHOLD;
+  const expectedAlphaSemantic = buildProductionTileInputAlphaF32Central({
+    rawOpacityLogit: opacity,
+    sourceScaleXYZ: sourceScale,
+    sourceScaleT,
+    rotation,
+    rotationR,
+    timestamp,
+    tCenter,
+    scalingModifier,
+    sigmaScale
+  });
+  const expectedAlpha = expectedAlphaSemantic?.alpha ?? null;
+  const expectedRgb = buildCudaDegree2TileInputExpectedRgb({
+    raw,
+    srcIndex,
+    cameraWorldPosition: projection.cameraWorldPosition
+  });
   const covarianceWorld = [
     state.cov3[0][0], state.cov3[0][1], state.cov3[0][2],
     state.cov3[1][1], state.cov3[1][2], state.cov3[2][2]
@@ -560,6 +698,18 @@ export function buildPopulationAlignedSemanticExpectedRecord({
           Array.isArray(cudaTileRect?.normalizedInclusive) &&
           cudaTileRect.normalizedInclusive.every(Number.isInteger),
         values: cudaTileRect?.normalizedInclusive ?? null
+      },
+      productionTileInputAlpha: {
+        valid: rasterEligible && Number.isFinite(expectedAlpha),
+        values: expectedAlpha == null ? null : [expectedAlpha]
+      },
+      productionTileInputRgb: {
+        valid:
+          rasterEligible &&
+          Array.isArray(expectedRgb) &&
+          expectedRgb.length === 3 &&
+          expectedRgb.every(Number.isFinite),
+        values: expectedRgb
       }
     },
     rasterEligible
@@ -670,13 +820,16 @@ function readActualRasterRecord(actualPackedEvidence, localRow, layout) {
     ),
     Number
   );
-  const allFinite = values.every(Number.isFinite);
+  const rasterGeometryFinite = values.slice(0, 12).every(Number.isFinite);
   const eligibilityValid = values[0] === 0 || values[0] === 1;
   const rasterEligible = eligibilityValid ? values[0] === 1 : null;
   const pixelBounds = values.slice(4, 8);
   const tileBounds = values.slice(8, 12);
+  const colorAlpha = values.slice(12, 16);
+  const rgb = colorAlpha.slice(0, 3);
+  const alpha = colorAlpha[3];
   const pixelBoundsValid =
-    allFinite &&
+    rasterGeometryFinite &&
     pixelBounds.every(Number.isInteger) &&
     pixelBounds[0] >= 0 && pixelBounds[1] >= 0 &&
     pixelBounds[2] >= pixelBounds[0] &&
@@ -684,7 +837,7 @@ function readActualRasterRecord(actualPackedEvidence, localRow, layout) {
     pixelBounds[2] < layout.canvasWidth &&
     pixelBounds[3] < layout.canvasHeight;
   const tileBoundsValid =
-    allFinite &&
+    rasterGeometryFinite &&
     tileBounds.every(Number.isInteger) &&
     tileBounds[0] >= 0 && tileBounds[1] >= 0 &&
     tileBounds[2] >= tileBounds[0] &&
@@ -692,14 +845,21 @@ function readActualRasterRecord(actualPackedEvidence, localRow, layout) {
     tileBounds[2] < layout.tileCols &&
     tileBounds[3] < layout.tileRows;
   const centerDepthValid =
-    allFinite &&
+    rasterGeometryFinite &&
     values.slice(1, 4).every(Number.isFinite) &&
     (!rasterEligible || values[3] > 0);
+  const rgbValid =
+    rgb.length === 3 &&
+    rgb.every(Number.isFinite) &&
+    rgb.every((value) => value >= 0);
+  const alphaValid =
+    Number.isFinite(alpha) &&
+    alpha > 0 && alpha <= 1;
   return {
     rasterEligible,
     stages: {
       productionRasterEligibility: {
-        valid: allFinite && eligibilityValid,
+        valid: rasterGeometryFinite && eligibilityValid,
         missing: false,
         values: eligibilityValid ? [rasterEligible ? 1 : 0] : null
       },
@@ -722,6 +882,16 @@ function readActualRasterRecord(actualPackedEvidence, localRow, layout) {
         valid: rasterEligible === true && tileBoundsValid,
         missing: false,
         values: tileBounds
+      },
+      productionTileInputAlpha: {
+        valid: rasterEligible === true && alphaValid,
+        missing: false,
+        values: [alpha]
+      },
+      productionTileInputRgb: {
+        valid: rasterEligible === true && rgbValid,
+        missing: false,
+        values: rgb
       }
     }
   };
@@ -837,6 +1007,17 @@ function createStageSummary(stageContract) {
     tolerance: stageContract.tolerance,
     classification: 'blocked-no-valid-evidence'
   };
+}
+
+function firstSemanticMismatchStage(stageSummaries, downstreamOnly = false) {
+  const downstreamStages = new Set([
+    'productionTileInputAlpha',
+    'productionTileInputRgb'
+  ]);
+  return stageSummaries.find((stage) =>
+    (!downstreamOnly || downstreamStages.has(stage.stage)) &&
+    stage.semanticResidualCount > 0
+  )?.stage ?? null;
 }
 
 export function comparePopulationAlignedSemanticChunkEvidence({
@@ -1044,7 +1225,7 @@ export function comparePopulationAlignedSemanticChunkEvidence({
         const stageRepresentatives = stageLocalRepresentatives[stageContract.key];
         if (
           stageRepresentatives.length <
-            POPULATION_SEMANTIC_STAGE_LOCAL_REPRESENTATIVE_LIMIT
+            populationSemanticStageLocalRepresentativeLimit(stageContract.key)
         ) {
           const representative =
             buildPopulationSemanticStageLocalMismatchRepresentative({
@@ -1136,6 +1317,9 @@ export function comparePopulationAlignedSemanticChunkEvidence({
     rasterCompanionEvidenceLayout: actualRasterCompanionContract ?? null,
     stageSummaries,
     stageLocalMismatchSummaries,
+    firstSemanticMismatchStage: firstSemanticMismatchStage(stageSummaries),
+    firstDownstreamMismatchStage:
+      firstSemanticMismatchStage(stageSummaries, true),
     firstMismatches,
     firstMismatchCount: firstMismatches.length,
     firstMismatchLimit: POPULATION_SEMANTIC_MAX_FIRST_MISMATCHES,
@@ -1145,6 +1329,8 @@ export function comparePopulationAlignedSemanticChunkEvidence({
     actualProvenance: POPULATION_SEMANTIC_ACTUAL_PROVENANCE,
     rasterExpectedProvenance: POPULATION_RASTER_SEMANTIC_EXPECTED_PROVENANCE,
     rasterActualProvenance: POPULATION_RASTER_SEMANTIC_ACTUAL_PROVENANCE,
+    actualGpuDeviceScope: POPULATION_RASTER_SEMANTIC_ACTUAL_DEVICE_SCOPE,
+    expectedGenerationDependsOnActual: false,
     precisionClassificationProvenance:
       POPULATION_PIXEL_BOUNDARY_PRECISION_CLASSIFICATION_PROVENANCE,
     actualEvidenceSameProductionDispatch: false,
