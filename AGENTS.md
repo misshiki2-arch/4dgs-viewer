@@ -3,12 +3,22 @@
 ## Project purpose
 This repository is an experimental browser-based true 4DGS viewer built on Three.js.
 The current main viewer entry is `4dgs_gpu_viewer.html`.
-The development goal is to evolve the GPU path step by step without breaking the current viewer.
+The long-term development goal is to evolve the GPU path step by step without breaking the current viewer.
 
 ## Scope of this file
 This file defines repository-wide rules.
 Use this file for project-level instructions that should remain valid across multiple steps.
 Use more local `AGENTS.md` files for directory-specific implementation rules.
+
+## Current freeze and future-design boundary
+- The canonical current-state record is `docs/phase3_current_state.md`.
+- The Viewer is frozen partway through Step 122 until the corrected training baseline and restart gates are accepted. There is no currently authorized Viewer implementation Step.
+- During the freeze, do not start new Viewer source, Phase, Step, performance, scalability, LOD, or streaming implementation work.
+- Preserve the already-completed infrastructure from Phase 3 and Steps 118–122 work, including production/diagnostic device separation and production readback-none.
+- `docs/phase4_and_later_scalability_design.md` records future Viewer design candidates; it does not start Phase 4, lift the freeze, or authorize implementation.
+- External methods named in that document are unadopted investigation or design-spike candidates, not implementation contracts.
+- Do not carry a Phase number, ticket, or design from another project into this Viewer project.
+- Documentation Sync is limited to the expressly named documents and remains separate from source implementation.
 
 ## Main architecture principles
 - Keep `viewer_app_gpu.js` thin. It is a wiring and orchestration file, not the place for new rendering logic.

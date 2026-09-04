@@ -1,7 +1,7 @@
 # Phase 4以降のscalability・streaming・科学可視化設計
 
-更新日: 2026-08-25
-状態: 将来設計候補。現在のPhase 3実装や次Stepを独立に許可する文書ではない。
+更新日: 2026-09-04 JST（外部一次資料確認）
+状態: 将来設計候補。Viewerはcorrected training baselineとrestart gateの受入れまでfreeze中であり、本書はPhase 4開始、freeze解除、次Step、実装、外部方式の採用を認可しない。
 
 ## 1. この文書の目的
 
@@ -19,6 +19,11 @@
 
 現在地の正本は `docs/phase3_current_state.md`、Phase 3の長期設計は
 `docs/phase3_webgpu_backend_design.md` である。この文書はそれらを上書きしない。
+
+本書のPhase 4は、このViewer project内のscalability、streaming、GPU resource、
+compression、LODだけに属する。別projectのPhase番号、ticket、設計はViewerの
+現在地や実装認可へ持ち込まない。以下の外部方式も、read-only investigationまたは
+将来のdesign spike候補であり、採用済みcontractではない。
 
 ## 2. 共有チャットから確認した固定方針
 
@@ -257,17 +262,80 @@ semantic recordを直ちに捨てず、manifest / index / chunk payloadを外側
 
 ## 9. 参考にする技術と優先度
 
-### 優先度A: Phase 4 design spike対象
+### 9.1 外部一次資料台帳
+
+確認日はすべて2026-09-04 JSTである。paper、project page、code repository、
+paper license、code licenseを別のsourceとして扱い、固定できないidentityは
+「未確認」と記録する。
+
+| 候補 | source / paper version | code availability | commit / release | license | Viewerで調査する責務 | 想定Stage | 現時点で証明していないこと |
+|---|---|---|---|---|---|---|---|
+| WebSplatter | [project page](https://websplatter.github.io/) / [arXiv:2602.03207v1](https://arxiv.org/abs/2602.03207)（2026-02-03） / [repository](https://github.com/websplatter/WebSplatter) | 公式repositoryを公開 | [`16bb06e86b8fb12193d4bb4cd2b0b3d4f3ab62be`](https://github.com/websplatter/WebSplatter/commit/16bb06e86b8fb12193d4bb4cd2b0b3d4f3ab62be)（2026-08-29）、releaseは未確認 | paper: arXiv non-exclusive distribution license、code: MIT | cross-device WebGPU execution、sort、rasterization、overdraw、temporary / peak memory | Stage 0、freeze解除後の明示的design spike | current parity、true 4D compatibility、device portability、local performance |
+| KISS-GS | [project page](https://fraunhoferhhi.github.io/KISS-GS/) / [arXiv:2608.26948v1](https://arxiv.org/abs/2608.26948)（2026-08-27） / project-linked [ffsplat repository](https://github.com/w-m/ffsplat) | repositoryは公開。ただしpaper固有code releaseとの対応は未確認 | [`3fb6444c5faed6de9aa55fa2313df6c2a4104193`](https://github.com/w-m/ffsplat/commit/3fb6444c5faed6de9aa55fa2313df6c2a4104193)（2025-07-10）、paper対応releaseは未確認 | paper: arXiv non-exclusive distribution license、code: Apache-2.0 | post-training payload compression、decoder adapter、random access、GPU upload | Stage 0、将来のStage 5候補 | true 4D / time semantics、source identity、4D属性、error boundの保持 |
+| SplatStream | [arXiv:2607.25971v2](https://arxiv.org/abs/2607.25971)（v1: 2026-07-28、v2: 2026-07-29） | arXivから公式project / repositoryを確認できず、code availabilityは未確認 | commit / release未確認 | paper: arXiv non-exclusive distribution license、code license未確認 | dynamic sceneのnetwork streaming、quality / resolution layer、temporal prediction、progressive packetization、bandwidth adaptation | Stage 0、将来のStage 4 / 5候補 | paper-level設計の実装可能性、final exact convergence、Viewer formatとの整合 |
+| GPU-friendly Graphics Texture Coding | [arXiv:2607.14513v1](https://arxiv.org/abs/2607.14513)（2026-07-16） | arXivから公式project / repositoryを確認できず、code availabilityは未確認 | commit / release未確認 | paper: CC BY 4.0、code license未確認 | Gaussian attribute、特にSHのGPU向けcodec、random access、decode / upload | Stage 0、将来のStage 5候補 | WebGPU全deviceのformat対応、true 4D / time metadataの保持、local quality / performance |
+
+paperが報告する数値性能は、本Viewerでの再現結果ではない。dataset、camera、time、
+device、browser、driver、format、quality条件を固定して再測定するまで、設計採用条件や
+本Viewerの性能値として扱わない。
+
+### 9.2 採用前の共通評価軸
+
+- true 4D attributeとtime semanticsへの適用可能性
+- exact modeとの分離
+- CUDAまたはaccepted WebGPU referenceに対する画質・semantic error
+- device matrixとoptional WebGPU feature
+- encoded bytes、decoded bytes、temporary memory、GPU resident bytes
+- decode、upload、sort、raster、compositor時間
+- random access、partial fetch、cache、evictionとの整合
+- code licenseとformat specification
+- deterministic behaviorおよびfail-closed behavior
+
+### 9.3 優先度A: Phase 4 design spike対象
 
 #### WebSplatter
 
 [WebSplatter](https://github.com/websplatter/WebSplatter) はWebGPU nativeな
-3DGS pipelineとして、wait-free radix sort、opacity-aware処理、GLB / SPZ
-decode等を公開している。現在のglobal-storage bitonic orderingと比較し、
-WebGPUのcross-device behavior、sort cost、peak memoryをread-only benchmarkする。
+3DGS pipelineであり、cross-device WebGPU executionのdesign spike候補とする。
+wait-free radix sort、dispatch間同期、hardware rasterizationの使い方、
+opacity-aware処理、sort cost、temporary / peak memory、device portabilityを、
+現在のglobal-storage bitonic orderingおよびrenderer責務と比較する。
 
-採用は、現在のsort / compositor parityが成立した後に限る。sort algorithm変更と
-semantic mismatch修正を同じStepへ混ぜない。
+現行sortまたはcompositorへ直ちに移植しない。accepted parity成立前のalgorithm
+置換を認可せず、semantic mismatch修正とsort / rasterization変更を同じStepへ
+混ぜない。freeze中は一次資料のread-only investigationに限定する。
+
+#### KISS-GS
+
+[KISS-GS](https://fraunhoferhhi.github.io/KISS-GS/) は、post-training payload
+compressionおよびdecoder adapterの候補とする。pruning、attribute organization、
+image-based encoding、decode cost、random access、GPU upload形式を、canonical
+scene / chunk contractの外側に閉じられるか評価する。
+
+static 3DGS向けの結果をtrue 4DGSへ自動一般化しない。source identity、time
+semantics、4D属性、明示的error boundを保持できることを採用条件とし、paperと
+project-linked repositoryの対応が固定できるまでは実装根拠にしない。
+
+#### SplatStream
+
+[SplatStream](https://arxiv.org/abs/2607.25971) は、dynamic Gaussian sceneの
+network streaming候補として、quality / resolution layer、inter-layer / temporal
+prediction、progressive packetization、bandwidth adaptationを調査する。
+
+paper-level設計と公開実装の可能性を分ける。既存のexact full-scene、progressive
+exact、budgeted LODへ直ちに統合せず、欠落を明示しながらfinal exact resultへ
+収束できるかを独立に評価する。
+
+#### GPU-friendly Graphics Texture Coding
+
+[Compression of 3D Gaussian Splatting Data Using GPU-friendly Graphics Texture Coding](https://arxiv.org/abs/2607.14513)
+は、Gaussian attribute、特にSHのGPU向けcodec候補とする。fixed-rate block
+compression、random access、hardware decode、primitive reordering、bit-rate / quality
+tradeoffを評価する。
+
+BC1、BC7等をWebGPU全deviceで利用可能と仮定しない。browser feature、adapter、
+device、format compatibilityを実測するまで採用せず、scientific属性、source
+identity、time metadataへ同じlossy policyを自動適用しない。
 
 #### Splat.js（arrival-space）
 
@@ -339,7 +407,7 @@ set、large-scene residencyの境界を調査する。
 UI、dirty updateの責務分離を確認する設計参考である。Gaussian rendererの数式や
 低レベルWebGPU実装の参照とは扱わない。
 
-### 優先度B: Phase 4後半またはPhase 5
+### 9.4 優先度B: Phase 4後半以降
 
 #### Predictive uncertainty / artifact-risk layer
 
@@ -355,7 +423,7 @@ open specification、license、browser decode cost、4D属性、source identity�
 scientific payload保持を評価する。LCC / LCC2や閉じた形式は、仕様と合法的decoderが
 確認できる場合だけinteroperability対象にする。
 
-### 優先度C: 研究候補または現時点で非優先
+### 9.5 優先度C: 研究候補または現時点で非優先
 
 - Softmax-GS等のcompositor変更は、Gaussian数削減の可能性があるが、現在の
   front-to-back alpha semanticsを変えるため、parity成立後の独立研究とする。
@@ -417,12 +485,16 @@ scientific payload保持を評価する。LCC / LCC2や閉じた形式は、仕�
 
 ## 11. 段階的な導入順
 
+以下はfreeze解除後に別途認可を受ける場合の将来順序であり、いずれのStageも
+本書によって開始済みにはならない。
+
 ### Stage 0: read-only investigation
 
 - candidate repository / paper / licenseを確認する。
 - 同一dataset、camera、time、deviceでbenchmark条件を固定する。
-- WebSplatter、Splat.js、HiGS、Streamed SOG、A LoD of Gaussiansから、algorithmと
-  product claimを分離する。
+- WebSplatter、KISS-GS、SplatStream、GPU-friendly Graphics Texture Coding、
+  Splat.js、HiGS、Streamed SOG、A LoD of Gaussiansから、algorithmとproduct claimを
+  分離する。
 
 ### Stage 1: canonical manifest / chunk contract
 
