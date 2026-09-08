@@ -20,6 +20,15 @@
 
 単に WebGPU canvas が nonblank になること、capture が成功すること、または一つの fixed frame が表示されることだけを最終目的としない。
 
+この大目的はViewer project固有である。研究program全体の目的階層とprojectの役割は
+[`50_4DGS_RESEARCH_PROGRAM_GOALS_JA.md`](../../4dgs-development-governance/50_4DGS_RESEARCH_PROGRAM_GOALS_JA.md)
+を正本とする。Viewerは直接変換結果の利用・検証基盤であり、研究programの中心成果またはdirect converterのownerではない。
+
+direct converterとはcanonical format、manifest、provenance、粒子identity、時刻、物理属性等の
+明示的interfaceで接続する。ViewerのPhase／Stepをconverterまたは研究programへ流用しない。
+LOD、streaming、compressionは現在の必須実装ではなく、real-time利用が実測上成立しない場合に限り、
+別途認可する独立責務として再評価する。
+
 ## 3. 維持する責務分担
 
 - WebGPU は将来の標準 production backend を所有する。

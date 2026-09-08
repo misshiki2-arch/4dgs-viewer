@@ -5,6 +5,14 @@ This repository is an experimental browser-based true 4DGS viewer built on Three
 The current main viewer entry is `4dgs_gpu_viewer.html`.
 The long-term development goal is to evolve the GPU path step by step without breaking the current viewer.
 
+## Program-wide purpose boundary
+
+- The program-wide research goal and project roles are owned by [`50_4DGS_RESEARCH_PROGRAM_GOALS_JA.md`](../4dgs-development-governance/50_4DGS_RESEARCH_PROGRAM_GOALS_JA.md); the project purpose above is Viewer-specific.
+- The Viewer consumes and validates direct-conversion results. It is neither the program's central research result nor the owner of the direct converter.
+- Keep the direct converter separate and connect it through explicit canonical format, manifest, provenance, particle identity, time, and physical-attribute interfaces.
+- Viewer Phase and Step identifiers remain local to this repository and must not be reused for the direct converter or the research program.
+- LOD, streaming, and compression are not current mandatory implementations. Re-evaluate them as separately authorized responsibilities only if measured real-time use does not hold.
+
 ## Scope of this file
 This file defines repository-wide rules.
 Use this file for project-level instructions that should remain valid across multiple steps.

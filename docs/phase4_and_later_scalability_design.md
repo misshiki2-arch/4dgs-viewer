@@ -20,6 +20,11 @@
 現在地の正本は `docs/phase3_current_state.md`、Phase 3の長期設計は
 `docs/phase3_webgpu_backend_design.md` である。この文書はそれらを上書きしない。
 
+研究program全体の目的階層とprojectの役割は
+[`50_4DGS_RESEARCH_PROGRAM_GOALS_JA.md`](../../4dgs-development-governance/50_4DGS_RESEARCH_PROGRAM_GOALS_JA.md)
+を正本とする。Viewerは直接変換結果の利用・検証基盤であり、研究programの中心成果または
+direct converterのownerではない。
+
 本書のPhase 4は、このViewer project内のscalability、streaming、GPU resource、
 compression、LODだけに属する。別projectのPhase番号、ticket、設計はViewerの
 現在地や実装認可へ持ち込まない。以下の外部方式も、read-only investigationまたは
@@ -39,6 +44,9 @@ compression、LODだけに属する。別projectのPhase番号、ticket、設計
   WebGPU Viewerの表示責務をCUDAへ移さない。
 - SPH / VTUから4D Gaussianを直接生成する研究は、Viewer内部ではなく別の
   offline converter / research pipelineとして扱う。
+
+direct converterとはcanonical format、manifest、provenance、粒子identity、時刻、物理属性等の
+明示的interfaceで接続し、ViewerのPhase／Stepをconverterまたは研究programへ流用しない。
 
 ### 2.2 Phase 4へ持ち込む対象
 
@@ -91,6 +99,10 @@ full-scene完了宣言は禁止する。
 Phase 4では、accepted parity boundaryの内側でperformanceとscalabilityを進める。
 LOD、opacity-aware culling、early termination、quantizationなど、結果を近似する
 可能性がある機能は、exact full-scene modeと別のacceptance contractを持つ。
+
+LOD、streaming、compressionは現在の必須実装ではない。real-time利用が実測上成立しない場合に
+限り、必要性と影響を独立責務として再評価する。以下の記述はその場合に備えた将来候補と
+技術契約の記録であり、この再評価条件または別途の実装認可を置き換えない。
 
 したがってruntime modeは、少なくとも概念上、次を区別する。
 
