@@ -322,6 +322,50 @@ if JSON files were saved. Python cache files are not artifacts; tracked
 - Production viewer connection, broad UI changes, and interactive camera
   implementation are separate steps.
 
+<a id="issue-19-diagnostic-candidates"></a>
+
+### Unadopted external diagnostic and resource-inspection candidates (Issue #20)
+
+The accepted [Issue #19 report v2](../../reports/webgpu-4dgs-viewer/issue-19/issue-19-investigation-report-v2.md)
+provides two Phase 3 candidates, not adopted methods, measured improvements, or
+a new Step. Source/release/license evidence is indexed in the
+[Phase 4 source ledger](phase4_and_later_scalability_design.md#issue-19-source-ledger).
+The existing freeze and completed implementation/acceptance boundaries remain
+unchanged; technical usefulness is evaluated within the Viewer.
+
+- **fVDB-style bounded pixel contributor tracking** (report F1–F3, P3-A):
+  potentially connect record-local agreement to remaining pixel differences by
+  examining ordered contributor IDs, weights, alpha, accumulated transmittance,
+  and termination reasons. Step121 already provides thirteen-stage record-local
+  comparison and Step122 adds independent alpha/RGB evidence. Before proposing
+  any addition, compare the information already available with those pixel-level
+  needs; if existing evidence is sufficient, add nothing. Any later validation
+  would fix input, camera, time and source-ID mapping on a fresh diagnostic
+  device, bound pixels/contributors/bytes, and use known overlap cases to
+  distinguish missing IDs, order differences and alpha differences. This would
+  be independent re-execution, not the original production dispatch's history;
+  preserve production readback-none and the bounded summary without embedding
+  per-pixel arrays. Match Viewer threshold, cutoff, camera and sort/tie semantics
+  before comparison. Radiance weights are not physical conservation weights,
+  and top-k is not complete contribution evidence. The actual diagnostic gap
+  and ability to identify causes remain unverified.
+- **SuperSplat-style resource ownership, lifetime and sourceRow inspection**
+  (report S1, P3-B): potentially reveal duplicate CPU/GPU retention, temporary
+  peaks and remap mistakes beyond the existing workset owner/reference-capacity
+  contracts. A later inspection would map source → resident → projection →
+  sort → composite → diagnostic resources to owners, allocation/upload/release
+  points, capacity and usage, preserving original source identity through
+  reordered rows. Reuse existing lifecycle evidence and add no mechanism if it
+  already answers the question. Check load, normal-frame and diagnostic
+  lifetimes separately; future measurements must distinguish JS heap, total CPU
+  memory, GPU resident and temporary memory. No leak, missing mapping, memory
+  saving or need for a new resource owner has been established.
+
+These are registered inspection candidates only. Any subsequent gap analysis,
+implementation or GPU validation requires its own authorization. Sort comparison
+and large-scale selected-pixel diagnostics are separate
+[Phase 4 candidates](phase4_and_later_scalability_design.md#issue-19-scalability-candidates).
+
 ## 9. Current Step50 Fix3 Baseline
 
 The clean baseline before Step51 is:

@@ -1,6 +1,6 @@
 # Phase 4以降のscalability・streaming・科学可視化設計
 
-更新日: 2026-09-04 JST（外部一次資料確認）
+更新日: 2026-09-11 JST（Issue #20: 受入済みIssue #19 v2の候補登録。一次資料の確認日は台帳で区別）
 状態: 将来設計候補。Viewerはcorrected training baselineとrestart gateの受入れまでfreeze中であり、本書はPhase 4開始、freeze解除、次Step、実装、外部方式の採用を認可しない。
 
 ## 1. この文書の目的
@@ -276,7 +276,7 @@ semantic recordを直ちに捨てず、manifest / index / chunk payloadを外側
 
 ### 9.1 外部一次資料台帳
 
-確認日はすべて2026-09-04 JSTである。paper、project page、code repository、
+次表の確認日は2026-09-04 JSTである。paper、project page、code repository、
 paper license、code licenseを別のsourceとして扱い、固定できないidentityは
 「未確認」と記録する。
 
@@ -290,6 +290,28 @@ paper license、code licenseを別のsourceとして扱い、固定できないi
 paperが報告する数値性能は、本Viewerでの再現結果ではない。dataset、camera、time、
 device、browser、driver、format、quality条件を固定して再測定するまで、設計採用条件や
 本Viewerの性能値として扱わない。
+
+<a id="issue-19-source-ledger"></a>
+
+#### Issue #19 v2からの追加台帳（確認日: 2026-09-11 JST）
+
+[受入済み報告v2](../../reports/webgpu-4dgs-viewer/issue-19/issue-19-investigation-report-v2.md)
+第3節の固定版を登録する。release/commitと固定source URLは
+[provenance-v2.json](../../reports/webgpu-4dgs-viewer/issue-19/provenance-v2.json)
+から機械転記・照合した。特定paperの再現ではなく、paper versionは該当なしである。
+
+| 対象 | 固定release / commit | code availability | license確認範囲 | Viewerでの候補責務 |
+|---|---|---|---|---|
+| SuperSplat | v3.0.0 / [`12398f7f6997bd59bdd82876fd90fc87a6ec6f68`](https://github.com/playcanvas/supersplat/tree/12398f7f6997bd59bdd82876fd90fc87a6ec6f68) | 公開source | [root LICENSE](https://github.com/playcanvas/supersplat/blob/12398f7f6997bd59bdd82876fd90fc87a6ec6f68/LICENSE): MIT | Phase 3 resource所有権・寿命・sourceRow点検、Phase 4 sort/indirect比較 |
+| PlayCanvas Engine | v2.22.0 / [`b2c5d42bfb98e334b60cc1214c63c763046a07d7`](https://github.com/playcanvas/engine/tree/b2c5d42bfb98e334b60cc1214c63c763046a07d7) | 公開source | [root LICENSE](https://github.com/playcanvas/engine/blob/b2c5d42bfb98e334b60cc1214c63c763046a07d7/LICENSE): MIT | Phase 4 portable GPU radix/indirect比較 |
+| fVDB-core | v0.5.1 / [`316639f1adea4f09cde41f61954c399538cc1b88`](https://github.com/openvdb/fvdb-core/tree/316639f1adea4f09cde41f61954c399538cc1b88) | 公開source | [root LICENSE](https://github.com/openvdb/fvdb-core/blob/316639f1adea4f09cde41f61954c399538cc1b88/LICENSE): Apache-2.0（読んだkernelのSPDXも確認） | Phase 3限定pixel寄与診断、Phase 4指定pixel/active tile診断 |
+
+SuperSplat独自のProjectedSplatRendererと、そこから利用するEngine ComputeRadixSortを
+根拠とする。Engineの一般的なhybrid rendererと同一構成とは扱わない。license確認は
+上記rootと報告で読んだsourceの範囲であり、splat-transformやPyTorch/CUDA/CUB等の
+依存全体・再配布条件は未監査である。移植・再配布の承認ではなく、将来利用時に表示保持、
+適用NOTICE、変更表示等を確認する。記事の著者側測定やGTC sessionの紹介を本Viewerの
+実測または固定kernelの説明へ読み替えない。根拠詳細は報告第3節を参照する。
 
 ### 9.2 採用前の共通評価軸
 
@@ -316,6 +338,45 @@ opacity-aware処理、sort cost、temporary / peak memory、device portability�
 現行sortまたはcompositorへ直ちに移植しない。accepted parity成立前のalgorithm
 置換を認可せず、semantic mismatch修正とsort / rasterization変更を同じStepへ
 混ぜない。freeze中は一次資料のread-only investigationに限定する。
+
+<a id="issue-19-scalability-candidates"></a>
+
+#### SuperSplat / Engine: portable GPU radixとindirect接続（未採用・未実測）
+
+Issue #19 v2のS2/S3・P4-Aを、上記WebSplatter等と同じsort比較の候補として登録する。
+用途は大量tile参照のsort時間、dispatch数、一時容量の改善可能性の評価である。現行には
+GPU count/scan/scatter、compact tile span別global-storage bitonic、indirect compositorが
+既にあり、追加価値はGPU化自体ではなくsort方式、key/payload配置、可変件数indirect接続にある。
+portable 4-bit radixを比較基準候補とし、OneSweep 8-bitはsubgroups、lane、forward-progress等の
+前提を確認できるGPU/backendに限る追加候補とする。20-bit depth量子化、8-bit alpha保存、
+外部の投影・weight式やstochastic modeを一括採用しない。
+
+別途比較を認可する場合は、同じtile参照入力とViewerのfull-precision key/tie契約を固定し、
+欠落・余分な重複ゼロ、tile所属・depth/tie順序・payload ID・合成結果の一致を先に検証する。
+同一Gaussianの異なるtileへの正当な参照は保持する。tile別radixとtile/depth結合key案は
+key幅、pass数、tie保持、一時bytesで比較し、参照件数とtile偏りを変えてsort時間と総frame時間、
+peak容量を測る。高速化、損益分岐規模、device portabilityは未確認であり、小規模での優位も
+仮定しない。外部rendererの完成画像との一致は、方式活用の条件にしない。
+
+#### fVDB: 指定pixel / active tileによる診断の大規模化（未採用・未実測）
+
+Issue #19 v2のF1–F4・P4-Bを、
+[Phase 3の限定pixel寄与診断候補](phase3_webgpu_backend_design.md#issue-19-diagnostic-candidates)
+で必要性が確認された情報だけを大規模sceneでも取得する候補として登録する。指定pixelから
+active tileを作り、診断の処理・出力量を問題領域へ限定する効果を期待する。既存productionの
+active-tile dispatchとは用途を区別し、全画面高速化、LOD、圧縮、Gaussian streamingの解決としない。
+
+将来の比較では同じ選択pixelのID/weightが全体版と一致することを確認し、input/camera/time、
+source remap、sort/tie、閾値と打切り規則をViewerへ合わせる。fresh diagnostic分離とproduction
+非依存を維持し、pixel数・最大寄与数・最大bytesを制限する。範囲外、top-k、予算超過は不完全な
+取得として明示する。非top-kの一時ID/weight配列は最終ragged出力とは別に最大寄与数に依存し、
+投影・交差・sort等の全体処理とhost同期も残り得るため、固定費を含む時間とpeak容量で評価する。
+削減範囲、WGSL/device limitsへの適合、原因特定の有効性、実際の性能・容量効果は未確認である。
+
+両候補の根拠詳細は[Issue #19 v2](../../reports/webgpu-4dgs-viewer/issue-19/issue-19-investigation-report-v2.md)
+第5–8節を参照する。評価軸はViewerでの効用とし、別projectの進捗を不採用・優先順位の理由に
+しない。既存freeze・accepted parity境界を維持し、この登録から追加調査、方式採用、実装、
+benchmark、Phase/Step開始へ自動的に進まない。
 
 #### KISS-GS
 

@@ -14,6 +14,14 @@
 - 上記文書の古い `Current` / `Next` / `current goal` 表記より、この文書の現在地を優先する。
 - 次の Step の目的は、ユーザーが設計方針を確認してから別途確定する。この文書だけを根拠に実装へ進んではならない。
 
+### Issue #20: 受入済み外部調査の候補登録
+
+Issue #19の[調査報告v2](../../reports/webgpu-4dgs-viewer/issue-19/issue-19-investigation-report-v2.md)は
+受入済みである。Issue #20で[Phase 3の診断・resource点検候補](phase3_webgpu_backend_design.md#issue-19-diagnostic-candidates)と
+[Phase 4のsort・限定領域診断候補](phase4_and_later_scalability_design.md#issue-19-scalability-candidates)へ
+登録した。いずれも未採用・未実装・未実測であり、正式な次Step、Phase完了状態、Section 23の
+freeze境界を変更しない。用途・適用条件・未確認事項は各設計書、根拠詳細は報告v2を参照する。
+
 ## 2. プロジェクト全体の大目的
 
 4DGS の状態評価、可視判定、投影、tile reference、depth ordering、compositing、canvas presentation を WebGPU production backend が所有し、camera と time の対話操作を含めて CUDA 参照と意味的に整合する 4DGS Viewer を成立させる。
