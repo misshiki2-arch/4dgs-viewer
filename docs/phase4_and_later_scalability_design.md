@@ -242,6 +242,13 @@ evictionでは、camera距離だけでなく次を考慮する。
 
 load / evictのhysteresisを設け、cameraやtimeの小さな変化によるthrashingを防ぐ。
 
+Issue #40の[Spark 2.2.0変更履歴](https://github.com/sparkjsdev/spark/blob/main/CHANGELOG.md)は、
+scene変更後の旧scene chunkのfetch/decode継続と、不要な初回GPU uploadの修正を報告する。
+ここからのViewerへの応用判断として、将来の評価時にはscene切替/disposeで不要処理を止めること、
+停止不能な処理は古いgenerationの結果を破棄すること、再利用可能な常駐dataを不要に再転送しないことを
+確認候補に加える。これは上流の修正内容とViewer側の評価条件を区別した補足であり、具体API、
+buffer/schema、取消方式を決めない。既存のscrub時prefetch取消とresource handoffは変更しない。
+
 ## 8. compressionと科学データの保護
 
 共有チャットにあるSOG / Streamed SOG、SPZ、RAD、LCC系は、主にphotorealistic
@@ -312,6 +319,27 @@ SuperSplat独自のProjectedSplatRendererと、そこから利用するEngine Co
 依存全体・再配布条件は未監査である。移植・再配布の承認ではなく、将来利用時に表示保持、
 適用NOTICE、変更表示等を確認する。記事の著者側測定やGTC sessionの紹介を本Viewerの
 実測または固定kernelの説明へ読み替えない。根拠詳細は報告第3節を参照する。
+
+<a id="issue-40-source-ledger"></a>
+
+#### Issue #40の追加台帳（確認日: 2026-09-19 JST）
+
+指定一次資料と公式version/licenseリンクだけを確認した。仕様、公開Issueの報告、論文abstractの
+主張とViewerへの応用判断を区別する。以下は候補登録であり、未採用・未実装・本Viewerで未実測である。
+既存台帳の固定版は変更せず、今回取得した現行ページを過去版のsource監査として扱わない。
+
+| 候補 | 一次資料・paper版 | release / commit確認範囲 | license / code確認範囲 | 用途・未確認境界 |
+|---|---|---|---|---|
+| Three.js GaussianSplat | [公式仕様](https://threejs.org/docs/pages/GaussianSplat.html) / [公開Issue #34527](https://github.com/mrdoob/three.js/issues/34527)。paper該当なし | Issueはr186を明記。現行docsとr186実装の同一性・commitは未確認 | [r186 root LICENSE](https://github.com/mrdoob/three.js/blob/r186/LICENSE): MIT。依存全体は未監査 | Phase 3の補助比較。更新API不足は公開報告であり、source確認済み仕様としない |
+| Gaussian Splat Lite | [開発者の1.0紹介](https://discourse.threejs.org/t/gaussian-splat-lite-1-0-webgpu-streaming-lod-and-depth-rendering-for-three-js/94234) / [公式repository](https://github.com/WilliamLiu-1997/Gaussian-Splat-Lite)。paper該当なし | [CHANGELOG](https://github.com/WilliamLiu-1997/Gaussian-Splat-Lite/blob/main/CHANGELOG.md)の1.0.0（09-09）と1.1.0（09-17）を区別。固定commit未確認 | 公開code。[root LICENSE](https://github.com/WilliamLiu-1997/Gaussian-Splat-Lite/blob/main/LICENSE): Apache-2.0。NOTICE・third-party全体は未監査 | Phase 3比較 / Phase 4 streaming・LOD・residency。1.1.0のfastSort既定有効は精度trade-offを伴うとの変更履歴であり、1.0の比較条件へ混ぜない |
+| Spark | [CHANGELOG 2.2.0](https://github.com/sparkjsdev/spark/blob/main/CHANGELOG.md)。paper該当なし | 2.2.0（2026-09-11）の記載確認。固定commit未確認 | [main root LICENSE](https://github.com/sparkjsdev/spark/blob/main/LICENSE): MIT。2.2.0全code・Rust/依存のlicense対応は未監査 | Phase 4の取消・residency評価条件。上流修正は本Viewerの不具合・改善実績を意味しない |
+| MoQSplat | [arXiv v1](https://arxiv.org/abs/2609.18624v1)（2026-09-16）、abstract / metadata | code公開先の案内あり。code release / commit未確認 | paper: [CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/)。code license未確認 | 空間・品質階層と配信優先度。true 4D、exact convergence、Viewerでの効果は未確認 |
+| DecoGS | [arXiv v1](https://arxiv.org/abs/2609.17230v1)（2026-09-15）、abstract / metadata | code availability / release / commit未確認 | paper: [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)。code license未確認 | 選択的最適化から更新量削減への着想。GPU buffer分離はViewer側の未検証応用 |
+| PanoGS-SLAM | [arXiv v1](https://arxiv.org/abs/2609.17387v1)（2026-09-15）、abstract / metadata | abstractはcode公開予定と記載。release / commit未確認 | paper license・code license未確認 | パノラマ入力・姿勢推定の低優先・保留資料。投影一致の根拠にしない |
+
+版・licenseの未確認を埋めるための追加探索や移植は行っていない。将来利用時の版固定・license確認は
+別途必要であり、この台帳は導入・再配布の許諾判断ではない。Phase 3の比較条件は
+[比較候補節](phase3_webgpu_backend_design.md#issue-40-comparison-candidates)を参照する。
 
 ### 9.2 採用前の共通評価軸
 
@@ -498,6 +526,9 @@ scientific payload保持を評価する。LCC / LCC2や閉じた形式は、仕�
 
 ### 9.5 優先度C: 研究候補または現時点で非優先
 
+- **PanoGS-SLAM**は[追加台帳](#issue-40-source-ledger)に登録したパノラマ入力・姿勢推定の
+  低優先・保留資料である。球面領域のSLAMという論文の対象をWebGPU/WebGL2投影一致の根拠や
+  現在の必須camera要件へ昇格しない。
 - Softmax-GS等のcompositor変更は、Gaussian数削減の可能性があるが、現在の
   front-to-back alpha semanticsを変えるため、parity成立後の独立研究とする。
 - textured splat、LGTM等はphotorealistic asset表示には有用だが、物理量保持の
@@ -510,6 +541,35 @@ scientific payload保持を評価する。LCC / LCC2や閉じた形式は、仕�
   あり、Viewer backendのPhase 4責務ではない。
 - Casberryはbrowser 3D UI / rapid authoringの動向としては興味深いが、4DGS
   scientific viewerのrenderer、format、streaming設計へ直接採用する要素は薄い。
+
+<a id="issue-40-scalability-candidates"></a>
+
+### 9.6 Issue #40: streaming・residency・時間更新量の候補（未採用・未実測）
+
+根拠の版と確認範囲は[追加台帳](#issue-40-source-ledger)へ集約する。以下は候補登録だけであり、
+追加研究・実装・計測の開始ではない。Section 3.2のreal-time不成立時の再評価条件を維持する。
+
+- **Gaussian Splat Lite**: 開発者説明と公式READMEが示すRAD/SOGのcamera-driven LOD、
+  decode/cache/upload budget、読み込み中の旧detail保持・fadeを、将来のstreaming/GPU residency
+  比較材料にする。これらの表示継続をexact coverageの証明にしない。4Dのtime需要、source identity、
+  科学属性、欠落を明示したexact convergenceへの適用は未確認。Phase 3の描画経路比較は
+  [別節](phase3_webgpu_backend_design.md#issue-40-comparison-candidates)とする。
+- **Spark 2.2.0**: 変更履歴が示す旧sceneのfetch/decode停止と不要upload防止、実験的opt-inの
+  LOD traversal改善を将来の比較材料にする。Viewer側への適用条件はSection 7、追加計測は
+  Section 10.4へ集約する。上流の高速化率をViewerの予測値・受入閾値へ転用しない。
+- **MoQSplat**: 論文abstractは空間Tracks、Groups、段階的品質Subgroupsと、視域・距離等に応じた
+  配信を提案し、prototypeの部分評価を報告する。空間分割・品質階層・配信優先度の候補とするが、
+  3D配信階層は4Dのtime windowではない。Section 4のcanonical dataとtransportを分離して参照する
+  のはViewerへの応用判断であり、論文の実証成果ではない。MoQ/HTTP Range等の選定は未決のままとし、
+  pruning・間引き等の近似品質向上と、全recordを欠落なく処理するexact convergenceを区別する。
+- **DecoGS**: 論文abstractの動き・測光変化を持つ領域への選択的最適化は、時間方向の不要更新削減の
+  着想となる。ただしViewerの静的/動的GPU buffer分離へ拡張する部分は未検証の応用案である。
+  SPHのID・時刻・瞬間速度だけでは、位置・形状・色・alpha・物理属性の区間内不変性やGaussianとの
+  対応を保証できない。表示側で安全な再利用を示す条件は未確認であり、学習・変換・分類algorithmの
+  設計やdirect converterの責務へ広げない。
+
+既存hierarchy/payload/fetch/semantics分離、schedulerからrendererへの責務境界とexact/approximate
+分離を再設計しない。技術的効用はViewerで評価し、別projectの進捗による実施時期の制約と混同しない。
 
 ## 10. acceptance contract
 
@@ -553,6 +613,11 @@ scientific payload保持を評価する。LCC / LCC2や閉じた形式は、仕�
 - visible records、tile references、overdraw proxy
 - time-to-first-frame、time-to-target-quality、time-to-exact
 - device limitsと選択されたbudget
+
+Issue #40による追加計測候補は、LOD探索/選択時間と、取消・無効化された処理の転送量である。
+後者は無効化後にも到着・転送したbytesを区別して、Section 7の不要処理停止・結果破棄・再転送防止を
+評価するための候補とする。既存stage計測を置き換えず、具体telemetry schemaや閾値は確定しない。
+上流の高速化率は本Viewerの実測値・見込み値・受入閾値ではない。
 
 一つのFPSだけで方式を採否判断しない。
 

@@ -22,6 +22,15 @@ Issue #19の[調査報告v2](../../reports/webgpu-4dgs-viewer/issue-19/issue-19-
 登録した。いずれも未採用・未実装・未実測であり、正式な次Step、Phase完了状態、Section 23の
 freeze境界を変更しない。用途・適用条件・未確認事項は各設計書、根拠詳細は報告v2を参照する。
 
+### Issue #40: 外部GS比較・scalability候補の追加登録
+
+2026-09-19 JST、[Phase 3の補助比較候補](phase3_webgpu_backend_design.md#issue-40-comparison-candidates)と
+[Phase 4の将来候補・評価条件](phase4_and_later_scalability_design.md#issue-40-scalability-candidates)へ
+登録した。根拠の版・license確認範囲は[追加台帳](phase4_and_later_scalability_design.md#issue-40-source-ledger)を参照する。
+方式は未採用・未実装・本Viewerで未実測であり、本Issueの最終acceptanceや完了を宣言しない。
+Section 23のStep122途中のfreeze・解除条件、既存到達点・正式な次StepとSection 2の
+LOD/streaming/compression再評価条件は不変である。
+
 ## 2. プロジェクト全体の大目的
 
 4DGS の状態評価、可視判定、投影、tile reference、depth ordering、compositing、canvas presentation を WebGPU production backend が所有し、camera と time の対話操作を含めて CUDA 参照と意味的に整合する 4DGS Viewer を成立させる。

@@ -366,6 +366,46 @@ implementation or GPU validation requires its own authorization. Sort comparison
 and large-scale selected-pixel diagnostics are separate
 [Phase 4 candidates](phase4_and_later_scalability_design.md#issue-19-scalability-candidates).
 
+<a id="issue-40-comparison-candidates"></a>
+
+### Unadopted external rendering comparison candidates (Issue #40)
+
+Registered on 2026-09-19 JST; neither candidate is adopted, implemented, or
+measured in this Viewer. Source versions and license-check scope are recorded
+once in the [additional source ledger](phase4_and_later_scalability_design.md#issue-40-source-ledger).
+
+- **Three.js r186 GaussianSplat** is an auxiliary comparison candidate for
+  static 3DGS or Gaussians already evaluated at one fixed time, not a correctness
+  oracle for the full 4DGS pipeline. The [official documentation](https://threejs.org/docs/pages/GaussianSplat.html)
+  specifies WebGPURenderer, including its forceWebGL fallback, but not the
+  classic WebGLRenderer; higher-order SH uses packed, clamped-byte coefficients.
+  Any later comparison must align input, camera, time, SH storage precision,
+  color space, alpha, sort/tie rules, thresholds and termination conditions.
+  [Public issue #34527](https://github.com/mrdoob/three.js/issues/34527)
+  reports missing public buffer-update support in r186. That is an issue
+  reporter's observation, not a source-audited API guarantee or a finding that
+  all later versions lack updates. The current documentation and that r186
+  report are separate evidence; no implementation source audit was performed.
+- **Gaussian Splat Lite** offers a comparison of WebGPU projection/culling,
+  32-bit GPU radix sorting and indirect drawing according to its
+  [developer's 1.0 description](https://discourse.threejs.org/t/gaussian-splat-lite-1-0-webgpu-streaming-lod-and-depth-rendering-for-three-js/94234).
+  Separate native WebGPU from the two WebGL2 paths: the latter use asynchronous
+  Worker/WASM sorting and can draw using the previous valid order. Stochastic
+  rendering skips sorting using sampled coverage and depth testing; the optional
+  companion depth draw is unsorted alongside sorted color, whereas stochastic
+  mode writes depth directly. Continued drawing or depth support is not strict
+  parity. Global visible-splat ordering versus Viewer per-tile ordering, tie
+  behavior, and true 4D/time applicability remain unverified. A later comparison
+  must pin the version and rendering mode, including approximation settings;
+  the ledger distinguishes the 1.0 description from newer release notes.
+
+These candidates do not replace the independent expected/actual contract,
+fresh diagnostic-device isolation, or production readback-none. They authorize
+no package update, renderer replacement, new Step, or freeze release. Their
+technical usefulness is distinct from when evaluation may be authorized;
+streaming/LOD/residency belongs to the
+[Phase 4 candidate boundary](phase4_and_later_scalability_design.md#issue-40-scalability-candidates).
+
 ## 9. Current Step50 Fix3 Baseline
 
 The clean baseline before Step51 is:
