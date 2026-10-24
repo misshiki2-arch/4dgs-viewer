@@ -20,8 +20,9 @@ Use more local `AGENTS.md` files for directory-specific implementation rules.
 
 ## Current freeze and future-design boundary
 - The canonical current-state record is `docs/phase3_current_state.md`.
-- The Viewer is frozen partway through Step 122 until the corrected training baseline and restart gates are accepted. There is no currently authorized Viewer implementation Step.
-- During the freeze, do not start new Viewer source, Phase, Step, performance, scalability, LOD, or streaming implementation work.
+- The user accepted Corrected Step21 function and Gate D input acceptance for the adopted bundle on 2026-10-25 JST. [CURRENT_STATE §24](docs/phase3_current_state.md#corrected-b-handoff) owns the implemented intake/SH0 connection, CPU/browser evidence and bounded acceptance. Adopted B and Gates A–C remain accepted.
+- The Viewer remains generally frozen partway through Step122. This acceptance neither renumbers Viewer work nor resumes Step122/Phase4; any further source work requires separate explicit authorization. Document review, user research Git/push and Step21 completion/progress processing remain pending. Preserve legacy SH2 and the shared 128-byte staging contract; this Documentation Sync authorizes no source work.
+- All other source work remains frozen, including sort/compositor changes, full-scene/performance, scalability, LOD, streaming and higher/temporal SH activation. Do not infer a new Phase/Step or general unfreeze from this limited scope.
 - Preserve the already-completed infrastructure from Phase 3 and Steps 118–122 work, including production/diagnostic device separation and production readback-none.
 - `docs/phase4_and_later_scalability_design.md` records future Viewer design candidates; it does not start Phase 4, lift the freeze, or authorize implementation.
 - External methods named in that document are unadopted investigation or design-spike candidates, not implementation contracts.

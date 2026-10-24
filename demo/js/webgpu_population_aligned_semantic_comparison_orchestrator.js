@@ -1,3 +1,4 @@
+import { getAdoptedBundleContext } from './common_4dgs_adopted_bundle.js';
 import {
   POPULATION_RASTER_SEMANTIC_ACTUAL_PROVENANCE,
   POPULATION_RASTER_SEMANTIC_ACTUAL_DEVICE_SCOPE,
@@ -559,10 +560,21 @@ function firstSemanticMismatchStage(stageSummaries, downstreamOnly = false) {
   )?.stage ?? null;
 }
 
-export function buildPopulationAlignedSemanticComparisonChunkPlan() {
+export function populationComparisonRange(raw = null) {
+  const c = getAdoptedBundleContext(raw);
+  if (c && (c.selection.start !== PRODUCTION_RESIDENT_RANGE_START || c.selection.count !== POPULATION_SEMANTIC_MAX_CHUNK_RECORDS)) {
+    throw new Error('adopted-bundle:comparison-range-not-approved');
+  }
+  const count = c ? c.selection.count : PRODUCTION_RESIDENT_RANGE_COUNT;
+  return { count, end: PRODUCTION_RESIDENT_RANGE_START + count,
+    chunks: count / POPULATION_SEMANTIC_MAX_CHUNK_RECORDS };
+}
+
+export function buildPopulationAlignedSemanticComparisonChunkPlan(raw = null) {
+  const POPULATION_SEMANTIC_FIXED_CHUNK_COUNT = populationComparisonRange(raw).chunks;
   if (
     !Number.isSafeInteger(POPULATION_SEMANTIC_FIXED_CHUNK_COUNT) ||
-    POPULATION_SEMANTIC_FIXED_CHUNK_COUNT !== 8
+    ![1, 8].includes(POPULATION_SEMANTIC_FIXED_CHUNK_COUNT)
   ) return [];
   return Array.from(
     { length: POPULATION_SEMANTIC_FIXED_CHUNK_COUNT },
@@ -594,7 +606,9 @@ function buildExpectedChunkIdentity(plan, input) {
   });
 }
 
-function buildOverallIdentity(snapshot, status, blockedReasons) {
+function buildOverallIdentity(snapshot, status, blockedReasons, range) {
+  const { count: PRODUCTION_RESIDENT_RANGE_COUNT, end: PRODUCTION_RESIDENT_RANGE_END,
+    chunks: POPULATION_SEMANTIC_FIXED_CHUNK_COUNT } = range;
   const base = snapshot
     ? buildExpectedChunkIdentity({
         rangeStart: PRODUCTION_RESIDENT_RANGE_START,
@@ -631,13 +645,13 @@ function buildOverallIdentity(snapshot, status, blockedReasons) {
     productionCalculationDependsOnDiagnosticReadback: false,
     mappingContract: base?.mappingContract ?? null,
     populationSelectionPolicy: base?.populationSelectionPolicy ?? null,
-    chunkExecutionPolicy: 'fixed-eight-contiguous-chunks-sequential-await'
+    chunkExecutionPolicy: range.chunks === 8 ? 'fixed-eight-contiguous-chunks-sequential-await' : 'verified-adopted-single-chunk'
   };
 }
 
 function validateOrchestratorInput(input, plan, snapshotResult) {
   const reasons = [...snapshotResult.blockedReasons];
-  if (plan.length !== 8) reasons.push('fixed-eight-chunk-plan-invalid');
+  if (plan.length !== populationComparisonRange(input.raw).chunks) reasons.push('fixed-chunk-plan-invalid');
   if (!input.device) reasons.push('diagnostic-device-missing');
   if (!input.raw) reasons.push('raw-spl4-input-missing');
   if (input.chunkRunner != null && typeof input.chunkRunner !== 'function') {
@@ -1195,6 +1209,9 @@ export async function runPopulationAlignedSemanticComparisonResidentRange({
   timeIdentity,
   chunkRunner = null
 } = {}) {
+  const range = populationComparisonRange(raw);
+  const { count: PRODUCTION_RESIDENT_RANGE_COUNT, end: PRODUCTION_RESIDENT_RANGE_END,
+    chunks: POPULATION_SEMANTIC_FIXED_CHUNK_COUNT } = range;
   const callerInput = {
     device,
     raw,
@@ -1208,7 +1225,7 @@ export async function runPopulationAlignedSemanticComparisonResidentRange({
     timeIdentity,
     chunkRunner
   };
-  const plan = buildPopulationAlignedSemanticComparisonChunkPlan();
+  const plan = buildPopulationAlignedSemanticComparisonChunkPlan(raw);
   const snapshotResult = buildAuthoritativeExecutionSnapshot(callerInput);
   const authoritativeSnapshot = snapshotResult.snapshot;
   const inputBlockedReasons = validateOrchestratorInput(
@@ -1462,7 +1479,8 @@ export async function runPopulationAlignedSemanticComparisonResidentRange({
     identity: buildOverallIdentity(
       authoritativeSnapshot,
       identityStatus,
-      inputBlockedReasons
+      inputBlockedReasons,
+      range
     ),
     coverage: {
       requestedRangeStart: PRODUCTION_RESIDENT_RANGE_START,

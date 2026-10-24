@@ -1,8 +1,13 @@
 # Phase 3 Current State
 
-更新基準: 2026-09-01 / Phase 3 Step122 Investigation10 Documentation Sync時点
+更新基準: 2026-10-25 / Corrected Phase5 Step21-docsync2（機能・採用bundleのGate D入力受入れ済み、文書レビュー待ち）
 対象ブランチ: `phase3-webgpu-compute-prototype`
-基準コミット: `c137ae4 Step121: complete 524288-record semantic parity`
+履歴上の基準コミット: `c137ae4 Step121: complete 524288-record semantic parity`
+
+採用B・Gates A–CとStep20完了を維持し、2026-10-25 JSTにStep21機能と今回bundleのGate D入力受入れが承認された。
+[§24](#corrected-b-handoff)を受取側の実装・CPU/browser実績と使用範囲の正本とする。
+文書レビュー・ユーザー研究Git/push・Step21完了処理／進捗反映は未実施。
+Viewer全般のfreeze、旧Step122・Phase4の非再開を維持し、以後のsource作業には別途明示認可が必要である。
 
 ## 1. この文書の役割
 
@@ -13,6 +18,17 @@
 - 初期の責務分担案は `docs/phase3_backend_responsibility_plan.md` に履歴として残す。
 - 上記文書の古い `Current` / `Next` / `current goal` 表記より、この文書の現在地を優先する。
 - 次の Step の目的は、ユーザーが設計方針を確認してから別途確定する。この文書だけを根拠に実装へ進んではならない。
+
+### 進捗管理・文書同期・Gitの参照（2026-09-20）
+
+Stepの定義は[GOV-STEP](../../4dgs-development-governance/00_GOVERNANCE_AND_ROLE_BOUNDARIES_JA.md)、
+機能受入れまでの設計と文書同期は[ADV-STEP / ADV-DOC](../../4dgs-development-governance/10_DESKTOP_ADVISOR_COMMAND_DESIGN_RULES_JA.md)、
+Gitの契機は[USR-GIT-09/10](../../4dgs-development-governance/40_USER_GIT_AND_ACCEPTANCE_RUNBOOK_JA.md)、
+全体・Phase進捗は[RM-PROGRESS](../../4dgs-development-governance/30_REDMINE_WORKFLOW_JA.md)を適用する。
+既存Step番号は過去の成果・証拠への参照として維持し、全体進捗の分母や残り作業量へ換算しない。
+過去の同期・Git記録を、今後の中間作業ごとの必須操作にしない。本追記は管理上の参照であり、
+Section 23のStep122 freeze・解除条件、各Phaseの技術的到達点・受入条件・正式な次Stepを変更しない。
+全体・Phaseの進捗率と実Redmineの管理表示が整備済みであることも意味しない。
 
 ### Issue #20: 受入済み外部調査の候補登録
 
@@ -1024,6 +1040,10 @@ handoffの直接原因と分離し、必要性とschema影響を別責務とし�
 
 ## 23. Step122 Investigation11 Corrected-Baseline Freeze and Retraining Track
 
+この節の原因・legacy証拠・依存順は履歴として維持する。採用baselineと現在の限定作業条件は
+[§24](#corrected-b-handoff)に更新した。限定接続の機能と今回bundleのGate D入力受入れは承認済みだが、
+Viewer全般のfreezeは維持し、以後のsource作業には別途明示認可を必要とする。
+
 ### Investigation10からInvestigation11への時系列と判断
 
 Investigation10は、intrinsics cameraのfull projectionが正の`fl_x/fl_y/cx/cy`を使用する一方、
@@ -1108,15 +1128,19 @@ corrected rendererを正式baselineにする場合、legacy checkpointのcorrect
 
 これらは削除または全面失敗扱いにしない。状態は
 `infrastructure completed / legacy-baseline acceptance retained / corrected-baseline revalidation pending`
-である。凍結中はhistorical CUDA footprintへViewerを合わせる実装、新しいViewer Fix、tile-reference、
+である。§24の受入れ済み限定成果は維持するが、新たな作業の認可ではない。凍結中はhistorical CUDA footprintへViewerを合わせる実装、新しいViewer Fix、tile-reference、
 sort、compositor、229,328 reference count追跡、current PNG metrics改善、full-scene、performance、LODを
 進めない。
 
-Viewer凍結解除には、corrected handoff implementationのreview、intrinsics cameraとlegacy FoV-only
+Investigation11当時に定めたViewer凍結解除の依存条件は、corrected handoff implementationのreview、intrinsics cameraとlegacy FoV-only
 cameraのfocused validation acceptance、from-scratch retraining完了、新checkpoint/SPL4/corrected CUDA
-Reference identityの確定、およびnew population countとfixed-range baselineの設計がすべて必要である。
+Reference identityの確定、およびnew population countとfixed-range baselineの設計である。
+その後のCorrected側の成果、今回bundleのGate D入力・限定SH0接続／描画の受入れと、後続の画像全体等の未達は§24で区別する。
 
 ### Corrected retraining dependency order
+
+以下はInvestigation11時点の履歴上の依存順であり、完了済み工程の再実行命令ではない。
+現在の採用工程・成果物はCorrected計画書、限定受取作業の順序は§24を参照する。
 
 1. Investigation11の文書同期を完了する。
 2. ユーザーがViewer/CUDA repositoryのGit checkpointを作成する。
@@ -1138,16 +1162,140 @@ Reference identityの確定、およびnew population countとfixed-range baseli
 17. New population countを正本とするcorrected full-scene gateを行う。
 18. Interactive camera/time、performance、scalability、LODへ進む。
 
-Retraining outputの現時点の候補は
+Investigation11時点のRetraining output候補は
 `/home/demo/work/outputs/sph_scene_4dgs_corrected_intrinsics_v1`であるが、未作成・未確定であり、
-後続の実行命令で再確認する。New checkpointのrecord countは未確定である。Legacyの3,231,588件、
+当時は後続命令での確認対象だった。現在の採用出力と3,248,901点は§24の参照先で確定済みである。Legacyの3,231,588件、
 fixed range `[524288, 1048576)`、canonical representatives、semantic thresholds、reference count、
 PNG metricsを新baselineへ自動継承してはならない。
 
 ### Completion boundary after synchronization
+
+以下はInvestigation11同期時点の完了／未完了記録である。現在の採用B・Step20完了を取り消さず、
+新たな未達事項は§24で管理する。
 
 Camera handoff defectの原因分類、training dependencyのread-only調査、corrected baselineを選択した
 ユーザー判断、Viewer infrastructure、およびlegacy browser/artifact取得は完了済みである。Camera
 handoff Fix、focused validation、corrected diagnostic render、from-scratch retraining、new checkpoint、
 new SPL4、corrected CUDA Reference、new fixed-range parity、corrected PNG parity、Viewer凍結解除、
 Acceptance Level 4、corrected full-scene correctness、interactive/performance/LODは未完了である。
+
+<a id="corrected-b-handoff"></a>
+## 24. 採用Bの引渡し・必要SH0接続と限定作業範囲
+
+### 採用・owner・現在地
+
+ユーザーは[Step21詳細設計](../../reports/corrected-4dgs/phase5/step21/step21-design1/step21-design1-design-report.md)と
+[相談役レビュー](../../reports/corrected-4dgs/phase5/step21/step21-design1/step21-design1-advisor-review.txt)を採用済みである。
+実装・必要Fix・CPU検証およびユーザー実行のValidation3を経て、
+[相談役レビュー](../../reports/corrected-4dgs/phase5/step21/step21-validation3/step21-validation3-advisor-review.txt)と
+[今回の承認・同期命令](../../reports/corrected-4dgs/phase5/step21/step21-docsync2/step21-docsync2-instruction.txt)に対応する
+2026-10-25 JSTのユーザー判断により、Step21機能と今回採用bundleのGate D入力受入れは承認済みである。
+未実施なのは文書レビュー・ユーザー研究Git/push・Step21完了処理／進捗反映であり、機能判断を再承認待ちへ戻さない。
+旧レビューのユーザー受入れ待ち、一次JSONのfalse Gate flagsは当時の記録として保全し、現在の判断と分離する。
+
+[Corrected計画書のStep21](../../4d-gaussian-splatting_corrected_v1/docs/corrected_camera_intrinsics_retraining_plan.md#step21-handoff)
+が採用baseline・引渡し成果・Gate/Phase依存を所有し、本節が受取側の契約・現在地・必要SH0接続・未達を所有する。
+[Step20完了記録](../../reports/corrected-4dgs/phase4/step20/step20-completion-report.txt)により、機能・Gate C・文書レビュー・
+ユーザー研究Git・完了処理は済んでいる。採用B E3 final、全3,248,901点のSPL4-v2と14視点Reference、Gates A–Cは維持する。
+正式出力・使用限界はCorrected計画書を参照し、旧実行記録のfalse Gate flagsや失敗証跡は書き換えない。
+Corrected Phase5/Step21はproject間の引渡し識別であり、ViewerのPhase/Stepを再採番しない。
+
+### 実受取口とSH契約
+
+既存file I/O・parser・manifest・評価器を再利用し、外部確定記録に結合したbundle照合から
+strict parser、検証済みscene context、camera/time/range、production input snapshot、SH評価、
+既存描画・captureへ接続する。外部checkerだけの成功を実consumerの機能完了としない。
+P0-A3は実payloadの長さ・寸法・属性意味・値を検査し、P0-A4はcheckpoint/population/Reference/
+camera/time・外部receipt/resultと実際のscene・frameを結合する。parseする同じbytesを照合し、
+誤組合せ・古い由来・誤range・不正payloadをscene公開/dispatch前に拒否する。
+pathの存在や任意のverifiedフラグだけを根拠にせず、旧単独SPL4を新bundleの検証済み入力へ昇格させない。
+
+採用Bは最大次数表記3/2、有効空間/時間次数0/0、物理16係数/色である。保存配置と評価対象を分け、
+inactive係数を有効化・削減・水増し・再学習しない。SH0はcorrected CUDAの成分別
+`max(C0*f_dc + 0.5, 0)`であり、既存SH無効表示の代用や評価段階の独自upper clampを認めない。
+方向を使わないSH0のためにlegacy SH2の元mean方向を変更しない。詳細な式・方向・時刻・clamp差は採用設計§2–4を参照する。
+
+採用構成は既存128-byte stagingのSH0/legacy空間SH2共用である。物理16係数はsourceに保全し、
+一時GPU packingと同一視しない。既存renderAttributes/tile stride・device-limit検査・cleanup、
+production/diagnostic device分離・production readback-noneを維持する。
+
+| 対象 | 構造を読める範囲 | profileとしての受理 | 実評価 | 独立検証済みの範囲 |
+|---|---|---|---|---|
+| 採用B active0/0・physical16・max3/2 | SPL4-v2 strict検査を実consumerへ接続済み | 外部確定記録と全点bundleの一致を実受取口で確認、今回bundleを受入れ済み | SH0分岐を実装、固定範囲でproduction描画完走 | CPUとValidation3の独立数値・接続確認を受入れ。全点画質・性能の受入れではない |
+| legacy空間SH2・historical時間0/2・physical16 | 既存layout/経路を維持 | 明示legacyとして維持。採用Bへ昇格不可 | 元mean方向の既存SH2・128-byte stagingを維持 | focused CPU回帰成功、§21の旧固定範囲の数値証拠を維持。今回SH2の実browser再検証やcorrected高次数・時間SH検証を行ったとはしない |
+| 空間SH1/3・時間0 | 係数数が揃えば構造表現可能 | 今回の採用profileでは未対応として拒否 | 今回有効化しない。SH3別layoutも新設しない | 未検証 |
+| 空間3・時間SH1/2 | 32/48係数等を持つ別契約が必要 | 現profileでは拒否 | 未対応、黙殺しない | 未検証 |
+| 未知次数・係数不足・未対応組合せ | 構造読取りだけでreadyにしない | 拒否 | downgrade/zero補完/fallbackなし | 成功扱いにしない |
+
+### 新populationの選定と受入れ済み限定範囲
+
+[設計証跡](../../reports/corrected-4dgs/phase5/step21/step21-design1/step21-design1-design-evidence.json)の保存radii/visibilityに基づき、
+中央時刻・中央方向のview04（train index2588、`images/000118_v16.png`、time16.6）を初回の接続・独立SH数値検証用に選ぶ。
+全populationを65,536点ごとに区切り、可視点数最大・同数なら最小startという規則で
+`[524288,589824)`（65,536点、可視12,410点、最大radius67）を選び、Validation3でも同条件を使用した。view全体の可視点は39,821である。
+
+| 役割 | 元source index | 保存radius |
+|---|---:|---:|
+| range先頭／不可視control | 524288 | 0 |
+| range末尾 | 589823 | 0 |
+| 可視先頭 | 524324 | 10 |
+| 可視中央 | 572419 | 8 |
+| 可視末尾 | 589817 | 27 |
+| 可視最小radius | 529553 | 3 |
+| 可視最大radius | 564754 | 67 |
+
+7 unique点の元identityを保持し、sort後のrow番号へ置換しない。上限1を超えるSH0値と可視blackの候補も含む。
+この固定範囲で実描画・独立数値確認は成功したが、全視点代表性・正式全点描画baselineの確認ではない。
+旧固定範囲やStep20のhead/middle/tail各8192行のbyte照合範囲を描画受入れへ継承しない。
+全点SPL4の入力受入れと限定範囲の描画確認を分け、容量都合で正式保存物・点数・必須検査を削減しない。
+資源概算・capacity停止境界は採用設計§6を参照する。限定実行の成功を全点容量や絶対peak保証へ拡張しない。
+
+### 限定作業条件・機能受入れ・後続境界
+
+[Implement1](../../reports/corrected-4dgs/phase5/step21/step21-implement1/step21-implement1-report.md)、
+[Fix1](../../reports/corrected-4dgs/phase5/step21/step21-fix1/step21-fix1-report.md)、
+[Fix2](../../reports/corrected-4dgs/phase5/step21/step21-fix2/step21-fix2-report.md)は実parser/file I/O・由来結合・SH0・
+既存SH2回帰、capture結合・描画完了待ち／失敗記録のCPU証拠を所有する。旧失敗を成功へ書き換えず、
+必要Fix後のValidation3を受入根拠とする。全3,248,901点と14視点Reference一式のstrict受取・scene/production/capture結合により、
+今回bundleのP0-A3/A4を閉じた。一般freezeは継続し、以後のsource作業は別途明示認可を要する。
+旧Step122・Viewer Phase4、sort/compositor改修、全点/操作性能、LOD/streaming、高次数・時間SH有効化へ自動移行しない。
+
+### Validation3の実績と証拠境界
+
+[最終入力](../../reports/corrected-4dgs/phase5/step21/step21-validation3/step21-validation3-input.json)、
+[一次browser結果](../../json/step21_validation3_000118_v16_browser_result.json)、
+[実runtime](../../json/step21_validation3_000118_v16_gpu_candidate_runtime_summary.json)、
+[PNG状態](../../json/step21_validation3_000118_v16_png_capture_status.json)、
+[数値比較](../../json/step21_validation3_000118_v16_webgpu_visible_record_dryrun_compare.json)および
+[レビュー証跡](../../reports/corrected-4dgs/phase5/step21/step21-validation3/step21-validation3-advisor-review-evidence.json)を根拠とする。
+Fix2の未実行候補ではなく、実際のValidation3入力への対応である。
+
+- view04、train frame2588、time16.6、1280×720、上記65,536点・7代表点を維持。全6 checks成功、
+  failure/captureFailureはnull。実runtime完走、同一要求とgeneration4のproduction／提示／capture結合、
+  実PNGの寸法・encoded hash／size一致、nonblank、staleなし、実行エラーなしを確認した。
+- coverageは65,536点で欠落・重複等なし。eligibilityは全範囲、RGB等は適用12,410点／非適用53,126点。
+  SH0 RGB最大絶対誤差は1.3752027894220475e-7（既存許容1e-5内）、不一致・意味的残差0。
+  record/tile関連数値と実描画完走は確認済みであり、後続の画像全体受入れと混同して未検証へ戻さない。
+- expectedはSPL4 DCから独立な `max(C0*DC+0.5,0)`。actualはfreshな別diagnostic deviceで同じproduction評価器・
+  tile-input経路を実行した結果であり、同じproduction dispatchの直接readbackではない。
+  expectedのactual非依存、productionのdiagnostic readback非依存、cleanup成功を確認した。
+- pixel boundsの2点に1px差があり、既存分類precision-aligned、semanticResidual=0。
+  全項目のbitwise一致ではなく、許容差変更・検査削除もない。active0/0分岐はレビューで確認済みで、
+  旧degree-2ラベルを高次数検証済みや未解消失敗と読み替えない。
+- ユーザーの実表示所見は「気になる表示異常・赤いエラーはなかった」。
+  相談役の保存PNG目視・機械照合とは別の観測として扱う。今回の文書同期では再描画・再検証していない。
+
+| 判定層 | 到達条件と残る境界 |
+|---|---|
+| Gate D入力受入れ | 今回bundleのP0-A3/A4、strict受理/拒否、新population/selection、camera/time/rangeとcapture identityを2026-10-25 JSTにユーザー受入れ済み |
+| Step21の必要SH0接続 | 独立数値・実production描画接続・既存SH2 focused CPU回帰を含め機能受入れ済み。入力readyやnonblankのみの判定ではない |
+| 後続Viewer描画acceptance | 上記record/tile数値・描画完走を維持し、sort/compositor・画像全体、同範囲CUDA画像parity、全点・対話・性能の受入れは別責務。今回の入力/SH0成功から推論しない |
+
+同じview/time/rangeのCUDA画像は未準備である。全点14 Reference画像を部分populationの画像一致基準にしない。
+この不足は後続描画parityの責務であり、今回の必須作業へ追加CUDA生成やcompositor修正を取り込まない。
+
+### 直接変換との境界
+
+program-wide ownerは§2のPRGのまま。直接変換の物理属性・単位・粒子identity・時刻はSH外観係数と分ける。
+学習済みBやSH2、属性ごとの再学習をdirect converterの必須条件にしない。SH0で基本色を受け取る際も、
+線形RGBとDC係数の関係を明示し、物理属性を置換しない。converter・汎用属性基盤・色編集UI・高次数学習は別owner/別改良責務であり、今回追加しない。

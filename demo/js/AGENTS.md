@@ -1,8 +1,9 @@
 ## Current Project State
 
 - The canonical current-state record is ../../docs/phase3_current_state.md.
-- The Viewer is frozen partway through Step 122 until the corrected training baseline and restart gates are accepted. There is no currently authorized Viewer implementation Step.
-- During the freeze, do not change source under `demo/js`.
+- Corrected Step21 function and Gate D input acceptance for the adopted bundle were user-accepted on 2026-10-25 JST. [CURRENT_STATE §24](../../docs/phase3_current_state.md#corrected-b-handoff) owns the implemented intake/SH0 connection, CPU/browser evidence and bounded acceptance. Adopted B and Gates A–C remain accepted.
+- General Viewer freeze remains: Gate D input acceptance does not resume Step122/Phase4 or authorize further source work. Separate explicit authorization is required. Document review, user research Git/push and Step21 completion/progress processing remain pending. Preserve legacy SH2 and shared 128-byte staging. This Documentation Sync does not authorize source changes.
+- All other `demo/js` source work remains frozen, including sort/compositor, full-scene/performance and higher/temporal SH activation. Corrected Phase5/Step21 neither renumbers Viewer work nor resumes old Step122.
 - Preserve the already-completed infrastructure from Phase 3 and Steps 118–122 work, including production/diagnostic device separation and production readback-none.
 - The Phase 4 scalability document is future design only; it does not start Phase 4, lift the freeze, or authorize source work here.
 - Any older current goal or next step statement in this file is historical guidance, not authorization to resume that numbered Step.
@@ -48,7 +49,7 @@ These rules are more specific than the repository root `AGENTS.md` and apply to 
 ## External Phase 4 candidate boundary
 - External renderer, codec, and streaming methods in the Phase 4 design are unadopted investigation candidates.
 - Do not trial or integrate them into the current production path during the freeze.
-- Implementation may proceed only after the freeze is explicitly lifted and a new Step is explicitly authorized.
+- Implementation of these external Phase 4 candidates may proceed only after the relevant freeze is explicitly lifted and a new Step is explicitly authorized. The separate limited handoff scope above does not adopt or enable them.
 
 ## Editing rules for this directory
 - Preserve `getVisibleBuildConfig(...)` contract unless explicitly requested otherwise.

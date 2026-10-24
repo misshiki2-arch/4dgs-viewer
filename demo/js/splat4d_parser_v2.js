@@ -1,4 +1,7 @@
 export function parseSplat4DV2(arrayBuffer) {
+  if (!(arrayBuffer instanceof ArrayBuffer) || arrayBuffer.byteLength < 128) {
+    throw new Error('SPL4 header missing');
+  }
   const dv = new DataView(arrayBuffer);
   const magic = String.fromCharCode(dv.getUint8(0), dv.getUint8(1), dv.getUint8(2), dv.getUint8(3));
   if (magic !== 'SPL4') throw new Error('Not SPL4');
@@ -20,9 +23,55 @@ export function parseSplat4DV2(arrayBuffer) {
   const tDim = dv.getUint32(52, true);
   const scaleTDim = dv.getUint32(56, true);
 
+  const flags = [20, 21, 22, 23].map((offset) => dv.getUint8(offset));
+  if (flags.some((flag) => flag !== 0 && flag !== 1) || flags[2] !== 1 || flags[3] !== 1) {
+    throw new Error('SPL4 unsupported raw flags');
+  }
+  for (let i = 60; i < 128; i++) {
+    if (dv.getUint8(i) !== 0) throw new Error('SPL4 reserved bytes nonzero');
+  }
+  const dimensions = [xyzDim, rotationDim, rotationRDim, scaleXYZDim, fdcDim,
+    frestDim, opacityDim, tDim, scaleTDim];
+  if (!N || xyzDim !== 3 || rotationDim !== 4 || scaleXYZDim !== 3 || fdcDim !== 3 ||
+      opacityDim !== 1 || ![0, 4].includes(rotationRDim) ||
+      ![0, 1].includes(tDim) || scaleTDim !== tDim ||
+      (rot4d && (rotationRDim !== 4 || tDim !== 1)) ||
+      ![0, 9, 24, 45, 93, 141].includes(frestDim) ||
+      activeShDegree < 0 || activeShDegree > 3 || activeShDegreeT < 0 || activeShDegreeT > 2 ||
+      frestDim < ((activeShDegree + 1) ** 2 - 1) * 3) {
+    throw new Error('SPL4 unsupported dimensions/degrees');
+  }
+  const stride = dimensions.reduce((a, b) => a + b, 0);
+  const expectedBytes = 128 + N * stride * 4;
+  if (!Number.isSafeInteger(expectedBytes) || arrayBuffer.byteLength !== expectedBytes) {
+    throw new Error('SPL4 payload length mismatch');
+  }
+
   const data = new Float32Array(arrayBuffer, 128);
+  // Validate before SoA allocation/publication, without changing raw SH/opacity/quaternions.
+  for (let i = 0; i < data.length; i++) {
+    if (!Number.isFinite(data[i])) throw new Error('SPL4 nonfinite payload');
+  }
+  for (let row = 0; row < N; row++) {
+    const start = row * stride;
+    for (const offset of (rotationRDim ? [3, 7] : [3])) {
+      if (!(Math.hypot(...data.subarray(start + offset, start + offset + 4)) > 0)) {
+        throw new Error('SPL4 zero quaternion');
+      }
+    }
+    const scaleStart = start + xyzDim + rotationDim + rotationRDim;
+    const scaleOffsets = [scaleStart, scaleStart + 1, scaleStart + 2];
+    if (scaleTDim) scaleOffsets.push(start + stride - 1);
+    for (const offset of scaleOffsets) {
+      const linear = storeScaleLog ? Math.fround(Math.exp(data[offset])) : data[offset];
+      if (!Number.isFinite(linear) || linear <= 0) throw new Error('SPL4 invalid linear scale');
+    }
+  }
   const out = {
     version, N, activeShDegree, activeShDegreeT, rot4d, storeScaleLog,
+    rawSh: true, rawOpacity: true,
+    runtimeScaleRepresentation: 'linear', runtimeOpacityRepresentation: 'logit',
+    runtimeQuaternionRepresentation: 'wxyz',
     xyzDim, rotationDim, rotationRDim, scaleXYZDim, fdcDim, frestDim, opacityDim, tDim, scaleTDim,
     xyz: new Float32Array(N * xyzDim),
     rotation: new Float32Array(N * rotationDim),

@@ -159,6 +159,7 @@ function pickProductionFrameIdentity(identity) {
  * never participates in production readiness or GPU control.
  */
 export function buildProductionEvaluationInputContract({
+  adoptedBundle = null,
   assetIdentity = null,
   worksetContract = null,
   buildConfig = null,
@@ -685,6 +686,7 @@ export function buildProductionEvaluationInputContract({
     gpuResourcesIncluded: false,
     populationScaledArraysIncluded: false,
     assetIdentity: asset,
+    adoptedBundle: adoptedBundle == null ? null : cloneBoundedPlainValue(adoptedBundle, 'adopted-bundle'),
     productionWorksetIdentity: workset,
     appliedConfig,
     projection,

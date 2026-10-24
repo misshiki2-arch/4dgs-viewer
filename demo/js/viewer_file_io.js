@@ -1,3 +1,5 @@
+import { createAdoptedBundleUrlReader, loadVerifiedAdoptedBundle } from './common_4dgs_adopted_bundle.js';
+
 export function createViewerFileIO({
   ui,
   parseArrayBuffer,
@@ -5,6 +7,21 @@ export function createViewerFileIO({
   scheduleRender,
   defaultSceneUrl = './scene_v2.splat4d'
 }) {
+  let loadGeneration = 0;
+  async function publish(raw, sourceMetadata, generation) {
+    if (generation !== loadGeneration) throw new Error('scene-load-superseded');
+    await onSceneLoaded(raw, sourceMetadata);
+    return raw;
+  }
+
+  async function loadAdoptedBundle({ baseUrl, authority, selection, readResource } = {}) {
+    const generation = ++loadGeneration;
+    const raw = await loadVerifiedAdoptedBundle({ authority, selection,
+      readResource: readResource ?? createAdoptedBundleUrlReader(baseUrl), parseArrayBuffer });
+    raw.assetPath = baseUrl ?? 'adopted-bundle';
+    raw.sourcePath = raw.assetPath;
+    return publish(raw, { sourceKind: raw.assetSourceKind }, generation);
+  }
   async function sha256ArrayBuffer(buf) {
     if (
       typeof crypto === 'undefined' ||
@@ -20,7 +37,7 @@ export function createViewerFileIO({
       .join('');
   }
 
-  async function loadArrayBuffer(buf, sourceMetadata = {}) {
+  async function decodeAndPublish(buf, sourceMetadata, generation) {
     const raw = parseArrayBuffer(buf);
     const sha256 = await sha256ArrayBuffer(buf);
     raw.assetPath = sourceMetadata.path ?? sourceMetadata.sourcePath ?? raw.assetPath ?? null;
@@ -30,19 +47,23 @@ export function createViewerFileIO({
       ? Number(sourceMetadata.sizeBytes)
       : (Number.isFinite(buf?.byteLength) ? Number(buf.byteLength) : null);
     raw.assetSha256 = sha256 ?? raw.assetSha256 ?? null;
-    await onSceneLoaded(raw, sourceMetadata);
-    return raw;
+    return publish(raw, sourceMetadata, generation);
+  }
+
+  async function loadArrayBuffer(buf, sourceMetadata = {}) {
+    return decodeAndPublish(buf, sourceMetadata, ++loadGeneration);
   }
 
   async function loadDefaultScene() {
+    const generation = ++loadGeneration;
     try {
       const res = await fetch(defaultSceneUrl);
       if (!res.ok) return null;
-      return await loadArrayBuffer(await res.arrayBuffer(), {
+      return await decodeAndPublish(await res.arrayBuffer(), {
         path: defaultSceneUrl,
         sourcePath: defaultSceneUrl,
         sourceKind: 'default-scene-url'
-      });
+      }, generation);
     } catch (e) {
       console.warn(e);
       return null;
@@ -54,12 +75,13 @@ export function createViewerFileIO({
     ui.fileInput.addEventListener('change', async (e) => {
       const f = e.target.files[0];
       if (!f) return;
-      await loadArrayBuffer(await f.arrayBuffer(), {
+      const generation = ++loadGeneration;
+      await decodeAndPublish(await f.arrayBuffer(), {
         path: f.name,
         sourcePath: f.name,
         sourceKind: 'file-input',
         sizeBytes: f.size
-      });
+      }, generation);
     });
   }
 
@@ -79,12 +101,13 @@ export function createViewerFileIO({
       if (ui.drop) ui.drop.style.display = 'none';
       const f = e.dataTransfer.files[0];
       if (!f) return;
-      await loadArrayBuffer(await f.arrayBuffer(), {
+      const generation = ++loadGeneration;
+      await decodeAndPublish(await f.arrayBuffer(), {
         path: f.name,
         sourcePath: f.name,
         sourceKind: 'drag-and-drop',
         sizeBytes: f.size
-      });
+      }, generation);
       if (scheduleRender) {
         scheduleRender();
       }
@@ -92,6 +115,7 @@ export function createViewerFileIO({
   }
 
   return {
+    loadAdoptedBundle,
     loadArrayBuffer,
     loadDefaultScene,
     bindFileInput,

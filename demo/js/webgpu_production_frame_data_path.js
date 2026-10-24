@@ -2,6 +2,7 @@ import {
   buildNativeWebGpuProductionFrameDataPathContract,
   buildProductionEvaluationInputContract
 } from './common_4dgs_production_frame_data_contracts.js';
+import { validateAdoptedFrame } from './common_4dgs_adopted_bundle.js';
 import {
   buildWebGpuPhase3BackendBoundaryContract
 } from './common_4dgs_record_contracts.js';
@@ -89,11 +90,6 @@ export async function runNativeWebGpuProductionFrameDataPath({
   if (!raw || !camera || canvasWidth <= 0 || canvasHeight <= 0) {
     return unavailableResult('native-production-frame-input-unavailable');
   }
-  const deviceResource = await acquireProductionDevice(viewerCanvasState);
-  if (!deviceResource?.device) {
-    return unavailableResult('native-production-webgpu-device-unavailable');
-  }
-  const { device } = deviceResource;
   const renderScale = Number.isFinite(buildConfig?.renderScale)
     ? Number(buildConfig.renderScale)
     : 1;
@@ -109,6 +105,15 @@ export async function runNativeWebGpuProductionFrameDataPath({
     sx,
     sy
   });
+  // Reject mismatched adopted inputs before adapter acquisition or dispatch.
+  let adoptedBundle;
+  try {
+    adoptedBundle = validateAdoptedFrame({ raw, buildConfig, projectionData: projectionContract.data,
+      canvasWidth, canvasHeight, productionResidentSelectionRequest });
+  } catch (error) { return unavailableResult(error.message); }
+  const deviceResource = await acquireProductionDevice(viewerCanvasState);
+  if (!deviceResource?.device) return unavailableResult('native-production-webgpu-device-unavailable');
+  const { device } = deviceResource;
   const workset = selectActiveProductionResidentWorkset({
     raw,
     device,
@@ -252,6 +257,7 @@ export async function runNativeWebGpuProductionFrameDataPath({
     compositor.contract?.captureFreshnessEvidence ?? {};
   const productionEvaluationInputContract =
     buildProductionEvaluationInputContract({
+      adoptedBundle,
       assetIdentity: {
         sceneResourceIdentity: workset.contract.sceneResourceIdentity,
         assetSha256:

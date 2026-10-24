@@ -1,6 +1,7 @@
 import {
   cameraWorldPositionFromProjectionParams
 } from './common_4dgs_projection_contracts.js';
+import { getAdoptedBundleContext } from './common_4dgs_adopted_bundle.js';
 
 export const PRODUCTION_CANDIDATE_ATTRIBUTE_INPUT_LAYOUT_VERSION =
   'phase3-step122-production-candidate-attribute-input-layout-v1';
@@ -126,8 +127,8 @@ function buildLayoutContract({
     byteLength,
     activeShDegree: Number.isFinite(activeShDegree) ? activeShDegree : null,
     activeShDegreeT: Number.isFinite(activeShDegreeT) ? activeShDegreeT : null,
-    spatialShEvaluation: 'cuda-aligned-degree-2-original-position-direction',
-    temporalShEvaluation: 'not-applied-for-spatial-degree-2',
+    spatialShEvaluation: activeShDegree === 0 ? 'cuda-aligned-sh0-constant' : 'cuda-aligned-degree-2-original-position-direction',
+    temporalShEvaluation: activeShDegree === 0 ? 'inactive-degree-0' : 'not-applied-for-spatial-degree-2',
     storageBinding: PRODUCTION_CANDIDATE_ATTRIBUTE_STORAGE_BINDING,
     storageBindingCount: PRODUCTION_EVALUATOR_STORAGE_BINDING_COUNT,
     evaluatorBindingIndices: [0, 1, 2, 3, 4, 5, 6, 7, 8],
@@ -195,7 +196,12 @@ export function buildProductionCandidateAttributeInput({
   if (!Number.isSafeInteger(sourceRecordCount) || sourceRecordCount <= 0) {
     reasons.push('source-record-count-missing-or-invalid');
   }
-  if (activeShDegree !== 2) reasons.push('active-spatial-sh-degree-unsupported');
+  if (![0, 2].includes(activeShDegree)) reasons.push('active-spatial-sh-degree-unsupported');
+  if (activeShDegree === 0) {
+    try {
+      if (!getAdoptedBundleContext(raw) || activeShDegreeT !== 0) reasons.push('sh0-profile-unverified');
+    } catch (_error) { reasons.push('sh0-profile-unverified'); }
+  }
   if (!Number.isInteger(activeShDegreeT) || activeShDegreeT < 0) {
     reasons.push('active-temporal-sh-degree-invalid');
   }
@@ -292,7 +298,7 @@ export function buildProductionCandidateAttributeInput({
         originalPosition[1] - cameraWorldPosition[1],
         originalPosition[2] - cameraWorldPosition[2]
       );
-      if (!Number.isFinite(directionLength) || directionLength <= 1e-12) {
+      if (activeShDegree !== 0 && (!Number.isFinite(directionLength) || directionLength <= 1e-12)) {
         reasons.push('candidate-camera-direction-degenerate');
         break;
       }
@@ -428,6 +434,17 @@ fn evaluateProductionDegree2SpatialSh(row: u32, originalPosition: vec3f) -> vec3
   result = result + SH_C2_3 * x * z * candidateShCoefficient(row, 7u);
   result = result + SH_C2_4 * (xx - yy) * candidateShCoefficient(row, 8u);
   return max(result + vec3f(0.5), vec3f(0.0));
+}
+`;
+}
+
+export function buildProductionSpatialShWgsl(degree) {
+  if (degree === 2) return buildProductionDegree2SpatialShWgsl();
+  if (degree !== 0) throw new Error('unsupported-production-sh-degree');
+  // Same packing/bindings; only DC is evaluated, without direction or upper clamp.
+  return buildProductionDegree2SpatialShWgsl() + `
+fn evaluateProductionSh0(row: u32, originalPosition: vec3f) -> vec3f {
+  return max(SH_C0 * candidateShCoefficient(row, 0u) + vec3f(0.5), vec3f(0.0));
 }
 `;
 }

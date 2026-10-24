@@ -1534,7 +1534,10 @@ def build_generic_fresh_production_capture_preamble(
         ),
     }
     expected_json = json.dumps(expected_runtime_contract, separators=(",", ":"))
-    return f"""var genericCaptureCommandStartFence =
+    return f"""var genericCapturePhase = 'preflight';
+var genericProductionWaitObservation = null;
+try {{
+var genericCaptureCommandStartFence =
   typeof window.gpuViewerDebug.getSynchronousCommandStartFence === 'function'
     ? window.gpuViewerDebug.getSynchronousCommandStartFence()
     : null;
@@ -1581,6 +1584,7 @@ var genericFreshProductionCaptureLifecycle = {{
   productionCompletionFence: null
 }};
 var genericFreshProductionRequest = null;
+genericCapturePhase = 'request-acceptance';
 if (typeof window.gpuViewerDebug.scheduleRender !== 'function') {{
   throw new Error('capture-blocked-production-scheduler-api-unavailable');
 }}
@@ -1604,14 +1608,27 @@ genericFreshProductionCaptureLifecycle.freshProductionRequest = {{
   disposition: genericFreshProductionRequest.disposition ?? null,
   forceProductionUpdate: genericFreshProductionRequest.forceProductionUpdate ?? null
 }};
-var genericProductionCompletionWaitStartedAtMs = performance.now();
+// Queue and execution are different intervals of the SAME request. Neither
+// origin is reset by polling, unrelated frames or later requests.
+var genericProductionAcceptedAtMs = genericFreshProductionRequest.requestedAtMs;
+var genericProductionStartedAtMs = null;
+var genericProductionPhaseBudgetMs = {args.viewer_data_ready_timeout_ms};
 var genericProductionPresentationTrace = null;
 var genericProductionFrameEvidence = null;
 var genericProductionGenerationIsFresh = false;
-while (performance.now() - genericProductionCompletionWaitStartedAtMs <
-  {args.viewer_data_ready_timeout_ms}) {{
+var genericProductionFrameReady = false;
+if (!Number.isFinite(genericProductionAcceptedAtMs)) {{
+  throw new Error('capture-blocked-request-timestamp-missing');
+}}
+genericCapturePhase = 'waiting-for-start';
+while (true) {{
   genericProductionPresentationTrace =
     window.gpuViewerDebug.getInitialProductionPresentationSnapshot?.() ?? null;
+  var genericObservedAtMs = performance.now();
+  var genericRequestRecord =
+    genericProductionPresentationTrace?.requestHistory?.find(
+      request => request.requestIdentity === genericFreshProductionRequest.requestIdentity
+    ) ?? null;
   genericProductionFrameEvidence =
     genericProductionPresentationTrace?.frameHistory?.find(
       frame => frame.requestIdentity === genericFreshProductionRequest.requestIdentity
@@ -1621,18 +1638,86 @@ while (performance.now() - genericProductionCompletionWaitStartedAtMs <
   var genericBaselineProductionGeneration =
     genericFreshProductionCaptureLifecycle.baselineProductionGeneration;
   genericProductionGenerationIsFresh =
-    Number.isFinite(Number(genericProductionGeneration)) &&
+    genericProductionGeneration != null && Number.isFinite(Number(genericProductionGeneration)) &&
     (genericBaselineProductionGeneration == null ||
       !Number.isFinite(Number(genericBaselineProductionGeneration)) ||
       Number(genericProductionGeneration) >
         Number(genericBaselineProductionGeneration));
-  if (genericProductionFrameEvidence?.productionFrameCompleted === true &&
-      genericProductionGenerationIsFresh) {{
+  var genericObservedStart = genericRequestRecord?.frameStartedAtMs;
+  var genericStartChanged = genericProductionStartedAtMs != null &&
+    genericObservedStart !== genericProductionStartedAtMs;
+  if (genericProductionStartedAtMs == null && Number.isFinite(genericObservedStart)) {{
+    genericProductionStartedAtMs = genericObservedStart;
+  }}
+  genericCapturePhase = genericProductionStartedAtMs == null
+    ? 'waiting-for-start' : 'waiting-for-completion';
+  var genericFrameConditions = {{
+    requestCompleted: genericRequestRecord?.status === 'completed',
+    frameCompleted: genericProductionFrameEvidence?.productionFrameCompleted === true,
+    generationFresh: genericProductionGenerationIsFresh === true,
+    sourceRequestMatches: genericProductionFrameEvidence?.productionSourceRequestIdentity ===
+      genericFreshProductionRequest.requestIdentity,
+    outputGenerated: genericProductionFrameEvidence?.compositorOutputGenerated === true,
+    canvasPresented: genericProductionFrameEvidence?.viewerCanvasPresented === true,
+    logicalPresentation: genericProductionFrameEvidence?.logicalPresentationSucceeded === true
+  }};
+  var genericOriginalRuntimeError = genericRequestRecord?.error ??
+    genericProductionFrameEvidence?.runtimeError ?? null;
+  var genericLastCompletedFrame = genericProductionPresentationTrace?.frameHistory?.at(-1) ?? null;
+  genericProductionWaitObservation = {{
+    observedAtMs: genericObservedAtMs,
+    traceSnapshotTakenAtMs: genericProductionPresentationTrace?.snapshotTakenAtMs ?? null,
+    requestIdentity: genericFreshProductionRequest.requestIdentity,
+    baselineGeneration: genericBaselineProductionGeneration,
+    acceptedAtMs: genericProductionAcceptedAtMs,
+    startedAtMs: genericProductionStartedAtMs,
+    completedAtMs: genericRequestRecord?.frameCompletedAtMs ?? null,
+    phaseBudgetMs: genericProductionPhaseBudgetMs,
+    queueElapsedMs: (genericProductionStartedAtMs ?? genericObservedAtMs) - genericProductionAcceptedAtMs,
+    executionElapsedMs: genericProductionStartedAtMs == null ? null :
+      (genericRequestRecord?.frameCompletedAtMs ?? genericObservedAtMs) - genericProductionStartedAtMs,
+    phase: genericCapturePhase, requestStatus: genericRequestRecord?.status ?? null,
+    missingConditions: Object.keys(genericFrameConditions).filter(key => !genericFrameConditions[key]),
+    originalRuntimeError: genericOriginalRuntimeError,
+    lastCompletedFrame: genericLastCompletedFrame == null ? null : {{
+      requestIdentity: genericLastCompletedFrame.requestIdentity,
+      productionSourceRequestIdentity: genericLastCompletedFrame.productionSourceRequestIdentity,
+      productionGeneration: genericLastCompletedFrame.productionGeneration,
+      completedAtMs: genericLastCompletedFrame.completedAtMs,
+      productionFrameCompleted: genericLastCompletedFrame.productionFrameCompleted,
+      compositorOutputGenerated: genericLastCompletedFrame.compositorOutputGenerated,
+      viewerCanvasPresented: genericLastCompletedFrame.viewerCanvasPresented,
+      logicalPresentationSucceeded: genericLastCompletedFrame.logicalPresentationSucceeded
+    }}
+  }};
+  if (genericOriginalRuntimeError || genericRequestRecord?.status === 'error') {{
+    var genericRuntimeFailure = new Error(genericOriginalRuntimeError?.message ?? 'scheduler-frame-error');
+    genericRuntimeFailure.name = genericOriginalRuntimeError?.name ?? 'Error';
+    throw genericRuntimeFailure;
+  }}
+  if (genericStartChanged || genericProductionWaitObservation.queueElapsedMs < 0 ||
+      (genericProductionStartedAtMs != null && genericProductionStartedAtMs > genericObservedAtMs)) {{
+    throw new Error('capture-blocked-request-clock-inconsistent');
+  }}
+  if (genericProductionWaitObservation.queueElapsedMs > genericProductionPhaseBudgetMs) {{
+    throw new Error('capture-blocked-fresh-production-start-timeout');
+  }}
+  if (genericProductionWaitObservation.executionElapsedMs > genericProductionPhaseBudgetMs) {{
+    throw new Error('capture-blocked-fresh-production-completion-timeout');
+  }}
+  if (genericRequestRecord?.status === 'completed' || genericProductionFrameEvidence != null) {{
+    if (genericProductionStartedAtMs == null ||
+        !Number.isFinite(genericRequestRecord?.frameCompletedAtMs) ||
+        genericRequestRecord.frameCompletedAtMs < genericProductionStartedAtMs ||
+        genericRequestRecord.frameCompletedAtMs > genericObservedAtMs) {{
+      throw new Error('capture-blocked-completion-timestamp-invalid');
+    }}
     break;
   }}
   await new Promise(resolve => setTimeout(resolve, 16));
 }}
-var genericProductionFrameReady =
+genericProductionFrameReady =
+  genericRequestRecord?.status === 'completed' &&
   genericProductionFrameEvidence?.productionFrameCompleted === true &&
   genericProductionGenerationIsFresh === true &&
   genericProductionFrameEvidence?.productionSourceRequestIdentity ===
@@ -1643,6 +1728,8 @@ var genericProductionFrameReady =
 if (!genericProductionFrameReady) {{
   throw new Error('capture-blocked-fresh-production-frame-incomplete');
 }}
+genericFreshProductionCaptureLifecycle.waitObservation = genericProductionWaitObservation;
+genericCapturePhase = 'final-presentation';
 var genericFinalPresentationBoundary =
   typeof window.gpuViewerDebug.waitForFinalCanvasPresentationQuiescence === 'function'
     ? await window.gpuViewerDebug.waitForFinalCanvasPresentationQuiescence({{
@@ -1996,6 +2083,20 @@ if (!genericCaptureExpectationReadyBeforePng) {{
 }}
 window.__phase3GenericFreshProductionCaptureLifecycle =
   genericFreshProductionCaptureLifecycle;
+}} catch (genericCaptureError) {{
+  // Retain stop-time observation on the rejected module import itself. Do not
+  // replace it with a later diagnostic snapshot or reuse a previous run's global.
+  var genericFailureError = genericCaptureError instanceof Error
+    ? genericCaptureError : new Error(String(genericCaptureError));
+  genericFailureError.captureFailure = JSON.parse(JSON.stringify({{
+    phase: genericCapturePhase, stoppedAtMs: performance.now(),
+    request: genericFreshProductionRequest ?? null,
+    waitObservation: genericProductionWaitObservation,
+    finalPresentationBoundary: genericFinalPresentationBoundary ?? null,
+    originalError: {{ name: genericFailureError.name, message: genericFailureError.message }}
+  }}));
+  throw genericFailureError;
+}}
 """
 
 

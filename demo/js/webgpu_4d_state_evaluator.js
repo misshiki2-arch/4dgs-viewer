@@ -10,7 +10,7 @@ import {
 import {
   PRODUCTION_CANDIDATE_ATTRIBUTE_VEC4_STRIDE,
   buildProductionCandidateAttributeInput,
-  buildProductionDegree2SpatialShWgsl
+  buildProductionSpatialShWgsl
 } from './common_4dgs_candidate_attribute_input_contracts.js';
 
 let nextProductionStateResourceIdentity = 1;
@@ -99,11 +99,11 @@ function buildUnavailableEvaluatorResult({
     gaussianAttributeEvaluationContract:
       buildWebGpuGaussianAttributeEvaluationContract({
         status,
-        evaluationMode: 'webgpu-degree2-spatial-sh-gaussian-render-attribute-eval',
+        evaluationMode: candidateAttributeInputLayout?.activeShDegree === 0 ? 'webgpu-sh0-gaussian-render-attribute-eval' : 'webgpu-degree2-spatial-sh-gaussian-render-attribute-eval',
         candidateAttributeInputLayout,
-        spatialShDegree: 2,
+        spatialShDegree: candidateAttributeInputLayout?.activeShDegree ?? 2,
         spatialShEvaluationMode:
-          'cuda-aligned-degree-2-original-position-direction',
+          candidateAttributeInputLayout?.spatialShEvaluation ?? 'cuda-aligned-degree-2-original-position-direction',
         higherSpatialDegreeDeferred: true,
         temporalShEvaluationDeferred: true,
         reason
@@ -345,7 +345,7 @@ const STEP113_DIAGNOSTIC_ROWS: array<u32, 8> = array<u32, 8>(
 const CUDA_TEMPORAL_VISIBILITY_THRESHOLD: f32 = 0.05;
 const POPULATION_SEMANTIC_DIAGNOSTIC_ENABLED: bool = ${populationSemanticDiagnosticEnabled};
 const POPULATION_SEMANTIC_DIAGNOSTIC_VEC4_STRIDE: u32 = ${POPULATION_SEMANTIC_EVIDENCE_VEC4_STRIDE}u;
-${buildProductionDegree2SpatialShWgsl()}
+${buildProductionSpatialShWgsl(raw.activeShDegree)}
 
 fn sigmoid(x: f32) -> f32 {
   return 1.0 / (1.0 + exp(-x));
@@ -560,7 +560,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
   let pos = raw0.xyz + temporalMean.xyz;
   statePositions[row] = vec4f(pos, 1.0);
   let alpha = sigmoid(raw0.w) * temporalWeight;
-  let rgb = evaluateProductionDegree2SpatialSh(row, raw0.xyz);
+  let rgb = ${raw.activeShDegree === 0 ? 'evaluateProductionSh0' : 'evaluateProductionDegree2SpatialSh'}(row, raw0.xyz);
   let normalizedTemporal = clamp(dt / scaleT, -1.0, 1.0);
   let radiusPx = clamp(attrs.w * 900.0 + 2.0 + abs(normalizedTemporal) * 2.0, 3.0, 14.0);
   let attrBase = row * 2u;
@@ -893,7 +893,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
       }),
       gaussianAttributeEvaluationContract:
         buildWebGpuGaussianAttributeEvaluationContract({
-          evaluationMode: 'webgpu-degree2-spatial-sh-gaussian-render-attribute-eval',
+          evaluationMode: candidateAttributeInputLayout?.activeShDegree === 0 ? 'webgpu-sh0-gaussian-render-attribute-eval' : 'webgpu-degree2-spatial-sh-gaussian-render-attribute-eval',
           candidateCount: count,
           computedRenderAttributeCount: count,
           webgpuComputedRenderAttributes: true,
@@ -905,7 +905,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
           ],
           partialAttributeFields: [
             'radiusPx-from-scale-mean',
-            'colorAlpha.rgb-from-cuda-degree2-spatial-sh-original-position',
+            candidateAttributeInputLayout?.activeShDegree === 0 ? 'colorAlpha.rgb-from-cuda-sh0-constant' : 'colorAlpha.rgb-from-cuda-degree2-spatial-sh-original-position',
             'colorAlpha.a-from-opacity-and-temporal-weight'
           ],
           referenceAssistedAttributeFields: [],
@@ -918,9 +918,9 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
             'native-webgpu-production-gaussian-render-attributes',
           fullGaussianAttributeEvaluationInWgsl: false,
           candidateAttributeInputLayout,
-          spatialShDegree: 2,
+          spatialShDegree: candidateAttributeInputLayout?.activeShDegree ?? 2,
           spatialShEvaluationMode:
-            'cuda-aligned-degree-2-original-position-direction',
+            candidateAttributeInputLayout?.spatialShEvaluation ?? 'cuda-aligned-degree-2-original-position-direction',
           higherSpatialDegreeDeferred: true,
           temporalShEvaluationDeferred: true,
           reason: null
@@ -1120,7 +1120,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
     }),
     gaussianAttributeEvaluationContract:
       buildWebGpuGaussianAttributeEvaluationContract({
-        evaluationMode: 'webgpu-degree2-spatial-sh-gaussian-render-attribute-eval',
+        evaluationMode: candidateAttributeInputLayout?.activeShDegree === 0 ? 'webgpu-sh0-gaussian-render-attribute-eval' : 'webgpu-degree2-spatial-sh-gaussian-render-attribute-eval',
         candidateCount: count,
         computedRenderAttributeCount:
           attributeSummary.computedRenderAttributeCount,
@@ -1133,7 +1133,7 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
         ],
         partialAttributeFields: [
           'radiusPx-from-scale-mean',
-          'colorAlpha.rgb-from-cuda-degree2-spatial-sh-original-position',
+          candidateAttributeInputLayout?.activeShDegree === 0 ? 'colorAlpha.rgb-from-cuda-sh0-constant' : 'colorAlpha.rgb-from-cuda-degree2-spatial-sh-original-position',
           'colorAlpha.a-from-opacity-and-temporal-weight'
         ],
         referenceAssistedAttributeFields: ['none-for-normal-backend-visible-samples'],
@@ -1154,9 +1154,9 @@ fn main(@builtin(global_invocation_id) id: vec3u) {
           'partial-webgpu-gaussian-render-attributes',
         fullGaussianAttributeEvaluationInWgsl: false,
         candidateAttributeInputLayout,
-        spatialShDegree: 2,
+        spatialShDegree: candidateAttributeInputLayout?.activeShDegree ?? 2,
         spatialShEvaluationMode:
-          'cuda-aligned-degree-2-original-position-direction',
+          candidateAttributeInputLayout?.spatialShEvaluation ?? 'cuda-aligned-degree-2-original-position-direction',
         higherSpatialDegreeDeferred: true,
         temporalShEvaluationDeferred: true,
         reason:

@@ -1,6 +1,7 @@
 import {
   compareWebGpuPresentationFrameIdentity
 } from './webgpu_presentation_capture_orientation_contract.js';
+import { adoptedCaptureBinding } from './common_4dgs_adopted_bundle.js';
 
 const RENDER_STATE_MANIFEST_SCHEMA_VERSION = 'phase3-render-state-manifest-v2';
 
@@ -772,6 +773,8 @@ function buildSrcIndexSemantics(rawSummary, directGaussianEvidence) {
 }
 
 export function buildWebGpuRenderStateManifest({
+  raw = null,
+  productionEvaluationInputContract = null,
   deterministicState = {},
   canvasSizeSummary = {},
   renderResultSummary = {},
@@ -829,6 +832,19 @@ export function buildWebGpuRenderStateManifest({
     directGaussianEvidence
   );
   const srcIndexSemantics = buildSrcIndexSemantics(rawSummary, directGaussianEvidence);
+  let adoptedHandoff = null;
+  if (raw?.handoffProfile || rawSummary.handoffProfile || productionEvaluationInputContract?.adoptedBundle) {
+    try {
+      adoptedHandoff = adoptedCaptureBinding(raw, productionEvaluationInputContract, pngCaptureStatus);
+      if (!adoptedHandoff) throw new Error('adopted-bundle:capture-without-scene');
+    } catch (error) { adoptedHandoff = { status: 'blocked', reason: error.message, imageAgreementVerified: false }; }
+    srcIndexSemantics.status = adoptedHandoff.status === 'ready' ? 'verified-direct' : 'unknown';
+    srcIndexSemantics.mappingDecision = adoptedHandoff.status === 'ready' ? 'ready' : 'blocked-index-mapping-unknown';
+    srcIndexSemantics.unknownReason = adoptedHandoff.status === 'ready' ? null : adoptedHandoff.reason;
+    srcIndexSemantics.indexMappingAvailable = adoptedHandoff.status === 'ready';
+    srcIndexSemantics.mappingEvidence.checkpointToAssetEvidenceAvailable = adoptedHandoff.status === 'ready';
+    srcIndexSemantics.adoptedHandoff = adoptedHandoff;
+  }
   const fixedTimeCaptureState = buildFixedTimeCaptureStateContract({
     deterministicState,
     stateIdentity,
@@ -843,6 +859,12 @@ export function buildWebGpuRenderStateManifest({
     'last-valid-webgpu-tile-compositor-output';
   const rotationInputPackingContract =
     buildRotationInputPackingContract(directGaussianEvidence);
+  if (adoptedHandoff?.status === 'ready') {
+    rotationInputPackingContract.leftQuaternionComponentOrder = ['w','x','y','z'];
+    rotationInputPackingContract.rightQuaternionComponentOrder = ['w','x','y','z'];
+    rotationInputPackingContract.wgslReadContract = { ...rotationInputPackingContract.wgslReadContract,
+      componentOrder: 'wxyz-values-in-xyzw-storage-lanes' };
+  }
   const initialProductionPresentation =
     buildInitialProductionPresentationContract({
       deterministicState,
@@ -853,6 +875,7 @@ export function buildWebGpuRenderStateManifest({
   return {
     schemaVersion: RENDER_STATE_MANIFEST_SCHEMA_VERSION,
     manifestKind: 'webgpu-production-render-state',
+    adoptedHandoff,
     phaseStep,
     comparisonMode,
     generatedAtUtc,

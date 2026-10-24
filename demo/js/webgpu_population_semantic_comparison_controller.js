@@ -1,3 +1,4 @@
+import { verifyAdoptedSnapshot } from './common_4dgs_adopted_bundle.js';
 import {
   PRODUCTION_EVALUATION_INPUT_CONTRACT_VERSION
 } from './common_4dgs_production_frame_data_contracts.js';
@@ -12,6 +13,7 @@ import {
 } from './common_4dgs_population_semantic_comparison_contracts.js';
 import {
   POPULATION_SEMANTIC_FIXED_CHUNK_COUNT,
+  populationComparisonRange,
   POPULATION_SEMANTIC_ORCHESTRATION_CONTRACT_NAME,
   POPULATION_SEMANTIC_ORCHESTRATION_SCHEMA_VERSION,
   runPopulationAlignedSemanticComparisonResidentRange
@@ -142,7 +144,8 @@ function deepFreeze(value) {
   return value;
 }
 
-function validateProductionEvaluationInputContract(contract) {
+function validateProductionEvaluationInputContract(contract, raw) {
+  const { count: PRODUCTION_RESIDENT_RANGE_COUNT, end: PRODUCTION_RESIDENT_RANGE_END } = populationComparisonRange(raw);
   const reasons = [];
   if (!isPlainObject(contract)) {
     return ['production-evaluation-input-contract-missing'];
@@ -377,6 +380,8 @@ function validateProductionEvaluationInputContract(contract) {
 
 function validateRawAssetIdentity(raw, contract) {
   const reasons = [];
+  try { verifyAdoptedSnapshot(raw, contract); }
+  catch (error) { addBlockedReason(reasons, error.message); }
   const asset = contract?.assetIdentity?.spl4AssetIdentity;
   const rawRecordCount = Number.isSafeInteger(raw?.N)
     ? raw.N
@@ -459,7 +464,9 @@ function buildOrchestratorInput(raw, contract) {
   };
 }
 
-function validateOrchestrationResult(result) {
+function validateOrchestrationResult(result, raw) {
+  const { count: PRODUCTION_RESIDENT_RANGE_COUNT, end: PRODUCTION_RESIDENT_RANGE_END,
+    chunks: POPULATION_SEMANTIC_FIXED_CHUNK_COUNT } = populationComparisonRange(raw);
   const reasons = [];
   if (!isPlainObject(result)) return ['orchestration-result-missing'];
   if (result.schemaVersion !== POPULATION_SEMANTIC_ORCHESTRATION_SCHEMA_VERSION) {
@@ -549,6 +556,7 @@ function buildControllerResult({
       productionEvaluationInputContract?.contractVersion ?? null,
     inputSource:
       'completed-production-frame-productionEvaluationInputContract',
+    adoptedBundle: productionEvaluationInputContract?.adoptedBundle ?? null,
     productionDeviceAcceptedAsInput: false,
     productionDeviceUsed: false,
     freshDiagnosticDeviceAcquisition: acquisition,
@@ -655,7 +663,7 @@ export function createPopulationSemanticComparisonController({
 
     try {
       for (const reason of validateProductionEvaluationInputContract(
-        productionEvaluationInputContract
+        productionEvaluationInputContract, raw
       )) addBlockedReason(blockedReasons, reason);
       if (blockedReasons.length === 0) {
         for (const reason of validateRawAssetIdentity(
@@ -730,7 +738,7 @@ export function createPopulationSemanticComparisonController({
             device
           });
           const orchestrationReasons = validateOrchestrationResult(
-            rawOrchestrationResult
+            rawOrchestrationResult, raw
           );
           try {
             orchestrationResult = cloneBoundedJsonValue(

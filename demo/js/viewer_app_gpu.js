@@ -1,4 +1,5 @@
 import { parseSplat4DV2 } from './splat4d_parser_v2.js';
+import { adoptedFrameArguments, adoptedDeterministicState, applyAdoptedUiDefaults, getAdoptedBundleContext } from './common_4dgs_adopted_bundle.js';
 import {
   fitCameraToRaw,
   computeGaussianDebugState,
@@ -317,6 +318,7 @@ function buildRenderOverrides() {
 }
 
 function buildDeterministicStateSummary() {
+  if (getAdoptedBundleContext(raw)) return adoptedDeterministicState(raw);
   const summary = buildViewerDeterministicSummary(deterministicQueryState);
   const referencePose = convertDatasetTransformMatrixToViewerPose(
     summary.datasetTransformMatrix,
@@ -1855,6 +1857,8 @@ function captureWebGpuRenderStateManifestDebug(options = {}) {
     }
   );
   return buildWebGpuRenderStateManifest({
+    raw,
+    productionEvaluationInputContract: latestRenderResult?.webgpuProductionFrameDataPathContract?.productionEvaluationInputContract ?? null,
     deterministicState: buildDeterministicStateSummary(),
     canvasSizeSummary: buildCanvasSizeSummary(),
     renderResultSummary: buildRenderResultInspectionSummary(latestRenderResult),
@@ -3214,19 +3218,21 @@ async function runNativeWebGpuProductionFrameFromViewerState({
 } = {}) {
   camera.updateMatrixWorld(true);
   const baseDeterministicState = buildDeterministicStateSummary();
+  const adopted = adoptedFrameArguments(raw);
   const fixedReferenceCameraModeRequested =
     isFixedReferenceCameraActivationRequested(options);
-  const deterministicState = fixedReferenceCameraModeRequested
+  const deterministicState = adopted ? baseDeterministicState : fixedReferenceCameraModeRequested
     ? buildFixedReferenceCameraDeterministicStateSummary(baseDeterministicState)
     : baseDeterministicState;
   const buildConfig = getVisibleBuildConfig(ui, buildRenderOverrides());
-  const screenSpaceCamera = buildScreenSpaceCameraProxy(camera, deterministicState);
+  const screenSpaceCamera = adopted?.screenSpaceCamera ?? buildScreenSpaceCameraProxy(camera, deterministicState);
+  // The native compositor uses black; do not accept a conflicting UI background as matched.
+  if (adopted && Number(ui.bgGraySlider.value) !== 0) throw new Error('adopted-bundle:background-mismatch');
   const gpu = getGpu();
-  const viewerTimeState =
-    buildViewerConnectedSchedulerViewerTimeStateForDryRun();
+  const viewerTimeState = buildViewerConnectedSchedulerViewerTimeStateForDryRun();
   const viewerCameraStateBase =
     buildViewerConnectedSchedulerViewerCameraStateForDryRun();
-  const viewerCameraState = fixedReferenceCameraModeRequested
+  const viewerCameraState = (adopted || fixedReferenceCameraModeRequested)
     ? buildFixedReferenceCameraStateForDryRun(
         deterministicState,
         viewerCameraStateBase
@@ -7575,6 +7581,7 @@ function installViewerDebugApi() {
       });
   };
   window.gpuViewerDebug = {
+    loadAdoptedBundle: (options) => fileIO.loadAdoptedBundle(options),
     captureFrame,
     compareSingleSplat: (input = {}) => computeGaussianDebugState(input),
     inspectActiveSplat,
@@ -7929,8 +7936,9 @@ const fileIO = createViewerFileIO({
   ui,
   parseArrayBuffer: (buf) => parseSplat4DV2(buf),
   onSceneLoaded: async (nextRaw, sourceMetadata = {}) => {
+    applyAdoptedUiDefaults(nextRaw, ui);
     raw = nextRaw;
-    if (!applyDeterministicCameraPreset()) {
+    if (!getAdoptedBundleContext(raw) && !applyDeterministicCameraPreset()) {
       fitCameraToRaw(raw, controls, camera);
       if (!deterministicQueryState.cameraPreset) {
         appliedCameraPresetName = 'none';

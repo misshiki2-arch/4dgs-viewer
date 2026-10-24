@@ -199,6 +199,10 @@ export function buildCudaDegree2TileInputExpectedRgb({
   const position = readRawVector(raw?.xyz, srcIndex * xyzDim, 3);
   const dc = readRawVector(raw?.f_dc, srcIndex * fdcDim, 3);
   if (!position || !dc) return null;
+  if (degree === 0) {
+    if (temporalDegree !== 0) return null;
+    return dc.map((value) => Math.max(SH_C0 * value + 0.5, 0));
+  }
   const direction = position.map((value, axis) =>
     value - cameraWorldPosition[axis]
   );
