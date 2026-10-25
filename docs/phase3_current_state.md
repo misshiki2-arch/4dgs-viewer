@@ -1,12 +1,13 @@
 # Phase 3 Current State
 
-更新基準: 2026-10-25 / Corrected Phase5 Step21-docsync2（機能・採用bundleのGate D入力受入れ済み、文書レビュー待ち）
+更新基準: 2026-10-25 / Step21 push後完了・進捗評価範囲の訂正（Corrected採用範囲完了、Viewer後続は別管理）
 対象ブランチ: `phase3-webgpu-compute-prototype`
 履歴上の基準コミット: `c137ae4 Step121: complete 524288-record semantic parity`
 
 採用B・Gates A–CとStep20完了を維持し、2026-10-25 JSTにStep21機能と今回bundleのGate D入力受入れが承認された。
 [§24](#corrected-b-handoff)を受取側の実装・CPU/browser実績と使用範囲の正本とする。
-文書レビュー・ユーザー研究Git/push・Step21完了処理／進捗反映は未実施。
+文書レビュー・ユーザー研究Git/push・独立remote確認とStep21完了処理は済んでいる。
+Correctedは採用範囲で完了。Viewerの画像全体・全点・対話／性能の残課題はViewer固有の未達であり、Correctedの残作業・進捗分母に含めない。
 Viewer全般のfreeze、旧Step122・Phase4の非再開を維持し、以後のsource作業には別途明示認可が必要である。
 
 ## 1. この文書の役割
@@ -1190,7 +1191,11 @@ Acceptance Level 4、corrected full-scene correctness、interactive/performance/
 [相談役レビュー](../../reports/corrected-4dgs/phase5/step21/step21-validation3/step21-validation3-advisor-review.txt)と
 [今回の承認・同期命令](../../reports/corrected-4dgs/phase5/step21/step21-docsync2/step21-docsync2-instruction.txt)に対応する
 2026-10-25 JSTのユーザー判断により、Step21機能と今回採用bundleのGate D入力受入れは承認済みである。
-未実施なのは文書レビュー・ユーザー研究Git/push・Step21完了処理／進捗反映であり、機能判断を再承認待ちへ戻さない。
+文書レビュー・ユーザー研究Git/push・独立remote確認とStep21完了処理は済んでいる。
+[進捗訂正記録](../../reports/corrected-4dgs/phase5/step21/step21-progress-correction/step21-progress-correction-report.txt)により、
+Corrected全体・Phase5は今回採用範囲で100％・完了とする。旧95％／Phase5 50％はViewer残課題を混入した評価誤りとして訂正し、旧記録自体は保全する。
+Viewer全体・Phase3の受入れや一般freeze解除を意味せず、この文書の残課題・使用限界は維持する。
+今回の管理訂正文書は以前のpushに含まれるとは扱わず、追加の研究実行やpushを開始条件にしない。
 旧レビューのユーザー受入れ待ち、一次JSONのfalse Gate flagsは当時の記録として保全し、現在の判断と分離する。
 
 [Corrected計画書のStep21](../../4d-gaussian-splatting_corrected_v1/docs/corrected_camera_intrinsics_retraining_plan.md#step21-handoff)
@@ -1198,7 +1203,8 @@ Acceptance Level 4、corrected full-scene correctness、interactive/performance/
 [Step20完了記録](../../reports/corrected-4dgs/phase4/step20/step20-completion-report.txt)により、機能・Gate C・文書レビュー・
 ユーザー研究Git・完了処理は済んでいる。採用B E3 final、全3,248,901点のSPL4-v2と14視点Reference、Gates A–Cは維持する。
 正式出力・使用限界はCorrected計画書を参照し、旧実行記録のfalse Gate flagsや失敗証跡は書き換えない。
-Corrected Phase5/Step21はproject間の引渡し識別であり、ViewerのPhase/Stepを再採番しない。
+Corrected Phase5/Step21は完了したproject間の引渡し識別であり、ViewerのPhase/Stepを再採番しない。
+Correctedの完了根拠は同project計画書の採用範囲、Viewerの後続課題は本節とViewer進捗票が所有する。
 
 ### 実受取口とSH契約
 
