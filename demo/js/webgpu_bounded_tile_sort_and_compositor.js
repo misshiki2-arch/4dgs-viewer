@@ -1,3 +1,5 @@
+import { assertCompositingPolicy, resolveCompositingPolicy, validateCompositingResources,
+  compositingExecutionEvidence } from './common_4dgs_compositing_policy.js';
 import {
   buildProductionGpuExecutionContract,
   countBitonicCompareStages,
@@ -11,7 +13,7 @@ import {
 } from './common_4dgs_production_tile_execution_plan_contracts.js';
 
 const ORDERING_SUMMARY_UINT_COUNT = 28;
-const COMPOSITOR_SUMMARY_FLOAT_COUNT = 40;
+const COMPOSITOR_SUMMARY_FLOAT_COUNT = 44;
 
 function alignTo(value, alignment) {
   return Math.ceil(value / alignment) * alignment;
@@ -35,14 +37,9 @@ function submitProductionStage(device, encoder) {
   device.queue.submit([encoder.finish()]);
 }
 
-export async function executeBoundedProductionTileSortAndCompositor({
-  device,
-  resources,
-  outputWidth,
-  outputHeight,
-  outputTextureOverride = null,
-  onProductionSubmitted = null
-} = {}) {
+// Shared submission path, also used on a separately owned diagnostic device.
+// No readback or compositor policy is part of sorting.
+export function executeBoundedProductionTileSort({ device, resources } = {}) {
   const referenceCapacity = Math.max(1, resources.referenceCapacity);
   const requiredPaddedReferenceCapacity = referenceCapacity;
   const requiredReferenceCount = referenceCapacity;
@@ -131,6 +128,14 @@ fn currentReferenceIndex(id: vec3u) -> u32 {
   return params.batchStart + id.x;
 }
 
+// Negative row is padding, not a negated physical depth. Valid rows precede it
+// even at the largest finite f32 depth. Exact ties use source/resident row.
+fn referenceBefore(a: vec4f, b: vec4f) -> bool {
+  if (a.x < 0.0) { return false; }
+  if (b.x < 0.0) { return true; }
+  return a.w < b.w || (a.w == b.w && a.x < b.x);
+}
+
 @compute @workgroup_size(64)
 fn seedOrderedReferences(@builtin(global_invocation_id) id: vec3u) {
   if (!planReady()) { return; }
@@ -145,7 +150,7 @@ fn seedOrderedReferences(@builtin(global_invocation_id) id: vec3u) {
   let localIndex = referenceIndex - offset;
   if (table.w != 84.0 || localIndex >= paddedCount) { return; }
   orderedReferences[referenceIndex] = select(
-    vec4f(0.0, 0.0, 0.0, -3.402823e38),
+    vec4f(-1.0, 0.0, 0.0, 0.0),
     sourceReferences[referenceIndex],
     localIndex < count
   );
@@ -169,11 +174,11 @@ fn compareSwapBitonicStage(@builtin(global_invocation_id) id: vec3u) {
   let partnerIndex = offset + partnerLocalIndex;
   let selfReference = orderedReferences[referenceIndex];
   let partnerReference = orderedReferences[partnerIndex];
-  let descending = (localIndex & params.bitonicK) == 0u;
+  let ascending = (localIndex & params.bitonicK) == 0u;
   let shouldSwap = select(
-    selfReference.w > partnerReference.w,
-    selfReference.w < partnerReference.w,
-    descending
+    referenceBefore(selfReference, partnerReference),
+    referenceBefore(partnerReference, selfReference),
+    ascending
   );
   if (shouldSwap) {
     orderedReferences[referenceIndex] = partnerReference;
@@ -193,8 +198,18 @@ fn validateOrderedReferences(@builtin(global_invocation_id) id: vec3u) {
   let count = u32(table.y);
   let paddedCount = u32(table.z);
   let localIndex = referenceIndex - offset;
-  if (table.w != 84.0 || localIndex >= count) { return; }
+  if (table.w != 84.0 || localIndex >= paddedCount) { return; }
   let splatRef = orderedReferences[referenceIndex];
+  if (localIndex >= count) {
+    if (splatRef.x != -1.0) { atomicAdd(&orderingSummary[20], 1u); }
+    return;
+  }
+  let recordCount = atomicLoad(&executionPlan[${PRODUCTION_TILE_EXECUTION_PLAN_WORD.recordCount}u]);
+  if (!(splatRef.x >= 0.0 && splatRef.x < f32(recordCount) &&
+        splatRef.x == floor(splatRef.x) &&
+        splatRef.w > 0.0 && splatRef.w <= 3.4028234663852886e38)) {
+    atomicAdd(&orderingSummary[20], 1u);
+  }
   atomicAdd(&orderingSummary[0], 1u);
   atomicAdd(&orderingSummary[4], 1u);
   atomicAdd(&orderingSummary[9], 1u);
@@ -202,9 +217,11 @@ fn validateOrderedReferences(@builtin(global_invocation_id) id: vec3u) {
   if (splatRef.z != 0.0) { atomicStore(&orderingSummary[2], 1u); }
   if (splatRef.w != 0.0) { atomicStore(&orderingSummary[3], 1u); }
   atomicStore(&orderingSummary[7], 1u);
-  if (localIndex + 1u < count &&
-      splatRef.w < orderedReferences[referenceIndex + 1u].w) {
-    atomicAdd(&orderingSummary[20], 1u);
+  if (localIndex + 1u < count) {
+    let next = orderedReferences[referenceIndex + 1u];
+    if (referenceBefore(next, splatRef) || splatRef.x == next.x) {
+      atomicAdd(&orderingSummary[20], 1u);
+    }
   }
   if (localIndex == 0u) {
     atomicAdd(&orderingSummary[1], 1u);
@@ -311,6 +328,24 @@ fn validateOrderedReferences(@builtin(global_invocation_id) id: vec3u) {
     sortValidationSubmissionCount += 1;
   }
 
+  return { referenceCapacity, executionLimits, orderedReferenceBuffer,
+    orderedReferenceBufferBytes, orderingSummaryData, orderingSummaryBuffer,
+    orderingParamsBuffer, orderingSummaryReadbackBuffer, sortCapacityLimit,
+    sortSeedSubmissionCount, sortCompareSubmissionCount, sortValidationSubmissionCount };
+}
+
+export async function executeBoundedProductionTileSortAndCompositor({
+  device, resources, outputWidth, outputHeight, outputTextureOverride = null,
+  onProductionSubmitted = null, compositingPolicy = resolveCompositingPolicy()
+} = {}) {
+  assertCompositingPolicy(compositingPolicy);
+  validateCompositingResources(device, outputWidth, outputHeight);
+  const { referenceCapacity, executionLimits, orderedReferenceBuffer,
+    orderedReferenceBufferBytes, orderingSummaryData, orderingSummaryBuffer,
+    orderingParamsBuffer, orderingSummaryReadbackBuffer, sortCapacityLimit,
+    sortSeedSubmissionCount, sortCompareSubmissionCount, sortValidationSubmissionCount
+  } = executeBoundedProductionTileSort({ device, resources });
+
   const outputTexture = outputTextureOverride ?? device.createTexture({
     label: 'phase3-bounded-production-tile-compositor-output-texture',
     size: { width: outputWidth, height: outputHeight },
@@ -371,7 +406,12 @@ fn validateOrderedReferences(@builtin(global_invocation_id) id: vec3u) {
     size: Math.max(16, outputWidth * outputHeight * 16),
     usage: GPUBufferUsage.STORAGE
   });
-  const evidenceData = new Uint32Array(10);
+  const doneBuffer = device.createBuffer({
+    label: 'phase3-bounded-production-pixel-done-buffer',
+    size: Math.max(4, outputWidth * outputHeight * 4),
+    usage: GPUBufferUsage.STORAGE
+  });
+  const evidenceData = new Uint32Array(11);
   const evidenceBuffer = createBuffer(
     device, evidenceData,
     GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST
@@ -386,189 +426,7 @@ fn validateOrderedReferences(@builtin(global_invocation_id) id: vec3u) {
   });
   const compositorShader = device.createShaderModule({
     label: 'phase3-bounded-production-tile-compositor-wgsl',
-    code: `
-struct Params {
-  tileCount: f32,
-  tileCols: f32,
-  tileRows: f32,
-  referenceCapacity: f32,
-  outputWidth: f32,
-  outputHeight: f32,
-  canvasWidth: f32,
-  canvasHeight: f32,
-};
-struct ExecutionParams {
-  referenceChunkStart: u32,
-  referenceChunkSize: u32,
-  referenceCount: u32,
-  statusCode: u32,
-};
-@group(0) @binding(0) var<storage, read> tileInputs: array<vec4f>;
-@group(0) @binding(1) var<storage, read> tileTable: array<vec4f>;
-@group(0) @binding(2) var<storage, read> orderedReferences: array<vec4f>;
-@group(0) @binding(3) var outputTexture: texture_storage_2d<rgba8unorm, write>;
-@group(0) @binding(4) var<storage, read_write> compositorSummary: array<vec4f>;
-@group(0) @binding(5) var<uniform> params: Params;
-@group(0) @binding(6) var<storage, read_write> pixelAccumulation: array<vec4f>;
-@group(0) @binding(7) var<uniform> execution: ExecutionParams;
-@group(0) @binding(8) var<storage, read_write> evidence: array<atomic<u32>>;
-@group(0) @binding(9) var<storage, read_write> executionPlan: array<atomic<u32>>;
-
-fn planReady() -> bool {
-  return atomicLoad(&executionPlan[${PRODUCTION_TILE_EXECUTION_PLAN_WORD.status}u]) ==
-    ${PRODUCTION_TILE_EXECUTION_PLAN_STATUS.ready}u;
-}
-
-fn sampleConic(conicAndSort: vec4f, radius: f32) -> vec3f {
-  let fallbackConic = 1.0 / max(radius * radius, 1.0);
-  return vec3f(
-    select(fallbackConic, abs(conicAndSort.x), abs(conicAndSort.x) > 0.0),
-    conicAndSort.y,
-    select(fallbackConic, abs(conicAndSort.w), abs(conicAndSort.w) > 0.0)
-  );
-}
-fn gaussianWeight(pixel: vec2f, center: vec2f, conic: vec3f) -> f32 {
-  let d = pixel - center;
-  let power = conic.x * d.x * d.x + 2.0 * conic.y * d.x * d.y + conic.z * d.y * d.y;
-  return exp(-0.5 * clamp(power, 0.0, 80.0));
-}
-
-@compute @workgroup_size(8, 8)
-fn clearProductionAccumulation(@builtin(global_invocation_id) id: vec3u) {
-  if (id.x >= u32(params.outputWidth) || id.y >= u32(params.outputHeight)) { return; }
-  let pixelIndex = id.y * u32(params.outputWidth) + id.x;
-  pixelAccumulation[pixelIndex] = vec4f(0.0);
-  if (planReady()) {
-    textureStore(outputTexture, vec2i(id.xy), vec4f(0.0));
-  }
-}
-
-@compute @workgroup_size(8, 8)
-fn compositeReferenceChunk(
-  @builtin(workgroup_id) workgroupId: vec3u,
-  @builtin(local_invocation_id) localId: vec3u
-) {
-  if (!planReady()) { return; }
-  let tileSizeX = max(params.outputWidth / max(params.tileCols, 1.0), 1.0);
-  let tileSizeY = max(params.outputHeight / max(params.tileRows, 1.0), 1.0);
-  let subtileCols = u32(max(ceil(tileSizeX / 8.0), 1.0));
-  let subtileRows = u32(max(ceil(tileSizeY / 8.0), 1.0));
-  let tileX = workgroupId.x / subtileCols;
-  let tileY = workgroupId.y / subtileRows;
-  if (tileX >= u32(params.tileCols) || tileY >= u32(params.tileRows)) { return; }
-  let tile = tileY * u32(params.tileCols) + tileX;
-  let table = tileTable[tile];
-  if (table.w != 84.0 || table.y <= 0.0) { return; }
-  let subtileX = workgroupId.x % subtileCols;
-  let subtileY = workgroupId.y % subtileRows;
-  let tileStartX = u32(floor(f32(tileX) * tileSizeX));
-  let tileStartY = u32(floor(f32(tileY) * tileSizeY));
-  let tileEndX = min(u32(ceil(f32(tileX + 1u) * tileSizeX)), u32(params.outputWidth));
-  let tileEndY = min(u32(ceil(f32(tileY + 1u) * tileSizeY)), u32(params.outputHeight));
-  let pixelX = tileStartX + subtileX * 8u + localId.x;
-  let pixelY = tileStartY + subtileY * 8u + localId.y;
-  let count = u32(table.y);
-  let chunkEnd = min(count, execution.referenceChunkStart + execution.referenceChunkSize);
-  if (execution.referenceChunkStart >= chunkEnd) { return; }
-  let offset = u32(table.x);
-  let evidenceLane = subtileX == 0u && subtileY == 0u &&
-    localId.x == 0u && localId.y == 0u;
-  if (evidenceLane) {
-    if (execution.referenceChunkStart == 0u) {
-      atomicAdd(&evidence[8], 1u);
-      atomicMax(&evidence[9], count);
-    }
-    for (var slot = execution.referenceChunkStart; slot < chunkEnd; slot += 1u) {
-      let splatRef = orderedReferences[offset + slot];
-      let base = u32(max(splatRef.x, 0.0)) * 3u;
-      let a = tileInputs[base + 0u];
-      let b = tileInputs[base + 1u];
-      let c = tileInputs[base + 2u];
-      atomicAdd(&evidence[0], 1u);
-      atomicAdd(&executionPlan[${PRODUCTION_TILE_EXECUTION_PLAN_WORD.compositedReferenceCount}u], 1u);
-      if (splatRef.z != 0.0) { atomicStore(&evidence[1], 1u); }
-      if (splatRef.w != 0.0) { atomicStore(&evidence[2], 1u); }
-      if (c.w > 0.0 || any(c.xyz != vec3f(0.0))) { atomicStore(&evidence[3], 1u); }
-      if (a.z > 0.0 || b.x != 0.0 || b.y != 0.0 || b.w != 0.0) {
-        atomicStore(&evidence[4], 1u);
-      }
-      if (a.z > 0.0 && b.x > 0.0 && b.w > 0.0 &&
-          (abs(b.x - b.w) > 0.000001 || abs(b.y) > 0.000001)) {
-        atomicStore(&evidence[5], 1u);
-        atomicAdd(&evidence[6], 1u);
-      } else {
-        atomicAdd(&evidence[7], 1u);
-      }
-    }
-  }
-  if (pixelX >= tileEndX || pixelY >= tileEndY) { return; }
-  let pixelIndex = pixelY * u32(params.outputWidth) + pixelX;
-  var accumulated = pixelAccumulation[pixelIndex];
-  let pixel = vec2f(f32(pixelX) + 0.5, f32(pixelY) + 0.5);
-  for (var slot = execution.referenceChunkStart; slot < chunkEnd; slot += 1u) {
-    let splatRef = orderedReferences[offset + slot];
-    let sampleBase = u32(max(splatRef.x, 0.0)) * 3u;
-    let a = tileInputs[sampleBase + 0u];
-    let b = tileInputs[sampleBase + 1u];
-    let c = tileInputs[sampleBase + 2u];
-    let weight = gaussianWeight(pixel, a.xy, sampleConic(b, max(a.z, 1.0)));
-    let sampleAlpha = clamp(c.w * weight, 0.0, 0.98);
-    let remaining = max(1.0 - accumulated.w, 0.0);
-    accumulated = vec4f(
-      accumulated.xyz +
-        remaining * clamp(c.xyz, vec3f(0.0), vec3f(1.0)) * sampleAlpha,
-      accumulated.w + remaining * sampleAlpha
-    );
-  }
-  pixelAccumulation[pixelIndex] = accumulated;
-}
-
-@compute @workgroup_size(8, 8)
-fn writeProductionOutput(@builtin(global_invocation_id) id: vec3u) {
-  if (!planReady()) { return; }
-  if (id.x >= u32(params.outputWidth) || id.y >= u32(params.outputHeight)) { return; }
-  let pixelIndex = id.y * u32(params.outputWidth) + id.x;
-  let accumulated = pixelAccumulation[pixelIndex];
-  textureStore(outputTexture, vec2i(id.xy), vec4f(accumulated.xyz, clamp(accumulated.w, 0.0, 1.0)));
-}
-
-@compute @workgroup_size(1)
-fn finalizeSummary() {
-  let planStatus = atomicLoad(&executionPlan[${PRODUCTION_TILE_EXECUTION_PLAN_WORD.status}u]);
-  let plannedRefs = atomicLoad(&executionPlan[${PRODUCTION_TILE_EXECUTION_PLAN_WORD.requiredReferenceCount}u]);
-  let nonEmpty = f32(atomicLoad(&evidence[8]));
-  let maxRefs = f32(atomicLoad(&evidence[9]));
-  let totalRefs = f32(atomicLoad(&evidence[0]));
-  let available = totalRefs > 0.0;
-  let depthSeen = f32(atomicLoad(&evidence[1]));
-  let sortSeen = f32(atomicLoad(&evidence[2]));
-  let attributesSeen = f32(atomicLoad(&evidence[3]));
-  let footprintSeen = f32(atomicLoad(&evidence[4]));
-  let scaleAwareSeen = f32(atomicLoad(&evidence[5]));
-  let anisotropicRefs = f32(atomicLoad(&evidence[6]));
-  let fallbackRefs = f32(atomicLoad(&evidence[7]));
-  let orderedReady = available && sortSeen == 1.0;
-  let attributeReady = available && attributesSeen == 1.0;
-  let outputIsCanvasSized = params.outputWidth > params.tileCols || params.outputHeight > params.tileRows;
-  let fullScreenPixelWork = max(params.outputWidth * params.outputHeight, 1.0);
-  let tileSizeX = max(params.outputWidth / max(params.tileCols, 1.0), 1.0);
-  let tileSizeY = max(params.outputHeight / max(params.tileRows, 1.0), 1.0);
-  let activeTilePixelWork = nonEmpty * tileSizeX * tileSizeY;
-  let avoided = max(fullScreenPixelWork - activeTilePixelWork, 0.0);
-  let productionReady = planStatus == ${PRODUCTION_TILE_EXECUTION_PLAN_STATUS.ready}u &&
-    totalRefs == f32(plannedRefs) && orderedReady && attributeReady && outputIsCanvasSized;
-  compositorSummary[0] = vec4f(params.tileCount, nonEmpty, totalRefs, totalRefs);
-  compositorSummary[1] = vec4f(1.0, select(0.0, 1.0, available), select(0.0, 1.0, available), maxRefs);
-  compositorSummary[2] = vec4f(0.0, 87.0, totalRefs, totalRefs);
-  compositorSummary[3] = vec4f(depthSeen, sortSeen, select(0.0, 1.0, orderedReady), 1.0);
-  compositorSummary[4] = vec4f(attributesSeen, footprintSeen, 1.0, select(0.0, 1.0, orderedReady));
-  compositorSummary[5] = vec4f(select(0.0, 1.0, attributeReady), select(0.0, 1.0, attributeReady), totalRefs, select(0.0, 1.0, outputIsCanvasSized));
-  compositorSummary[6] = vec4f(select(0.0, 1.0, productionReady), select(0.0, 1.0, orderedReady), select(0.0, 1.0, nonEmpty > 0.0), 1.0);
-  compositorSummary[7] = vec4f(nonEmpty, params.tileCount - nonEmpty, activeTilePixelWork, avoided);
-  compositorSummary[8] = vec4f(avoided / fullScreenPixelWork, select(0.0, 1.0, productionReady), select(0.0, 1.0, productionReady), select(0.0, 1.0, nonEmpty > 0.0));
-  compositorSummary[9] = vec4f(scaleAwareSeen, anisotropicRefs, anisotropicRefs / max(totalRefs, 1.0), fallbackRefs);
-}
-`
+    code: buildAlignedCompositorWgsl(compositingPolicy.appliedMode === 'NEW-ON')
   });
   const compositorBindGroupLayout = device.createBindGroupLayout({
     entries: [
@@ -583,6 +441,7 @@ fn finalizeSummary() {
         buffer: { type: 'uniform', hasDynamicOffset: true } },
       { binding: 8, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }
       ,{ binding: 9, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }
+      ,{ binding: 10, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'storage' } }
     ]
   });
   const compositorPipelineLayout = device.createPipelineLayout({
@@ -613,6 +472,7 @@ fn finalizeSummary() {
       } },
       { binding: 8, resource: { buffer: evidenceBuffer } }
       ,{ binding: 9, resource: { buffer: resources.executionPlanBuffer } }
+      ,{ binding: 10, resource: { buffer: doneBuffer } }
     ]
   });
   const tileSizeX = Math.max(outputWidth / Math.max(resources.tileCols, 1), 1);
@@ -800,6 +660,8 @@ fn finalizeSummary() {
       : 'production-sort-or-compositor-bounded-execution-incomplete'
   });
   return {
+    compositingPolicy: compositingExecutionEvidence(compositingPolicy, allStagesCompleted,
+      compositorSummary[40], outputWidth * outputHeight),
     outputTexture,
     bytesPerRow,
     textureReadback,
@@ -829,9 +691,207 @@ fn finalizeSummary() {
       paramsBuffer,
       executionParamsBuffer,
       accumulationBuffer,
+      doneBuffer,
       evidenceBuffer,
       summaryReadbackBuffer,
       executionPlanReadbackBuffer
     ]
   };
+}
+
+// Same WGSL is used by production and the later isolated diagnostic fixture.
+export function buildAlignedCompositorWgsl(terminationEnabled = false) {
+  if (typeof terminationEnabled !== 'boolean') throw new Error('compositor-mode');
+  return `
+struct Params {
+  tileCount: f32,
+  tileCols: f32,
+  tileRows: f32,
+  referenceCapacity: f32,
+  outputWidth: f32,
+  outputHeight: f32,
+  canvasWidth: f32,
+  canvasHeight: f32,
+};
+struct ExecutionParams {
+  referenceChunkStart: u32,
+  referenceChunkSize: u32,
+  referenceCount: u32,
+  statusCode: u32,
+};
+@group(0) @binding(0) var<storage, read> tileInputs: array<vec4f>;
+@group(0) @binding(1) var<storage, read> tileTable: array<vec4f>;
+@group(0) @binding(2) var<storage, read> orderedReferences: array<vec4f>;
+@group(0) @binding(3) var outputTexture: texture_storage_2d<rgba8unorm, write>;
+@group(0) @binding(4) var<storage, read_write> compositorSummary: array<vec4f>;
+@group(0) @binding(5) var<uniform> params: Params;
+@group(0) @binding(6) var<storage, read_write> pixelAccumulation: array<vec4f>;
+@group(0) @binding(7) var<uniform> execution: ExecutionParams;
+@group(0) @binding(8) var<storage, read_write> evidence: array<atomic<u32>>;
+@group(0) @binding(9) var<storage, read_write> executionPlan: array<atomic<u32>>;
+@group(0) @binding(10) var<storage, read_write> pixelDone: array<u32>;
+const TERMINATION_ENABLED: bool = ${terminationEnabled ? 'true' : 'false'};
+
+fn planReady() -> bool {
+  return atomicLoad(&executionPlan[${PRODUCTION_TILE_EXECUTION_PLAN_WORD.status}u]) ==
+    ${PRODUCTION_TILE_EXECUTION_PLAN_STATUS.ready}u;
+}
+
+fn sampleConic(conicAndSort: vec4f, radius: f32) -> vec3f {
+  let fallbackConic = 1.0 / max(radius * radius, 1.0);
+  return vec3f(
+    select(fallbackConic, abs(conicAndSort.x), abs(conicAndSort.x) > 0.0),
+    conicAndSort.y,
+    select(fallbackConic, abs(conicAndSort.w), abs(conicAndSort.w) > 0.0)
+  );
+}
+fn gaussianWeight(pixel: vec2f, center: vec2f, conic: vec3f) -> f32 {
+  let d = pixel - center;
+  let power = conic.x * d.x * d.x + 2.0 * conic.y * d.x * d.y + conic.z * d.y * d.y;
+  return exp(-0.5 * clamp(power, 0.0, 80.0));
+}
+
+@compute @workgroup_size(8, 8)
+fn clearProductionAccumulation(@builtin(global_invocation_id) id: vec3u) {
+  if (id.x >= u32(params.outputWidth) || id.y >= u32(params.outputHeight)) { return; }
+  let pixelIndex = id.y * u32(params.outputWidth) + id.x;
+  pixelAccumulation[pixelIndex] = vec4f(0.0, 0.0, 0.0, 1.0);
+  pixelDone[pixelIndex] = 0u;
+  if (planReady()) {
+    textureStore(outputTexture, vec2i(id.xy), vec4f(0.0));
+  }
+}
+
+@compute @workgroup_size(8, 8)
+fn compositeReferenceChunk(
+  @builtin(workgroup_id) workgroupId: vec3u,
+  @builtin(local_invocation_id) localId: vec3u
+) {
+  if (!planReady()) { return; }
+  let tileSizeX = max(params.outputWidth / max(params.tileCols, 1.0), 1.0);
+  let tileSizeY = max(params.outputHeight / max(params.tileRows, 1.0), 1.0);
+  let subtileCols = u32(max(ceil(tileSizeX / 8.0), 1.0));
+  let subtileRows = u32(max(ceil(tileSizeY / 8.0), 1.0));
+  let tileX = workgroupId.x / subtileCols;
+  let tileY = workgroupId.y / subtileRows;
+  if (tileX >= u32(params.tileCols) || tileY >= u32(params.tileRows)) { return; }
+  let tile = tileY * u32(params.tileCols) + tileX;
+  let table = tileTable[tile];
+  if (table.w != 84.0 || table.y <= 0.0) { return; }
+  let subtileX = workgroupId.x % subtileCols;
+  let subtileY = workgroupId.y % subtileRows;
+  let tileStartX = u32(floor(f32(tileX) * tileSizeX));
+  let tileStartY = u32(floor(f32(tileY) * tileSizeY));
+  let tileEndX = min(u32(ceil(f32(tileX + 1u) * tileSizeX)), u32(params.outputWidth));
+  let tileEndY = min(u32(ceil(f32(tileY + 1u) * tileSizeY)), u32(params.outputHeight));
+  let pixelX = tileStartX + subtileX * 8u + localId.x;
+  let pixelY = tileStartY + subtileY * 8u + localId.y;
+  let count = u32(table.y);
+  let chunkEnd = min(count, execution.referenceChunkStart + execution.referenceChunkSize);
+  if (execution.referenceChunkStart >= chunkEnd) { return; }
+  let offset = u32(table.x);
+  let evidenceLane = subtileX == 0u && subtileY == 0u &&
+    localId.x == 0u && localId.y == 0u;
+  if (evidenceLane) {
+    if (execution.referenceChunkStart == 0u) {
+      atomicAdd(&evidence[8], 1u);
+      atomicMax(&evidence[9], count);
+    }
+    for (var slot = execution.referenceChunkStart; slot < chunkEnd; slot += 1u) {
+      let splatRef = orderedReferences[offset + slot];
+      let base = u32(max(splatRef.x, 0.0)) * 3u;
+      let a = tileInputs[base + 0u];
+      let b = tileInputs[base + 1u];
+      let c = tileInputs[base + 2u];
+      atomicAdd(&evidence[0], 1u);
+      atomicAdd(&executionPlan[${PRODUCTION_TILE_EXECUTION_PLAN_WORD.compositedReferenceCount}u], 1u);
+      if (splatRef.z != 0.0) { atomicStore(&evidence[1], 1u); }
+      if (splatRef.w != 0.0) { atomicStore(&evidence[2], 1u); }
+      if (c.w > 0.0 || any(c.xyz != vec3f(0.0))) { atomicStore(&evidence[3], 1u); }
+      if (a.z > 0.0 || b.x != 0.0 || b.y != 0.0 || b.w != 0.0) {
+        atomicStore(&evidence[4], 1u);
+      }
+      if (a.z > 0.0 && b.x > 0.0 && b.w > 0.0 &&
+          (abs(b.x - b.w) > 0.000001 || abs(b.y) > 0.000001)) {
+        atomicStore(&evidence[5], 1u);
+        atomicAdd(&evidence[6], 1u);
+      } else {
+        atomicAdd(&evidence[7], 1u);
+      }
+    }
+  }
+  if (pixelX >= tileEndX || pixelY >= tileEndY) { return; }
+  let pixelIndex = pixelY * u32(params.outputWidth) + pixelX;
+  if (pixelDone[pixelIndex] != 0u) { return; }
+  var accumulated = pixelAccumulation[pixelIndex];
+  let pixel = vec2f(f32(pixelX), f32(pixelY));
+  for (var slot = execution.referenceChunkStart; slot < chunkEnd; slot += 1u) {
+    let splatRef = orderedReferences[offset + slot];
+    let sampleBase = u32(max(splatRef.x, 0.0)) * 3u;
+    let a = tileInputs[sampleBase + 0u];
+    let b = tileInputs[sampleBase + 1u];
+    let c = tileInputs[sampleBase + 2u];
+    let weight = gaussianWeight(pixel, a.xy, sampleConic(b, max(a.z, 1.0)));
+    let sampleAlpha = clamp(c.w * weight, 0.0, 0.99);
+    if (sampleAlpha < (1.0 / 255.0)) { continue; }
+    let testT = accumulated.w * (1.0 - sampleAlpha);
+    if (TERMINATION_ENABLED && testT < 0.0001) {
+      pixelDone[pixelIndex] = 1u;
+      atomicAdd(&evidence[10], 1u);
+      break;
+    }
+    accumulated = vec4f(
+      accumulated.xyz + (max(c.xyz, vec3f(0.0)) * sampleAlpha) * accumulated.w,
+      testT
+    );
+  }
+  pixelAccumulation[pixelIndex] = accumulated;
+}
+
+@compute @workgroup_size(8, 8)
+fn writeProductionOutput(@builtin(global_invocation_id) id: vec3u) {
+  if (!planReady()) { return; }
+  if (id.x >= u32(params.outputWidth) || id.y >= u32(params.outputHeight)) { return; }
+  let pixelIndex = id.y * u32(params.outputWidth) + id.x;
+  let accumulated = pixelAccumulation[pixelIndex];
+  textureStore(outputTexture, vec2i(id.xy), vec4f(accumulated.xyz, clamp(1.0 - accumulated.w, 0.0, 1.0)));
+}
+
+@compute @workgroup_size(1)
+fn finalizeSummary() {
+  let planStatus = atomicLoad(&executionPlan[${PRODUCTION_TILE_EXECUTION_PLAN_WORD.status}u]);
+  let plannedRefs = atomicLoad(&executionPlan[${PRODUCTION_TILE_EXECUTION_PLAN_WORD.requiredReferenceCount}u]);
+  let nonEmpty = f32(atomicLoad(&evidence[8]));
+  let maxRefs = f32(atomicLoad(&evidence[9]));
+  let totalRefs = f32(atomicLoad(&evidence[0]));
+  let available = totalRefs > 0.0;
+  let depthSeen = f32(atomicLoad(&evidence[1]));
+  let sortSeen = f32(atomicLoad(&evidence[2]));
+  let attributesSeen = f32(atomicLoad(&evidence[3]));
+  let footprintSeen = f32(atomicLoad(&evidence[4]));
+  let scaleAwareSeen = f32(atomicLoad(&evidence[5]));
+  let anisotropicRefs = f32(atomicLoad(&evidence[6]));
+  let fallbackRefs = f32(atomicLoad(&evidence[7]));
+  let orderedReady = available && sortSeen == 1.0;
+  let attributeReady = available && attributesSeen == 1.0;
+  let outputIsCanvasSized = params.outputWidth > params.tileCols || params.outputHeight > params.tileRows;
+  let fullScreenPixelWork = max(params.outputWidth * params.outputHeight, 1.0);
+  let tileSizeX = max(params.outputWidth / max(params.tileCols, 1.0), 1.0);
+  let tileSizeY = max(params.outputHeight / max(params.tileRows, 1.0), 1.0);
+  let activeTilePixelWork = nonEmpty * tileSizeX * tileSizeY;
+  let avoided = max(fullScreenPixelWork - activeTilePixelWork, 0.0);
+  let productionReady = planStatus == ${PRODUCTION_TILE_EXECUTION_PLAN_STATUS.ready}u &&
+    totalRefs == f32(plannedRefs) && orderedReady && attributeReady && outputIsCanvasSized;
+  compositorSummary[0] = vec4f(params.tileCount, nonEmpty, totalRefs, totalRefs);
+  compositorSummary[1] = vec4f(1.0, select(0.0, 1.0, available), select(0.0, 1.0, available), maxRefs);
+  compositorSummary[2] = vec4f(0.0, 87.0, totalRefs, totalRefs);
+  compositorSummary[3] = vec4f(depthSeen, sortSeen, select(0.0, 1.0, orderedReady), 1.0);
+  compositorSummary[4] = vec4f(attributesSeen, footprintSeen, 1.0, select(0.0, 1.0, orderedReady));
+  compositorSummary[5] = vec4f(select(0.0, 1.0, attributeReady), select(0.0, 1.0, attributeReady), totalRefs, select(0.0, 1.0, outputIsCanvasSized));
+  compositorSummary[6] = vec4f(select(0.0, 1.0, productionReady), select(0.0, 1.0, orderedReady), select(0.0, 1.0, nonEmpty > 0.0), 1.0);
+  compositorSummary[7] = vec4f(nonEmpty, params.tileCount - nonEmpty, activeTilePixelWork, avoided);
+  compositorSummary[8] = vec4f(avoided / fullScreenPixelWork, select(0.0, 1.0, productionReady), select(0.0, 1.0, productionReady), select(0.0, 1.0, nonEmpty > 0.0));
+  compositorSummary[9] = vec4f(scaleAwareSeen, anisotropicRefs, anisotropicRefs / max(totalRefs, 1.0), fallbackRefs);
+  compositorSummary[10] = vec4f(f32(atomicLoad(&evidence[10])), 0.0, 0.0, 0.0);
+}`;
 }

@@ -149,7 +149,16 @@ function pickProductionFrameIdentity(identity) {
     datasetTime: finiteNumberOrNull(identity.datasetTime),
     referenceCameraLabel: stringOrNull(identity.referenceCameraLabel),
     outputWidth: positiveSafeIntegerOrNull(identity.outputWidth),
-    outputHeight: positiveSafeIntegerOrNull(identity.outputHeight)
+    outputHeight: positiveSafeIntegerOrNull(identity.outputHeight),
+    ...(identity.compositingMathVersion != null || identity.compositingMode != null ? {
+      compositingMathVersion: stringOrNull(identity.compositingMathVersion),
+      compositingMode: stringOrNull(identity.compositingMode),
+      compositingRequestIdentity: stringOrNull(identity.compositingRequestIdentity),
+      ...(identity.compositingPurpose != null || identity.compositingScopeIdentity != null ? {
+        compositingPurpose:stringOrNull(identity.compositingPurpose),
+        compositingScopeIdentity:stringOrNull(identity.compositingScopeIdentity)
+      } : {})
+    } : {})
   };
 }
 
@@ -160,6 +169,7 @@ function pickProductionFrameIdentity(identity) {
  */
 export function buildProductionEvaluationInputContract({
   adoptedBundle = null,
+  compositingPolicy = null,
   assetIdentity = null,
   worksetContract = null,
   buildConfig = null,
@@ -595,6 +605,31 @@ export function buildProductionEvaluationInputContract({
     'outputWidth',
     'outputHeight'
   ];
+  if (compositingPolicy != null || productionFrame?.compositingMathVersion != null ||
+      presentedFrame?.compositingMathVersion != null) {
+    identityFields.push('compositingMathVersion', 'compositingMode', 'compositingRequestIdentity');
+    const normal = compositingPolicy?.schema === 'adopted-normal-compositing-policy-v2';
+    if (normal) {
+      identityFields.push('compositingPurpose','compositingScopeIdentity');
+      addBlockedReason(blockedReasons,
+        compositingPolicy.purpose !== 'normal' || compositingPolicy.appliedMode !== 'NEW-ON' ||
+        compositingPolicy.normalApplicationAuthorized !== true ||
+        !/^[a-f0-9]{64}$/.test(compositingPolicy.scopeIdentity) ||
+        productionFrame?.compositingPurpose !== 'normal' ||
+        productionFrame?.compositingScopeIdentity !== compositingPolicy.scopeIdentity,
+        'production-evaluation-normal-scope-mismatch');
+    }
+    addBlockedReason(blockedReasons,
+      (!normal && compositingPolicy?.schema !== 'adopted-range-compositing-policy-v1') ||
+      compositingPolicy.mathVersion !== 'cuda-aligned-composite-v1' || compositingPolicy.executed !== true ||
+      compositingPolicy.requestedMode !== compositingPolicy.appliedMode ||
+      !['NEW-OFF','NEW-ON'].includes(compositingPolicy.appliedMode) ||
+      productionFrame?.compositingMathVersion !== compositingPolicy.mathVersion ||
+      productionFrame?.compositingMode !== compositingPolicy.appliedMode ||
+      productionFrame?.compositingRequestIdentity !== request?.schedulerRequestIdentity ||
+      compositingPolicy.requestIdentity !== request?.schedulerRequestIdentity,
+      'production-evaluation-compositing-policy-mismatch');
+  }
   const productionAndPresentedMatch = productionFrame != null &&
     presentedFrame != null &&
     identityFields.every((field) => productionFrame[field] === presentedFrame[field]);
@@ -686,6 +721,8 @@ export function buildProductionEvaluationInputContract({
     gpuResourcesIncluded: false,
     populationScaledArraysIncluded: false,
     assetIdentity: asset,
+    compositingPolicy: compositingPolicy == null ? null :
+      cloneBoundedPlainValue(compositingPolicy, 'compositing-policy'),
     adoptedBundle: adoptedBundle == null ? null : cloneBoundedPlainValue(adoptedBundle, 'adopted-bundle'),
     productionWorksetIdentity: workset,
     appliedConfig,

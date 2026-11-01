@@ -25,6 +25,7 @@ const QUERY_GPU_CANDIDATE_FILTER_MODE_VALUES = new Set([
   'all-valid',
   'evenIndex'
 ]);
+import { normalStartupParameters } from './common_4dgs_normal_on.js';
 const QUERY_GPU_CANDIDATE_SOURCE_MODE_VALUES = new Set([
   'visibleSrcIndices',
   'firstN',
@@ -254,7 +255,7 @@ function buildDeterministicQueryString(state) {
 }
 
 export function parseViewerQueryState(search = window.location.search) {
-  const params = new URLSearchParams(search || '');
+  const params = normalStartupParameters(search);
   const cameraPresetName = params.get('cameraPreset');
   const cameraPreset = resolveViewerCameraPreset(cameraPresetName);
   const drawPath = params.get('drawPath');
@@ -283,6 +284,7 @@ export function parseViewerQueryState(search = window.location.search) {
   const webgpuBackendImplementation = params.get('webgpuBackendImplementation');
 
   const state = {
+    adoptedProfile: params.get('adoptedProfile'),
     active: false,
     cameraPresetName: cameraPreset?.name ?? null,
     cameraPreset,

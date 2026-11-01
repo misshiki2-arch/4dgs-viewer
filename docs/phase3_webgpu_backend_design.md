@@ -1,4 +1,4 @@
-> **Current-state notice:** This is the long-form Phase 3 design and Step history. The canonical statement of the current completion level, Step116-119 position, accepted claims, non-claims, and remaining work categories is [phase3_current_state.md](phase3_current_state.md). Historical Current / Next passages in this document do not independently authorize implementation.
+> **Current-state notice:** This is the long-form Phase 3 design and Step history. [CURRENT_STATE §24](phase3_current_state.md#step122-adopted-range) owns adopted-B fixed-range validation-only numerical/image acceptance (2026-10-30 JST), normal-ON functional acceptance (2026-11-01 JST), evidence and pending Step122-wide completion review. The [Step122 fixed-range contract](#step122-adopted-compositing) owns implemented numerical/state/policy/frame and near-to-far ordering semantics. Neither this synchronization nor historical Current / Next passages authorize further implementation or execution.
 
 # Phase 3 WebGPU Backend Design
 
@@ -39,8 +39,15 @@ The production roadmap order is:
 5. Establish a full-scene correctness gate: process the complete source
    population by full residency or correctness-preserving chunk/streaming
    semantics, and compare it with the full-scene CUDA Reference.
-6. Then advance early termination, LOD, and other performance paths only inside
+6. Then advance general performance early termination, LOD, and other performance paths only inside
    an explicitly accepted parity boundary.
+
+The approved [Step122 fixed-range exception](#step122-adopted-compositing)
+belongs to reference comparability/numerical alignment at items 2–3, including
+CUDA's termination semantics. It does not start full-scene or general
+performance/LOD work. The separately authorized and now accepted finite normal
+profile is documented below; this design reference is not a general runtime
+enablement authorization.
 
 ## 2. Backend Responsibilities
 
@@ -2471,6 +2478,13 @@ chunk/LOD/streaming.
 
 ## Step104 Compositor Work Reduction Readiness and Visual Safety Gate V1
 
+This and the following V1 capability/camera sections preserve historical
+disabled-policy decisions and their evidence. Their early-termination-disabled
+requirements apply to that policy version, not universally to every future mode.
+The approved [Step122 versioned contract](#step122-adopted-compositing) defines
+the implemented validation-only and separately versioned finite normal-ON
+branches; neither is an unconditional OR bypass of these gates.
+
 Step104 takes the Step103 early-termination candidate and gates it before any
 runtime enablement. The selected scope is A+B+C+D with H: review compositor work
 reduction readiness, define the early-termination enable/disable policy, expose
@@ -2596,6 +2610,10 @@ control parity, full parallel sort parity, viewport resize resource
 reallocation probing, and chunk/LOD/streaming.
 
 ## Step106 Capability-Based Preservation / Regression Gate Redesign V1
+
+The disabled conditions below belong to this historical V1 policy. Keep its
+schema readable; use the [Step122 contract](#step122-adopted-compositing) for
+new numerical modes without weakening capability, camera or ownership checks.
 
 Step106 replaces Step-number preservation booleans as the primary regression
 gate with capability-based gates that match the current WebGPU production
@@ -2731,7 +2749,7 @@ Step107 deliberately separates three gates:
   false and `visualParityComparisonBlockedReason` / `camera-contract-mismatch`
   explain why.
 
-Step107 still requires early termination and LOD/streaming to remain disabled,
+The historical Step107 V1 policy still requires early termination and LOD/streaming to remain disabled,
 no fallback/debug/readback-only success, no visual degeneration, no
 WGSL/WebGPU/CommandBuffer/queue submit errors, no WebGPU/WebGL2 same-frame
 mixing, and no full renderer success claim.
@@ -4369,6 +4387,15 @@ incomplete. This design section is not implementation authorization.
 
 ## Asset / Renderer Semantics Identity and Corrected-Baseline Freeze Contract
 
+The baseline-identity requirements remain applicable. The freeze/gate sequence
+below records Investigation11's decision, not a current demand to repeat
+completed Corrected work. Corrected is complete within its adopted scope;
+[CURRENT_STATE §24](phase3_current_state.md#corrected-b-handoff) owns adopted B,
+Gates A–C and Step21 Gate D input/SH0 acceptance. Its
+[limited Step122 sequence](phase3_current_state.md#step122-adopted-range) and
+the [numerical contract](#step122-adopted-compositing) define the current
+accepted fixed-scope exception to the general freeze.
+
 ### Baseline identity is part of the rendering contract
 
 A production Viewer baseline is not identified by checkpoint bytes alone. It
@@ -4418,8 +4445,8 @@ validation paths must not reconstruct it independently.
 
 ### Viewer freeze and infrastructure reuse
 
-The Viewer is frozen partway through Step122 while the corrected training
-baseline is established. The freeze prohibits adapting production to the
+Investigation11 froze the Viewer partway through Step122 while the corrected
+training baseline was established. The continuing general freeze prohibits adapting production to the
 historical negative-sentinel footprint, adding unrelated Viewer fixes, or
 continuing tile-reference, sort, compositor, current-reference-count, PNG
 metric, full-scene, performance, scalability, or LOD work against the legacy
@@ -4430,8 +4457,15 @@ production ownership and resident-range handling, Step120 conditional
 covariance, Step121 bounded producer/orchestrator and diagnostic-device
 isolation, Step122 alpha oracle and degree-2 spatial SH, and Step117 capture,
 generation, writer, currentTexture, and last-valid presentation responsibilities
-remain reusable. Their status is infrastructure completed and legacy-baseline
-evidence retained, with corrected-baseline acceptance pending.
+remain reusable. Infrastructure and legacy-baseline evidence are retained.
+Corrected input/SH0 acceptance and the subsequent adopted-B fixed-range
+numerical/image and normal-ON functional acceptance are established in
+[CURRENT_STATE §24](phase3_current_state.md#step122-adopted-range).
+The finite normal profile's startup, capture and saved comparison are complete;
+Step122-wide completion remains subject to document review and existing completion
+conditions. Full-scene and interactive/performance acceptance remain unverified,
+not additional success conditions for this fixed scope. Fixed-range acceptance
+does not authorize further source switching, implementation/execution or a general unfreeze.
 
 Infrastructure reuse and acceptance reuse are separate decisions. Legacy
 record count 3,231,588, fixed range `[524288, 1048576)`, representative source
@@ -4443,7 +4477,9 @@ before semantic and raster comparison resumes.
 
 ### Corrected-baseline gates
 
-The dependency order is:
+The historical Investigation11 dependency order was as follows. It is not a
+retraining, intermediate-commit or completed-gate replay prerequisite for the
+current limited sequence owned by CURRENT_STATE §24:
 
 1. synchronize the Investigation11 freeze and retraining decision;
 2. let the user create Viewer and CUDA/training Git checkpoints;
@@ -4469,11 +4505,215 @@ The dependency order is:
 18. only then proceed to interactive camera/time, performance, scalability,
     and LOD work.
 
-Viewer unfreeze requires the corrected handoff review, focused validation,
+Investigation11 required the corrected handoff review, focused validation,
 completed from-scratch training, fixed identities for the new checkpoint,
 SPL4, and CUDA Reference, and a reviewed new-population/fixed-range design.
-The candidate output
-`/home/demo/work/outputs/sph_scene_4dgs_corrected_intrinsics_v1` is plan-only;
-it has not been created or authorized. Acceptance Level 4 and corrected
-full-scene correctness remain incomplete until the corrected-baseline gates
-above are satisfied.
+Its then-candidate output
+`/home/demo/work/outputs/sph_scene_4dgs_corrected_intrinsics_v1` was plan-only,
+not the subsequently adopted output identity. CURRENT_STATE §24 owns the
+actual adopted bundle and population. Acceptance Level 4 and corrected
+full-scene correctness remain incomplete; the limited acceptance does not
+establish either.
+
+<a id="step122-adopted-compositing"></a>
+## Step122 Adopted-B Fixed-Range CUDA Alignment Contract
+
+### Scope and evidence boundary
+
+Design1 plus Design2 and advisor review are user-approved; their references,
+fixed input, accepted results and subsequent decisions are owned by
+[CURRENT_STATE §24](phase3_current_state.md#step122-adopted-range).
+This section owns the numerical/state/gate contract; CURRENT_STATE owns the
+result metrics and evidence. Implementation/CPU regression, same-range CUDA,
+delivery/capture, real-GPU fixtures including production sort, and saved-image
+comparison are complete for that fixed scope. Following advisor review, the
+user accepted its validation-only numerical/image function on 2026-10-30 JST,
+then the implemented finite normal-ON startup/capture/comparison on 2026-11-01
+JST. Step122-wide completion remains a separate post-sync review. The original
+unperformed statements describe Design1/2 time, not the current state; CPU
+API/static evidence remains distinct from saved real-GPU evidence.
+Corrected completion, the adopted bundle, SH0 intake and prior browser evidence
+remain accepted. Same-range CUDA preparation was completed as a Viewer responsibility;
+the full-population Reference is not the partial-range primary image oracle.
+
+Confirmed alignment targets are the old alpha cap `0.98` versus CUDA `0.99`,
+pre-composition RGB upper clamp at one, and pixel sample position. Micro-alpha skip and early termination
+align CUDA's approximation/cutoff semantics; omitting them is not labelled a
+general mathematical error. Their individual image effects are not measured.
+The old positive-depth descending order feeding front-to-back C/T was a
+confirmed defect and has been corrected. The saved comparison strongly supports
+it as the main source of the large fixed-image residual, not a universal causal
+percentage. General near-tie effects and general equivalence of conic protection
+and power cutoff remain unverified, not mandatory additional fixes or new
+revalidation prerequisites for the accepted fixed scope.
+Final rgba8unorm/PNG clamp and quantization remain unchanged.
+
+### Numerical and state lifetime contract
+
+For the approved fixed input, sort valid references by positive forward depth
+in ascending (near-to-far) order, then traverse chunks and slots from the start.
+At exactly equal depth, use ascending input source index (equivalently resident
+local index for this fixed contiguous range), matching the adopted CUDA stable
+order. Do not epsilon-merge distinct depths or negate the physical depth/key.
+Padding follows every valid reference. All bitonic stages, validators and
+current consumer descriptions must use this same contract; reference.x must
+continue to select that point's RGB/alpha. Capacity, counts, invalid-row handling,
+coverage, chunk continuation and fail-closed checks remain intact.
+
+Historical descending schemas/results remain readable and unchanged; current
+sort algorithm/order identity must distinguish this correction. Existing
+13-case/39-frame compositing evidence and CPU-staged depthSortComparison did
+not traverse production sort and cannot establish this ordering contract.
+Additional isolated-device fixtures must use the actual production sort path
+before the shared compositor, with independent expected order and color.
+Diagnostic-only sorted-reference readback must not leak into production control.
+CPU API/static checks do not establish WGSL numerical, race or resource success.
+
+With that order, preserve the following numerical contract:
+
+1. Use integer pixel sample positions corresponding to the projected centers;
+   do not offset camera/intrinsics or PNG to hide a discrepancy.
+2. Cap sample alpha at `0.99`. Skip capped `alpha < f32(1/255)`;
+   equality is not skipped. Pre-composition RGB is lower-clamped at zero only,
+   with no upper clamp at one.
+3. Clear each frame to `C=0`, `T=1`, `done=false`. Carry C/T/done across
+   sequential chunks, and never reuse a previous frame's termination state.
+4. In ON, calculate `test_T = T * (1 - alpha)`. If
+   `test_T < f32(1e-4)`, set done and exclude the current splat: neither C nor T
+   is updated, and later chunks must not restart that pixel. Equality contributes.
+5. Otherwise perform `C += (RGB * alpha) * T`, then `T = test_T`.
+6. NEW-OFF disables only step 4's termination branch. All other new sampling,
+   cap, skip, RGB and direct-T semantics are identical to NEW-ON.
+
+Use direct T rather than reconstructing it from accumulated alpha, and a
+persistent per-pixel done state. Design2's reuse of the color-state vec4 for
+C/T plus a separate u32 done buffer adds about 3.52 MiB at the fixed dimensions
+and changes storage bindings from seven to eight. Check the actual device
+limits before dispatch; this estimate is not observed GPU feasibility or a
+peak-memory guarantee. Buffer/helper/local-type and fixture placement are SE
+implementation choices, not separately fixed APIs.
+
+The one-pixel/one-writer premise has been checked only for **1280×720 with
+16-pixel tiles (80×45)**. Do not claim arbitrary viewport/scale tile disjointness
+or add general resize support under this contract.
+Tile-reference coverage must still account for every required reference;
+pixel skip/done means no further color contribution, not permission to drop
+coverage evidence or redefine its count as contributing samples.
+
+### Versioned gate, Summary and frame identity
+
+Preserve historical V1 policy/Summary reading and its disabled interpretation.
+The implemented numerical policy `adopted-range-compositing-policy-v1` retains
+normal/NEW-OFF and explicitly authorized validation-only NEW-OFF/NEW-ON.
+The finite normal branch uses `adopted-normal-compositing-policy-v2`, purpose
+`normal`, mode `NEW-ON`, and verified scope/request identity. Do not relabel old
+snapshots or OR a new boolean into the historical gate. The version, math, mode,
+purpose and normal scope bind requested → submitted → presented → capture.
+Mode/purpose changes require fresh production; a stale OFF or validation-only
+ON frame cannot satisfy normal ON even when camera/time/range match. Mandatory
+identity checks remain independent of optional frameHash availability.
+
+| Gate/state | Required meaning |
+|---|---|
+| Design adopted | Documents only; no runtime enable or image acceptance |
+| Validation-only ON | Reviewed implementation/CPU evidence plus separate explicit execution authorization for the fixed scope. Future ON image evidence is not a prerequisite for collecting that evidence |
+| ON executed / termination observed | Record the executed mode separately from bounded `terminatedPixelCount`. Zero means the ON path executed but its termination effect was unobserved, not automatic success of effect validation |
+| Comparison established | Same-condition NEW-OFF/NEW-ON and independent same-range CUDA, valid frame binding and required semantic/visual checks; not inferred from enablement or nonblank output |
+| Normal ON accepted | Implemented finite profile, saved real capture/comparison, result review and explicit user acceptance; now established for the fixed scope in CURRENT_STATE. Not inferred from design adoption, counters or an observation flag |
+
+Keep production/diagnostic device ownership, production readback-none,
+resource lifetime/cleanup, coverage, independent fallback and Three.js wiring
+responsibilities. Diagnostic readback must not become a synchronous production
+control or fallback dependency. Observation counters report effects; they are
+not a replacement authority for rendering policy or pixel state.
+
+### Implemented finite normal startup and saved-capture contract
+
+`common_4dgs_normal_on.js` connects the single `adopted-b-fixed-range` profile
+through `viewer_query_state.js` and `viewer_file_io.js` to the existing verified
+loader and scene-loaded production request. The trusted data-only scope and
+actual adopted context/effective frame must agree before normal policy issuance;
+unknown, duplicate or conflicting query values fail closed. No-profile legacy
+startup and explicit validation-only requests retain their separate paths.
+An invalid explicit request cannot fall back to normal authorization. This is
+not a global ON default or arbitrary camera/time/range/viewport support.
+
+The existing adopted-frame checks validate input authority, camera/projection,
+time, population selection, SH, scale/stride and viewport; normal activation
+also binds the trusted scope, math/sort contract and black background. Verified
+runtime tokens, not caller labels or observed counters, authorize normal policy.
+`viewer_capture_admission.js` and the app bind the current raw/load/request to
+the completed production/presented frame. A pending or failed new content
+request, scene replacement, scope/purpose drift or stale frame blocks capture;
+retaining an old last-valid texture for display does not make it the new
+request's success. Clean heartbeat reuse does not clear a failed content request.
+The guarded PNG path checks identity before I/O and again before download after
+await, without silently falling back to a framebuffer capture.
+
+Normal capture uses `viewer-normal-capture-candidate-v2` and
+`viewer-normal-capture-support-v2`. Its wrapper observes the normally loaded
+scene and the saved `adopted-normal-initial-frame-v1` evidence; it does not use
+debug loading or inject a validation policy. Initial evidence proves startup;
+the common capture then requests and binds a fresh frame. Initial and captured
+generation numbers are observations, not fixed constants or interchangeable
+proofs. Saved initial profile/scope/request/policy/frame checks belong to the
+wrapper and strict consumer, not a duplicate startup API in common capture.
+
+`normal_range_capture.capture_expectation` derives expected camera/frame/time
+and positive dimensions from the validated candidate's fixed data. The common
+generator binds these independent expectations to candidate bytes, profile and
+scope before the fresh request, then checks presentation/PNG against them.
+Omitted raw URL values must not become zero dimensions, and observed/cached
+values must not fill expected values. This closes the historical profile-query
+connection gap; it is not a timing workaround or a rendering-math change.
+
+The saved-file consumer dispatches explicitly on normal versus legacy/aligned
+schema. `normal_range_capture.policy_evidence` first requires normal v2,
+authorized profile/scope, normal purpose and no validation candidate identity;
+only then does it reuse the unchanged common numerical/execution checks. That
+local reuse does not rewrite saved policy or bypass normal authorization.
+`compare_adopted_range_capture.capture_binding` additionally binds initial
+evidence, input/range/effective frame, source/delivery, fresh request/generation,
+presentation/capture and the same-run seven JSON plus PNG bytes. Missing,
+mixed, failed or stale evidence remains rejected. Normal single-candidate
+comparison is not an OFF/ON pair result. Runtime/raw `accepted` and
+`normalOnAccepted` flags remain historical observations; the later user
+acceptance belongs to CURRENT_STATE, not a runtime flag change.
+
+### Comparison and acceptance boundary
+
+Keep four distinct saved groups: OLD before numerical changes, NEW-OFF,
+NEW-ON, and independent same-range CUDA. OLD versus NEW measures combined
+changes; only NEW-OFF versus NEW-ON isolates early termination.
+
+For NEW-ON versus CUDA PNG, the adopted primary candidate criterion is maximum
+absolute difference over **all RGB channels/pixels ≤ 1 LSB**, jointly with all
+mandatory semantic, binding and visual safety checks. It is not internal raw
+identity or a general f32 error guarantee. Do not infer acceptance from the
+mean alone or change the threshold/fixed patches after seeing results.
+
+Do not require unconditional exact equality or ≤ 1 LSB between OFF and ON.
+`tau=1e-4` is not a final color-error bound: RGB may exceed one, and the
+threshold-crossing current splat is excluded. Review threshold-boundary
+fixtures, identical non-termination conditions, actual mode/trigger observation,
+independent CUDA comparison, whole-image metrics and pre-fixed image patches
+together. Preserve fixed alpha-skip and termination equality cases, cross-chunk
+done/frame-clear checks and stale-mode rejection in focused validation.
+
+Known semantic violations, regressions or mode confusion are **failed**.
+Unexplained residuals under valid comparison conditions are **inconclusive**
+and return to review, not a reason to relax checks. Reuse existing intake/SH0,
+legacy SH2, shared 128-byte staging, coverage and capture regressions. Preserve
+SH2 evaluation semantics; intentional compositor changes do not imply every
+old PNG must remain bitwise identical. CURRENT_STATE §24 links the saved
+real-GPU and image-comparison evidence supporting the bounded functional
+acceptance, separately from CPU checks. Pair-level `inconclusive` describes
+OFF/ON, not a failure overriding the individual NEW-ON `candidate-within-1LSB`
+result. Historical raw acceptance flags remain unchanged; the later user
+acceptance is a separate record. The finite normal-ON acceptance is now recorded
+in CURRENT_STATE; it adds no full-scene or arbitrary-condition claim and no
+further fixed-scope Fix/retest prerequisite. Step122-wide completion is still
+subject to the post-sync review. CURRENT_STATE also owns the preserved normal
+raw/archive links and overwritten pre-sort raw-file limitation: historical
+statistics and preserved raw comparisons are distinct, not a claim that all
+prior raw groups remain fully reproducible.

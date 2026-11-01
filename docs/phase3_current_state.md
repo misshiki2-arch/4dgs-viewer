@@ -1,6 +1,6 @@
 # Phase 3 Current State
 
-更新基準: 2026-10-25 / Step21 push後完了・進捗評価範囲の訂正（Corrected採用範囲完了、Viewer後続は別管理）
+更新基準: 2026-11-01 / Step122採用B固定65,536点の通常ON機能受入れ（Step全体の完了判定とは分離）
 対象ブランチ: `phase3-webgpu-compute-prototype`
 履歴上の基準コミット: `c137ae4 Step121: complete 524288-record semantic parity`
 
@@ -8,7 +8,10 @@
 [§24](#corrected-b-handoff)を受取側の実装・CPU/browser実績と使用範囲の正本とする。
 文書レビュー・ユーザー研究Git/push・独立remote確認とStep21完了処理は済んでいる。
 Correctedは採用範囲で完了。Viewerの画像全体・全点・対話／性能の残課題はViewer固有の未達であり、Correctedの残作業・進捗分母に含めない。
-Viewer全般のfreeze、旧Step122・Phase4の非再開を維持し、以後のsource作業には別途明示認可が必要である。
+Viewer全般のfreezeは維持する。Step122の採用B固定65,536点は実装・CPU/実GPU検証・保存画像比較を経て、
+2026-10-30 JSTにvalidation-onlyの数値・画像整合、2026-11-01 JSTに同じ固定profileの通常ON機能をユーザー受入れ済みとした。
+[§24の限定受入れ・証拠・残課題](#step122-adopted-range)を現在のownerとし、通常起動・保存・比較の成立と、
+文書review後のStep122全体の完了判定を区別する。新たなsource切替、全点・対話／性能の受入れ、Phase4開始・全面解除へ拡張しない。
 
 ## 1. この文書の役割
 
@@ -28,7 +31,7 @@ Gitの契機は[USR-GIT-09/10](../../4dgs-development-governance/40_USER_GIT_AND
 全体・Phase進捗は[RM-PROGRESS](../../4dgs-development-governance/30_REDMINE_WORKFLOW_JA.md)を適用する。
 既存Step番号は過去の成果・証拠への参照として維持し、全体進捗の分母や残り作業量へ換算しない。
 過去の同期・Git記録を、今後の中間作業ごとの必須操作にしない。本追記は管理上の参照であり、
-Section 23のStep122 freeze・解除条件、各Phaseの技術的到達点・受入条件・正式な次Stepを変更しない。
+Section 23の履歴、§24の現行限定契約、各Phaseの技術的到達点・受入条件・正式な次Stepを、この管理参照だけで変更しない。
 全体・Phaseの進捗率と実Redmineの管理表示が整備済みであることも意味しない。
 
 ### Issue #20: 受入済み外部調査の候補登録
@@ -168,7 +171,7 @@ PNGを当時のfixed CUDA Referenceと比較し、MAE / RMSE改善と未分類�
 したがって13 / 15-stage gateはWebGPU actualとcurrent expected oracleの内部整合として維持する一方、
 CUDA-direct screen / raster parityは再検証待ちである。fixed PNG parity、downstream sort / compositor /
 final RGB、full-scene gateが残るため、Acceptance Level 4の完了とは扱わない。Investigation10の技術詳細は
-Section 22、現在のfreeze境界と依存順はSection 23を正本とする。
+Section 22、freeze判断の履歴はSection 23、現在の限定範囲と依存順は[§24](#step122-adopted-range)を正本とする。
 
 ## 8. Step118 が証明したこと
 
@@ -210,7 +213,7 @@ Investigation8は、canonical lower-only spatial SHが正当なRGB > 1を生成�
 RGBとalphaを共有`colorAlphaValid`で判定し、RGB全成分へ`0 <= rgb <= 1`を要求していたことを確認した。
 Step122 Impl1 Fix4はImpl3に先立ってvalidityを分離し、実装・自動検証を完了した。Impl3はその後、
 production degree-2 spatial SHと独立browser semantic gateを完了した。次はValidation2時点の履歴的な
-依存順であり、現在のfreeze境界と依存順はSection 23を正本とする。
+依存順であり、freeze判断の履歴はSection 23、現在の限定範囲と依存順は[§24](#step122-adopted-range)を正本とする。
 
 1. **完了済み**: Step122 Impl1 Fix3でcomparison expected oracleのdegree-2 C2符号だけをCUDA正本へ同期する。
 2. **完了済み**: production sourceを変更せず、同じ固定524,288 recordsの15-stage browser comparisonでexpected-only変更を受け入れる。
@@ -578,10 +581,13 @@ pixel boundsの4 raw differencesを明示的に保持したsemantic matchであ�
 
 Step121完了時点の次候補は、Fix6後のfresh production PNGを同条件のCUDA Referenceと再比較し、
 差が残れば最初の未比較downstream stageをread-onlyで分類することだった。後続Step122はこの比較と
-alpha分類を実施した。現在地はSection 23を正本とする。全3,231,588 recordsをsilent omissionなく
-処理するmatched full-scene gateが引き続き必須であることは変わらない。
+alpha分類を実施した。現在地は[§24](#step122-adopted-range)、当時のfreeze判断はSection 23を参照する。
+当時の全3,231,588 recordsに対するmatched full-scene gateは未達として残すが、旧点数を採用Bへ継承しない。
+全点をsilent omissionなく処理する責務自体は維持する。
 
 ## 21. Step122 Fixed-Range Downstream Alpha/RGB Semantic Acceptance
+
+本節はlegacy基準での実績・当時の未達を保全する。採用Bによる現行の限定受入れ・未達は[§24](#step122-adopted-range)を参照する。
 
 Step122は、Step121で閉じた13-stage record-local semantic parityの下流について、fresh
 fixed-condition PNG差を定量化し、production tile-input alpha / RGB evidenceを追加して、最初の
@@ -878,7 +884,7 @@ nonblack pixelsは`+1,179`である。Impl3 degree-2 spatial SHはvisual error m
 否定しない。Validation2時点では差を15-stageより下流と仮置きし、Investigation9でproductionとCUDAの
 tile-reference population / countを最初に確認する計画だった。後続Investigation10は、その前提より上流の
 CUDA camera-to-rasterizer handoffでscreen / footprint contractが分裂していることを確定した。現在の
-Investigation10の原因分類と当時の完了境界はSection 22、現在のfreeze境界と依存順はSection 23を正本とする。
+Investigation10の原因分類と当時の完了境界はSection 22、freeze判断の履歴はSection 23、現在の限定範囲と依存順は[§24](#step122-adopted-range)を正本とする。
 
 CUDA manifestはtemporal SH degree 0を記録する一方、checkpoint restore後のruntime active temporal
 degreeは2である。ただしCUDA temporal SH処理はspatial degree > 2の内側にあり、今回のspatial degree 2
@@ -892,7 +898,7 @@ dirty patchの完全保存を意味しない。spatial degree > 2、temporal SH�
 
 ### Validation2時点のremaining gates and dependency order
 
-次はValidation2時点の履歴的な依存順であり、現在順はSection 23を正本とする。
+次はValidation2時点の履歴的な依存順であり、現在順は[§24](#step122-adopted-range)を正本とする。
 
 1. **完了済み**: Step122 Impl1 Fix3でexpected oracleのC2符号だけをCUDA正本へ同期する。
 2. **完了済み**: production sourceを変更せず、Fix3の15-stage browser comparisonで固定524,288件のcorrected baselineを独立して受け入れる。
@@ -924,7 +930,7 @@ CUDA-direct camera clamp / Jacobian / screen covariance / conic / radius / tile 
 ## 22. Step122 Investigation10 CUDA Reference Camera/Raster Contract Reclassification
 
 このSectionは、Step121 / Step122の既存実装・browser evidenceを取り消さず、13 / 15-stage gateの
-CUDA-direct scopeとValidation2の位置付けを限定する最新の正本である。Investigation10はsourceと既存
+CUDA-direct scopeとValidation2の位置付けを限定した当時の正本である。現行限定契約は[§24](#step122-adopted-range)を参照する。Investigation10はsourceと既存
 artifactだけをread-onlyで照合し、production、CUDA、tool、test、artifactを変更していない。
 
 ### Source and artifact lineage
@@ -1129,14 +1135,14 @@ corrected rendererを正式baselineにする場合、legacy checkpointのcorrect
 
 これらは削除または全面失敗扱いにしない。状態は
 `infrastructure completed / legacy-baseline acceptance retained / corrected-baseline revalidation pending`
-である。§24の受入れ済み限定成果は維持するが、新たな作業の認可ではない。凍結中はhistorical CUDA footprintへViewerを合わせる実装、新しいViewer Fix、tile-reference、
-sort、compositor、229,328 reference count追跡、current PNG metrics改善、full-scene、performance、LODを
-進めない。
+であった。現在の§24の受入れ済み成果と[Step122の限定受入れ](#step122-adopted-range)は別に維持する。
+historical CUDA footprintへの適合や旧reference count追跡を再開しない。限定設計外の新しいFix、tile-reference、sort/compositor、
+full-scene、performance、LODは引き続き凍結し、限定設計内もsource作業・実行には別認可を要する。
 
 Investigation11当時に定めたViewer凍結解除の依存条件は、corrected handoff implementationのreview、intrinsics cameraとlegacy FoV-only
 cameraのfocused validation acceptance、from-scratch retraining完了、新checkpoint/SPL4/corrected CUDA
 Reference identityの確定、およびnew population countとfixed-range baselineの設計である。
-その後のCorrected側の成果、今回bundleのGate D入力・限定SH0接続／描画の受入れと、後続の画像全体等の未達は§24で区別する。
+その後のCorrected側の成果、今回bundleのGate D入力・限定SH0接続、Step122固定範囲の画像・通常ON機能受入れと、全点等の未検証は§24で区別する。
 
 ### Corrected retraining dependency order
 
@@ -1264,7 +1270,8 @@ production/diagnostic device分離・production readback-noneを維持する。
 既存SH2回帰、capture結合・描画完了待ち／失敗記録のCPU証拠を所有する。旧失敗を成功へ書き換えず、
 必要Fix後のValidation3を受入根拠とする。全3,248,901点と14視点Reference一式のstrict受取・scene/production/capture結合により、
 今回bundleのP0-A3/A4を閉じた。一般freezeは継続し、以後のsource作業は別途明示認可を要する。
-旧Step122・Viewer Phase4、sort/compositor改修、全点/操作性能、LOD/streaming、高次数・時間SH有効化へ自動移行しない。
+Step21の受入れだけで旧Step122・Viewer Phase4、sort/compositor改修、全点/操作性能、LOD/streaming、高次数・時間SH有効化へ自動移行しない。
+別途承認されたStep122限定設計は[以下の現在地](#step122-adopted-range)に区別する。
 
 ### Validation3の実績と証拠境界
 
@@ -1295,10 +1302,127 @@ Fix2の未実行候補ではなく、実際のValidation3入力への対応で�
 |---|---|
 | Gate D入力受入れ | 今回bundleのP0-A3/A4、strict受理/拒否、新population/selection、camera/time/rangeとcapture identityを2026-10-25 JSTにユーザー受入れ済み |
 | Step21の必要SH0接続 | 独立数値・実production描画接続・既存SH2 focused CPU回帰を含め機能受入れ済み。入力readyやnonblankのみの判定ではない |
-| 後続Viewer描画acceptance | 上記record/tile数値・描画完走を維持し、sort/compositor・画像全体、同範囲CUDA画像parity、全点・対話・性能の受入れは別責務。今回の入力/SH0成功から推論しない |
+| 後続Viewer描画acceptance | Step21の入力/SH0成功から画像受入れを推論しない。後続Step122の固定範囲の数値・画像整合／通常ON機能受入れと、全点・対話・性能の未検証を以下で区別する |
 
-同じview/time/rangeのCUDA画像は未準備である。全点14 Reference画像を部分populationの画像一致基準にしない。
-この不足は後続描画parityの責務であり、今回の必須作業へ追加CUDA生成やcompositor修正を取り込まない。
+Step21受入れ時点で未準備だった同じview/time/rangeのCUDA画像は、後続Step122で生成・保存確認済みである。
+全点14 Reference画像を部分populationの画像一致基準にせず、Step21受入れへ追加CUDA生成やcompositor修正を遡及的に要求しない。
+
+<a id="step122-adopted-range"></a>
+### Step122採用B固定範囲の限定受入れ・現在地（2026-11-01）
+
+[Design1](../../reports/webgpu-4dgs-viewer/phase3/step122/step122-design1/step122-design1-report.md)と
+[Design2](../../reports/webgpu-4dgs-viewer/phase3/step122/step122-design2/step122-design2-report.md)、相談役reviewはユーザー承認済みである。
+実装・検証・比較と相談役reviewを経て、[先行同期のユーザー承認](../../reports/webgpu-4dgs-viewer/phase3/step122/step122-docsync2/step122-docsync2-instruction.txt)により、
+**固定65,536点のvalidation-only数値・画像整合は2026-10-30 JSTに機能受入れ済み**である。
+続く[通常ON設計](../../reports/webgpu-4dgs-viewer/phase3/step122/step122-normal-on-design1/step122-normal-on-design1-report.md)の限定実装・取得・保存比較と
+[結果review](../../reports/webgpu-4dgs-viewer/phase3/step122/step122-normal-on-cpu-compare-validation1/step122-normal-on-cpu-compare-validation1-advisor-result-review.json)を経て、
+[今回の明示承認](../../reports/webgpu-4dgs-viewer/phase3/step122/step122-docsync3/step122-docsync3-instruction.txt)により、
+**同じ固定profileの通常ON機能は2026-11-01 JSTにユーザー受入れ済み**となった。
+先行報告の未達・review待ち・受入れ推奨は当時の履歴として残し、過去の生結果・Gate flagsは更新しない。
+Step122全体の完了判定は本同期後の相談役reviewへ残す。一般freezeを維持し、新Step・Phase4を設けない。
+本節が範囲・成果・証拠・残課題・次の判断を、[backend契約](phase3_webgpu_backend_design.md#step122-adopted-compositing)が
+数値意味・状態寿命・policy/Summary/frame結合・比較判定を所有する。AGENTSへ数式や受入表を複製しない。
+
+受入れ範囲は採用B、view04（train2588、`images/000118_v16.png`）、time16.6、source range `[524288,589824)` の65,536点である。
+1280×720、黒背景、既存scale/stride、active SH0/0・max3/2・physical16を、修正後の保存候補
+[NEW-OFF](../../reports/webgpu-4dgs-viewer/phase3/step122/step122-sort-prepare-validation1/new-candidates/new-off/candidate.json)／
+[NEW-ON](../../reports/webgpu-4dgs-viewer/phase3/step122/step122-sort-prepare-validation1/new-candidates/new-on/candidate.json)と比較記録へ結合する。
+通常ONは同条件の[保存candidate](../../reports/webgpu-4dgs-viewer/phase3/step122/step122-normal-on-prepare-validation2/candidate/candidate.json)へ結合する。
+有限profile `adopted-b-fixed-range`を通常起動入口で選び、最初の通常frameからnormal/NEW-ONで表示する実装であり、
+全体の既定値を無条件ONへ変更したのではない。profileなしの通常OFF／legacy、明示validation-only OFF/ON、legacy SH2を維持する。
+固定7代表点は5有効patch（各17×17）＋2 outside-or-invisibleのままであり、結果を見て選び直していない。
+全3,248,901点・14視点Referenceの入力受入れとは別の部分範囲画像受入れであり、一般のraw/f32完全一致ではない。
+一pixel一writerの確認範囲はこの固定viewportと16pixel tile（80×45）だけであり、任意viewport/scaleの正しさや一般resize対応へ拡張しない。
+
+| 分類 | 現在の根拠・限定対応 |
+|---|---|
+| 比較参照 | 同範囲CUDA未準備は比較準備不足であり解消済み。既存strict reader・範囲選択・保存nativeを再利用し、全点14 Referenceを部分範囲画像の一次oracleにしていない。Correctedのsource変更・再学習は不要 |
+| 承認済み数値整合 | alpha cap 0.98/0.99、合成前RGB上限clamp、sample位置を整合済み。微小alpha skip・early terminationはCUDAの近似／打切り意味へ揃えたもので、省略を一般的な数学誤りと断定しない。各変更の独立した実画像寄与は未測定 |
+| 確認済みsort不具合と修正 | 正の前方depthを遠→近へ並べ、近→遠用C/T式へ渡す不整合はOLDから継続していた。限定Fixと修正後比較を完了。順序・同値順・padding・検査の契約はbackendをownerとする。固定画像の大残差の主因だったことを強く支持するが、普遍的な因果寄与率とはしない |
+| 一般化していない範囲 | near tieの一般影響、conic保護・power cutoff等の一般等価性は未確認。追加Fix必須や受入れ済み固定条件の再検証条件へ格上げせず、未説明事項はreviewへ返す |
+
+参照準備はfull checkpoint metadataを維持して既存range選択へ接続し、選択全行のSPL4対応と由来を確認した。
+7代表点だけの一致や選択後の点数でfull metadataを書き換える方法では代替していない。native由来とViewer adapter由来を区別する。
+既存bundle・現在保全されている旧成果物・失敗証跡・Gate flagsは上書きしない。修正前rawの欠損境界は下記に明示する。
+
+承認済み数値条件と直接T/pixel終了状態、validation-only ONと通常ONの非循環gate、
+NEW-ON対CUDAの一次候補基準とOFF/ON効果評価の違いはbackend契約に従う。
+設計採用だけからruntime enable・発火・画像parityを推論せず、以下の実測証拠と後日の機能受入れを区別する。
+既存入力・SH0・legacy SH2・128-byte staging・coverage・capture・device分離・production readback-noneを維持する。
+
+#### 機能別の実績と証拠
+
+| 機能 | 到達点・根拠 |
+|---|---|
+| 比較支援・参照 | 既存reader/range/native/CUDA参照・capture/comparisonを再利用。[CUDA保存検証](../../reports/webgpu-4dgs-viewer/phase3/step122/step122-cuda-reference-validation1/step122-cuda-reference-validation1-report.md)で同範囲の保存・独立読戻し・非上書き公開まで確認 |
+| 数値・接続 | 数値整合、OLD helper互換、NEW保存比較・mode/frame結合とCPU回帰を完了。[数値Fix報告](../../reports/webgpu-4dgs-viewer/phase3/step122/step122-numerical-alignment-fix1/step122-numerical-alignment-fix1-report.md)と[sort Fix報告](../../reports/webgpu-4dgs-viewer/phase3/step122/step122-sort-alignment-fix1/step122-sort-alignment-fix1-report.md)を参照 |
+| 配信・実GPU | [準備報告](../../reports/webgpu-4dgs-viewer/phase3/step122/step122-sort-prepare-validation1/step122-sort-prepare-validation1-report.md)でsource/配信・候補の結合を確認。旧13件39framesはcompositor-only、修正後21件63framesは追加8件で実production sort＋compositor経路を含む実GPU成功。CPU fake API/static確認とは別証拠 |
+| capture・独立読戻し | [保存報告](../../reports/webgpu-4dgs-viewer/phase3/step122/step122-sort-browser-validation1/step122-sort-browser-validation1-save-report.md)と[独立保存確認](../../reports/webgpu-4dgs-viewer/phase3/step122/step122-sort-browser-validation1/collection-readback-evidence.json)。OFF/ON各7 JSON＋PNG、fixture/collectionの2 JSONを含む18保存物の同一実行・disk読戻しが成立 |
+| 固定画像比較 | [CPU比較報告](../../reports/webgpu-4dgs-viewer/phase3/step122/step122-sort-cpu-compare-validation1/step122-sort-cpu-compare-validation1-report.md)、[比較JSON](../../reports/webgpu-4dgs-viewer/phase3/step122/step122-sort-cpu-compare-validation1/step122-sort-cpu-compare-validation1-comparison.json)、[独立読戻し証拠](../../reports/webgpu-4dgs-viewer/phase3/step122/step122-sort-cpu-compare-validation1/comparison-readback-evidence.json)で入力・保存値・全体/固定patch統計の対応を確認 |
+| 通常入口・保存接続 | [通常ON実装](../../reports/webgpu-4dgs-viewer/phase3/step122/step122-normal-on-implement1/step122-normal-on-implement1-report.md)後の[保存入口Fix](../../reports/webgpu-4dgs-viewer/phase3/step122/step122-normal-on-fix1/step122-normal-on-fix1-report.md)・[残CPU回帰](../../reports/webgpu-4dgs-viewer/phase3/step122/step122-normal-on-fix2/step122-normal-on-fix2-report.md)により、通常profile、verified入力／実効scope、purpose/request、提示／保存を接続。取得支援は起動済みsceneを観測し、debug loadやvalidation policy注入で代替しない |
+| PNG期待値・準備 | [PNG原因調査](../../reports/webgpu-4dgs-viewer/phase3/step122/step122-normal-on-png-investigation1/step122-normal-on-png-investigation1-report.md)で、raw URLの省略を0×0へ解釈した接続漏れを確定。candidate由来の独立expected接続と[API責務補修](../../reports/webgpu-4dgs-viewer/phase3/step122/step122-normal-on-png-fix2/step122-normal-on-png-fix2-report.md)、[CPU fixture時刻補修](../../reports/webgpu-4dgs-viewer/phase3/step122/step122-normal-on-png-fix3/step122-normal-on-png-fix3-report.md)後、[修正後準備](../../reports/webgpu-4dgs-viewer/phase3/step122/step122-normal-on-prepare-validation2/step122-normal-on-prepare-validation2-report.md)を完了。ユーザーの操作時刻や新しい描画数式の不具合ではない |
+| 通常ON取得・保存比較 | [通常CPU比較報告](../../reports/webgpu-4dgs-viewer/phase3/step122/step122-normal-on-cpu-compare-validation1/step122-normal-on-cpu-compare-validation1-report.md)、[保存receipt](../../reports/webgpu-4dgs-viewer/phase3/step122/step122-normal-on-cpu-compare-validation1/browser-saved/save-receipt.json)、[収集読戻し](../../reports/webgpu-4dgs-viewer/phase3/step122/step122-normal-on-cpu-compare-validation1/collection-readback.json)、[比較読戻し](../../reports/webgpu-4dgs-viewer/phase3/step122/step122-normal-on-cpu-compare-validation1/comparison-readback.json)により、初回通常ON→fresh取得→同一実行7 JSON＋PNG→strict binding→独立読戻し→同範囲CUDA単独比較が成立 |
+
+先行validation-onlyの実browser・Ubuntu対話terminalはユーザーが担当し、初期表示待ちと同一要求完了待ち、任意frameHashと必須identityを区別した。
+OFF/ONは別request・generation4/5、両modeの6 checks成功。terminated pixelsはOFF 0、ON 23,863。
+当時のユーザー目視所見は「目視上は特に問題ないと思います。」であり、この報告範囲を拡張しない。
+各modeの生結果・失敗記録の保存、JS変更後のsource/配信依存一致確認は引き続き必要であり、旧Fix2の配信不要説明は流用しない。
+
+今回の通常取得は65,536 unique records・coverage完了、6実行check成功、normal/NEW-ON実行、termination 23,863画素を確認した。
+未計測counterはnullのまま。初回generation 1・fresh baseline 1→保存generation 2は今回の観測であり、恒久的な世代番号ではない。
+ユーザー目視は「目視では問題なく、エラー表示もありませんでした。」の申告範囲で扱う。
+CODEX／相談役の保存済み横並び画像の所見と実browser申告を区別し、FPS・対話／性能保証を追加しない。
+
+#### 画像比較の確定結果と履歴の限界
+
+単位は8bit RGBのLSB。母数は921,600画素／2,764,800 RGB値、1 LSB超はRGBのいずれかが超過した画素である。
+
+| 保存比較 | MAE | 最大絶対差 | 1 LSB超の画素数 |
+|---|---:|---:|---:|
+| 通常 NEW-ON 対同範囲CUDA | 0.037462022569 | 1 | 0 |
+| 先行validation-only NEW-ON 対同範囲CUDA | 0.037462022569 | 1 | 0 |
+| 先行validation-only NEW-OFF 対同範囲CUDA | 0.037867838542 | 3 | 26 |
+| 先行validation-only NEW-ON − NEW-OFF | 0.000405815972 | 2 | 6 |
+
+通常ONの[主比較JSON](../../reports/webgpu-4dgs-viewer/phase3/step122/step122-normal-on-cpu-compare-validation1/step122-normal-on-cpu-compare-validation1-comparison.json)は
+RMSE 0.193551085167 LSB、有効固定5patchも最大1 LSB・超過0、残る2代表点は既定のoutside-or-invisibleである。
+先行sort後validation-only NEW-ONと全体／patchの保存統計・CUDA receiptが一致する。
+旧ON画像の追加再計算や新GPU fixture一式の実行、内部f32/raw完全一致を意味しない。
+
+NEW-ONは全RGBの一次候補基準を満たし、有効5patchも最大1 LSBである。OFFは意図的にterminationだけを無効化した比較条件であり、
+OFF/ONへ無条件の1 LSBや完全一致を追加要求しない。pair最上位の`inconclusive`はOFF/ONの記述的判定で、
+個別NEW-ONの`candidate-within-1LSB`と今回の固定機能受入れを打ち消す総合失敗ではない。
+先行計測の`accepted=false`・`normal_on_accepted=false`、reviewの`user_final_acceptance=false`に加え、
+通常ONのraw／CLI／scopeの`accepted=false`・`normalOnAccepted=false`、今回承認前reviewの`user_acceptance_granted=false`もそのまま保全する。
+今回のユーザー承認は外側の判断記録であり、生成・実行時のflagを遡及更新しない。
+
+[修正前NEW比較](../../reports/webgpu-4dgs-viewer/phase3/step122/step122-new-cpu-compare-validation1/step122-new-cpu-compare-validation1-report.md)の
+保存NEW-ON統計はMAE 4.055313223380・最大255 LSBであり、修正後はMAE約99.08%減・最大1 LSBとなった。
+[残差調査](../../reports/webgpu-4dgs-viewer/phase3/step122/step122-residual-investigation1/step122-residual-investigation1-report.md)で確定したsort不整合が
+固定画像の大きな残差の主因だったことを強く支持する。各数値変更の独立寄与や全sceneへの普遍的因果寄与率は主張しない。
+
+先行validation-only rawの正本は[修正後gpu-observed1](../../reports/webgpu-4dgs-viewer/phase3/step122/step122-sort-prepare-validation1/gpu-observed1/)である。
+修正前NEW-OFF/ONのrawはユーザーのwork/jsonコピー時に各5ファイルが置換された。旧統計・比較JSON・sidecarは残るが、
+旧原本一式が保全され完全再比較可能とは扱わない。前後比較は保存済み旧統計の参照、sort後ON対CUDAは保全済みrawに基づく
+独立比較である。欠損を合成・再実行・上書きで補わず、旧報告内のwork/jsonリンクを修正前rawのauthorityにしない。
+
+今回の通常ON raw正本は[CPU比較時のbrowser-saved](../../reports/webgpu-4dgs-viewer/phase3/step122/step122-normal-on-cpu-compare-validation1/browser-saved/)であり、可変のwork/jsonではない。
+ユーザーのwork/json上書きは今回入力の保存操作として区別する。旧通常ON失敗7 JSON＋7 sidecarは
+[旧失敗archive](../../reports/webgpu-4dgs-viewer/phase3/step122/step122-normal-on-prepare-validation2/old-failure-backup/)と
+[receipt](../../reports/webgpu-4dgs-viewer/phase3/step122/step122-normal-on-prepare-validation2/old-failure-backup-receipt.json)で14件のidentity一致を確認済み。
+旧失敗時のPNGは不存在であり補完しない。この保全を、さらに前の欠損rawを含む全履歴の完全再比較可能性へ一般化しない。
+
+#### 残課題と次の判断
+
+固定範囲の数値・画像整合に加え、通常ONの実装・取得・保存比較・ユーザー機能受入れは成立している。
+この固定通常ONに追加Fixや再実測を未達として残さない。Step122全体の完了判定は本同期後の相談役文書reviewと既定完了条件への照合に残す。
+全点描画、他camera/time、対話／性能、任意viewport/scaleは未検証。scalability・LOD/streaming/compression・高次/時間SH・
+外部renderer・直接変換・追加学習・rot_4d=false等は対象外であり、全点/性能等を今回の成功条件へ追加しない。
+Corrected採用範囲完了、採用B/SPL4/CUDA、Step21入力/SH0実績と既存安全契約は維持する。
+
+次は相談役文書reviewでStep122の既定完了条件とGit反映の区切りを確認する段階である。
+この同期は実装済み固定profileの受入れ記録であり、新たなsource切替・実行、Step完了処理、新Step・Phase4・full-scene検証を認可しない。
+本同期を追加commit/push要求へ変えず、研究GitはUSR-GIT-09/10に従う。
 
 ### 直接変換との境界
 

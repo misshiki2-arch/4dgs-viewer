@@ -76,6 +76,17 @@ def fixture_source(command: str, scenario: dict) -> str:
 const scenario = {scenario_json};
 const requestIdentity = 'viewer-render-request:11';
 const generation = 11;
+// One completed synthetic request, not a new clock origin on each snapshot.
+const clock = Object.freeze({{ accepted: 1, started: 2, completed: 3, observed: 4 }});
+Object.defineProperty(globalThis, 'performance', {{ value: {{ now: () => clock.observed }} }});
+const calls = {{ requests: 0, snapshots: 0, png: 0, clicks: 0 }};
+const request = {{
+  requestIdentity,
+  requestedAtMs: scenario.missingRequestTime ? undefined : clock.accepted,
+  source: 'generic-fresh-production-artifact-capture',
+  disposition: 'scheduled',
+  forceProductionUpdate: true
+}};
 const targetFrame = {{
   generation,
   datasetCameraLabel: '000151_v13',
@@ -226,8 +237,16 @@ const capacity = {{
 const runtimeError = scenario.runtimeError
   ? {{ name: 'GPUDeviceLostError', message: 'GPU device lost during fixture' }}
   : null;
+const requestRecord = {{
+  ...request,
+  status: runtimeError ? 'error' : 'completed',
+  frameStartedAtMs: clock.started,
+  frameCompletedAtMs: scenario.missingCompletionTime ? undefined : clock.completed,
+  error: runtimeError
+}};
 const frameEvidence = {{
   requestIdentity,
+  completedAtMs: requestRecord.frameCompletedAtMs,
   productionFrameCompleted: true,
   productionGeneration: generation,
   compositorGeneration: generation,
@@ -303,7 +322,7 @@ globalThis.URL.revokeObjectURL = () => {{}};
 globalThis.document = {{
   body: {{ appendChild() {{}} }},
   createElement() {{
-    return {{ click() {{}}, remove() {{}}, href: '', download: '' }};
+    return {{ click() {{ calls.clicks++; }}, remove() {{}}, href: '', download: '' }};
   }}
 }};
 console.log = () => {{}};
@@ -324,15 +343,13 @@ globalThis.window = {{
     validateExpectedProductionRuntimeContract() {{ return {{ ready: true }}; }},
     async waitForViewerDebugDataReady() {{ return {{ ready: true }}; }},
     async scheduleRender() {{
-      return {{
-        requestIdentity,
-        source: 'generic-fresh-production-artifact-capture',
-        disposition: 'scheduled',
-        forceProductionUpdate: true
-      }};
+      calls.requests++;
+      return {{ ...request }};
     }},
     getInitialProductionPresentationSnapshot() {{
-      return {{ frameHistory: [frameEvidence] }};
+      calls.snapshots++;
+      return {{ snapshotTakenAtMs: clock.observed,
+        requestHistory: [{{ ...requestRecord }}], frameHistory: [frameEvidence] }};
     }},
     async waitForFinalCanvasPresentationQuiescence() {{ return boundary; }},
     getLastRenderResult() {{ return runtimeResult; }},
@@ -347,6 +364,7 @@ globalThis.window = {{
       return {{ limitedDrawSummary: null }};
     }},
     async saveCurrentCanvasPng(options) {{
+      calls.png++;
       const expectedName = 'impl6_' + scenario.expectation + '_canvas.png';
       if (options.name !== expectedName) throw new Error('fixture PNG name mismatch');
       return pngResult;
@@ -359,6 +377,8 @@ globalThis.window = {{
 {command}
     return {{
       ok: true,
+      calls,
+      waitObservation: genericProductionWaitObservation,
       expectation: genericCaptureExpectationContract,
       pngStatus: genericProductionPngCaptureStatus,
       result: genericProductionCaptureResult,
@@ -367,6 +387,9 @@ globalThis.window = {{
   }} catch (error) {{
     return {{
       ok: false,
+      calls,
+      failure: error.captureFailure ?? null,
+      waitObservation: genericProductionWaitObservation,
       error: error?.message ?? String(error),
       expectation:
         typeof genericCaptureExpectationContract === 'undefined'
@@ -402,7 +425,86 @@ def run_scenario(command_path: Path, scenario: dict) -> dict:
 def assert_outcome(command: Path, scenario: dict, expected: bool) -> dict:
     result = run_scenario(command, scenario)
     assert result["ok"] is expected, (scenario, result)
+    assert result['calls']['requests'] == 1, result
+    assert result['calls']['clicks'] == int(expected), result
+    if expected:
+        assert result['calls']['png'] == 1 and result['result']['ready'], result
+        assert result['pngStatus']['captureExpectationContract']['ready'], result
+        assert any(n.endswith('_png_capture_status.json') for n in result['downloads']), result
+    else:
+        assert_rejection_reason(scenario, result)
     return result
+
+
+def assert_rejection_reason(scenario: dict, result: dict) -> None:
+    """Reject for the intended condition, not an unrelated missing fixture field."""
+    early = {
+        'missingRequestTime': 'capture-blocked-request-timestamp-missing',
+        'missingCompletionTime': 'capture-blocked-completion-timestamp-invalid',
+        'runtimeError': 'GPU device lost during fixture',
+        'requestMismatch': 'capture-blocked-fresh-production-frame-incomplete',
+    }
+    for key, error in early.items():
+        if scenario.get(key):
+            assert result['error'] == error and result['expectation'] is None, result
+            assert result['calls']['png'] == 0 and not result['downloads'], result
+            if key == 'requestMismatch':
+                assert result['waitObservation']['missingConditions'] == ['sourceRequestMatches'], result
+            return
+    wait = result['waitObservation']
+    assert wait['missingConditions'] == [] and wait['requestStatus'] == 'completed', result
+    assert [wait[k] for k in ['acceptedAtMs', 'startedAtMs', 'completedAtMs', 'observedAtMs']] == [1, 2, 3, 4], result
+    contract = result['expectation']
+    assert contract is not None and not contract['ready'], result
+    png_failure = any(k in scenario for k in ('pngPixel', 'pngStale', 'pngWrongDimensions'))
+    if png_failure:
+        assert result['error'] == 'capture-blocked-production-png-expectation-incomplete', result
+        assert contract['readyBeforePng'] and result['calls']['png'] == 1, result
+        evidence = contract['pngEvidence']
+        assert not evidence['ready'], result
+        if scenario.get('pngStale'): assert evidence['staleCaptureDetected'], result
+        if scenario.get('pngWrongDimensions'): assert not evidence['dimensionsMatchTarget'], result
+        if 'pngPixel' in scenario:
+            assert evidence['pixelClassification'] == scenario['pngPixel'] != evidence['expectedPixelClassification'], result
+        assert any(n.endswith('_png_capture_status.json') for n in result['downloads']), result
+        return
+    assert result['calls']['png'] == 0 and not result['downloads'], result
+    if scenario['expectation'] == DEFAULT_EXPECTATION:
+        assert result['error'] == 'capture-blocked-fresh-production-presentation-incomplete', result
+        assert contract['outputAndPresentation']['pixelClassification'] == 'black', result
+        return
+    assert result['error'] == 'capture-blocked-zero-visible-production-expectation-incomplete', result
+    section_fields = {
+        'pixel': ('outputAndPresentation', 'pixelClassification', scenario.get('pixel')),
+        'stale': ('outputAndPresentation', 'staleOrReplaced', True),
+        'differentGeneration': ('freshIdentity', 'generationChainMatches', False),
+        'laterReplacement': ('outputAndPresentation', 'sameSourcePersistence', False),
+        'laterPixelChange': ('outputAndPresentation', 'samePixelResultPersistence', False),
+        'laterOverwrite': ('outputAndPresentation', 'staleOrReplaced', True),
+        'writeIncomplete': ('outputAndPresentation', 'pixelClassification', 'unknown'),
+        'nonQuiescent': ('outputAndPresentation', 'quiescent', False),
+        'validationError': ('runtimeHealth', 'webgpuValidationErrorDetected', True),
+        'invalidCommandBuffer': ('runtimeHealth', 'invalidCommandBufferDetected', True),
+        'queueSubmitError': ('runtimeHealth', 'queueSubmitFailureDetected', True),
+        'executionIncomplete': ('canonicalExecution', 'ready', False),
+        'outputIncomplete': ('outputAndPresentation', 'canonicalOutputCompletionReady', False),
+        'sourcePopulationZero': ('canonicalExecution', 'sourcePopulationPositive', False),
+        'missingFreshProductionEvent': ('outputAndPresentation', 'freshProductionEventObserved', False),
+        'identityUnknown': ('outputAndPresentation', 'sourceIdentityKnown', False),
+        'identityMismatch': ('outputAndPresentation', 'sourceIdentityMatchesExpected', False),
+        'overflow': ('canonicalExecution', 'overflowDetected', True),
+        'silentDrop': ('canonicalExecution', 'silentDropAllowed', True),
+    }
+    if 'eventKind' in scenario:
+        field = {'black-fallback': 'fallbackDetected', 'clear': 'clearDetected',
+                 'presentation-failure': 'presentationFailed'}[scenario['eventKind']]
+        assert contract['outputAndPresentation'][field] is True, result
+    else:
+        # pixel='black' is the common base, not the negative override.
+        keys = [k for k in section_fields if k in scenario and (k != 'pixel' or scenario[k] != 'black')]
+        assert len(keys) == 1, scenario
+        section, field, value = section_fields[keys[0]]
+        assert contract[section][field] == value, result
 
 
 def main() -> int:
@@ -510,6 +612,11 @@ def main() -> int:
         )
         assert runtime_health["legacyNonblankBlockedReasonUsedAsRuntimeError"] is False
         assert runtime_health["actualRuntimeErrorName"] is None
+
+        # Minimal negative controls for the lifecycle fields supplied above.
+        for field in ('missingRequestTime', 'missingCompletionTime'):
+            assert_outcome(zero_command,
+                {'expectation': ZERO_EXPECTATION, 'pixel': 'black', field: True}, False)
 
         invalid_cli = subprocess.run(
             [

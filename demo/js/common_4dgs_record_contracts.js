@@ -27,6 +27,10 @@ export const WEBGPU_PHASE3_BACKEND_BOUNDARY_CONTRACT_VERSION =
 export const WEBGPU_TILE_DEPTH_ORDERING_CONTRACT_VERSION =
   'phase3-step87-webgpu-tile-depth-ordering-v1';
 
+// Current execution identity, not a relabel of historical saved V1 results.
+export const PRODUCTION_DEPTH_ORDER = 'positive-depth-ascending-source-index-ascending-v2';
+export const PRODUCTION_SORT_ALGORITHM = 'bounded-global-bitonic-stage-v2-depth-ascending-source-index';
+
 export const WEBGPU_TILE_COMPOSITOR_FRAME_IMPLEMENTATION_CONTRACT_VERSION =
   'phase3-step88-webgpu-tile-compositor-frame-implementation-v5';
 
@@ -675,6 +679,7 @@ export function buildWebGpuGpuOwnedTileListLayoutContract({
 
 export function buildWebGpuTileListCompositorContract({
   status = 'ok',
+  compositingPolicy = null,
   compositorMode = 'partial-webgpu-tile-list-compositor',
   tileCompositorReady = false,
   boundedExecutionContract = null,
@@ -834,10 +839,10 @@ export function buildWebGpuTileListCompositorContract({
   avgReferencesPerTile = 0,
   sortOrOrderingBufferBytes = 0,
   step91OrderedReferenceRuntimePathPreserved = false,
-  step92SortMode = 'bounded-gpu-workgroup-bitonic-sort-per-tile-descending-sort-key',
+  step92SortMode = PRODUCTION_DEPTH_ORDER,
   gpuParallelPerTileSortReady = false,
   workgroupParallelSortUsed = false,
-  parallelSortAlgorithm = 'workgroup-bitonic-sort-v1-descending-sort-key',
+  parallelSortAlgorithm = PRODUCTION_SORT_ALGORITHM,
   parallelSortStageCount = 0,
   sortWorkgroupCount = 0,
   sortOrderViolationCount = 0,
@@ -2233,6 +2238,25 @@ export function buildWebGpuTileListCompositorContract({
     contractVersion: WEBGPU_TILE_LIST_COMPOSITOR_CONTRACT_VERSION,
     status: ready ? 'ok' : status,
     compositorMode,
+    compositingPolicy,
+    compositingPolicyCapability: compositingPolicy == null ? null : {
+      version: compositingPolicy.schema === 'adopted-normal-compositing-policy-v2'
+        ? 'adopted-normal-compositing-capability-v2' : 'adopted-range-compositing-capability-v1',
+      executionReady: (compositingPolicy.schema === 'adopted-normal-compositing-policy-v2'
+        ? compositingPolicy.normalApplicationAuthorized === true && compositingPolicy.purpose === 'normal' &&
+          compositingPolicy.appliedMode === 'NEW-ON' && /^[a-f0-9]{64}$/.test(compositingPolicy.scopeIdentity)
+        : compositingPolicy.schema === 'adopted-range-compositing-policy-v1' &&
+          (compositingPolicy.appliedMode === 'NEW-OFF' || compositingPolicy.purpose === 'validation-only')) &&
+        compositingPolicy.mathVersion === 'cuda-aligned-composite-v1' &&
+        compositingPolicy.requestedMode === compositingPolicy.appliedMode &&
+        ['NEW-OFF', 'NEW-ON'].includes(compositingPolicy.appliedMode) &&
+        compositingPolicy.executed === true && ready && referenceCompletionReady &&
+        visualSafetyGateReady && diagnosticReadbackSeparatedFromProductionPath &&
+        readbackLeakIntoProductionRuntimeDetected === false,
+      normalOnAccepted: false,
+      comparisonComplete: false,
+      legacyV1Fields: 'historical-disabled-policy-not-current-pixel-observation'
+    },
     boundedExecutionContract,
     tileCompositorReady: ready,
     canonicalOutputCompletionReady: ready,
@@ -2850,7 +2874,7 @@ export function buildWebGpuTileDepthOrderingContract({
   orderedReferenceCount = 0,
   sourceReferenceCount = 0,
   orderedReferenceCountMatchesSource = false,
-  orderHandling = 'depth-aware-compositor-sort-key-descending',
+  orderHandling = PRODUCTION_DEPTH_ORDER,
   fixedCapacityPerTile = true,
   fullParallelPerTileSortInWgsl = false,
   fullCudaDepthParity = false,

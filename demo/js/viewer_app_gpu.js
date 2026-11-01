@@ -1,5 +1,6 @@
 import { parseSplat4DV2 } from './splat4d_parser_v2.js';
 import { adoptedFrameArguments, adoptedDeterministicState, applyAdoptedUiDefaults, getAdoptedBundleContext } from './common_4dgs_adopted_bundle.js';
+import { COMPOSITING_MATH_VERSION } from './common_4dgs_compositing_policy.js';
 import {
   fitCameraToRaw,
   computeGaussianDebugState,
@@ -195,7 +196,22 @@ const scene = createViewerScene(canvas, {
 });
 const { camera, controls, ensureGpu, getGpu, setCanvasSize } = scene;
 
+import { normalViewerScope, normalCacheMatches, isNormalAdoptedScene,
+  normalScopeIdentity, NORMAL_POLICY_VERSION } from './common_4dgs_normal_on.js';
+import { resolveCompositingPolicy } from './common_4dgs_compositing_policy.js';
+import { createCaptureAdmission } from './viewer_capture_admission.js';
+import { downloadBlob } from './debug_download_utils.js';
+const captureAdmission = createCaptureAdmission();
 let raw = null;
+let normalProduction = null;
+let normalInitialFrame = null;
+function currentNormalScope() {
+  return normalViewerScope(raw, getVisibleBuildConfig(ui,buildRenderOverrides()), canvas,
+    Number(ui.bgGraySlider.value));
+}
+function currentNormalPublication() {
+  return normalProduction?.raw === raw && normalProduction?.loadGeneration === fileIO.getLoadGeneration();
+}
 let lastDebugText = '';
 let uiUnbindPersistence = null;
 let defaultSceneLoadPromise = null;
@@ -1884,7 +1900,7 @@ async function waitForViewerDebugDataReady({
   const attempts = [];
   if (!raw && retryDefaultScene && fileIO?.loadDefaultScene) {
     if (!defaultSceneLoadPromise) {
-      defaultSceneLoadPromise = fileIO.loadDefaultScene();
+    defaultSceneLoadPromise = fileIO.loadStartup(deterministicQueryState.adoptedProfile);
       attempts.push({ stage: 'start-default-scene-load-retry' });
     } else {
       attempts.push({ stage: 'await-existing-default-scene-load' });
@@ -3216,6 +3232,10 @@ async function runNativeWebGpuProductionFrameFromViewerState({
   enableViewerLoopHook = false,
   metadataOverrides = {}
 } = {}) {
+  const frameRaw = raw;
+  const loadGeneration = fileIO.getLoadGeneration();
+  const requestedIdentity = latestViewerConnectedSchedulerRuntimeState?.schedulerFrameState?.requestIdentity ??
+    latestViewerConnectedSchedulerTimeControlEvidence?.schedulerFrameState?.requestIdentity ?? null;
   camera.updateMatrixWorld(true);
   const baseDeterministicState = buildDeterministicStateSummary();
   const adopted = adoptedFrameArguments(raw);
@@ -3238,7 +3258,7 @@ async function runNativeWebGpuProductionFrameFromViewerState({
         viewerCameraStateBase
       )
     : viewerCameraStateBase;
-  return runNativeWebGpuProductionFrameDataPath({
+  const result = await runNativeWebGpuProductionFrameDataPath({
     raw,
     camera,
     screenSpaceCamera,
@@ -3267,7 +3287,9 @@ async function runNativeWebGpuProductionFrameFromViewerState({
         latestViewerConnectedSchedulerTimeControlEvidence?.schedulerFrameState ??
         null,
       viewerTimeState,
-      viewerCameraState
+      viewerCameraState,
+      backgroundGray:Number(ui.bgGraySlider.value),
+      isCurrentScene:() => raw === frameRaw && fileIO.getLoadGeneration() === loadGeneration
     },
     metadata: {
       deterministicState: buildSlimDeterministicStateSummary(deterministicState),
@@ -3297,6 +3319,16 @@ async function runNativeWebGpuProductionFrameFromViewerState({
       }
     }
   });
+  if (raw !== frameRaw || fileIO.getLoadGeneration() !== loadGeneration) throw new Error('normal-on:scene-changed');
+  const snapshot = result?.webgpuProductionFrameDataPathContract?.productionEvaluationInputContract;
+  if (snapshot?.status === 'ready' && snapshot.compositingPolicy?.schema === NORMAL_POLICY_VERSION) {
+    normalProduction = {raw:frameRaw,loadGeneration,requestIdentity:requestedIdentity};
+    normalInitialFrame ??= structuredClone({schema:'adopted-normal-initial-frame-v1',
+      profile:deterministicQueryState.adoptedProfile,scopeIdentity:normalScopeIdentity(),
+      requestIdentity:requestedIdentity,productionIdentity:snapshot.productionIdentity,
+      compositingPolicy:snapshot.compositingPolicy});
+  }
+  return result;
 }
 
 async function captureWebGpuVisibleRecordDryRunDebug(options = {}) {
@@ -6389,11 +6421,20 @@ async function saveCurrentCanvasPng(options = {}) {
   const input = typeof options === 'string' ? { name: options } : (options ?? {});
   const download = input.download !== false;
   const fileName = sanitizeSnapshotFileName(input.name ?? 'gpu-viewer-current-canvas.png');
+  const guarded = isNormalAdoptedScene(raw);
+  if (guarded) {
+    for (const key of ['captureSource','source']) {
+      if (input[key] !== undefined && input[key] !== 'last-valid-webgpu-tile-compositor-output')
+        throw new Error('capture-admission:source-conflict');
+    }
+    if (input.useLastValidWebGpuTileCompositorOutput === false)
+      throw new Error('capture-admission:source-conflict');
+  }
   const requestedCaptureSource =
     input.captureSource ??
     input.source ??
     (
-      input.useLastValidWebGpuTileCompositorOutput === true
+      guarded || input.useLastValidWebGpuTileCompositorOutput === true
         ? 'last-valid-webgpu-tile-compositor-output'
         : 'viewer-canvas-current-default-framebuffer'
     );
@@ -6402,13 +6443,23 @@ async function saveCurrentCanvasPng(options = {}) {
     renderBeforeCaptureResult = await renderCurrentFrame(input.renderOptions ?? {});
   }
   if (requestedCaptureSource === 'last-valid-webgpu-tile-compositor-output') {
+    const normalToken = currentNormalScope();
+    const admission = guarded ? captureAdmission.admit({raw,loadGeneration:fileIO.getLoadGeneration(),
+      token:normalToken, snapshot:latestRenderResult?.webgpuProductionFrameDataPathContract?.productionEvaluationInputContract,
+      options:input}) : null;
+    const normalFields = admission?.fields ?? {};
     const deterministicState = buildDeterministicStateSummary();
     const cachedOutputCapture =
       await captureCachedWebGpuTileCompositorOutputPng({
         viewerCanvasState: { canvas },
         name: fileName,
-        download,
+        download: guarded ? false : download,
         requestedStateIdentity: {
+          compositingMathVersion: input.compositingMathVersion ?? COMPOSITING_MATH_VERSION,
+          compositingMode: input.compositingMode ?? 'NEW-OFF',
+          compositingRequestIdentity: input.compositingRequestIdentity ??
+            latestViewerConnectedSchedulerRuntimeState?.schedulerFrameState?.requestIdentity ?? null,
+          ...normalFields,
           datasetCameraLabel:
             deterministicState?.datasetCameraLabel ??
             deterministicState?.imageName ??
@@ -6428,6 +6479,17 @@ async function saveCurrentCanvasPng(options = {}) {
           outputHeight: canvas?.height ?? null
         }
       });
+    if (admission) {
+      admission.assertCurrent(raw,fileIO.getLoadGeneration());
+      if (cachedOutputCapture.status !== 'success' || cachedOutputCapture.captureFreshnessKnown !== true ||
+          cachedOutputCapture.capturedOutputGeneration !== admission.generation ||
+          cachedOutputCapture.presentedOutputGeneration !== admission.generation)
+        throw new Error('capture-admission:capture-not-current');
+      for (const frame of [cachedOutputCapture.capturedFrameIdentity,cachedOutputCapture.presentedFrameIdentity])
+        for (const [key,value] of Object.entries(admission.fields))
+          if (frame?.[key] !== value) throw new Error('capture-admission:captured-frame-conflict');
+      if (download) downloadBlob(cachedOutputCapture.blob,cachedOutputCapture.fileName);
+    }
     if (cachedOutputCapture.status === 'success') {
       return {
         ...cachedOutputCapture,
@@ -6439,7 +6501,7 @@ async function saveCurrentCanvasPng(options = {}) {
         canvasSizeSummary: buildCanvasSizeSummary()
       };
     }
-    if (input.fallbackToCanvasOnCaptureFailure === false) {
+    if (guarded || input.fallbackToCanvasOnCaptureFailure === false) {
       throw new Error(
         `WebGPU tile compositor PNG capture failed: ${cachedOutputCapture.reason}`
       );
@@ -6662,8 +6724,16 @@ async function renderCurrentFrame(options = {}) {
           adapterInvocationSource: 'viewer-render-lifecycle-hook-boundary'
         })
       : null;
+    const normalToken = currentNormalScope();
+    const policyRequest = schedulerFrameState?.requestMetadata?.compositingPolicyRequest ?? null;
+    const requestedPolicy = resolveCompositingPolicy({request:policyRequest,normalScope:normalToken,
+      adoptedBundle:getAdoptedBundleContext(raw),requestIdentity:schedulerFrameState?.requestIdentity ?? null});
+    captureAdmission.prepared(schedulerFrameState,requestedPolicy,raw,fileIO.getLoadGeneration());
+    const cachedPolicy = latestRenderResult?.webgpuProductionFrameDataPathContract?.productionEvaluationInputContract?.compositingPolicy;
+    const normalHeartbeatMatches = normalCacheMatches(cachedPolicy,normalToken,currentNormalPublication()) &&
+      (cachedPolicy == null || cachedPolicy.purpose === requestedPolicy.purpose && cachedPolicy.appliedMode === requestedPolicy.appliedMode);
     if (
-      calledFromSchedulerFrameLoop &&
+      normalHeartbeatMatches && calledFromSchedulerFrameLoop &&
       backendImplementationKind === WEBGPU_TILE_COMPOSITOR_FRAME_IMPLEMENTATION &&
       shouldKeepWebGpuTileCompositorViewerLoopAlive() &&
       schedulerFrameState?.forceProductionUpdate !== true &&
@@ -7581,6 +7651,8 @@ function installViewerDebugApi() {
       });
   };
   window.gpuViewerDebug = {
+    getNormalStartupEvidence: () => structuredClone(normalInitialFrame),
+    getNormalAdoptedScene: () => { currentNormalScope(); return currentNormalPublication() ? raw : null; },
     loadAdoptedBundle: (options) => fileIO.loadAdoptedBundle(options),
     captureFrame,
     compareSingleSplat: (input = {}) => computeGaussianDebugState(input),
@@ -7895,11 +7967,14 @@ const scheduler = createRenderScheduler({
       frameIndex: renderResult?.executionSummary?.frameIndex ?? 0
     });
   },
-  onScheduleRequest: (request) =>
-    initialProductionPresentationRecorder.recordScheduleRequest(request),
+  onScheduleRequest: (request) => {
+    captureAdmission.scheduled(request,raw,fileIO.getLoadGeneration());
+    initialProductionPresentationRecorder.recordScheduleRequest(request);
+  },
   onFrameStarted: (schedulerFrameState) =>
     initialProductionPresentationRecorder.recordFrameStarted(schedulerFrameState),
-  onFrameCompleted: ({ schedulerFrameState, renderResult }) =>
+  onFrameCompleted: ({ schedulerFrameState, renderResult }) => {
+    captureAdmission.completed(schedulerFrameState,renderResult,raw,fileIO.getLoadGeneration());
     initialProductionPresentationRecorder.recordFrameCompleted({
       schedulerFrameState,
       frameEvidence:
@@ -7912,12 +7987,15 @@ const scheduler = createRenderScheduler({
           blockedReason: 'production-presentation-evidence-unavailable',
           completedAtMs: getNowMs()
         }
-    }),
-  onFrameError: ({ schedulerFrameState, error }) =>
+    });
+  },
+  onFrameError: ({ schedulerFrameState, error }) => {
+    captureAdmission.failed(schedulerFrameState);
     initialProductionPresentationRecorder.recordFrameError({
       schedulerFrameState,
       error
-    })
+    });
+  }
 });
 
 playback = createViewerPlayback({
@@ -7936,6 +8014,9 @@ const fileIO = createViewerFileIO({
   ui,
   parseArrayBuffer: (buf) => parseSplat4DV2(buf),
   onSceneLoaded: async (nextRaw, sourceMetadata = {}) => {
+    captureAdmission.reset();
+    normalProduction = null;
+    normalInitialFrame = null;
     applyAdoptedUiDefaults(nextRaw, ui);
     raw = nextRaw;
     if (!getAdoptedBundleContext(raw) && !applyDeterministicCameraPreset()) {
@@ -8065,4 +8146,4 @@ applyCanvasSize();
 playback.startLoop();
 fileIO.bindFileInput();
 fileIO.bindDragAndDrop(document);
-defaultSceneLoadPromise = fileIO.loadDefaultScene();
+defaultSceneLoadPromise = fileIO.loadStartup(deterministicQueryState.adoptedProfile);

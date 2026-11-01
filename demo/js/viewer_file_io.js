@@ -1,4 +1,5 @@
 import { createAdoptedBundleUrlReader, loadVerifiedAdoptedBundle } from './common_4dgs_adopted_bundle.js';
+import { activateNormalAdoptedScene, normalStartupInput } from './common_4dgs_normal_on.js';
 
 export function createViewerFileIO({
   ui,
@@ -14,12 +15,13 @@ export function createViewerFileIO({
     return raw;
   }
 
-  async function loadAdoptedBundle({ baseUrl, authority, selection, readResource } = {}) {
+  async function loadAdoptedBundle({ baseUrl, authority, selection, readResource, normalProfile = null } = {}) {
     const generation = ++loadGeneration;
     const raw = await loadVerifiedAdoptedBundle({ authority, selection,
       readResource: readResource ?? createAdoptedBundleUrlReader(baseUrl), parseArrayBuffer });
     raw.assetPath = baseUrl ?? 'adopted-bundle';
     raw.sourcePath = raw.assetPath;
+    if (normalProfile !== null) activateNormalAdoptedScene(raw, normalProfile, {baseUrl,authority,selection});
     return publish(raw, { sourceKind: raw.assetSourceKind }, generation);
   }
   async function sha256ArrayBuffer(buf) {
@@ -115,6 +117,8 @@ export function createViewerFileIO({
   }
 
   return {
+    loadStartup: profile => profile == null ? loadDefaultScene() : loadAdoptedBundle(normalStartupInput(profile)),
+    getLoadGeneration: () => loadGeneration,
     loadAdoptedBundle,
     loadArrayBuffer,
     loadDefaultScene,

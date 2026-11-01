@@ -101,7 +101,12 @@ export function summarizeWebGpuPresentationFrameIdentity({
   datasetTime = null,
   referenceCameraLabel = null,
   outputWidth = null,
-  outputHeight = null
+  outputHeight = null,
+  compositingMathVersion = null,
+  compositingMode = null,
+  compositingRequestIdentity = null,
+  compositingPurpose = null,
+  compositingScopeIdentity = null
 } = {}) {
   return {
     generation,
@@ -111,7 +116,11 @@ export function summarizeWebGpuPresentationFrameIdentity({
     datasetTime,
     referenceCameraLabel,
     outputWidth,
-    outputHeight
+    outputHeight,
+    ...(compositingMathVersion !== null || compositingMode !== null
+      ? { compositingMathVersion, compositingMode, compositingRequestIdentity } : {}),
+    ...(compositingPurpose !== null || compositingScopeIdentity !== null
+      ? {compositingPurpose,compositingScopeIdentity} : {})
   };
 }
 
@@ -125,9 +134,18 @@ export function compareWebGpuPresentationFrameIdentity(a = {}, b = {}, options =
     'outputWidth',
     'outputHeight'
   ];
-  const keys = Array.isArray(options.requiredKeys) && options.requiredKeys.length > 0
+  let keys = Array.isArray(options.requiredKeys) && options.requiredKeys.length > 0
     ? options.requiredKeys
     : defaultKeys;
+  if (a?.compositingMathVersion != null || b?.compositingMathVersion != null ||
+      a?.compositingMode != null || b?.compositingMode != null) {
+    keys = [...new Set([...keys, 'compositingMathVersion', 'compositingMode'])];
+    if (a?.compositingRequestIdentity != null || b?.compositingRequestIdentity != null)
+      keys.push('compositingRequestIdentity');
+  }
+  if (a?.compositingPurpose != null || b?.compositingPurpose != null ||
+      a?.compositingScopeIdentity != null || b?.compositingScopeIdentity != null)
+    keys = [...new Set([...keys,'compositingPurpose','compositingScopeIdentity'])];
   const mismatchedKeys = keys.filter((key) => {
     const left = a?.[key] ?? null;
     const right = b?.[key] ?? null;

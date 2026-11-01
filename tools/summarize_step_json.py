@@ -9883,6 +9883,64 @@ def build_step103_runtime_boundary_work_reduction_summary(
     }
 
 
+def build_step122_compositing_policy_summary(summary: Dict[str, Any]) -> Dict[str, Any]:
+    """Separate current execution evidence from historical Step104 disabled gates.
+
+    This is an observer only. It neither authorizes ON nor infers comparison or
+    image acceptance from a successful execution/counter.
+    """
+    contract = get_path(summary, ["webgpuTileListCompositorContract"], {})
+    policy = get_path(contract, ["compositingPolicy"])
+    result = dict(schema="step122-compositing-observation-v1", status="not-recorded",
+                  executionReady=False, terminationObserved=False,
+                  offOnComparisonComplete=False, normalOnAccepted=False,
+                  accepted=False, legacyStep104GateUsed=False)
+    if policy is None:
+        return result
+    result["status"] = "blocked"
+    if not isinstance(policy, dict):
+        return result
+    mode = policy.get("appliedMode")
+    count = policy.get("terminatedPixelCount")
+    normal = policy.get("schema") == "adopted-normal-compositing-policy-v2"
+    if normal:
+        result["schema"] = "step122-normal-compositing-observation-v2"
+        authority = (policy.get("purpose") == "normal" and mode == "NEW-ON" and
+                     policy.get("normalApplicationAuthorized") is True and
+                     isinstance(policy.get("scopeIdentity"), str) and
+                     re.fullmatch(r"[a-f0-9]{64}", policy["scopeIdentity"]) is not None)
+    else:
+        authority = (policy.get("schema") == "adopted-range-compositing-policy-v1" and
+                     policy.get("purpose") in ("normal", "validation-only") and
+                     (mode == "NEW-OFF" or policy.get("purpose") == "validation-only"))
+    valid = (authority and
+             policy.get("mathVersion") == "cuda-aligned-composite-v1" and
+             mode in ("NEW-OFF", "NEW-ON") and policy.get("requestedMode") == mode and
+             type(policy.get("executed")) is bool and type(count) is int and count >= 0 and
+             (mode == "NEW-ON" or count == 0) and
+             policy.get("onPathExecuted") is (policy.get("executed") and mode == "NEW-ON") and
+             policy.get("terminationObserved") is (count > 0) and
+             policy.get("normalOnAccepted") is False and policy.get("accepted") is False and
+             policy.get("offOnComparisonComplete") is False and
+             policy.get("evaluatedPixelReferenceCount") is None and
+             policy.get("skippedPixelReferenceCount") is None)
+    if not valid:
+        return result
+    result.update(status="recorded", mathVersion=policy["mathVersion"], mode=mode,
+                  purpose=policy["purpose"], executed=policy["executed"],
+                  onPathExecuted=policy["onPathExecuted"], terminatedPixelCount=count,
+                  terminationObserved=policy["terminationObserved"],
+                  evaluatedPixelReferenceCount=None, skippedPixelReferenceCount=None)
+    capability = get_path(contract, ["compositingPolicyCapability"], {})
+    result["executionReady"] = (policy["executed"] and isinstance(capability, dict) and
+                                  capability.get("version") == ("adopted-normal-compositing-capability-v2" if normal
+                                                               else "adopted-range-compositing-capability-v1") and
+                                  capability.get("normalOnAccepted") is False and
+                                  capability.get("comparisonComplete") is False and
+                                  capability.get("executionReady") is True)
+    return result
+
+
 def build_step104_compositor_work_reduction_visual_safety_summary(
     summary: Dict[str, Any],
 ) -> Dict[str, Any]:
@@ -18168,6 +18226,8 @@ def extract_webgpu_visible_record_dryrun_v1(data: Dict[str, Any]) -> Dict[str, A
             step103_production_runtime_boundary_review,
         "step104CompositorWorkReductionVisualSafety":
             step104_compositor_work_reduction_visual_safety,
+        "step122CompositingPolicyObservation":
+            build_step122_compositing_policy_summary(summary),
         "step105CudaReferenceVisualParityBaseline":
             step105_cuda_reference_visual_parity_baseline,
         "step106CapabilityBasedRegressionGate":

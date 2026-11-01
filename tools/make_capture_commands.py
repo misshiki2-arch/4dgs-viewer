@@ -1520,6 +1520,7 @@ step114FixedTimeCaptureIsolation.initialAndCaptureGenerationSeparated =
 
 def build_generic_fresh_production_capture_preamble(
     args: argparse.Namespace,
+    *, normal_capture=None,
 ) -> str:
     expected_runtime_contract = {
         "requestedRuntime": args.expected_runtime,
@@ -1534,9 +1535,50 @@ def build_generic_fresh_production_capture_preamble(
         ),
     }
     expected_json = json.dumps(expected_runtime_contract, separators=(",", ":"))
+    normal_json = json.dumps(normal_capture, separators=(",", ":"), allow_nan=False)
     return f"""var genericCapturePhase = 'preflight';
 var genericProductionWaitObservation = null;
 try {{
+// Only the normal candidate generator supplies this immutable expectation.
+// It is not a CLI override and must never be inferred from observed pixels.
+var genericNormalCapture = {normal_json};
+const genericNormalQuery = new URLSearchParams(window.location.search);
+if (genericNormalCapture !== null || genericNormalQuery.has('adoptedProfile')) {{
+  const e = genericNormalCapture, t = e?.targetIdentity;
+  if (!e || typeof e.profile !== 'string' || !e.profile ||
+      typeof e.scopeIdentity !== 'string' || !/^[a-f0-9]{{64}}$/.test(e.scopeIdentity) ||
+      typeof e.candidateSha256 !== 'string' || !/^[a-f0-9]{{64}}$/.test(e.candidateSha256) ||
+      typeof e.candidateUrl !== 'string' || !e.candidateUrl.startsWith('/') ||
+      !t || typeof t.datasetCameraLabel !== 'string' || !t.datasetCameraLabel ||
+      !Number.isSafeInteger(t.datasetFrameNumber) || t.datasetFrameNumber < 0 ||
+      typeof t.datasetTime !== 'number' || !Number.isFinite(t.datasetTime) ||
+      !Number.isSafeInteger(t.outputWidth) || t.outputWidth <= 0 ||
+      !Number.isSafeInteger(t.outputHeight) || t.outputHeight <= 0) {{
+    throw new Error('capture-blocked-normal-expected-invalid');
+  }}
+  if (genericNormalQuery.getAll('adoptedProfile').length !== 1 ||
+      genericNormalQuery.get('adoptedProfile') !== e.profile) {{
+    throw new Error('capture-blocked-normal-profile-mismatch');
+  }}
+  const response = await fetch(e.candidateUrl, {{cache:'no-store'}});
+  if (!response.ok) throw new Error('capture-blocked-normal-candidate-unavailable');
+  const bytes = await response.arrayBuffer();
+  const digest = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),
+    b => b.toString(16).padStart(2,'0')).join('');
+  if (digest !== e.candidateSha256) throw new Error('capture-blocked-normal-candidate-mismatch');
+  const candidate = JSON.parse(new TextDecoder().decode(bytes));
+  const fixed = candidate.range_input?.fixed, scope = candidate.normal_scope;
+  // Initial normal evidence is owned by the wrapper and saved-file consumer.
+  if (candidate.schema !== 'viewer-normal-capture-candidate-v2' ||
+      scope?.profile !== e.profile || scope?.identity !== e.scopeIdentity ||
+      fixed?.frame?.[2] !== t.datasetCameraLabel || fixed?.frame?.[1] !== t.datasetFrameNumber ||
+      fixed?.frame?.[3] !== t.datasetTime || fixed?.camera?.values?.width !== t.outputWidth ||
+      fixed?.camera?.values?.height !== t.outputHeight) {{
+    throw new Error('capture-blocked-normal-expected-binding');
+  }}
+  Object.freeze(t);
+  Object.freeze(e);
+}}
 var genericCaptureCommandStartFence =
   typeof window.gpuViewerDebug.getSynchronousCommandStartFence === 'function'
     ? window.gpuViewerDebug.getSynchronousCommandStartFence()
@@ -1768,7 +1810,7 @@ var genericPolicyNeutralPresentationFacts =
 var genericFinalPresentationEvent =
   genericFinalPresentationBoundary?.finalCanvasEvent ?? null;
 var genericUrlCaptureParams = new URLSearchParams(window.location.search);
-var genericCaptureTargetIdentity = {{
+var genericCaptureTargetIdentity = genericNormalCapture?.targetIdentity ?? {{
   datasetCameraLabel:
     genericUrlCaptureParams.get('datasetCameraLabel') ??
     genericUrlCaptureParams.get('datasetImageName'),
@@ -1935,7 +1977,11 @@ var genericCaptureExpectationReadyBeforePng =
       genericFreshProductionIdentityReady === true &&
       genericCanonicalZeroExecutionReady === true &&
       genericZeroVisiblePresentationReady === true
-    : genericProductionPresentationReady === true;
+    : genericProductionPresentationReady === true &&
+      (genericNormalCapture === null ||
+        genericFreshProductionIdentityReady === true &&
+        genericProductionFrameEvidence?.productionFrameIdentity?.compositingPurpose === 'normal' &&
+        genericProductionFrameEvidence?.productionFrameIdentity?.compositingScopeIdentity === genericNormalCapture.scopeIdentity);
 var genericCaptureExpectationContract = {{
   schemaVersion: 'phase3-production-capture-expectation-v1',
   artifactRole: 'compact-production-capture-expectation',
@@ -2428,7 +2474,7 @@ step114FixedTimeCaptureIsolation.initialAndCaptureGenerationSeparated =
 """
 
 
-def build_preamble(args: argparse.Namespace) -> str:
+def build_preamble(args: argparse.Namespace, *, normal_capture=None) -> str:
     if not args.include_preamble:
         return ""
 
@@ -2436,7 +2482,7 @@ def build_preamble(args: argparse.Namespace) -> str:
         args.capture_lifecycle ==
         CAPTURE_LIFECYCLE_FRESH_PRODUCTION_DIAGNOSTIC_JSON_PNG
     ):
-        return build_generic_fresh_production_capture_preamble(args)
+        return build_generic_fresh_production_capture_preamble(args, normal_capture=normal_capture)
 
     fixed_time_contract = resolve_step114_capture_contract(args.step)
     if (
@@ -2534,7 +2580,10 @@ if (typeof window.gpuViewerDebug.waitForViewerDebugDataReady === 'function') {{
 """
 
 
-def build_commands(args: argparse.Namespace) -> str:
+def build_commands(args: argparse.Namespace, *, normal_capture=None) -> str:
+    if normal_capture is not None and (not args.include_preamble or args.capture_lifecycle !=
+            CAPTURE_LIFECYCLE_FRESH_PRODUCTION_DIAGNOSTIC_JSON_PNG):
+        raise ValueError('normal capture requires fresh production preamble')
     parts: List[str] = []
     parts.append(
         f"// Capture preset={args.preset or 'legacy'} expects "
@@ -2547,7 +2596,7 @@ def build_commands(args: argparse.Namespace) -> str:
             "debugPreserveDrawingBuffer=true or the capture renders immediately before reading."
         )
 
-    preamble = build_preamble(args)
+    preamble = build_preamble(args, normal_capture=normal_capture)
     if preamble:
         parts.append(preamble)
 

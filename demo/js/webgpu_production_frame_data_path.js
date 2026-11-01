@@ -3,6 +3,8 @@ import {
   buildProductionEvaluationInputContract
 } from './common_4dgs_production_frame_data_contracts.js';
 import { validateAdoptedFrame } from './common_4dgs_adopted_bundle.js';
+import { resolveCompositingPolicy, validateCompositingResources } from './common_4dgs_compositing_policy.js';
+import { normalFrameScope } from './common_4dgs_normal_on.js';
 import {
   buildWebGpuPhase3BackendBoundaryContract
 } from './common_4dgs_record_contracts.js';
@@ -87,6 +89,10 @@ export async function runNativeWebGpuProductionFrameDataPath({
   productionResidentSelectionRequest = null,
   metadata = null
 } = {}) {
+  buildConfig = Object.freeze({...buildConfig});
+  viewerCanvasState = {...viewerCanvasState,
+    schedulerFrameState: viewerCanvasState?.schedulerFrameState == null ? null :
+      structuredClone(viewerCanvasState.schedulerFrameState)};
   if (!raw || !camera || canvasWidth <= 0 || canvasHeight <= 0) {
     return unavailableResult('native-production-frame-input-unavailable');
   }
@@ -106,14 +112,24 @@ export async function runNativeWebGpuProductionFrameDataPath({
     sy
   });
   // Reject mismatched adopted inputs before adapter acquisition or dispatch.
-  let adoptedBundle;
+  let adoptedBundle, compositingPolicy;
   try {
     adoptedBundle = validateAdoptedFrame({ raw, buildConfig, projectionData: projectionContract.data,
       canvasWidth, canvasHeight, productionResidentSelectionRequest });
+    const frame = viewerCanvasState?.schedulerFrameState;
+    const normalScope = normalFrameScope({raw,buildConfig,projectionData:projectionContract.data,
+      canvasWidth,canvasHeight,productionResidentSelectionRequest,
+      backgroundGray:viewerCanvasState?.backgroundGray});
+    compositingPolicy = resolveCompositingPolicy({
+      request: frame?.requestMetadata?.compositingPolicyRequest ?? null,
+      adoptedBundle, normalScope, requestIdentity: frame?.requestIdentity ?? null
+    });
   } catch (error) { return unavailableResult(error.message); }
   const deviceResource = await acquireProductionDevice(viewerCanvasState);
   if (!deviceResource?.device) return unavailableResult('native-production-webgpu-device-unavailable');
   const { device } = deviceResource;
+  // Check added storage resources before any evaluation/layout dispatch.
+  validateCompositingResources(device, canvasWidth, canvasHeight);
   const workset = selectActiveProductionResidentWorkset({
     raw,
     device,
@@ -236,6 +252,7 @@ export async function runNativeWebGpuProductionFrameDataPath({
   }
 
   const compositor = await buildWebGpuTileListCompositor({
+    compositingPolicy,
     device,
     gpuOwnedTileListLayout: tileList,
     canvasWidth,
@@ -257,6 +274,7 @@ export async function runNativeWebGpuProductionFrameDataPath({
     compositor.contract?.captureFreshnessEvidence ?? {};
   const productionEvaluationInputContract =
     buildProductionEvaluationInputContract({
+      compositingPolicy: compositor.contract?.compositingPolicy ?? null,
       adoptedBundle,
       assetIdentity: {
         sceneResourceIdentity: workset.contract.sceneResourceIdentity,

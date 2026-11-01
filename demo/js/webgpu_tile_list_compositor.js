@@ -1,6 +1,8 @@
 import {
   buildWebGpuTileDepthOrderingContract,
-  buildWebGpuTileListCompositorContract
+  buildWebGpuTileListCompositorContract,
+  PRODUCTION_DEPTH_ORDER,
+  PRODUCTION_SORT_ALGORITHM
 } from './common_4dgs_record_contracts.js';
 import {
   buildOpaqueWebGpuPngAlphaNormalizationEvidence,
@@ -31,6 +33,7 @@ import {
 import {
   buildProductionTileReferenceCapacityContract
 } from './common_4dgs_production_tile_reference_contracts.js';
+import { resolveCompositingPolicy, compositingFrameFields } from './common_4dgs_compositing_policy.js';
 
 const ORDERING_SUMMARY_UINT_COUNT = 28;
 const viewerCanvasWebGpuContextState = new WeakMap();
@@ -1231,7 +1234,8 @@ export async function buildWebGpuTileListCompositor({
   canvasWidth,
   canvasHeight,
   viewerCanvasState = null,
-  metadata = null
+  metadata = null,
+  compositingPolicy = resolveCompositingPolicy()
 } = {}) {
   const resources = gpuOwnedTileListLayout?.gpuResources;
   const sourceContract = gpuOwnedTileListLayout?.contract;
@@ -1263,6 +1267,7 @@ export async function buildWebGpuTileListCompositor({
     ? viewerCanvasTileCompositorOutputState.get(viewerCanvas) ?? null
     : null;
   const compositorFrameIdentity = summarizeWebGpuPresentationFrameIdentity({
+    ...compositingFrameFields(compositingPolicy),
     datasetCameraLabel:
       deterministicState?.datasetCameraLabel ??
       deterministicState?.imageName ??
@@ -1286,6 +1291,7 @@ export async function buildWebGpuTileListCompositor({
   const step113CovarianceJacobianConicEvidence =
     metadata?.step113CovarianceJacobianConicEvidence ?? {};
   const boundedExecution = await executeBoundedProductionTileSortAndCompositor({
+    compositingPolicy,
     device,
     resources,
     outputWidth,
@@ -1295,7 +1301,7 @@ export async function buildWebGpuTileListCompositor({
     // continue to present the cached texture through the heartbeat path.
     outputTextureOverride: null,
     onProductionSubmitted: async ({ outputTexture: submittedOutputTexture }) => {
-      if (!currentTextureGuardAllowed) return null;
+      if (!currentTextureGuardAllowed || viewerCanvasState?.isCurrentScene?.() === false) return null;
       const cacheResult = cacheTileCompositorOutputTexture({
         canvas: viewerCanvas,
         device,
@@ -1475,7 +1481,7 @@ export async function buildWebGpuTileListCompositor({
       deviceChanged: cacheResult?.invalidatedOnDeviceChange === true
     });
   let outputTextureCachedForHeartbeat = false;
-  if (viewerCanvas && outputTextureCacheDecision.promoteCandidate) {
+  if (viewerCanvas && outputTextureCacheDecision.promoteCandidate && viewerCanvasState?.isCurrentScene?.() !== false) {
     currentCacheCandidate.canonicalOutputCompletionReady = true;
     currentCacheCandidate.productionWorkClassification =
       policyNeutralPresentationContract.productionWorkClassification;
@@ -1580,7 +1586,7 @@ export async function buildWebGpuTileListCompositor({
     orderedReferenceCount: summary.orderedReferenceCount,
     sourceReferenceCount: summary.sourceTotalTileReferenceCount,
     orderedReferenceCountMatchesSource,
-    orderHandling: 'depth-aware-compositor-sort-key-descending',
+    orderHandling: PRODUCTION_DEPTH_ORDER,
     fullParallelPerTileSortInWgsl: true,
     fullCudaDepthParity: false,
     finalProductionCompositor: false,
@@ -3055,6 +3061,7 @@ export async function buildWebGpuTileListCompositor({
     tileReferenceCapacityContract,
     contract: buildWebGpuTileListCompositorContract({
       tileCompositorReady: ready,
+      compositingPolicy: boundedExecution.compositingPolicy,
       boundedExecutionContract,
       compositorPassSubmitted: true,
       compositorReadbackCompleted: true,
@@ -3071,7 +3078,7 @@ export async function buildWebGpuTileListCompositor({
       compositedReferenceCount: summary.compositedReferenceCount,
       sourceTotalTileReferenceCount: summary.sourceTotalTileReferenceCount,
       overflowCount: summary.overflowCount,
-      orderHandling: 'depth-aware-compositor-sort-key-descending',
+      orderHandling: PRODUCTION_DEPTH_ORDER,
       tileDepthOrderingReady: depthOrderingReady,
       depthOrderPassSubmitted: true,
       orderAwareCompositorUsed: summary.orderAwareCompositorUsed,
@@ -3103,7 +3110,7 @@ export async function buildWebGpuTileListCompositor({
         'sort-order-violation-sampled-evidence',
         'depth-sorted-ordered-reference-buffer-consumed-by-accumulation',
         'production-accumulation-consumes-gpu-updated-ordered-refs',
-        'sort-key-descending-compositor-order',
+        PRODUCTION_DEPTH_ORDER,
         'gaussian-footprint-weighted-alpha-accumulation',
         'gaussian-attribute-color-accumulation',
         'canvas-resolution-rgba8unorm-output-texture',
@@ -3330,10 +3337,10 @@ export async function buildWebGpuTileListCompositor({
       sortOrOrderingBufferBytes:
         orderedReferenceBufferBytes + orderingSummaryData.byteLength,
       step91OrderedReferenceRuntimePathPreserved: gpuSideTileOrderingReady,
-      step92SortMode: 'compact-storage-bounded-global-bitonic-stage-descending-sort-key',
+      step92SortMode: PRODUCTION_DEPTH_ORDER,
       gpuParallelPerTileSortReady,
       workgroupParallelSortUsed,
-      parallelSortAlgorithm: 'bounded-global-bitonic-stage-v1-descending-sort-key',
+      parallelSortAlgorithm: PRODUCTION_SORT_ALGORITHM,
       parallelSortStageCount,
       sortWorkgroupCount,
       sortOrderViolationCount,
