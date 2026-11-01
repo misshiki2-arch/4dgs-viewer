@@ -1,7 +1,7 @@
 # Phase 4以降のscalability・streaming・科学可視化設計
 
-更新日: 2026-09-11 JST（Issue #20: 受入済みIssue #19 v2の候補登録。一次資料の確認日は台帳で区別）
-状態: 将来設計候補。Viewerはcorrected training baselineとrestart gateの受入れまでfreeze中であり、本書はPhase 4開始、freeze解除、次Step、実装、外部方式の採用を認可しない。
+更新日: 2026-10-30 JST（SOG v3提案のblind属性・公開状況を訂正し、Spark Radix・GaussianSplineを未採用候補として追加。Kopanas・既存10月文献を維持）
+状態: 将来設計候補。現在の作業範囲とfreezeは[現在地正本§24](phase3_current_state.md#step122-adopted-range)に従う。本書はPhase 4開始、一般freeze解除、新Step、実装、外部方式の採用を認可しない。
 
 ## 1. この文書の目的
 
@@ -12,6 +12,8 @@
 - [4DGS Viewer 引継ぎ](https://chatgpt.com/share/6a86a655-5848-83e9-b5a8-815fd2be820c)
 - [Casberry 3D調査結果](https://chatgpt.com/share/6a86a684-70f8-83e8-9c8c-e7b70e3e5db6)
 - [Splat.js調査](https://chatgpt.com/share/6a8d2d56-faf4-83ee-8141-379ab0e249c7)
+
+- [10月のGaussian Splatting研究・実装情報](https://chatgpt.com/share/6ae03407-6d90-83ec-b094-365f1265546d)
 
 共有チャットは調査履歴と設計候補のsourceであり、そこに含まれるSNS投稿、
 製品性能、未公開研究の主張を、そのまま採用済み要件とは扱わない。採用前には
@@ -72,8 +74,7 @@ image-to-3D生成は、Viewerのscalability責務とは別である。
 超えるrecordを明示的なnon-resident recordとして扱う。これは正しいPhase 3の
 bounded ownershipだが、scene全体を処理したことにはならない。
 
-現在の3,231,588 source recordsについて、最終的なvisual parityまたはproduction
-acceptanceを主張する前に、次のいずれかが必要である。
+採用入力の全source recordsについて、最終的なvisual parityまたはproduction acceptanceを主張する前に、次のいずれかが必要である。現行の入力identityと点数は[現在地正本§24](phase3_current_state.md#step122-adopted-range)に従い、本節制定時の旧3,231,588件を固定値として継承しない。
 
 1. device limit内で全recordを同時residentにする。
 2. correctness-preservingなchunk処理により、全recordを欠落なく処理する。
@@ -488,12 +489,24 @@ HiGS型のhierarchical tile設計を評価するCUDA reference候補である。
 
 CUDA rendererをproduction Viewerにしない。
 
+- **低レベルGPU最適化の参考（未採用・本Viewerで未検証）:** George Kopanas,
+  [What the 3DGS Literature Left on the Table: Five Self-Contained CUDA Optimizations for 3D Gaussian Splatting](https://grgkopanas.github.io/3dgs_cuda_blog/)。
+  相談役確認日・CODEX再確認日はいずれも2026-10-29 JST。既存研究を統合した後のボトルネックと、
+  改善／逆効果の理由を段階別に分析した資料である。Viewerでは実測された遅い箇所に応じ、
+  Forwardの性能分析、メモリアクセス／レジスタ使用、分岐・cullingの考え方を参照する。
+  A100/CUDAでの著者測定であり、WGSL／本Viewerへの移植性・速度・画像精度を保証しない。
+  Backwardの勾配最適化は表示責務外で、記事のSH streamingも主な改善対象がBackwardのため現行SH0への直接の優先度は低い。
+  失敗例も参考になるが、著者は途中版を保存しておらず、その差分時間を厳密に再現できないと注記する。
+  固定code／license監査・独立再現は未実施。必要性はSection 3.2、採用前評価はSection 9.2／10に従い、
+  手法の一括導入、既存候補の優先順位変更、現在の作業追加やCUDA学習高速化研究の開始にはしない。
+
 #### Streamed SOG / PlayCanvas
 
 [Streamed SOG format specification](https://developer.playcanvas.com/user-manual/gaussian-splatting/formats/streamed-sog/)
 は、spatial tree、LOD別chunk、progressive loadingを明文化した参考実装である。
 形式をそのままcanonical 4D formatにするのではなく、manifest、chunk descriptor、
 global splat budget、progressive loadの設計を参考にする。
+形式versionと科学属性への接点は[未採用のSOG v3候補](#sog-v3-candidate)を参照する。
 
 #### A LoD of Gaussians
 
@@ -523,6 +536,63 @@ SOG、Streamed SOG、SPZ、glTF Gaussian extension等をdecoder候補として�
 open specification、license、browser decode cost、4D属性、source identity、
 scientific payload保持を評価する。LCC / LCC2や閉じた形式は、仕様と合法的decoderが
 確認できる場合だけinteroperability対象にする。
+
+<a id="sog-v3-candidate"></a>
+
+##### SOG v3補足（未採用・本Viewerで未実装／未実測）
+
+相談役確認日・CODEX保存資料確認日: 2026-10-30 JST。取得本文・metadataとbytes identityは
+[一次資料台帳](../../reports/webgpu-4dgs-viewer/literature-20261030-docsync1/literature-20261030-docsync1-sources.json)で固定する。
+[公式SOG仕様](https://developer.playcanvas.com/user-manual/gaussian-splatting/formats/sog/)はv2、
+[Issue #362](https://github.com/playcanvas/splat-transform/issues/362)は2026-10-28公開のOpenなv3提案である。
+[Engine PR #9873](https://github.com/playcanvas/engine/pull/9873)の公開・Open／未マージを確認した。
+Issue本文はEngineのblind fields対応を後続予定とし、SplatTransformのPRリンクは今後としている。
+参照実装完成は**作者報告**であり、提案schema・PRの存在・製品release・実動作／全属性対応の確認を同一視しない。
+PR本文には旧blind列の説明も残るため、最新の複数field提案への対応完了とは扱わない。code diff監査・動作再現は未実施。
+[公式repository](https://github.com/playcanvas/splat-transform)の所在確認と、v3実装・依存のlicense監査は別であり、
+後者は未実施。既存台帳の別版の監査を流用しない。SplatTransform製品versionとSOG形式versionも区別する。
+
+以下は提案内容の要点であり、採用契約ではない。
+
+| 項目 | 提案上の変更 |
+|---|---|
+| 回転 | v2のsmallest-threeから24-bit exponential-map packingへ変更し、既存3画像の未使用alphaへ格納。quats.webpを除去 |
+| opacity | codebook化し、1超の値も扱う案。描画契約への影響は下記で分離 |
+| SH | degree 4（DC以外24係数/色、DC込み25）を追加。提案の「4 bands」を通常のband数と混同しない。palette labelは24-bitへ拡張。現行SH0比較の必要条件にはしない |
+| blind | `meta.blind`に複数の`blind_<i>.webp`を列挙し、各画像のGaussian当たり4バイトへ名前・型・byte offset付きfieldを配置。型はu8/u16/u24/u32、f16/f32、unorm8/unorm16。総属性量を4バイトに限定しない |
+| extras | 任意JSON。v2およびStreamed SOGにも追加する案 |
+
+SOG全体の量子化は非可逆であり、lossless WebPが保持するのは量子化後のバイトである。
+v2専用readerはv3を拒否するversion境界を維持する。提案上のv2出力ではopacityを1へ制限し、
+blindを落とし、SHをdegree 3までに縮減するため、将来の互換性検査事項とする。
+
+**Viewer側の検討案と未確認事項**は次のとおり。具体schema・converter algorithmは決定しない。
+
+- blindを粒子ID／外部対応表への参照に使うほか、圧力・密度scalarや速度成分等を複数fieldへ格納する余地を
+  Viewer側の利用案として評価する。型付き格納だけで単位、座標、粒子／時刻identity、複数成分の意味や
+  時間系列を保証する汎用科学形式になるわけではない。具体schemaは決定しない。
+- f16／unormの量子化誤差と、f32のIEEE bits格納・変換往復での保持実証を分ける。
+  A byteを使う画像はalpha=0でもRGBを保持するlibwebp exactが必要であり、一般のlossless指定だけでは
+  IDやfloat bitsの保持を保証しない。幅・名前空間・dataset/time対応、並べ替え／filter／chunk化／再出力を
+  通したID完全一致と各fieldの保持を将来確認する。
+- LoD統合Gaussianが複数粒子を代表する場合、単一粒子IDとの一対一対応を仮定せず、元粒子集合と
+  集約方法と保存量・属性対応の追跡を検討する。物理量・単位・時刻・provenanceはSection 8のscientific payload側へ保持する。
+  これはrender／scientific payloadの論理分離であり、必須sidecar化やSOGへのcanonical置換は決定しない。
+- extrasの任意JSONは意味を自動保証しない。提案ではscene結合時に全入力のextrasが一致する場合だけ
+  保持されるため、単位・出典等の必須情報を黙って失わないかを将来確認する。
+
+opacity > 1は保存だけでなく、頂部が平らな分布とfootprint拡張を含む描画提案であり、fragmentの
+ブレンドalphaをそのまま1超にする意味ではない。提案の「mass」はSPH物理質量・保存量保証ではない。
+Section 4のdecoder／共通contract／renderer分離を維持するが、decoderだけで完結するとは限らず、
+共通描画契約に収まるかは別途評価する。形式名によるrenderer分岐や数式採用は行わない。
+現在のStep122 alpha cap 0.99・CUDA比較基準・残差調査とは別の将来候補である。
+
+評価はSection 9.2／10へ接続し、SOG v2/v3・SPZ・現行canonical入力とその派生payloadを、
+容量、decode/upload、CPU/GPU一時容量、復元誤差、ID完全一致、LoDによる意味変化で比較する。
+具体bench・閾値・API・bufferは今回設計しない。canonical科学データと配信用派生データの分離、
+true 4D時間属性の未解決部分、direct converterの別ownerを維持し、SPH直接変換をViewer Phase 5とは呼ばない。
+上流の圧縮率・PSNR・回転誤差の数値を本Viewerの効果予測に転用しない。必要性はSection 3.2に従い、
+候補登録だけで実装優先順位を変えず、Phase 4開始・形式採用・実装を認可しない。
 
 ### 9.5 優先度C: 研究候補または現時点で非優先
 
@@ -570,6 +640,119 @@ scientific payload保持を評価する。LCC / LCC2や閉じた形式は、仕�
 
 既存hierarchy/payload/fetch/semantics分離、schedulerからrendererへの責務境界とexact/approximate
 分離を再設計しない。技術的効用はViewerで評価し、別projectの進捗による実施時期の制約と混同しない。
+
+<a id="literature-20261027-candidates"></a>
+
+### 9.7 2026-10-27文献補足：更新量・LOD・圧縮・別描画方式の候補
+
+次は未採用・未実装・本Viewerで未実測の候補登録である。調査の入口は
+[共有チャット](https://chatgpt.com/share/6ae03407-6d90-83ec-b094-365f1265546d)、
+技術的根拠は下表の一次資料とする。共有チャットの添付原文・画像は取得できておらず、
+それらを確認済み資料に含めない。共有チャット内の要約や性能値を、そのまま設計要件へ転記しない。
+
+相談役による一次資料の確認日は2026-10-27 JST。今回の文書同期では、その確認範囲を登録する。paper versionは下表で固定する。project pageとIssueは同日の観測であり、
+固定codeの監査ではない。以下の候補固有codeのrelease／commit、依存を含むcode licenseは今回未確認とする。
+paper licenseはTETRIS-4DGS本文のCC BY 4.0表示を確認したほかは未確認とし、
+既存台帳の別versionに対するlicense確認を流用しない。
+本Viewerでの性能、WebGPU実装可能性、SPL4互換性、SPH物理量保持は、いずれも未検証である。
+
+| 候補 | 一次資料・確認範囲 | 公開実装について確認した範囲 | Viewerで参考にする責務・重要な限界 |
+|---|---|---|---|
+| ResStreamGS | [arXiv:2610.21121v1本文](https://arxiv.org/html/2610.21121v1)：GOP内のstable／sensitive分割、dual-stream配信・復元 | code availability／固定release未確認 | 区間内で再利用する属性と更新する属性の分離、GPU常駐・転送量。画像残差・最適化で分割する手法であり、静止粒子や永続不変属性の判定ではない |
+| SteadySplats | [arXiv:2610.05576v2本文](https://arxiv.org/html/2610.05576v2)：stochastic renderingの低分散化、空間・時間再利用。別に[PlayCanvas Issue #9810](https://github.com/playcanvas/engine/issues/9810)の提案本文 | Issueは確認時Open。著者のlocal prototype報告であり、merge済み製品機能・固定実装の確認ではない。論文codeの公開版は未確認 | 独立した近似rendererの将来比較。現行sort／alpha合成の同値置換としない |
+| KoalaGS | [arXiv:2610.28615v1本文](https://arxiv.org/html/2610.28615v1)、[公式project](https://rdbch.github.io/koalags/)：学習・再配置と重要度順prefixによる連続LOD | projectは確認時「Code (soon)」。code監査未実施 | LODの画質分布・切替連続性・投影面積。任意の既存modelを並べ替えるだけで同じ効果になるとは確認していない |
+| SplatQ | [arXiv:2610.13503v1本文](https://arxiv.org/html/2610.13503v1)：地域保持quota、同時削除の相互作用を考慮するQUBO、patch画質分布 | code availability／固定release未確認 | 局所品質を守るoffline pruningと評価指標。fine-tuningを含む手法であり、Viewerの即時LOD制御ではない |
+| TETRIS-4DGS | [arXiv:2610.14663v1本文](https://arxiv.org/html/2610.14663v1)：true 4D Gaussianの重要度別量子化・属性配置・PNG／HEVC符号化 | code availability／固定release未確認 | 4D属性の配信用派生payload候補。pruning／量子化を含み、SPL4のlossless圧縮・直接互換を意味しない |
+| CCT-GS | [arXiv:2610.26920v1 abstract／metadata](https://arxiv.org/abs/2610.26920v1)：SHをcodec向けに変換するSH-ACとscene適応 | 本文詳細・code availability／固定release未確認 | 高次数SHの将来圧縮候補。学習された逆変換等を要し、通常の動画decoderだけで完結する方式とは扱わない |
+
+#### Viewerへの応用候補と評価時の区別
+
+以下の「評価したい点」はViewer側の設計判断であり、論文が本Viewerで実証した結果ではない。
+既存Section 7、8、9.2、10の責務・評価軸を再利用し、現段階では数値閾値、codec、
+buffer構成、分類方式、新APIを決めない。
+
+- **ResStreamGS：不要更新の削減。** GOP内で再利用できる成分をGPUへ保持し、変化する成分だけを
+  配信・更新する考え方をSection 7の候補に加える。論文の安定性は区間と属性に依存し、
+  位置だけでは決まらない。既存のtrue 4D parameterを常駐させ時刻評価する経路と、
+  frameごとの3D Gaussian更新経路を区別し、現在どこで転送が発生するかを測る必要がある。
+  単純な静止／移動の二分法や、追加の画像学習をViewer要件にしない。
+- **KoalaGS／SplatQ：局所品質と実際の描画負荷。** global PSNRだけでなく、
+  patchごとの品質分布、局所coverage、細部の欠落、LOD切替の不連続を評価する着想を得る。
+  KoalaGSでは低LODに大きなGaussianが残り、投影面積・重なりによって描画が重くなる場合も報告される。
+  点数削減率を速度改善率へ置き換えず、同条件でSection 10.4のtile references、overdraw proxy、
+  GPU時間・memoryと併せて評価する。SplatQの画像上の地域quotaを、物理領域の保存保証へ読み替えない。
+- **TETRIS-4DGS：4D属性を保った配信圧縮の候補。** 時空間mean、4D rotation／scale、
+  時空間SHを扱う点は参考になる。ただし既存SPL4や現在のactive SH0条件と同一形式ではない。
+  attributeを配置したcodec frameとシミュレーション時刻を混同しない。PNGで保存する成分も、
+  その前段の量子化を含めて元のfloat値への完全可逆性を評価する必要がある。
+  render payloadをcanonical inputから派生させるSection 8の境界を維持する。
+- **CCT-GS：高次数SHを使う場合の後段候補。** 現在のSH0比較に対する優先度は低い。
+  将来評価では圧縮率だけでなく復元model・side information、decode／逆変換時間、
+  CPU／GPU一時容量、random accessを含める。SH圧縮の有用性から高次数SHの導入を要求しない。
+- **SteadySplats：描画方式を変える独立比較。** stochastic／履歴再利用を含むため、
+  現行の決定論的CUDA参照と同じpixel値になることを前提にしない。近似方式として静止時のnoise、
+  camera操作・時刻移動・scene切替後の収束と残像、history破棄、追加GPU memory、対応view／deviceを評価する。
+  論文の低分散化、任意のtraining regularization、PlayCanvasのprototypeを区別する。
+  Issueの限定scene／GPUの報告値をViewerの性能見込みにしない。Step122のsample／alpha／RGB／T契約や
+  現行sortの修正へ混ぜず、必要性が確認された場合の別設計候補に留める。
+
+#### SPH直接変換との接点
+
+今回確認した範囲では、SPH kernelからGaussian covariance／weightを直接構成し、
+元の物理場を再構成する問題をこれらの論文が解決したという根拠はない。
+直接変換の定式化・保存量・近傍関係・物理的誤差評価は別projectの責務のままとする。
+次は既存Section 8とdirect converterとのinterfaceへ持ち込める検討案であり、論文のSPH実証結果ではない。
+
+- particle IDとtime identityを使い、位置・形状・表示色／alpha・物理属性の更新要否を属性ごとに区別する。
+  低速度・不動の粒子でも物理量や表示属性は変化し得る。Gaussianとの対応と再利用条件は別途明示する。
+- render payloadの画像誤差と、Scientific payloadの単位付き物理量誤差・粒子対応を別々に扱う。
+  学習済みSH外観係数をpressure／density等の物理属性の代用にしない。
+- 局所品質評価の着想を、関心領域での物理量誤差やcoverageの評価へ拡張できるか検討する。
+  画像patchのPSNRやpruning成功だけで、物理量・粒子identity・保存量の保持を保証しない。
+
+これらの候補登録はViewerのPhase 4開始、SPHをViewerの「Phase 5」とする新設、
+direct converter側の設計変更、追加学習、外部rendererの採用を意味しない。
+優先順位は既存Section 3.2の必要性判断と、Section 9.2／10に基づく将来の比較で決める。
+Corrected採用範囲の完了、採用B／SPL4／CUDA Reference、Step21の入力受入れ・SH0接続、
+Step122の限定比較・改良契約は変更しない。
+
+<a id="literature-20261030-candidates"></a>
+
+### 9.8 2026-10-30文献補足：Spark Radix・時間依存表現（未採用・未実測）
+
+相談役取得日・CODEX保存資料確認日はいずれも2026-10-30 JST。
+[一次資料台帳](../../reports/webgpu-4dgs-viewer/literature-20261030-docsync1/literature-20261030-docsync1-sources.json)に
+URL・固定版・bytes identityを記録し、同directoryの`sources/`に本文を保全している。
+SOG v3の訂正は[既存候補節](#sog-v3-candidate)へ統合した。以下はSection 9.2／10の比較材料であり、
+既存候補の優先順位・Stageを変更しない。Section 3.2の必要性判断と別途認可を維持する。
+
+| 候補 | 一次資料・固定版・確認範囲 | 公開実装／licenseと未確認事項 |
+|---|---|---|
+| Spark Radix | [公式repository](https://github.com/sparkjsdev/radix)の固定commitに対応するREADME、docs/sorting.md、docs/rendering.md、docs/bench.html、package.json。固定commitは上記台帳、packageは0.0.1。[公式入口](https://sparkjs.dev/radix/) | 公開reference implementation、root LICENSEはMIT。renderer source・依存全体のlicense監査・独立実行は未実施。サイトbuild日を初公開日としない |
+| GaussianSpline | Tom Yachil / Andrei Sharf、[arXiv:2610.35224v1](https://arxiv.org/abs/2610.35224v1)、2026-10-26提出。abstract／metadataのみ | 本文詳細、code availability／固定release、code license、独立再現は未確認。保存metadataのlicenseリンクは一般案内であり、当該論文のlicense種別は未確認 |
+
+**Spark Radixの用途と境界。** World LabsによるThree.js WebGPURendererベースの独立実装であり、
+既存Spark系列の台帳とは区別する。公式文書が示すGPU compaction→stable radix sort→indirect draw、
+WebGL2の非同期Worker sort、CPU/GPUで共通のTypedArray tableとCPU-only層の分離を、Section 4／7の
+性能・ownership・fallback比較へ接続する。ただし公式sort keyは視点からの距離（視線方向のdepthではない）で、
+遠→近の描画順、既定24-bit／16・32-bit選択である。Viewerの正の前方depth・full-precision／同値順・
+近→遠C/T契約とは異なり、方向だけ移植せず距離定義・key精度・合成式を組として比較する。
+Radix画像をStep122 CUDAの代替oracleにしない。
+
+[著者benchmark](https://sparkjs.dev/radix/docs/bench.html)は2026-10-09、M3 Max／Chrome154、
+Spark2.3.1／PlayCanvas2.23.1との比較で、公開日やSpark2.4.0の測定ではない。degree-0入力の当時の測定へ
+現在のRay／SH等の機能を遡及して含めない。将来のViewer評価は同入力・camera・viewport・culling／blur・SH・
+device／browserを揃え、sortだけでなくframe時間・一時容量・WebGL2の非同期遅延を扱う。
+true 4D／SPL4の直接互換、科学属性保持、device portability、本Viewerの改善効果は未検証。
+TSL共通化やWebGL2 fallbackの存在はbackend一致を保証せず、renderer置換・Three更新・LoD導入を認可しない。
+
+**GaussianSplineの用途と境界。** abstractはGaussianごとの非一様な区分3次Bézier、制御点と時間分割の
+共同学習、隣接区間のG1接続を提案し、非一様な動きの再構成品質改善を主張する。これは著者主張であり、
+Viewerへの効果は未検証である。受取り側の候補評価としてSection 6／7へ、時刻区間検索、可変長制御点の
+容量・配置、GPU常駐、評価cost、random seek、区間境界の連続性を接続する。既存の常駐true 4D時刻評価、
+frame属性列、固定次数運動表現との比較は未検証案であり、現Viewerが毎frame全位置転送を要するとは仮定しない。
+G1は接線方向の幾何学的接続であり、元SPH軌跡や時刻に対する速度・物理量の厳密保存を保証しない。
+学習方式・converterの定式化、制御点生成、追加学習、SPL4再設計は対象外とする。
 
 ## 10. acceptance contract
 
