@@ -18,6 +18,12 @@ This file defines repository-wide rules.
 Use this file for project-level instructions that should remain valid across multiple steps.
 Use more local `AGENTS.md` files for directory-specific implementation rules.
 
+## Corrected reference routing after main integration
+
+- For current Corrected source/document review, use `/home/demo/work/4d-gaussian-splatting_main` on `main`; the [canonical routing table](../4d-gaussian-splatting_main/docs/corrected_camera_intrinsics_retraining_plan.md#main-integration-and-reference-routing) owns the folder roles.
+- Preserve `/home/demo/work/4d-gaussian-splatting_corrected_v1` as the historical B execution/source worktree and `/home/demo/work/4d-gaussian-splatting` as original A. Do not edit both plan copies or substitute main into saved identity-bound execution records.
+- The adopted checkpoint/SPL4/Reference paths remain unchanged. See the [updated handoff v2](../reports/webgpu-4dgs-viewer/corrected-completion-handoff-20261025/viewer-restart-handoff-v2.txt). Its 2026-10-25 predecessor is historical; current Viewer scope/WIP/acceptance remain owned by this repository's live documents and approved instructions.
+
 ## Current freeze and future-design boundary
 - The canonical current-state record is `docs/phase3_current_state.md`.
 - The user accepted Corrected Step21 function and Gate D input acceptance for the adopted bundle on 2026-10-25 JST. [CURRENT_STATE §24](docs/phase3_current_state.md#corrected-b-handoff) owns the implemented intake/SH0 connection, CPU/browser evidence and bounded acceptance. Adopted B and Gates A–C remain accepted.

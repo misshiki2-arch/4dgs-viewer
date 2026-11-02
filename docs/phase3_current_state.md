@@ -13,6 +13,22 @@ Viewer全般のfreezeは維持する。Step122の採用B固定65,536点は実装
 [§24の限定受入れ・証拠・残課題](#step122-adopted-range)を現在のownerとし、通常起動・保存・比較の成立と、
 文書review後のStep122全体の完了判定を区別する。新たなsource切替、全点・対話／性能の受入れ、Phase4開始・全面解除へ拡張しない。
 
+### Corrected main統合後の参照先（2026-11-02）
+
+Correctedの現行正本・標準sourceは
+[main側計画書](../../4d-gaussian-splatting_main/docs/corrected_camera_intrinsics_retraining_plan.md#main-integration-and-reference-routing)
+を参照する。main統合・README更新と旧A保存tagのpushは独立確認済み。
+`/home/demo/work/4d-gaussian-splatting_corrected_v1` は保存済みBの実行由来確認用、
+`/home/demo/work/4d-gaussian-splatting` は旧A保全用であり、今後の正本編集先ではない。
+旧実行のmanifest・native origin・locators内のpathをmainへ一括置換しない。
+採用checkpoint・SPL4・CUDA Referenceは既存の保存場所とidentityを維持する。
+
+別チャットは[更新引継ぎv2](../../reports/webgpu-4dgs-viewer/corrected-completion-handoff-20261025/viewer-restart-handoff-v2.txt)
+を読む。2026-10-25の旧引継ぎにあるfreeze・「次の課題」は当時の記録であり、
+Viewerの現在地と認可範囲は本書および現行AGENTS・承認済み命令を優先する。
+今回の参照先整理は、進行中のViewer作業・既存WIP・受入範囲を変更せず、
+Correctedの完了やGate D入力受入れを取り消さない。
+
 ## 1. この文書の役割
 
 この文書は、4DGS Viewer の WebGPU 化について「現在どこまで完了し、何をまだ主張していないか」を示す現在地の正本である。
@@ -1204,7 +1220,7 @@ Viewer全体・Phase3の受入れや一般freeze解除を意味せず、この�
 今回の管理訂正文書は以前のpushに含まれるとは扱わず、追加の研究実行やpushを開始条件にしない。
 旧レビューのユーザー受入れ待ち、一次JSONのfalse Gate flagsは当時の記録として保全し、現在の判断と分離する。
 
-[Corrected計画書のStep21](../../4d-gaussian-splatting_corrected_v1/docs/corrected_camera_intrinsics_retraining_plan.md#step21-handoff)
+[Corrected計画書のStep21](../../4d-gaussian-splatting_main/docs/corrected_camera_intrinsics_retraining_plan.md#step21-handoff)
 が採用baseline・引渡し成果・Gate/Phase依存を所有し、本節が受取側の契約・現在地・必要SH0接続・未達を所有する。
 [Step20完了記録](../../reports/corrected-4dgs/phase4/step20/step20-completion-report.txt)により、機能・Gate C・文書レビュー・
 ユーザー研究Git・完了処理は済んでいる。採用B E3 final、全3,248,901点のSPL4-v2と14視点Reference、Gates A–Cは維持する。
